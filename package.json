@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup": "python3 scripts/create-icons-simple.py && npm run build",
+    "icons": "python3 scripts/create-icons-simple.py"
   },
   "dependencies": {
     "react": "^18.3.1",
