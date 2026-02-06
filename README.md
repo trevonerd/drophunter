@@ -20,44 +20,41 @@ Un'estensione Chrome moderna e accattivante per gestire automaticamente i drop d
 - **Tailwind CSS** - Styling professionale
 - **Chrome Extension API V3** - Ultima versione delle API
 
-## 📦 Installazione
+## 📦 Installazione Rapida
 
-### Prerequisiti
+### Metodo 1: Usa la build già pronta (Più veloce!)
 
-- Node.js 18+ e npm
-- Google Chrome
-
-### Setup del Progetto
-
-1. **Installa le dipendenze**:
-```bash
-npm install
-```
-
-2. **Genera le icone**:
-
-Apri il file `scripts/generate-icons.html` nel browser e clicca "Genera Icone". Scarica tutte le icone generate e posizionale nella cartella `public/icons/`.
-
-Alternativamente, con sharp installato:
-```bash
-npm install sharp
-node scripts/generate-icons.js
-```
-
-3. **Build dell'estensione**:
-```bash
-npm run build
-```
-
-Questo creerà la cartella `dist/` con l'estensione pronta.
-
-### Caricamento in Chrome
+La cartella `dist/` contiene già l'estensione compilata e pronta all'uso!
 
 1. Apri Chrome e vai su `chrome://extensions/`
-2. Attiva la "Modalità sviluppatore" (toggle in alto a destra)
+2. Attiva "Modalità sviluppatore"
 3. Clicca "Carica estensione non pacchettizzata"
-4. Seleziona la cartella `dist/` del progetto
-5. L'estensione è ora installata! 🎉
+4. Seleziona la cartella `dist/`
+5. ✅ Fatto!
+
+### Metodo 2: Build da zero
+
+Se la cartella `dist/` non esiste o vuoi ricompilare:
+
+```bash
+# Installa dipendenze
+npm install
+
+# Setup completo (genera icone + build)
+npm run setup
+```
+
+Questo comando fa tutto automaticamente:
+- ✅ Genera le icone
+- ✅ Compila TypeScript
+- ✅ Crea la build production
+- ✅ Copia manifest e icone
+
+---
+
+📖 **Per istruzioni dettagliate, vedi [INSTALLAZIONE.md](INSTALLAZIONE.md)**
+
+---
 
 ## 🚀 Come Usare
 
@@ -139,27 +136,30 @@ monitoringInterval = setInterval(checkDropProgress, 30000);
 
 ## 🔧 Development
 
-### Dev Mode
-
-Per sviluppare con hot reload:
+### Comandi Disponibili
 
 ```bash
-npm run dev
-```
+# Setup completo (icone + build)
+npm run setup
 
-Poi carica la cartella `dist/` in Chrome come estensione non pacchettizzata.
-
-### Build Production
-
-```bash
+# Solo build
 npm run build
-```
 
-### Preview
+# Solo icone
+npm run icons
 
-```bash
+# Dev mode con hot reload
+npm run dev
+
+# Preview
 npm run preview
 ```
+
+### Workflow Development
+
+1. Modifica il codice in `src/`
+2. Esegui `npm run build` (o `npm run dev` per auto-rebuild)
+3. Vai su `chrome://extensions/` e clicca "Ricarica" sull'estensione
 
 ## ⚠️ Note Importanti
 
