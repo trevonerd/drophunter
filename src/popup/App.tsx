@@ -134,7 +134,7 @@ function App() {
       <div className="flex items-center justify-center min-h-[500px] bg-gradient-to-br from-twitch-dark via-twitch-dark-light to-twitch-dark">
         <div className="text-center animate-fadeIn">
           <div className="inline-block spinner rounded-full h-14 w-14 border-4 border-twitch-purple border-t-transparent"></div>
-          <p className="mt-6 text-gray-300 font-medium animate-pulse">Caricamento...</p>
+          <p className="mt-6 text-gray-300 font-medium animate-pulse">Loading...</p>
         </div>
       </div>
     )
@@ -156,14 +156,14 @@ function App() {
               <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-twitch-purple animate-pulse-glow"></div>
             </div>
             <div>
-              <h1 className="font-bold text-xl tracking-tight gradient-text">Drops Manager</h1>
+              <h1 className="font-bold text-xl tracking-tight gradient-text">DropHunter</h1>
               <p className="text-xs text-purple-200 font-medium">Auto Farming Tool</p>
             </div>
           </div>
           <button
             onClick={openDropsPage}
             className="p-2.5 hover:bg-white/10 rounded-xl transition-all duration-300 glass group"
-            title="Apri pagina drops"
+            title="Open drops page"
           >
             <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -177,7 +177,7 @@ function App() {
         {/* Game Selector con glassmorphism */}
         <div className="animate-slideIn" style={{ animationDelay: '0.1s' }}>
           <label className="block text-sm font-bold mb-2.5 text-gray-200 tracking-wide">
-            🎮 Seleziona Gioco
+            🎮 Select Game
           </label>
           <div className="relative">
             <select
@@ -190,7 +190,7 @@ function App() {
               disabled={state.isRunning}
               style={{ backgroundImage: 'none' }}
             >
-              <option value="" className="bg-twitch-dark-lighter">Scegli un gioco con drops...</option>
+              <option value="" className="bg-twitch-dark-lighter">Choose a game with drops...</option>
               {state.availableGames.map(game => (
                 <option key={game.id} value={game.id} className="bg-twitch-dark-lighter">
                   {game.name}
@@ -220,7 +220,7 @@ function App() {
                   <svg className="w-6 h-6 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z"/>
                   </svg>
-                  <span className="text-lg">Avvia Farming</span>
+                  <span className="text-lg">Start Farming</span>
                 </>
               )}
             </button>
@@ -239,7 +239,7 @@ function App() {
                       <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M8 5v14l11-7z"/>
                       </svg>
-                      <span>Riprendi</span>
+                      <span>Resume</span>
                     </>
                   )}
                 </button>
@@ -256,7 +256,7 @@ function App() {
                       <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
                       </svg>
-                      <span>Pausa</span>
+                      <span>Pause</span>
                     </>
                   )}
                 </button>
@@ -287,7 +287,7 @@ function App() {
             <div className="flex items-center gap-3 mb-4">
               <div className={`w-3 h-3 rounded-full ${state.isPaused ? 'bg-yellow-500' : 'bg-green-500 animate-pulse-glow'}`}></div>
               <span className="font-bold text-base tracking-wide">
-                {state.isPaused ? '⏸️ In Pausa' : '✨ Farming Attivo'}
+                {state.isPaused ? '⏸️ Paused' : '✨ Farming Active'}
               </span>
             </div>
 
@@ -303,7 +303,7 @@ function App() {
                       <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
                       <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
                     </svg>
-                    {state.activeStreamer.viewerCount.toLocaleString()} spettatori
+                    {state.activeStreamer.viewerCount.toLocaleString()} viewers
                   </div>
                 )}
               </div>
@@ -316,7 +316,7 @@ function App() {
           <div className="glass-dark rounded-xl p-5 border-2 border-twitch-purple/30 shadow-2xl animate-scaleIn card-hover">
             <h3 className="font-bold mb-4 text-sm text-gray-300 flex items-center gap-2">
               <span className="text-twitch-purple text-lg">🎁</span>
-              Drop in Corso
+              Current Drop
             </h3>
             <div className="flex gap-4">
               {state.currentDrop.imageUrl && (
@@ -334,7 +334,7 @@ function App() {
                     style={{ width: `${state.currentDrop.progress}%` }}
                   ></div>
                 </div>
-                <p className="text-sm text-gray-400 mt-2 font-semibold">{state.currentDrop.progress}% completato</p>
+                <p className="text-sm text-gray-400 mt-2 font-semibold">{state.currentDrop.progress}% complete</p>
               </div>
             </div>
           </div>
@@ -347,7 +347,7 @@ function App() {
               <svg className="w-6 h-6 text-green-500" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
               </svg>
-              Drop Completati ({state.completedDrops.length})
+              Completed Drops ({state.completedDrops.length})
             </h3>
             <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
               {state.completedDrops.map((drop, index) => (
@@ -384,16 +384,16 @@ function App() {
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
               </svg>
               <div className="text-sm">
-                <p className="font-bold text-blue-300 mb-2 text-base">👋 Benvenuto!</p>
+                <p className="font-bold text-blue-300 mb-2 text-base">👋 Welcome!</p>
                 <p className="text-gray-300 leading-relaxed">
-                  Visita la{' '}
+                  Visit the{' '}
                   <button
                     onClick={openDropsPage}
                     className="text-twitch-purple hover:text-purple-400 underline font-bold transition-colors"
                   >
-                    pagina Drops di Twitch
+                    Twitch Drops page
                   </button>
-                  {' '}per vedere i giochi disponibili, poi torna qui per avviare il farming automatico!
+                  {' '}to see available games, then come back here to start automatic farming!
                 </p>
               </div>
             </div>

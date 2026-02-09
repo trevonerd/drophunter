@@ -1,205 +1,151 @@
-# 🎮 Twitch Drops Manager - Chrome Extension
+# 🎯 DropHunter - Twitch Drops Chrome Extension
 
-Un'estensione Chrome moderna e accattivante per gestire automaticamente i drop di Twitch. Monitora, colleziona e traccia i tuoi drop preferiti in modo intelligente!
+A modern and sleek Chrome extension to automatically manage Twitch drops. Monitor, collect, and track your favorite drops intelligently!
 
-## ✨ Caratteristiche
+## ✨ Features
 
-- 🎯 **Selezione Giochi**: Seleziona facilmente i giochi con drop attivi
-- ▶️ **Controlli Play/Pause**: Gestisci il farming dei drop quando vuoi
-- 📊 **Tracking Progressi**: Monitora in tempo reale la percentuale di completamento
-- ✅ **Lista Drop Completati**: Visualizza tutti i drop già ottenuti
-- 🎨 **UI Moderna**: Interfaccia accattivante con tema Twitch
-- 🔇 **Tab Mutate**: Apre streamer in tab mutate automaticamente
-- 💾 **Persistenza Stato**: Salva automaticamente lo stato anche dopo il riavvio
+- 🎯 **Game Selection**: Easily select games with active drops
+- ▶️ **Play/Pause Controls**: Manage drop farming as you wish
+- 📊 **Progress Tracking**: Monitor completion percentage in real-time
+- ✅ **Completed Drops List**: View all drops you've already obtained
+- 🎨 **Modern UI**: Attractive interface with Twitch theme
+- 🔇 **Muted Tabs**: Automatically opens streamers in muted tabs
+- 💾 **State Persistence**: Automatically saves state even after restart
 
-## 🛠️ Tecnologie
+## 🛠️ Technologies
 
-- **React 18** - UI moderna e reattiva
-- **TypeScript** - Type safety completo
-- **Vite** - Build velocissimo
-- **Tailwind CSS** - Styling professionale
-- **Chrome Extension API V3** - Ultima versione delle API
+- **React 18** - Modern and reactive UI
+- **TypeScript** - Complete type safety
+- **Vite** - Lightning-fast build
+- **Tailwind CSS** - Professional styling
+- **Chrome Extension API V3** - Latest API version
 
-## 📦 Installazione Semplicissima
+## 📦 Super Simple Installation
 
-### ⚡ Metodo Veloce (CONSIGLIATO)
+### ⚡ Quick Method (RECOMMENDED)
 
-La cartella `dist/` contiene già l'estensione compilata!
+The `dist/` folder already contains the compiled extension!
 
-1. Apri Chrome → `chrome://extensions/`
-2. Attiva **"Modalità sviluppatore"** (toggle in alto a destra)
-3. Clicca **"Carica estensione non pacchettizzata"**
-4. Seleziona la cartella **`dist/`**
-5. ✅ **Pronto!** L'estensione è installata!
+1. Open Chrome → `chrome://extensions/`
+2. Enable **"Developer mode"** (toggle in top right)
+3. Click **"Load unpacked"**
+4. Select the **`dist/`** folder
+5. ✅ **Done!** Extension installed!
 
-### 🔨 Build da Zero (opzionale)
+### 🔨 Build from Scratch (optional)
 
-Solo se vuoi ricompilare:
+Only if you want to recompile:
 
 ```bash
 npm install
 npm run build
 ```
 
-**Fatto!** Le icone sono già incluse, nessun setup complicato necessario.
+**Done!** Icons are already included, no complicated setup needed.
 
 ---
 
-## 🚀 Come Usare
+## 🚀 How to Use
 
-1. **Apri la pagina Drops di Twitch**:
-   - Vai su https://www.twitch.tv/drops/campaigns
-   - L'estensione rileverà automaticamente i giochi disponibili
+1. **Open Twitch Drops page**:
+   - Go to https://www.twitch.tv/drops/campaigns
+   - Extension will automatically detect available games
 
-2. **Apri il Popup**:
-   - Clicca sull'icona dell'estensione nella toolbar
+2. **Open Popup**:
+   - Click extension icon in toolbar
 
-3. **Seleziona un Gioco**:
-   - Scegli un gioco dalla select dropdown
+3. **Select a Game**:
+   - Choose a game from dropdown menu
 
-4. **Avvia il Farming**:
-   - Clicca il pulsante "Avvia" ▶️
-   - L'estensione aprirà uno streamer con drop attivi (mutato)
+4. **Start Farming**:
+   - Click "Start Farming" button ▶️
+   - Extension will open a streamer with active drops (muted)
 
-5. **Monitora i Progressi**:
-   - Vedi in tempo reale il progresso dei drop
-   - Usa "Pausa" ⏸️ per fermare temporaneamente
-   - Usa "Stop" ⏹️ per terminare completamente
+5. **Monitor Progress**:
+   - See drop progress in real-time
+   - Use "Pause" ⏸️ to temporarily stop
+   - Use "Stop" ⏹️ to completely terminate
 
-6. **Drop Completati**:
-   - L'estensione continuerà automaticamente fino al completamento di tutti i drop
-   - I drop completati appariranno nella lista dedicata
+6. **Completed Drops**:
+   - Extension continues automatically until all drops are completed
+   - Completed drops appear in dedicated list
 
-## 📁 Struttura del Progetto
+## 📁 Project Structure
 
 ```
-twitch-extension/
-├── public/
-│   ├── icons/              # Icone dell'estensione
-│   └── manifest.json       # Manifest Chrome Extension
+drophunter/
+├── dist/              # Extension build ready for Chrome
 ├── src/
-│   ├── popup/              # UI React del popup
-│   │   ├── App.tsx         # Componente principale
-│   │   ├── main.tsx        # Entry point
-│   │   └── index.css       # Stili con Tailwind
-│   ├── content/            # Content script per Twitch
-│   │   └── content-script.ts
-│   ├── background/         # Service worker background
-│   │   └── service-worker.ts
-│   └── types/              # TypeScript types
-│       └── index.ts
-├── scripts/                # Script di utility
-│   ├── generate-icons.html
-│   └── generate-icons.js
-├── popup.html              # HTML del popup
-├── vite.config.ts          # Configurazione Vite
-├── tailwind.config.js      # Configurazione Tailwind
-└── package.json
-```
-
-## 🎨 Personalizzazione
-
-### Colori Twitch
-
-I colori del tema Twitch sono configurabili in `tailwind.config.js`:
-
-```javascript
-colors: {
-  twitch: {
-    purple: '#9146FF',
-    'purple-dark': '#772CE8',
-    dark: '#18181B',
-    // ...
-  }
-}
-```
-
-### Intervallo Monitoring
-
-Modifica l'intervallo di controllo in `src/background/service-worker.ts`:
-
-```typescript
-// Controlla ogni 30 secondi (default)
-monitoringInterval = setInterval(checkDropProgress, 30000);
+│   ├── popup/        # React UI
+│   ├── background/   # Service worker
+│   ├── content/      # Content script
+│   └── types/        # TypeScript types
+├── public/
+│   ├── icons/        # PNG icons (16,32,48,128)
+│   └── manifest.json # Manifest V3
+└── vite.config.ts    # Build configuration
 ```
 
 ## 🔧 Development
 
-### Comandi Disponibili
+### Available Commands
 
 ```bash
-# Build production
+# Production build
 npm run build
 
-# Dev mode con hot reload
+# Dev mode with hot reload
 npm run dev
 
 # Preview
 npm run preview
 ```
 
-### Workflow Development
+### Development Workflow
 
-1. Modifica il codice in `src/`
-2. Esegui `npm run build`
-3. Vai su `chrome://extensions/` → clicca "↻ Ricarica" sull'estensione
-4. Testa le modifiche
+1. Modify code in `src/`
+2. Run `npm run build`
+3. Go to `chrome://extensions/` → click "↻ Reload" on extension
+4. Test changes
 
-**Tip:** Le icone sono già incluse in `public/icons/`, non serve rigenerarle!
+**Tip:** Icons are already included in `public/icons/`, no need to regenerate!
 
-## ⚠️ Note Importanti
+## ⚠️ Important Notes
 
-- **Limitazioni API**: L'estensione attualmente usa scraping della pagina. Per funzionalità avanzate, considera l'uso delle API ufficiali di Twitch.
-
-- **Selettori DOM**: I selettori CSS per estrarre dati da Twitch potrebbero cambiare. Se l'estensione smette di funzionare, potrebbero essere necessari aggiornamenti ai selettori in `content-script.ts`.
-
-- **Rate Limiting**: Twitch ha limiti di rate. L'estensione usa intervalli conservativi per evitare problemi.
-
-- **Account Twitch**: Devi essere loggato su Twitch per che i drop vengano tracciati correttamente.
+- **API Limitations**: Extension currently uses page scraping. For advanced features, consider using official Twitch APIs.
+- **DOM Selectors**: CSS selectors might change if Twitch updates their UI
+- **Rate Limiting**: Extension uses conservative intervals to avoid issues
+- **Twitch Account**: You must be logged into Twitch for drops to be tracked
 
 ## 🐛 Troubleshooting
 
-### I giochi non appaiono nella select
+### No games appear in dropdown
 
-1. Assicurati di essere sulla pagina https://www.twitch.tv/drops/campaigns
-2. Ricarica la pagina
-3. Riapri il popup dell'estensione
+1. Make sure you're on https://www.twitch.tv/drops/campaigns
+2. Reload the page
+3. Reopen extension popup
 
-### Il progresso non si aggiorna
+### Progress doesn't update
 
-1. Verifica che la tab di Twitch sia ancora aperta
-2. Controlla che tu sia loggato su Twitch
-3. Prova a riavviare il farming
+1. Verify Twitch tab is still open
+2. Check you're logged into Twitch
+3. Try restarting farming
 
-### L'estensione non si carica
+### Extension doesn't load
 
-1. Verifica di aver fatto il build: `npm run build`
-2. Controlla che la cartella `dist/` esista
-3. Verifica che tutte le icone siano presenti in `public/icons/`
-4. Controlla la console di Chrome per errori: `chrome://extensions/` > Dettagli > Errori
+1. Run: `npm run build`
+2. Check `dist/` folder exists
+3. Verify icons are in `public/icons/`
+4. Check Chrome console: `chrome://extensions/` → Details → Errors
 
-## 🤝 Contribuire
+## 🤝 Contributing
 
-Contributi, issues e feature requests sono benvenuti!
+Contributions, issues, and feature requests are welcome!
 
 ## 📝 License
 
-Questo progetto è solo a scopo educativo. Twitch e il logo Twitch sono marchi registrati di Twitch Interactive, Inc.
-
-## 🎯 Roadmap
-
-- [ ] Integrazione API ufficiali Twitch
-- [ ] Notifiche desktop per drop completati
-- [ ] Statistiche e grafici progresso
-- [ ] Gestione multi-account
-- [ ] Export/Import configurazione
-- [ ] Dark/Light mode toggle
-- [ ] Supporto lingue multiple
-
-## 💡 Suggerimenti
-
-Hai idee per migliorare l'estensione? Apri una issue!
+Educational purposes only. Twitch and the Twitch logo are registered trademarks of Twitch Interactive, Inc.
 
 ---
 
-**Fatto con ❤️ per la community Twitch**
+**Made with ❤️ for the Twitch community**
