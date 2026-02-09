@@ -6,11 +6,13 @@
   "permissions": [
     "storage",
     "tabs",
-    "scripting"
+    "scripting",
+    "notifications"
   ],
   "host_permissions": [
     "https://www.twitch.tv/*",
-    "https://twitch.tv/*"
+    "https://twitch.tv/*",
+    "https://player.twitch.tv/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -27,7 +29,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.twitch.tv/*", "https://twitch.tv/*"],
+      "matches": ["https://www.twitch.tv/*", "https://twitch.tv/*", "https://player.twitch.tv/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

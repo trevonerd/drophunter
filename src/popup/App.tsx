@@ -1,407 +1,651 @@
-import { useState, useEffect } from 'react'
-import { AppState, TwitchGame } from '../types'
+import { useEffect, useMemo, useState } from 'react';
+import { AppState, ExpiryStatus, TwitchDrop, TwitchGame } from '../types';
+import { sortPendingDrops } from '../shared/drop-order.js';
+
+const createInitialState = (): AppState => ({
+  selectedGame: null,
+  isRunning: false,
+  isPaused: false,
+  activeStreamer: null,
+  currentDrop: null,
+  completedDrops: [],
+  pendingDrops: [],
+  allDrops: [],
+  availableGames: [],
+  queue: [],
+  workspaceWindowId: null,
+  monitorWindowId: null,
+  tabId: null,
+  directoryTabId: null,
+  dropsTabId: null,
+  inventoryTabId: null,
+  completionNotified: false,
+});
+
+function expiryLabel(status?: ExpiryStatus) {
+  switch (status) {
+    case 'urgent':
+      return 'Expiry: < 24h';
+    case 'warning':
+      return 'Expiry: < 72h';
+    case 'safe':
+      return 'Expiry: not soon';
+    default:
+      return 'Expiry: unknown';
+  }
+}
+
+function expiryClass(status?: ExpiryStatus) {
+  switch (status) {
+    case 'urgent':
+      return 'border-red-500/40 text-red-300 bg-red-500/10';
+    case 'warning':
+      return 'border-orange-500/40 text-orange-300 bg-orange-500/10';
+    case 'safe':
+      return 'border-green-500/40 text-green-300 bg-green-500/10';
+    default:
+      return 'border-gray-500/30 text-gray-300 bg-gray-500/10';
+  }
+}
+
+function rewardInitials(name: string): string {
+  const tokens = name
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) {
+    return '?';
+  }
+  return tokens
+    .slice(0, 2)
+    .map((token) => token[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+function formatEtaMinutes(value?: number | null): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  const minutes = Math.max(0, Math.round(value));
+  if (minutes <= 0) {
+    return '< 1m';
+  }
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  if (hours === 0) {
+    return `${rem}m`;
+  }
+  if (rem === 0) {
+    return `${hours}h`;
+  }
+  return `${hours}h ${rem}m`;
+}
+
+function isGameExpired(game: TwitchGame): boolean {
+  if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)) {
+    return game.expiresInMs <= 0;
+  }
+  if (game.endsAt) {
+    const endsAtMs = new Date(game.endsAt).getTime();
+    if (Number.isFinite(endsAtMs)) {
+      return endsAtMs <= Date.now();
+    }
+  }
+  return false;
+}
+
+function DropImage({ drop }: { drop: TwitchDrop }) {
+  const [hasError, setHasError] = useState(false);
+  if (!drop.imageUrl || hasError) {
+    return (
+      <div className="w-12 h-12 rounded-lg border border-white/10 bg-gray-800/70 flex items-center justify-center text-[10px] font-bold text-gray-300">
+        {rewardInitials(drop.name)}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={drop.imageUrl}
+      alt={drop.name}
+      className="w-12 h-12 rounded-lg object-cover bg-gray-900/60"
+      referrerPolicy="no-referrer"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
+function renderDropCard(drop: TwitchDrop) {
+  const statusLabel = drop.claimed ? 'Claimed' : drop.claimable ? 'Claim now' : 'In progress';
+  const statusClass = drop.claimed
+    ? 'bg-green-500/15 text-green-300 border-green-500/30'
+    : drop.claimable
+      ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
+      : 'bg-blue-500/15 text-blue-300 border-blue-500/30';
+
+  return (
+    <div key={drop.id} className="glass-dark rounded-xl p-3 border border-white/10">
+      <div className="flex gap-3">
+        <DropImage drop={drop} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-white truncate">{drop.name}</p>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${statusClass}`}>{statusLabel}</span>
+          </div>
+          <p className="text-xs text-gray-400 truncate">{drop.gameName}</p>
+          <div className="mt-2 h-2 w-full rounded-full bg-gray-800 overflow-hidden">
+            <div
+              className="h-2 rounded-full bg-gradient-to-r from-twitch-purple to-pink-500 transition-all duration-500"
+              style={{ width: `${drop.progress}%` }}
+            />
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <p className="text-xs text-gray-300">{drop.progress}%</p>
+            {formatEtaMinutes(drop.remainingMinutes) && !drop.claimed && !drop.claimable && (
+              <p className="text-[11px] text-gray-400">ETA {formatEtaMinutes(drop.remainingMinutes)}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 13h6v7H4zM14 4h6v16h-6zM4 4h6v7H4z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function InventoryIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 9h18v11H3zM5 9l2-4h10l2 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DropsIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3s6 7 6 11a6 6 0 1 1-12 0c0-4 6-11 6-11z" fill="currentColor" />
+    </svg>
+  );
+}
 
 function App() {
-  const [state, setState] = useState<AppState>({
-    selectedGame: null,
-    isRunning: false,
-    isPaused: false,
-    activeStreamer: null,
-    currentDrop: null,
-    completedDrops: [],
-    availableGames: [],
-    tabId: null,
-  })
-
-  const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState(false)
+  const [state, setState] = useState<AppState>(createInitialState());
+  const [loading, setLoading] = useState(true);
+  const [rewardsLoading, setRewardsLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const [pendingPage, setPendingPage] = useState(0);
+  const [completedPage, setCompletedPage] = useState(0);
 
   useEffect(() => {
-    loadState()
-
-    const listener = (message: any) => {
-      if (message.type === 'UPDATE_STATE') {
-        setState(message.payload)
+    const loadState = async () => {
+      try {
+        const result = await chrome.storage.local.get(['appState']);
+        if (result.appState) {
+          setState({ ...createInitialState(), ...result.appState });
+        }
+        await fetchAvailableGames();
+      } catch (error) {
+        console.error('Error loading state:', error);
+      } finally {
+        setLoading(false);
       }
-    }
-    chrome.runtime.onMessage.addListener(listener)
+    };
 
-    return () => {
-      chrome.runtime.onMessage.removeListener(listener)
-    }
-  }, [])
+    loadState();
 
-  const loadState = async () => {
-    try {
-      const result = await chrome.storage.local.get(['appState'])
-      if (result.appState) {
-        setState(result.appState)
+    const listener = (message: { type?: string; payload?: AppState }) => {
+      if (message.type === 'UPDATE_STATE' && message.payload) {
+        setState({ ...createInitialState(), ...message.payload });
+        setRewardsLoading(false);
       }
-      await fetchAvailableGames()
-    } catch (error) {
-      console.error('Error loading state:', error)
-    } finally {
-      setTimeout(() => setLoading(false), 300)
-    }
-  }
+    };
+    chrome.runtime.onMessage.addListener(listener);
+    return () => chrome.runtime.onMessage.removeListener(listener);
+  }, []);
+
+  useEffect(() => {
+    setPendingPage(0);
+  }, [state.selectedGame?.id, state.pendingDrops.length]);
+
+  useEffect(() => {
+    setCompletedPage(0);
+  }, [state.selectedGame?.id, state.completedDrops.length]);
+
+  const pendingDrops = useMemo(() => {
+    return sortPendingDrops(state.pendingDrops);
+  }, [state.pendingDrops]);
+  const completedDrops = useMemo(() => state.completedDrops, [state.completedDrops]);
+  const claimableCount = useMemo(() => state.pendingDrops.filter((drop) => drop.claimable).length, [state.pendingDrops]);
+  const sortedGames = useMemo(
+    () => [...state.availableGames].filter((game) => !isGameExpired(game)).sort((a, b) => a.name.localeCompare(b.name)),
+    [state.availableGames]
+  );
+  const queueGames = useMemo(() => {
+    const fallbackById = new Map(sortedGames.map((game) => [game.id, game]));
+    return state.queue.map((queued) => fallbackById.get(queued.id) ?? queued);
+  }, [state.queue, sortedGames]);
+
+  const visiblePendingDrops = useMemo(() => {
+    const start = pendingPage * 3;
+    return pendingDrops.slice(start, start + 3);
+  }, [pendingDrops, pendingPage]);
+
+  const visibleCompletedDrops = useMemo(() => {
+    const start = completedPage * 3;
+    return completedDrops.slice(start, start + 3);
+  }, [completedDrops, completedPage]);
+
+  const pendingPages = Math.max(1, Math.ceil(pendingDrops.length / 3));
+  const completedPages = Math.max(1, Math.ceil(completedDrops.length / 3));
 
   const fetchAvailableGames = async () => {
-    try {
-      const tabs = await chrome.tabs.query({ url: 'https://www.twitch.tv/drops/campaigns*' })
-      if (tabs.length > 0 && tabs[0].id) {
-        chrome.tabs.sendMessage(tabs[0].id, { type: 'FETCH_GAMES' })
+    const tabs = await chrome.tabs.query({
+      url: ['https://www.twitch.tv/drops/campaigns*', 'https://twitch.tv/drops/campaigns*'],
+    });
+    if (tabs.length > 0) {
+      const collected: TwitchGame[] = [];
+      await Promise.all(
+        tabs
+          .filter((tab) => Boolean(tab.id))
+          .map(async (tab) => {
+            const response = (await chrome.tabs.sendMessage(tab.id as number, { type: 'FETCH_GAMES' }).catch(() => null)) as
+              | { success?: boolean; games?: TwitchGame[] }
+              | null;
+            if (response?.success && Array.isArray(response.games)) {
+              collected.push(...response.games);
+            }
+          })
+      );
+
+      if (collected.length > 0) {
+        const merged = new Map<string, TwitchGame>();
+        collected.forEach((game) => {
+          const key = game.campaignId ? `campaign:${game.campaignId}` : `id:${game.id || `${game.name}-${game.endsAt ?? ''}`}`;
+          const previous = merged.get(key);
+          merged.set(key, {
+            ...(previous ?? game),
+            ...game,
+            imageUrl: game.imageUrl || previous?.imageUrl || '',
+            dropCount: game.dropCount ?? previous?.dropCount ?? 0,
+          });
+        });
+
+        await chrome.runtime
+          .sendMessage({
+            type: 'UPDATE_GAMES',
+            payload: Array.from(merged.values()),
+          })
+          .catch(() => undefined);
       }
-    } catch (error) {
-      console.error('Error fetching games:', error)
+
+      await chrome.runtime.sendMessage({ type: 'REFRESH_DROPS' }).catch(() => undefined);
     }
-  }
+  };
 
-  const handleGameSelect = (game: TwitchGame) => {
-    setState(prev => ({ ...prev, selectedGame: game }))
-  }
+  const handleGameSelect = async (gameId: string) => {
+    const selected = sortedGames.find((game) => game.id === gameId);
+    if (selected) {
+      setState((prev) => ({ ...prev, selectedGame: selected }));
+      setQueueMessage(null);
+      setRewardsLoading(true);
+      try {
+        await chrome.runtime
+          .sendMessage({
+            type: 'SET_SELECTED_GAME',
+            payload: { game: selected },
+          })
+          .catch(() => undefined);
+      } finally {
+        setTimeout(() => setRewardsLoading(false), 350);
+      }
+    }
+  };
 
-  const handleStart = async () => {
-    if (!state.selectedGame || actionLoading) return
-
-    setActionLoading(true)
+  const handleAddToQueue = async () => {
+    if (!state.selectedGame || actionLoading) {
+      return;
+    }
+    setActionLoading(true);
     try {
+      const response = (await chrome.runtime.sendMessage({
+        type: 'ADD_TO_QUEUE',
+        payload: { game: state.selectedGame },
+      })) as { success?: boolean; added?: boolean; reason?: string };
+      if (!response?.success) {
+        setQueueMessage('Unable to add campaign to queue.');
+        return;
+      }
+      if (response.added) {
+        setQueueMessage(`Added "${state.selectedGame.name}" to queue.`);
+        return;
+      }
+      if (response.reason === 'already-completed') {
+        setQueueMessage(`"${state.selectedGame.name}" already has all rewards completed.`);
+        return;
+      }
+      if (response.reason === 'already-queued') {
+        setQueueMessage(`"${state.selectedGame.name}" is already in queue.`);
+        return;
+      }
+      setQueueMessage(`"${state.selectedGame.name}" was not added to queue.`);
+    } catch (error) {
+      console.error('Unable to add queue item:', error);
+      setQueueMessage('Queue add failed.');
+    } finally {
+      setTimeout(() => setActionLoading(false), 250);
+    }
+  };
+
+  const handleRemoveFromQueue = async (game: TwitchGame) => {
+    await chrome.runtime
+      .sendMessage({
+        type: 'REMOVE_FROM_QUEUE',
+        payload: { game },
+      })
+      .catch(() => undefined);
+  };
+
+  const handleClearQueue = async () => {
+    await chrome.runtime.sendMessage({ type: 'CLEAR_QUEUE' }).catch(() => undefined);
+    setQueueMessage('Queue cleared.');
+  };
+
+  const withAction = async (action: () => Promise<void>) => {
+    if (actionLoading) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await action();
+    } finally {
+      setTimeout(() => setActionLoading(false), 250);
+    }
+  };
+
+  const handleStart = async () =>
+    withAction(async () => {
+      const gameToStart = state.selectedGame ?? queueGames[0];
+      if (!gameToStart) {
+        return;
+      }
       await chrome.runtime.sendMessage({
         type: 'START_FARMING',
-        payload: { game: state.selectedGame },
-      })
-      setState(prev => ({ ...prev, isRunning: true, isPaused: false }))
-    } catch (error) {
-      console.error('Error starting farming:', error)
-    } finally {
-      setTimeout(() => setActionLoading(false), 500)
-    }
-  }
+        payload: { game: gameToStart },
+      });
+    });
 
-  const handlePause = async () => {
-    if (actionLoading) return
+  const handlePause = async () =>
+    withAction(async () => {
+      await chrome.runtime.sendMessage({ type: 'PAUSE_FARMING' });
+    });
 
-    setActionLoading(true)
-    try {
-      await chrome.runtime.sendMessage({ type: 'PAUSE_FARMING' })
-      setState(prev => ({ ...prev, isPaused: true }))
-    } catch (error) {
-      console.error('Error pausing farming:', error)
-    } finally {
-      setTimeout(() => setActionLoading(false), 300)
-    }
-  }
+  const handleResume = async () =>
+    withAction(async () => {
+      await chrome.runtime.sendMessage({ type: 'RESUME_FARMING' });
+    });
 
-  const handleResume = async () => {
-    if (actionLoading) return
-
-    setActionLoading(true)
-    try {
-      await chrome.runtime.sendMessage({ type: 'RESUME_FARMING' })
-      setState(prev => ({ ...prev, isPaused: false }))
-    } catch (error) {
-      console.error('Error resuming farming:', error)
-    } finally {
-      setTimeout(() => setActionLoading(false), 300)
-    }
-  }
-
-  const handleStop = async () => {
-    if (actionLoading) return
-
-    setActionLoading(true)
-    try {
-      await chrome.runtime.sendMessage({ type: 'STOP_FARMING' })
-      setState(prev => ({
-        ...prev,
-        isRunning: false,
-        isPaused: false,
-        activeStreamer: null,
-        currentDrop: null,
-      }))
-    } catch (error) {
-      console.error('Error stopping farming:', error)
-    } finally {
-      setTimeout(() => setActionLoading(false), 300)
-    }
-  }
+  const handleStop = async () =>
+    withAction(async () => {
+      await chrome.runtime.sendMessage({ type: 'STOP_FARMING' });
+    });
 
   const openDropsPage = () => {
-    chrome.tabs.create({ url: 'https://www.twitch.tv/drops/campaigns' })
-  }
+    chrome.tabs.create({ url: 'https://www.twitch.tv/drops/campaigns' });
+  };
+
+  const openInventoryPage = () => {
+    chrome.tabs.create({ url: 'https://www.twitch.tv/drops/inventory' });
+  };
+
+  const openMiniDashboard = async () => {
+    await chrome.runtime.sendMessage({ type: 'OPEN_MONITOR_DASHBOARD' }).catch(() => undefined);
+  };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[500px] bg-gradient-to-br from-twitch-dark via-twitch-dark-light to-twitch-dark">
-        <div className="text-center animate-fadeIn">
-          <div className="inline-block spinner rounded-full h-14 w-14 border-4 border-twitch-purple border-t-transparent"></div>
-          <p className="mt-6 text-gray-300 font-medium animate-pulse">Loading...</p>
-        </div>
+      <div className="flex min-h-[500px] items-center justify-center text-gray-300">
+        <div className="spinner rounded-full h-10 w-10 border-4 border-twitch-purple border-t-transparent" />
       </div>
-    )
+    );
   }
 
   return (
     <div className="min-h-[500px] bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light text-white">
-      {/* Header con effetto glass */}
-      <div className="relative bg-gradient-to-r from-twitch-purple via-twitch-purple-dark to-twitch-purple-darker p-5 shadow-2xl overflow-hidden">
-        <div className="absolute inset-0 bg-black opacity-10"></div>
-        <div className="absolute top-0 right-0 w-64 h-64 bg-twitch-purple-dark rounded-full filter blur-3xl opacity-20 animate-pulse-glow"></div>
-
-        <div className="relative flex items-center justify-between">
-          <div className="flex items-center space-x-3 animate-slideIn">
-            <div className="relative">
-              <svg className="w-10 h-10" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
-              </svg>
-              <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-twitch-purple animate-pulse-glow"></div>
-            </div>
-            <div>
-              <h1 className="font-bold text-xl tracking-tight gradient-text">DropHunter</h1>
-              <p className="text-xs text-purple-200 font-medium">Auto Farming Tool</p>
-            </div>
+      <div className="relative bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF] p-4 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="font-extrabold text-lg tracking-tight text-[#120B22]">DropHunter Control</h1>
+            <p className="text-xs text-[#2D1A4D]">Twitch Drops Command Center</p>
           </div>
-          <button
-            onClick={openDropsPage}
-            className="p-2.5 hover:bg-white/10 rounded-xl transition-all duration-300 glass group"
-            title="Open drops page"
-          >
-            <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </button>
+          <div className="flex min-w-[126px] flex-col items-stretch gap-1.5">
+            <button
+              type="button"
+              onClick={openDropsPage}
+              className="glass flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-[#1B1030] hover:bg-white/20"
+            >
+              <DropsIcon />
+              Drops
+            </button>
+            <button
+              type="button"
+              onClick={openInventoryPage}
+              className="glass flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-[#1B1030] hover:bg-white/20"
+            >
+              <InventoryIcon />
+              Inventory
+            </button>
+            <button
+              type="button"
+              onClick={openMiniDashboard}
+              className="glass flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-[#1B1030] hover:bg-white/20"
+            >
+              <DashboardIcon />
+              Dashboard
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="p-5 space-y-4">
-        {/* Game Selector con glassmorphism */}
-        <div className="animate-slideIn" style={{ animationDelay: '0.1s' }}>
-          <label className="block text-sm font-bold mb-2.5 text-gray-200 tracking-wide">
-            🎮 Select Game
-          </label>
-          <div className="relative">
-            <select
-              value={state.selectedGame?.id || ''}
-              onChange={(e) => {
-                const game = state.availableGames.find(g => g.id === e.target.value)
-                if (game) handleGameSelect(game)
-              }}
-              className="w-full glass-dark rounded-xl px-4 py-3.5 text-white font-medium focus:outline-none focus:ring-2 focus:ring-twitch-purple focus:border-transparent transition-all duration-300 cursor-pointer hover:bg-white/5 appearance-none"
-              disabled={state.isRunning}
-              style={{ backgroundImage: 'none' }}
-            >
-              <option value="" className="bg-twitch-dark-lighter">Choose a game with drops...</option>
-              {state.availableGames.map(game => (
-                <option key={game.id} value={game.id} className="bg-twitch-dark-lighter">
-                  {game.name}
-                </option>
-              ))}
-            </select>
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-              <svg className="w-5 h-5 text-twitch-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
+      <div className="p-4 space-y-4">
+        <div>
+          <label className="block text-sm font-semibold mb-2 text-gray-200">Game Campaign</label>
+          <select
+            value={state.selectedGame?.id ?? ''}
+            onChange={(event) => {
+              void handleGameSelect(event.target.value);
+            }}
+            className="w-full glass-dark rounded-xl px-3 py-3 text-white focus:outline-none focus:ring-2 focus:ring-twitch-purple"
+            disabled={state.isRunning}
+          >
+            <option value="">Select a campaign...</option>
+            {sortedGames.map((game) => (
+              <option key={game.id} value={game.id}>
+                {game.name} · {expiryLabel(game.expiryStatus)}
+              </option>
+            ))}
+          </select>
+          <div className="mt-2 flex items-center gap-2">
+            {claimableCount > 0 && <span className="text-xs text-yellow-300">{claimableCount} reward(s) ready to claim</span>}
           </div>
         </div>
 
-        {/* Control Buttons */}
-        <div className="flex gap-3 animate-slideIn" style={{ animationDelay: '0.2s' }}>
+        {!state.isRunning && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAddToQueue}
+              disabled={!state.selectedGame || actionLoading}
+              className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold disabled:opacity-50 disabled:bg-gray-700"
+            >
+              {actionLoading ? 'Adding...' : 'Add to Queue'}
+            </button>
+            <span className="text-xs text-gray-400">Queue: {queueGames.length}</span>
+          </div>
+        )}
+
+        {queueMessage && <p className="text-xs text-blue-300">{queueMessage}</p>}
+
+        {queueGames.length > 0 && (
+          <div className="glass-dark rounded-xl border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-200">Queue Order</p>
+              <button onClick={handleClearQueue} className="text-xs text-red-300 hover:text-red-200">
+                Clear
+              </button>
+            </div>
+            <div className="space-y-1 max-h-28 overflow-auto pr-1">
+              {queueGames.map((game, index) => (
+                <div key={`${game.id}-${index}`} className="flex items-center justify-between gap-2 rounded-md bg-black/20 px-2 py-1">
+                  <p className="text-xs text-gray-200 truncate">
+                    {index + 1}. {game.name}
+                  </p>
+                  <button
+                    onClick={() => {
+                      void handleRemoveFromQueue(game);
+                    }}
+                    className="text-[11px] text-gray-400 hover:text-white"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2">
           {!state.isRunning ? (
             <button
               onClick={handleStart}
-              disabled={!state.selectedGame || actionLoading}
-              className="flex-1 btn-hover-effect neon-button bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-700 disabled:to-gray-800 disabled:cursor-not-allowed disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition-all duration-300 shadow-lg flex items-center justify-center gap-3 group relative overflow-hidden"
+              disabled={(!state.selectedGame && queueGames.length === 0) || actionLoading}
+              className="flex-1 rounded-lg bg-green-600 py-2.5 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50"
             >
-              {actionLoading ? (
-                <div className="spinner w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
-              ) : (
-                <>
-                  <svg className="w-6 h-6 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                  </svg>
-                  <span className="text-lg">Start Farming</span>
-                </>
-              )}
+              {actionLoading ? 'Starting...' : queueGames.length > 0 ? `Start Queue (${queueGames.length})` : 'Start'}
             </button>
           ) : (
             <>
-              {state.isPaused ? (
-                <button
-                  onClick={handleResume}
-                  disabled={actionLoading}
-                  className="flex-1 btn-hover-effect neon-button bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 px-4 rounded-xl transition-all duration-300 shadow-lg flex items-center justify-center gap-2 group"
-                >
-                  {actionLoading ? (
-                    <div className="spinner w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z"/>
-                      </svg>
-                      <span>Resume</span>
-                    </>
-                  )}
-                </button>
-              ) : (
-                <button
-                  onClick={handlePause}
-                  disabled={actionLoading}
-                  className="flex-1 btn-hover-effect bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white font-bold py-4 px-4 rounded-xl transition-all duration-300 shadow-lg flex items-center justify-center gap-2 group"
-                >
-                  {actionLoading ? (
-                    <div className="spinner w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                      </svg>
-                      <span>Pause</span>
-                    </>
-                  )}
-                </button>
-              )}
+              <button
+                onClick={state.isPaused ? handleResume : handlePause}
+                disabled={actionLoading}
+                className="flex-1 rounded-lg bg-yellow-600 py-2 text-sm font-semibold disabled:opacity-50"
+              >
+                {state.isPaused ? 'Resume' : 'Pause'}
+              </button>
               <button
                 onClick={handleStop}
                 disabled={actionLoading}
-                className="flex-1 btn-hover-effect bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-4 px-4 rounded-xl transition-all duration-300 shadow-lg flex items-center justify-center gap-2 group"
+                className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold disabled:opacity-50"
               >
-                {actionLoading ? (
-                  <div className="spinner w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M6 6h12v12H6z"/>
-                    </svg>
-                    <span>Stop</span>
-                  </>
-                )}
+                Stop
               </button>
             </>
           )}
         </div>
 
-        {/* Status con glassmorphism */}
         {state.isRunning && (
-          <div className="glass rounded-xl p-5 border border-white/10 animate-scaleIn card-hover">
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`w-3 h-3 rounded-full ${state.isPaused ? 'bg-yellow-500' : 'bg-green-500 animate-pulse-glow'}`}></div>
-              <span className="font-bold text-base tracking-wide">
-                {state.isPaused ? '⏸️ Paused' : '✨ Farming Active'}
-              </span>
-            </div>
-
+          <div className="glass rounded-xl p-4 border border-white/10">
+            <p className="text-sm text-gray-300">Status</p>
+            <p className="text-base font-semibold">{state.isPaused ? 'Paused' : 'Running'}</p>
             {state.activeStreamer && (
-              <div className="space-y-2 animate-fadeIn">
-                <div className="text-sm text-gray-300">
-                  <span className="font-semibold text-twitch-purple">Streamer:</span>{' '}
-                  <span className="text-white font-medium">{state.activeStreamer.displayName}</span>
-                </div>
-                {state.activeStreamer.viewerCount && (
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
-                      <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
-                    </svg>
-                    {state.activeStreamer.viewerCount.toLocaleString()} viewers
-                  </div>
-                )}
-              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Streamer: {state.activeStreamer.displayName} ({state.activeStreamer.viewerCount?.toLocaleString() ?? 'n/a'} viewers)
+              </p>
+            )}
+            {state.currentDrop && (
+              <p className="text-xs text-purple-300 mt-1">
+                Current: {state.currentDrop.name} ({state.currentDrop.progress}%)
+                {formatEtaMinutes(state.currentDrop.remainingMinutes) ? ` · ETA ${formatEtaMinutes(state.currentDrop.remainingMinutes)}` : ''}
+              </p>
             )}
           </div>
         )}
 
-        {/* Current Drop con progress bar animata */}
-        {state.currentDrop && (
-          <div className="glass-dark rounded-xl p-5 border-2 border-twitch-purple/30 shadow-2xl animate-scaleIn card-hover">
-            <h3 className="font-bold mb-4 text-sm text-gray-300 flex items-center gap-2">
-              <span className="text-twitch-purple text-lg">🎁</span>
-              Current Drop
-            </h3>
-            <div className="flex gap-4">
-              {state.currentDrop.imageUrl && (
-                <img
-                  src={state.currentDrop.imageUrl}
-                  alt={state.currentDrop.name}
-                  className="w-20 h-20 rounded-xl object-cover border-2 border-twitch-purple shadow-lg"
-                />
-              )}
-              <div className="flex-1">
-                <p className="font-bold text-base mb-3 text-white">{state.currentDrop.name}</p>
-                <div className="relative w-full bg-gray-800 rounded-full h-4 overflow-hidden shadow-inner">
-                  <div
-                    className="progress-bar-glow absolute top-0 left-0 h-full bg-gradient-to-r from-twitch-purple via-purple-500 to-pink-500 rounded-full transition-all duration-500 animate-shimmer"
-                    style={{ width: `${state.currentDrop.progress}%` }}
-                  ></div>
-                </div>
-                <p className="text-sm text-gray-400 mt-2 font-semibold">{state.currentDrop.progress}% complete</p>
-              </div>
+        <div className="glass rounded-xl p-4 border border-white/10 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-200">Pending Rewards ({pendingDrops.length})</h3>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded-md border border-white/20 px-2 py-1 text-xs disabled:opacity-40"
+                disabled={pendingPage === 0}
+                onClick={() => setPendingPage((prev) => Math.max(0, prev - 1))}
+              >
+                Prev
+              </button>
+              <span className="text-xs text-gray-400">
+                {pendingPage + 1}/{pendingPages}
+              </span>
+              <button
+                className="rounded-md border border-white/20 px-2 py-1 text-xs disabled:opacity-40"
+                disabled={pendingPage >= pendingPages - 1}
+                onClick={() => setPendingPage((prev) => Math.min(pendingPages - 1, prev + 1))}
+              >
+                Next
+              </button>
             </div>
           </div>
-        )}
+          {rewardsLoading ? (
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-3">
+              <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
+              <p className="text-xs text-gray-300">Loading pending rewards...</p>
+            </div>
+          ) : visiblePendingDrops.length > 0 ? (
+            <div className="space-y-2">{visiblePendingDrops.map(renderDropCard)}</div>
+          ) : (
+            <p className="text-xs text-gray-400">No pending rewards for the selected campaign.</p>
+          )}
+        </div>
 
-        {/* Completed Drops */}
-        {state.completedDrops.length > 0 && (
-          <div className="glass-dark rounded-xl p-5 border border-green-500/20 animate-scaleIn">
-            <h3 className="font-bold mb-4 text-sm text-gray-300 flex items-center gap-2">
-              <svg className="w-6 h-6 text-green-500" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-              </svg>
-              Completed Drops ({state.completedDrops.length})
-            </h3>
-            <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-              {state.completedDrops.map((drop, index) => (
-                <div
-                  key={drop.id}
-                  className="flex items-center gap-3 glass p-3 rounded-lg card-hover animate-slideIn"
-                  style={{ animationDelay: `${index * 0.05}s` }}
-                >
-                  {drop.imageUrl && (
-                    <img
-                      src={drop.imageUrl}
-                      alt={drop.name}
-                      className="w-12 h-12 rounded-lg object-cover"
-                    />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold truncate text-white">{drop.name}</p>
-                    <p className="text-xs text-gray-400 truncate">{drop.gameName}</p>
-                  </div>
-                  <svg className="w-6 h-6 text-green-500 flex-shrink-0 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-                  </svg>
-                </div>
-              ))}
+        <div className="glass rounded-xl p-4 border border-green-500/20 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-green-300">Completed Rewards ({completedDrops.length})</h3>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded-md border border-white/20 px-2 py-1 text-xs disabled:opacity-40"
+                disabled={completedPage === 0}
+                onClick={() => setCompletedPage((prev) => Math.max(0, prev - 1))}
+              >
+                Prev
+              </button>
+              <span className="text-xs text-gray-400">
+                {completedPage + 1}/{completedPages}
+              </span>
+              <button
+                className="rounded-md border border-white/20 px-2 py-1 text-xs disabled:opacity-40"
+                disabled={completedPage >= completedPages - 1}
+                onClick={() => setCompletedPage((prev) => Math.min(completedPages - 1, prev + 1))}
+              >
+                Next
+              </button>
             </div>
           </div>
-        )}
+          {rewardsLoading ? (
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-3">
+              <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
+              <p className="text-xs text-gray-300">Loading completed rewards...</p>
+            </div>
+          ) : visibleCompletedDrops.length > 0 ? (
+            <div className="space-y-2">{visibleCompletedDrops.map(renderDropCard)}</div>
+          ) : (
+            <p className="text-xs text-gray-400">Completed rewards will remain visible here.</p>
+          )}
+        </div>
 
-        {/* Info Message */}
         {!state.isRunning && state.availableGames.length === 0 && (
-          <div className="glass border border-blue-500/30 rounded-xl p-5 animate-scaleIn">
-            <div className="flex items-start gap-4">
-              <svg className="w-7 h-7 text-blue-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-              </svg>
-              <div className="text-sm">
-                <p className="font-bold text-blue-300 mb-2 text-base">👋 Welcome!</p>
-                <p className="text-gray-300 leading-relaxed">
-                  Visit the{' '}
-                  <button
-                    onClick={openDropsPage}
-                    className="text-twitch-purple hover:text-purple-400 underline font-bold transition-colors"
-                  >
-                    Twitch Drops page
-                  </button>
-                  {' '}to see available games, then come back here to start automatic farming!
-                </p>
-              </div>
-            </div>
+          <div className="glass rounded-xl p-4 border border-blue-500/30">
+            <p className="text-sm text-blue-300 font-semibold">No campaigns detected</p>
+            <p className="text-xs text-gray-300 mt-1">Open Twitch Drops campaigns page first, then refresh this popup.</p>
           </div>
         )}
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
