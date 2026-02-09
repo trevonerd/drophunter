@@ -20,39 +20,28 @@ Un'estensione Chrome moderna e accattivante per gestire automaticamente i drop d
 - **Tailwind CSS** - Styling professionale
 - **Chrome Extension API V3** - Ultima versione delle API
 
-## 📦 Installazione Rapida
+## 📦 Installazione Semplicissima
 
-### Metodo 1: Usa la build già pronta (Più veloce!)
+### ⚡ Metodo Veloce (CONSIGLIATO)
 
-La cartella `dist/` contiene già l'estensione compilata e pronta all'uso!
+La cartella `dist/` contiene già l'estensione compilata!
 
-1. Apri Chrome e vai su `chrome://extensions/`
-2. Attiva "Modalità sviluppatore"
-3. Clicca "Carica estensione non pacchettizzata"
-4. Seleziona la cartella `dist/`
-5. ✅ Fatto!
+1. Apri Chrome → `chrome://extensions/`
+2. Attiva **"Modalità sviluppatore"** (toggle in alto a destra)
+3. Clicca **"Carica estensione non pacchettizzata"**
+4. Seleziona la cartella **`dist/`**
+5. ✅ **Pronto!** L'estensione è installata!
 
-### Metodo 2: Build da zero
+### 🔨 Build da Zero (opzionale)
 
-Se la cartella `dist/` non esiste o vuoi ricompilare:
+Solo se vuoi ricompilare:
 
 ```bash
-# Installa dipendenze
 npm install
-
-# Setup completo (genera icone + build)
-npm run setup
+npm run build
 ```
 
-Questo comando fa tutto automaticamente:
-- ✅ Genera le icone
-- ✅ Compila TypeScript
-- ✅ Crea la build production
-- ✅ Copia manifest e icone
-
----
-
-📖 **Per istruzioni dettagliate, vedi [INSTALLAZIONE.md](INSTALLAZIONE.md)**
+**Fatto!** Le icone sono già incluse, nessun setup complicato necessario.
 
 ---
 
@@ -139,14 +128,8 @@ monitoringInterval = setInterval(checkDropProgress, 30000);
 ### Comandi Disponibili
 
 ```bash
-# Setup completo (icone + build)
-npm run setup
-
-# Solo build
+# Build production
 npm run build
-
-# Solo icone
-npm run icons
 
 # Dev mode con hot reload
 npm run dev
@@ -158,8 +141,11 @@ npm run preview
 ### Workflow Development
 
 1. Modifica il codice in `src/`
-2. Esegui `npm run build` (o `npm run dev` per auto-rebuild)
-3. Vai su `chrome://extensions/` e clicca "Ricarica" sull'estensione
+2. Esegui `npm run build`
+3. Vai su `chrome://extensions/` → clicca "↻ Ricarica" sull'estensione
+4. Testa le modifiche
+
+**Tip:** Le icone sono già incluse in `public/icons/`, non serve rigenerarle!
 
 ## ⚠️ Note Importanti
 
