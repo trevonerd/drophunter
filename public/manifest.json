@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Twitch Drops Manager",
+  "name": "DropHunter",
   "version": "1.0.0",
-  "description": "Gestisci automaticamente i drop di Twitch - monitora e colleziona drop in modo intelligente",
+  "description": "Automatically manage Twitch drops - monitor and collect drops intelligently",
   "permissions": [
     "storage",
     "tabs",
