@@ -12,6 +12,7 @@ export interface TwitchGame {
 
 export interface TwitchDrop {
   id: string;
+  claimId?: string;
   name: string;
   gameId: string;
   gameName: string;
@@ -78,6 +79,7 @@ export interface StorageData {
 export type MessageType =
   | 'GET_DROPS_DATA'
   | 'FETCH_DROPS_DATA'
+  | 'GET_TWITCH_SESSION'
   | 'GET_STREAM_CONTEXT'
   | 'GET_DIRECTORY_STREAMERS'
   | 'GET_CATEGORY_SUGGESTIONS'
@@ -95,9 +97,11 @@ export type MessageType =
   | 'STOP_FARMING'
   | 'UPDATE_STATE'
   | 'FETCH_GAMES'
+  | 'ENSURE_GAMES_CACHE'
   | 'REFRESH_DROPS'
   | 'UPDATE_GAMES'
   | 'SYNC_DROPS_DATA'
+  | 'SYNC_TWITCH_SESSION'
   | 'PLAY_ALERT'
   | 'OPEN_STREAMER';
 

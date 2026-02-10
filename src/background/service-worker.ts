@@ -1,9 +1,21 @@
 import { AppState, DropStatus, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { TwitchApiClient } from './twitch-api/client';
+import { fetchTwitchIntegrityToken } from './twitch-api/gql';
+import { isLikelyAuthError, sanitizeTwitchSession, TwitchSession } from './twitch-api/types';
 
 const DROPS_TAG_ID = 'c2542d6d-cd10-4532-919b-3d19f30a768b';
 const PROGRESS_POLL_MS = 15_000;
-const INVALID_STREAM_THRESHOLD = 5;
-const STREAM_ROTATE_COOLDOWN_MS = 90_000;
+const INVALID_STREAM_THRESHOLD = 8;
+const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
+const STREAM_VALIDATION_GRACE_MS = 75_000;
+const INVENTORY_REFRESH_INTERVAL_MS = 90_000;
+const GAMES_CACHE_TTL_MS = 45 * 60_000;
+const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
+const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
+const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
+const DROPS_SNAPSHOT_CACHE_KEY = 'dropsSnapshotCache';
+const LOG_PREFIX = '[DropHunter]';
+const ENABLE_CONTENT_FALLBACK = false;
 
 interface StreamContext {
   channelName: string;
@@ -14,6 +26,29 @@ interface StreamContext {
   hasDropsSignal: boolean;
   isLive: boolean;
   pageUrl: string;
+}
+
+function logInfo(...args: unknown[]) {
+  console.info(LOG_PREFIX, ...args);
+}
+
+function logWarn(...args: unknown[]) {
+  console.warn(LOG_PREFIX, ...args);
+}
+
+function sessionDebugSummary(session: TwitchSession | null) {
+  if (!session) {
+    return { available: false };
+  }
+  return {
+    available: true,
+    userId: session.userId || null,
+    oauthTokenLength: session.oauthToken ? session.oauthToken.length : 0,
+    hasIntegrity: Boolean(session.clientIntegrity),
+    deviceIdSuffix: session.deviceId ? session.deviceId.slice(-6) : null,
+    uuid: session.uuid || null,
+    clientId: session.clientId || null,
+  };
 }
 
 const createInitialState = (): AppState => ({
@@ -45,6 +80,16 @@ let monitoringInterval: number | null = null;
 let monitorTickInFlight = false;
 let invalidStreamChecks = 0;
 let lastStreamRotationAt = 0;
+let streamValidationGraceUntil = 0;
+let lastInventoryRefreshAt = 0;
+let gamesCacheLastFetchedAt = 0;
+let gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null = null;
+let twitchSessionCache: TwitchSession | null = null;
+let twitchSessionFetchInFlight: Promise<TwitchSession | null> | null = null;
+let twitchSessionLastAttemptAt = 0;
+let cachedDropsSnapshot: TwitchDrop[] = [];
+let dropClaimInFlight = false;
+const dropClaimRetryAtById = new Map<string, number>();
 
 chrome.runtime.onStartup.addListener(async () => {
   await loadState();
@@ -53,7 +98,8 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'update') {
     appState = createInitialState();
-    await chrome.storage.local.set({ appState });
+    gamesCacheLastFetchedAt = 0;
+    await chrome.storage.local.set({ appState, gamesCacheLastFetchedAt });
     broadcastStateUpdate();
     return;
   }
@@ -117,12 +163,127 @@ function gameKey(game: TwitchGame): string {
   return `name:${normalizeToken(game.name)}::${game.endsAt ?? ''}`;
 }
 
+function gameSpecificityScore(game: TwitchGame): number {
+  let score = 0;
+  if (game.campaignId) {
+    score += 100;
+  }
+  if (typeof game.id === 'string' && game.id.startsWith('campaign-')) {
+    score += 20;
+  }
+  if (typeof game.dropCount === 'number' && Number.isFinite(game.dropCount)) {
+    score += Math.max(0, game.dropCount);
+  }
+  if (typeof game.imageUrl === 'string' && game.imageUrl.length > 0) {
+    score += 5;
+  }
+  if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs) && game.expiresInMs > 0) {
+    score += 3;
+  }
+  return score;
+}
+
+function choosePreferredGame(candidates: TwitchGame[]): TwitchGame | null {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return null;
+  }
+  return candidates
+    .slice()
+    .sort((left, right) => {
+      const byScore = gameSpecificityScore(right) - gameSpecificityScore(left);
+      if (byScore !== 0) {
+        return byScore;
+      }
+      return left.name.localeCompare(right.name);
+    })[0];
+}
+
+function dedupeAvailableGames(games: TwitchGame[]): TwitchGame[] {
+  const byName = new Map<string, TwitchGame[]>();
+  games.forEach((game) => {
+    const nameKey = normalizeToken(game.name) || game.id;
+    const current = byName.get(nameKey) ?? [];
+    current.push(game);
+    byName.set(nameKey, current);
+  });
+
+  const deduped: TwitchGame[] = [];
+  byName.forEach((group) => {
+    const withCampaign = group.filter((game) => Boolean(game.campaignId));
+    if (withCampaign.length > 0) {
+      const byCampaign = new Map<string, TwitchGame[]>();
+      withCampaign.forEach((game) => {
+        const key = game.campaignId as string;
+        const current = byCampaign.get(key) ?? [];
+        current.push(game);
+        byCampaign.set(key, current);
+      });
+      byCampaign.forEach((campaignGroup) => {
+        const preferred = choosePreferredGame(campaignGroup);
+        if (preferred) {
+          deduped.push(preferred);
+        }
+      });
+      return;
+    }
+
+    const preferred = choosePreferredGame(group);
+    if (preferred) {
+      deduped.push(preferred);
+    }
+  });
+
+  return deduped.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function tokenOverlapScore(left: string, right: string): number {
+  const leftTokens = new Set(normalizeToken(left).split(' ').filter((token) => token.length >= 2));
+  const rightTokens = new Set(normalizeToken(right).split(' ').filter((token) => token.length >= 2));
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+  let overlap = 0;
+  leftTokens.forEach((token) => {
+    if (rightTokens.has(token)) {
+      overlap += 1;
+    }
+  });
+  return overlap / Math.max(leftTokens.size, rightTokens.size);
+}
+
 function findMatchingGame(target: TwitchGame, source: TwitchGame[]): TwitchGame | null {
   const targetKey = gameKey(target);
-  return (
-    source.find((game) => game.id === target.id || sameCampaignId(game.campaignId, target.campaignId) || gameKey(game) === targetKey) ??
-    null
-  );
+  const exact = source.find((game) => game.id === target.id || sameCampaignId(game.campaignId, target.campaignId) || gameKey(game) === targetKey);
+  if (exact) {
+    return exact;
+  }
+
+  const targetName = normalizeToken(target.name);
+  const targetCategory = normalizeToken(target.categorySlug ?? toSlug(target.name));
+  let bestMatch: TwitchGame | null = null;
+  let bestScore = 0;
+
+  source.forEach((candidate) => {
+    const candidateName = normalizeToken(candidate.name);
+    const candidateCategory = normalizeToken(candidate.categorySlug ?? toSlug(candidate.name));
+    let score = 0;
+    if (targetName && candidateName && targetName === candidateName) {
+      score += 100;
+    }
+    if (targetName && candidateName && (candidateName.includes(targetName) || targetName.includes(candidateName))) {
+      score += 40;
+    }
+    score += Math.round(tokenOverlapScore(targetName, candidateName) * 40);
+    if (targetCategory && candidateCategory && targetCategory === candidateCategory) {
+      score += 35;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = candidate;
+    }
+  });
+
+  return bestScore >= 35 ? bestMatch : null;
 }
 
 function mergeAvailableGames(existing: TwitchGame[], incoming: TwitchGame[]): TwitchGame[] {
@@ -167,9 +328,15 @@ function mergeAvailableGames(existing: TwitchGame[], incoming: TwitchGame[]): Tw
 
   existing.forEach(upsert);
   incoming.forEach(upsert);
-  return Array.from(merged.values())
-    .filter((game) => !isExpiredGame(game))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const filtered = Array.from(merged.values()).filter((game) => !isExpiredGame(game));
+  const deduped = dedupeAvailableGames(filtered);
+  if (filtered.length !== deduped.length) {
+    logInfo('Collapsed duplicate games after merge', {
+      before: filtered.length,
+      after: deduped.length,
+    });
+  }
+  return deduped;
 }
 
 function dropRemainingMinutes(drop: TwitchDrop): number {
@@ -196,11 +363,17 @@ function dropStateKey(drop: TwitchDrop): string {
 
 function dropMatchesSelectedGame(drop: TwitchDrop, selected: TwitchGame): boolean {
   const selectedName = normalizeToken(selected.name);
-  const selectedCategory = normalizeToken(selected.categorySlug ?? '');
+  const selectedCategory = normalizeToken(selected.categorySlug ?? toSlug(selected.name));
   const byId = drop.gameId === selected.id;
   const byCampaign = sameCampaignId(drop.campaignId, selected.campaignId);
-  const byName = selectedName.length > 0 && normalizeToken(drop.gameName) === selectedName;
-  const dropCategory = normalizeToken(drop.categorySlug ?? '');
+  const dropName = normalizeToken(drop.gameName);
+  const byName =
+    selectedName.length > 0 &&
+    (dropName === selectedName ||
+      dropName.includes(selectedName) ||
+      selectedName.includes(dropName) ||
+      tokenOverlapScore(dropName, selectedName) >= 0.5);
+  const dropCategory = normalizeToken(drop.categorySlug ?? toSlug(drop.gameName));
   const byCategory = selectedCategory.length > 0 && dropCategory.length > 0 && selectedCategory === dropCategory;
   return byId || byCampaign || byName || byCategory;
 }
@@ -208,7 +381,7 @@ function dropMatchesSelectedGame(drop: TwitchDrop, selected: TwitchGame): boolea
 function mergeDropProgressMonotonic(nextDrop: TwitchDrop, previousDrop: TwitchDrop): TwitchDrop {
   const mergedProgress = Math.max(nextDrop.progress, previousDrop.progress);
   const mergedClaimed = nextDrop.claimed || previousDrop.claimed;
-  const mergedClaimable = Boolean(nextDrop.claimable) || Boolean(previousDrop.claimable);
+  const mergedClaimable = mergedClaimed ? false : Boolean(nextDrop.claimable);
   const mergedRequiredMinutes = nextDrop.requiredMinutes ?? previousDrop.requiredMinutes ?? null;
   const mergedRemainingMinutes =
     mergedClaimed || mergedClaimable
@@ -247,7 +420,38 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
     return;
   }
 
-  const relevant = allDrops.filter((drop) => dropMatchesSelectedGame(drop, selected));
+  const strictRelevant = allDrops.filter((drop) => dropMatchesSelectedGame(drop, selected));
+  const selectedName = normalizeToken(selected.name);
+  const relaxedRelevant =
+    strictRelevant.length > 0
+      ? strictRelevant
+      : allDrops.filter((drop) => {
+          const dropName = normalizeToken(drop.gameName);
+          return (
+            selectedName.length > 0 &&
+            (dropName.includes(selectedName) || selectedName.includes(dropName) || tokenOverlapScore(dropName, selectedName) >= 0.45)
+          );
+        });
+
+  if (strictRelevant.length === 0 && relaxedRelevant.length > 0) {
+    logWarn('Relaxed game-drop matching used for selection', {
+      selectedGame: selected.name,
+      selectedCampaignId: selected.campaignId ?? null,
+      matchedDrops: relaxedRelevant.length,
+    });
+  }
+
+  if (strictRelevant.length === 0 && relaxedRelevant.length === 0 && allDrops.length > 0) {
+    const sampleGameNames = Array.from(new Set(allDrops.map((drop) => drop.gameName))).slice(0, 5);
+    logWarn('No drops matched selected game', {
+      selectedGame: selected.name,
+      selectedCampaignId: selected.campaignId ?? null,
+      totalDrops: allDrops.length,
+      sampleGameNames,
+    });
+  }
+
+  const relevant = relaxedRelevant;
   const previousRelevant = appState.allDrops.filter((drop) => dropMatchesSelectedGame(drop, selected));
   const previousByKey = new Map(previousRelevant.map((drop) => [dropStateKey(drop), drop]));
 
@@ -261,10 +465,10 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
   const mergedKeys = new Set(mergedRelevant.map((drop) => dropStateKey(drop)));
   previousRelevant
     .filter((drop) => !mergedKeys.has(dropStateKey(drop)))
-    .filter((drop) => drop.claimed || Boolean(drop.claimable) || drop.progress > 0)
+    .filter((drop) => drop.claimed)
     .forEach((drop) => mergedRelevant.push(drop));
 
-  const relevantForState = mergedRelevant.length > 0 ? mergedRelevant : previousRelevant;
+  const relevantForState = mergedRelevant;
 
   const completed = relevantForState.filter((drop) => isDropCompleted(drop)).map((drop) => ({ ...drop, status: 'completed' as const }));
   const pending = relevantForState.filter((drop) => !isDropCompleted(drop));
@@ -279,9 +483,20 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
   appState.completedDrops = completed;
   appState.pendingDrops = normalizedPending;
   appState.currentDrop = activeDrop ? { ...activeDrop, status: 'active' } : null;
+
+  logInfo('Selected game rewards updated', {
+    selectedGame: selected.name,
+    total: relevantForState.length,
+    pending: normalizedPending.length,
+    completed: completed.length,
+    claimable: normalizedPending.filter((drop) => Boolean(drop.claimable)).length,
+  });
 }
 
 function updateStateFromSnapshot(snapshot: DropsSnapshot) {
+  if (Array.isArray(snapshot.drops) && snapshot.drops.length > 0) {
+    cachedDropsSnapshot = snapshot.drops;
+  }
   const orderedGames = mergeAvailableGames(appState.availableGames, snapshot.games);
   appState.availableGames = orderedGames;
   normalizeGameSelection(orderedGames);
@@ -291,13 +506,37 @@ function updateStateFromSnapshot(snapshot: DropsSnapshot) {
 
 async function loadState() {
   try {
-    const result = await chrome.storage.local.get(['appState']);
+    const result = await chrome.storage.local.get([
+      'appState',
+      'gamesCacheLastFetchedAt',
+      TWITCH_SESSION_STORAGE_KEY,
+      DROPS_SNAPSHOT_CACHE_KEY,
+    ]);
     if (result.appState) {
       appState = { ...createInitialState(), ...result.appState };
       if (!Array.isArray(appState.queue)) {
         appState.queue = [];
       }
     }
+    if (!ENABLE_CONTENT_FALLBACK) {
+      appState.workspaceWindowId = null;
+      appState.directoryTabId = null;
+      appState.dropsTabId = null;
+      appState.inventoryTabId = null;
+    }
+    const restoredCacheFetchedAt = Number(result.gamesCacheLastFetchedAt);
+    if (Number.isFinite(restoredCacheFetchedAt) && restoredCacheFetchedAt > 0) {
+      gamesCacheLastFetchedAt = restoredCacheFetchedAt;
+    } else if (appState.availableGames.length > 0) {
+      gamesCacheLastFetchedAt = Date.now();
+      await chrome.storage.local.set({ gamesCacheLastFetchedAt });
+    } else {
+      gamesCacheLastFetchedAt = 0;
+    }
+
+    twitchSessionCache = sanitizeTwitchSession(result[TWITCH_SESSION_STORAGE_KEY] as unknown);
+    logInfo('Initial Twitch session state from storage', sessionDebugSummary(twitchSessionCache));
+    cachedDropsSnapshot = Array.isArray(result[DROPS_SNAPSHOT_CACHE_KEY]) ? (result[DROPS_SNAPSHOT_CACHE_KEY] as TwitchDrop[]) : [];
     if (appState.isRunning && !appState.isPaused) {
       startMonitoring();
     }
@@ -306,8 +545,31 @@ async function loadState() {
   }
 }
 
+function shouldRefreshGamesCache(force = false): boolean {
+  if (force) {
+    return true;
+  }
+  const hasGames = appState.availableGames.length > 0;
+  if (!hasGames) {
+    return true;
+  }
+  if (gamesCacheLastFetchedAt <= 0) {
+    return false;
+  }
+  return Date.now() - gamesCacheLastFetchedAt >= GAMES_CACHE_TTL_MS;
+}
+
+async function ensureStateHydratedForCache() {
+  const hasRuntimeState =
+    appState.availableGames.length > 0 || appState.queue.length > 0 || Boolean(appState.selectedGame) || appState.isRunning || gamesCacheLastFetchedAt > 0;
+  if (hasRuntimeState) {
+    return;
+  }
+  await loadState();
+}
+
 async function saveState() {
-  await chrome.storage.local.set({ appState });
+  await chrome.storage.local.set({ appState, [DROPS_SNAPSHOT_CACHE_KEY]: cachedDropsSnapshot });
   broadcastStateUpdate();
 }
 
@@ -327,9 +589,9 @@ function inventoryUrl(): string {
   return 'https://www.twitch.tv/drops/inventory';
 }
 
-function popoutPlayerUrl(channelName: string): string {
+function streamerWatchUrl(channelName: string): string {
   const channel = encodeURIComponent(channelName.toLowerCase());
-  return `https://player.twitch.tv/?channel=${channel}&enableExtensions=true&muted=false&player=popout&quality=160p30&volume=1&parent=twitch.tv&parent=www.twitch.tv`;
+  return `https://www.twitch.tv/${channel}`;
 }
 
 function clearWorkspaceReferences() {
@@ -418,8 +680,7 @@ async function openMonitorDashboardWindow() {
 }
 
 async function createManagedTab(url: string, active = false): Promise<chrome.tabs.Tab | null> {
-  const workspaceWindowId = await getWorkspaceWindowId();
-  const shouldUseWorkspace = appState.isRunning || Boolean(workspaceWindowId);
+  const workspaceWindowId = ENABLE_CONTENT_FALLBACK ? await getWorkspaceWindowId() : null;
   if (workspaceWindowId) {
     return chrome.tabs.create({
       windowId: workspaceWindowId,
@@ -428,56 +689,35 @@ async function createManagedTab(url: string, active = false): Promise<chrome.tab
     }).catch(() => null);
   }
 
-  if (!shouldUseWorkspace) {
-    // Before farming starts, avoid creating a dedicated workspace window.
-    return chrome.tabs.create({ url, active }).catch(() => null);
+  if (active) {
+    const currentActiveTab = (await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []))[0] ?? null;
+    if (currentActiveTab?.id) {
+      const currentUrl = currentActiveTab.url ?? '';
+      const canReuseCurrent =
+        !currentUrl.startsWith('chrome://') &&
+        !currentUrl.startsWith('chrome-extension://') &&
+        !currentUrl.startsWith('edge://');
+      if (canReuseCurrent) {
+        const updated = await chrome.tabs.update(currentActiveTab.id, { url, active: true }).catch(() => null);
+        if (updated?.id) {
+          return updated;
+        }
+      }
+    }
   }
 
-  const createdWindow = await chrome.windows.create({
-    url,
-    focused: false,
-  }).catch(() => null);
-  if (createdWindow?.id) {
-    appState.workspaceWindowId = createdWindow.id;
-    await notifyWorkspaceWindowCreated().catch(() => undefined);
-    const createdTab = createdWindow.tabs?.[0] ?? null;
-    if (createdTab?.id) {
-      if (active && !createdTab.active) {
-        await chrome.tabs.update(createdTab.id, { active: true }).catch(() => undefined);
-      }
-      return createdTab;
-    }
-    return chrome.tabs.create({
-      windowId: createdWindow.id,
-      url,
-      active,
-    }).catch(() => null);
+  const focusedWindow = await chrome.windows.getLastFocused().catch(() => null);
+  if (focusedWindow?.id) {
+    return chrome.tabs.create({ windowId: focusedWindow.id, url, active }).catch(() => null);
   }
 
   return chrome.tabs.create({ url, active }).catch(() => null);
 }
 
 async function ensureManagedTab(existingTabId: number | null, targetUrl: string, active = false): Promise<number | null> {
-  let workspaceWindowId = await getWorkspaceWindowId();
-  const shouldUseWorkspace = appState.isRunning || Boolean(workspaceWindowId);
-
   if (existingTabId) {
     const existingTab = await chrome.tabs.get(existingTabId).catch(() => null);
     if (existingTab?.id) {
-      if (!workspaceWindowId && shouldUseWorkspace) {
-        const createdWindow = await chrome.windows.create({
-          tabId: existingTab.id,
-          focused: false,
-        }).catch(() => null);
-        if (createdWindow?.id) {
-          appState.workspaceWindowId = createdWindow.id;
-          workspaceWindowId = createdWindow.id;
-          await notifyWorkspaceWindowCreated().catch(() => undefined);
-        }
-      }
-      if (workspaceWindowId && shouldUseWorkspace && existingTab.windowId !== workspaceWindowId) {
-        await chrome.tabs.move(existingTab.id, { windowId: workspaceWindowId, index: -1 }).catch(() => undefined);
-      }
       if (existingTab.url !== targetUrl) {
         await chrome.tabs.update(existingTab.id, { url: targetUrl, active }).catch(() => undefined);
       } else if (active && !existingTab.active) {
@@ -575,32 +815,6 @@ function scoreDropMatch(base: TwitchDrop, candidate: TwitchDrop): number {
   return score;
 }
 
-function compactSlug(value: string): string {
-  return toSlug(value).replace(/-/g, '');
-}
-
-function streamGameMatchesSelection(context: StreamContext, selectedGame: TwitchGame): boolean {
-  const streamSlug = compactSlug(context.categorySlug || context.categoryLabel);
-  if (!streamSlug) {
-    return true;
-  }
-
-  const selectedSlug = compactSlug(selectedGame.categorySlug ?? selectedGame.name);
-  const selectedName = compactSlug(selectedGame.name);
-  if (!selectedSlug && !selectedName) {
-    return true;
-  }
-
-  return (
-    streamSlug === selectedSlug ||
-    streamSlug === selectedName ||
-    streamSlug.includes(selectedSlug) ||
-    selectedSlug.includes(streamSlug) ||
-    streamSlug.includes(selectedName) ||
-    selectedName.includes(streamSlug)
-  );
-}
-
 async function ensureDropsTab() {
   const created = await createManagedTab('https://www.twitch.tv/drops/campaigns', false);
   appState.dropsTabId = created?.id ?? null;
@@ -622,6 +836,568 @@ async function ensureContentScriptOnTab(tabId: number) {
     });
   } catch {
     // Ignore: content script may already be injected or tab may not allow injection
+  }
+}
+
+async function persistTwitchSession(session: TwitchSession | null) {
+  if (session) {
+    await chrome.storage.local.set({ [TWITCH_SESSION_STORAGE_KEY]: session });
+    return;
+  }
+  await chrome.storage.local.remove(TWITCH_SESSION_STORAGE_KEY).catch(() => undefined);
+}
+
+function clearTwitchSessionCache() {
+  twitchSessionCache = null;
+  void persistTwitchSession(null);
+}
+
+function trySanitizeSessionCandidate(candidate: unknown): TwitchSession | null {
+  return sanitizeTwitchSession(candidate);
+}
+
+function findSessionCandidateDeep(value: unknown, depth = 0): TwitchSession | null {
+  if (depth > 4 || value == null) {
+    return null;
+  }
+
+  const direct = trySanitizeSessionCandidate(value);
+  if (direct) {
+    return direct;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      return findSessionCandidateDeep(parsed, depth + 1);
+    } catch {
+      return null;
+    }
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const session = findSessionCandidateDeep(item, depth + 1);
+      if (session) {
+        return session;
+      }
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      const session = findSessionCandidateDeep(nested, depth + 1);
+      if (session) {
+        return session;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function getTwitchCookieValue(name: string): Promise<string> {
+  const attempts = ['https://www.twitch.tv', 'https://twitch.tv', 'https://player.twitch.tv'];
+  for (const url of attempts) {
+    const cookie = await chrome.cookies.get({ url, name }).catch(() => null);
+    const value = typeof cookie?.value === 'string' ? cookie.value.trim() : '';
+    if (value) {
+      return value;
+    }
+  }
+  return '';
+}
+
+async function recoverTwitchSessionFromCookies(): Promise<TwitchSession | null> {
+  const [authToken, secureAuthToken, uniqueId, secureUniqueId, deviceIdCookie] = await Promise.all([
+    getTwitchCookieValue('auth-token'),
+    getTwitchCookieValue('__Secure-auth-token'),
+    getTwitchCookieValue('unique_id'),
+    getTwitchCookieValue('__Secure-unique_id'),
+    getTwitchCookieValue('device_id'),
+  ]);
+
+  const candidate = trySanitizeSessionCandidate({
+    oauthToken: authToken || secureAuthToken,
+    deviceId: uniqueId || secureUniqueId || deviceIdCookie,
+    uuid: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
+  });
+
+  if (!candidate) {
+    return null;
+  }
+
+  logInfo('Recovered Twitch session from cookies', sessionDebugSummary(candidate));
+  return candidate;
+}
+
+async function recoverTwitchSessionFromStorageKeys(): Promise<TwitchSession | null> {
+  const [localAll, syncAll] = await Promise.all([
+    chrome.storage.local.get(null).catch(() => ({} as Record<string, unknown>)),
+    chrome.storage.sync.get(null).catch(() => ({} as Record<string, unknown>)),
+  ]);
+
+  const local = localAll as Record<string, unknown>;
+  const sync = syncAll as Record<string, unknown>;
+
+  const directCandidate = trySanitizeSessionCandidate({
+    oauthToken:
+      local.oauthToken ??
+      sync.oauthToken ??
+      local.authToken ??
+      sync.authToken ??
+      local.accessToken ??
+      sync.accessToken ??
+      local.token ??
+      sync.token,
+    userId: local.userId ?? sync.userId ?? local.userID ?? sync.userID,
+    deviceId:
+      local.deviceId ??
+      sync.deviceId ??
+      local.local_copy_unique_id ??
+      sync.local_copy_unique_id ??
+      local.device_id ??
+      sync.device_id,
+    uuid: local.uuid ?? sync.uuid ?? local.clientSessionId ?? sync.clientSessionId ?? local['client-session-id'] ?? sync['client-session-id'],
+    clientIntegrity: local.clientIntegrity ?? sync.clientIntegrity ?? local['client-integrity'] ?? sync['client-integrity'],
+    clientId: local.clientId ?? sync.clientId,
+  });
+  if (directCandidate) {
+    logInfo('Recovered Twitch session from flat storage keys', sessionDebugSummary(directCandidate));
+    return directCandidate;
+  }
+
+  const allEntries = [...Object.entries(local), ...Object.entries(sync)];
+  for (const [key, value] of allEntries) {
+    const session = findSessionCandidateDeep(value);
+    if (session) {
+      logInfo('Recovered Twitch session from storage entry', {
+        key,
+        ...sessionDebugSummary(session),
+      });
+      return session;
+    }
+  }
+
+  logWarn('No Twitch session recovered from storage keys');
+  return null;
+}
+
+async function refreshTwitchIntegrityToken(session: TwitchSession): Promise<TwitchSession | null> {
+  try {
+    logInfo('Refreshing Twitch Client-Integrity token', {
+      deviceIdSuffix: session.deviceId ? session.deviceId.slice(-6) : null,
+      oauthTokenLength: session.oauthToken ? session.oauthToken.length : 0,
+      hasPreviousIntegrity: Boolean(session.clientIntegrity),
+    });
+    const token = await fetchTwitchIntegrityToken(session);
+    if (!token) {
+      return null;
+    }
+    const updatedSession: TwitchSession = {
+      ...session,
+      clientIntegrity: token,
+    };
+    twitchSessionCache = updatedSession;
+    await persistTwitchSession(updatedSession);
+    logInfo('Twitch Client-Integrity token refreshed', {
+      integrityLength: token.length,
+      deviceIdSuffix: updatedSession.deviceId ? updatedSession.deviceId.slice(-6) : null,
+    });
+    return updatedSession;
+  } catch (error) {
+    logWarn('Unable to refresh Twitch Client-Integrity token', String(error));
+    return null;
+  }
+}
+
+async function ensureSessionIntegrity(session: TwitchSession, forceRefresh = false): Promise<TwitchSession> {
+  if (!forceRefresh && session.clientIntegrity) {
+    return session;
+  }
+  const refreshed = await refreshTwitchIntegrityToken(session);
+  return refreshed ?? session;
+}
+
+async function readTwitchSessionViaExecuteScript(tabId: number): Promise<TwitchSession | null> {
+  try {
+    const execution = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const normalize = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+        const normalizeToken = (value: unknown): string =>
+          normalize(value)
+            .replace(/^oauth:/i, '')
+            .replace(/^oauth\s+/i, '')
+            .trim();
+        const getCookie = (name: string): string => {
+          const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+          return match?.[1] ? decodeURIComponent(match[1]) : '';
+        };
+        const parseTwilight = (): { oauthToken: string; userId: string } => {
+          const keys = ['twilight-user', 'twilight-user-data', 'twilight-user-data-v2', '__twilight-user', 'twilight-session'];
+          const stores: Storage[] = [window.localStorage, window.sessionStorage];
+          for (const store of stores) {
+            for (const key of keys) {
+              const raw = store.getItem(key);
+              if (!raw) {
+                continue;
+              }
+              try {
+                const parsed = JSON.parse(raw) as Record<string, unknown>;
+                const parsedUser = parsed.user && typeof parsed.user === 'object' ? (parsed.user as Record<string, unknown>) : null;
+                const oauthToken =
+                  normalizeToken(parsed.authToken) ||
+                  normalizeToken(parsed.token) ||
+                  normalizeToken(parsed.accessToken) ||
+                  normalizeToken(parsed.oauthToken);
+                const userId =
+                  normalize(parsed.userID) ||
+                  normalize(parsed.userId) ||
+                  normalize(parsed.id) ||
+                  normalize(parsedUser?.id);
+                if (oauthToken || userId) {
+                  return { oauthToken, userId };
+                }
+              } catch {
+                // Ignore malformed entries.
+              }
+            }
+          }
+          return { oauthToken: '', userId: '' };
+        };
+
+        const twilight = parseTwilight();
+        const oauthToken =
+          twilight.oauthToken || normalizeToken(getCookie('auth-token')) || normalizeToken(getCookie('__Secure-auth-token'));
+        const userId = twilight.userId || '';
+        const deviceId =
+          normalize(window.localStorage.getItem('local_copy_unique_id')) ||
+          normalize(window.localStorage.getItem('device_id')) ||
+          normalize(window.localStorage.getItem('deviceId')) ||
+          normalize(window.sessionStorage.getItem('local_copy_unique_id')) ||
+          normalize(window.sessionStorage.getItem('device_id')) ||
+          normalize(window.sessionStorage.getItem('deviceId')) ||
+          normalize(getCookie('unique_id')) ||
+          normalize(getCookie('__Secure-unique_id')) ||
+          normalize(getCookie('device_id'));
+        const uuid =
+          normalize(window.localStorage.getItem('client-session-id')) ||
+          normalize(window.localStorage.getItem('clientSessionId')) ||
+          normalize(window.sessionStorage.getItem('client-session-id')) ||
+          normalize(window.sessionStorage.getItem('clientSessionId')) ||
+          Math.random().toString(16).slice(2, 10);
+        const clientIntegrity =
+          normalize(window.localStorage.getItem('client-integrity')) || normalize(window.localStorage.getItem('clientIntegrity'));
+
+        if (!oauthToken || !deviceId) {
+          return null;
+        }
+
+        return {
+          oauthToken,
+          userId,
+          deviceId,
+          uuid,
+          clientIntegrity: clientIntegrity || undefined,
+        };
+      },
+    });
+    const raw = execution[0]?.result;
+    const session = sanitizeTwitchSession(raw as unknown);
+    if (session) {
+      logInfo('Extracted Twitch session via executeScript', { tabId, ...sessionDebugSummary(session) });
+      return session;
+    }
+    logWarn('executeScript session extraction returned empty payload', { tabId });
+    return null;
+  } catch (error) {
+    logWarn('executeScript session extraction failed', { tabId, error: String(error) });
+    return null;
+  }
+}
+
+async function readTwitchSessionFromTab(tabId: number): Promise<TwitchSession | null> {
+  const send = async () => chrome.tabs.sendMessage(tabId, { type: 'GET_TWITCH_SESSION' });
+  let response: any = null;
+  try {
+    response = await send();
+  } catch (error) {
+    logWarn('GET_TWITCH_SESSION send failed on first attempt', { tabId, error: String(error) });
+    await ensureContentScriptOnTab(tabId);
+    response = await send().catch((secondError) => {
+      logWarn('GET_TWITCH_SESSION send failed after injection', { tabId, error: String(secondError) });
+      return null;
+    });
+  }
+
+  if (!response?.success) {
+    logWarn('GET_TWITCH_SESSION failed on tab', { tabId });
+    return readTwitchSessionViaExecuteScript(tabId);
+  }
+
+  const session = sanitizeTwitchSession(response.session as unknown);
+  if (!session) {
+    logWarn('Received invalid Twitch session payload from tab', { tabId });
+    return readTwitchSessionViaExecuteScript(tabId);
+  }
+  logInfo('Extracted Twitch session from tab', { tabId, ...sessionDebugSummary(session) });
+  return session;
+}
+
+async function findTwitchSessionInOpenTabs(): Promise<TwitchSession | null> {
+  const tabs = await chrome.tabs.query({
+    url: ['https://www.twitch.tv/*', 'https://twitch.tv/*', 'https://player.twitch.tv/*'],
+  });
+
+  const sortedTabs = tabs
+    .slice()
+    .sort((left, right) => {
+      const leftUrl = left.url ?? '';
+      const rightUrl = right.url ?? '';
+      const leftIsMain = leftUrl.includes('://www.twitch.tv/') || leftUrl.includes('://twitch.tv/');
+      const rightIsMain = rightUrl.includes('://www.twitch.tv/') || rightUrl.includes('://twitch.tv/');
+      if (leftIsMain !== rightIsMain) {
+        return leftIsMain ? -1 : 1;
+      }
+      if (Boolean(left.active) !== Boolean(right.active)) {
+        return left.active ? -1 : 1;
+      }
+      return 0;
+    });
+
+  for (const tab of sortedTabs) {
+    if (!tab.id) {
+      continue;
+    }
+    logInfo('Trying Twitch session extraction from tab', {
+      tabId: tab.id,
+      url: tab.url ?? null,
+      active: Boolean(tab.active),
+    });
+    const session = await readTwitchSessionFromTab(tab.id).catch(() => null);
+    if (session) {
+      return session;
+    }
+  }
+  return null;
+}
+
+async function fetchTwitchSessionFromHiddenTab(): Promise<TwitchSession | null> {
+  let hiddenWindowId: number | null = null;
+  let tabId: number | null = null;
+
+  const hiddenWindow = await chrome.windows
+    .create({
+      url: 'https://www.twitch.tv/drops/inventory',
+      focused: false,
+      state: 'minimized',
+    })
+    .catch(() => null);
+
+  if (hiddenWindow?.id) {
+    hiddenWindowId = hiddenWindow.id;
+    tabId = hiddenWindow.tabs?.find((tab) => Boolean(tab.id))?.id ?? null;
+  }
+
+  if (!tabId && hiddenWindowId) {
+    const tabs = await chrome.tabs.query({ windowId: hiddenWindowId }).catch(() => []);
+    tabId = tabs.find((tab) => Boolean(tab.id))?.id ?? null;
+  }
+
+  if (!tabId) {
+    if (hiddenWindowId) {
+      await chrome.windows.remove(hiddenWindowId).catch(() => undefined);
+    }
+    return null;
+  }
+
+  try {
+    await waitForTabComplete(tabId, 15_000);
+    await ensureContentScriptOnTab(tabId);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    return await readTwitchSessionFromTab(tabId).catch(() => null);
+  } finally {
+    if (hiddenWindowId) {
+      await chrome.windows.remove(hiddenWindowId).catch(() => undefined);
+    } else {
+      await chrome.tabs.remove(tabId).catch(() => undefined);
+    }
+  }
+}
+
+async function ensureTwitchSession(forceRefresh = false): Promise<TwitchSession | null> {
+  if (!forceRefresh && twitchSessionCache) {
+    logInfo('Using cached Twitch session', sessionDebugSummary(twitchSessionCache));
+    return twitchSessionCache;
+  }
+
+  const now = Date.now();
+  if (!forceRefresh && now - twitchSessionLastAttemptAt < TWITCH_SESSION_RETRY_COOLDOWN_MS) {
+    logWarn('Skipped Twitch session refresh due retry cooldown');
+    return null;
+  }
+
+  if (twitchSessionFetchInFlight) {
+    return twitchSessionFetchInFlight;
+  }
+
+  twitchSessionFetchInFlight = (async () => {
+    twitchSessionLastAttemptAt = Date.now();
+    if (!forceRefresh) {
+      const storageResult = (await chrome.storage.local.get([TWITCH_SESSION_STORAGE_KEY]).catch(() => ({}))) as Record<string, unknown>;
+      const fromStorageRaw = storageResult[TWITCH_SESSION_STORAGE_KEY];
+      const fromStorage = sanitizeTwitchSession(fromStorageRaw as unknown);
+      if (fromStorage) {
+        twitchSessionCache = fromStorage;
+        logInfo('Twitch session restored from storage');
+        logInfo('Session details', sessionDebugSummary(fromStorage));
+        return fromStorage;
+      }
+
+      const recoveredSession = await recoverTwitchSessionFromStorageKeys();
+      if (recoveredSession) {
+        twitchSessionCache = recoveredSession;
+        await persistTwitchSession(recoveredSession);
+        twitchSessionLastAttemptAt = Date.now();
+        logInfo('Twitch session restored from legacy storage keys');
+        logInfo('Session details', sessionDebugSummary(recoveredSession));
+        return recoveredSession;
+      }
+    }
+
+    const fromCookies = await recoverTwitchSessionFromCookies();
+    if (fromCookies) {
+      twitchSessionCache = fromCookies;
+      await persistTwitchSession(fromCookies);
+      twitchSessionLastAttemptAt = Date.now();
+      logInfo('Twitch session restored from cookies');
+      logInfo('Session details', sessionDebugSummary(fromCookies));
+      return fromCookies;
+    }
+
+    const fromOpenTabs = await findTwitchSessionInOpenTabs();
+    if (fromOpenTabs) {
+      twitchSessionCache = fromOpenTabs;
+      await persistTwitchSession(fromOpenTabs);
+      twitchSessionLastAttemptAt = Date.now();
+      logInfo('Twitch session extracted from open Twitch tab');
+      logInfo('Session details', sessionDebugSummary(fromOpenTabs));
+      return fromOpenTabs;
+    }
+
+    if (ENABLE_CONTENT_FALLBACK) {
+      const fromHidden = await fetchTwitchSessionFromHiddenTab();
+      if (fromHidden) {
+        twitchSessionCache = fromHidden;
+        await persistTwitchSession(fromHidden);
+        twitchSessionLastAttemptAt = Date.now();
+        logInfo('Twitch session extracted from hidden tab');
+        logInfo('Session details', sessionDebugSummary(fromHidden));
+        return fromHidden;
+      }
+    }
+
+    clearTwitchSessionCache();
+    logWarn('No Twitch session available for API calls');
+    return null;
+  })().finally(() => {
+    twitchSessionFetchInFlight = null;
+  });
+
+  return twitchSessionFetchInFlight;
+}
+
+async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<DropsSnapshot | null> {
+  const session = await ensureTwitchSession(forceSessionRefresh);
+  if (!session) {
+    logWarn('Drops snapshot API skipped: Twitch session missing');
+    return null;
+  }
+  logInfo('Fetching drops snapshot via API', {
+    forceSessionRefresh,
+    ...sessionDebugSummary(session),
+  });
+
+  const sessionWithIntegrity = await ensureSessionIntegrity(session);
+  let client = new TwitchApiClient(sessionWithIntegrity);
+  try {
+    const snapshot = await client.fetchDropsSnapshot();
+    if (snapshot.games.length === 0 && snapshot.drops.length === 0) {
+      logWarn('Drops snapshot API returned empty payload');
+      return null;
+    }
+    logInfo('Drops snapshot API success', {
+      games: snapshot.games.length,
+      drops: snapshot.drops.length,
+    });
+    return snapshot;
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    if (message.includes('integrity')) {
+      const refreshedIntegritySession = await ensureSessionIntegrity(session, true);
+      if (refreshedIntegritySession.clientIntegrity && refreshedIntegritySession.clientIntegrity !== sessionWithIntegrity.clientIntegrity) {
+        try {
+          client = new TwitchApiClient(refreshedIntegritySession);
+          const retriedSnapshot = await client.fetchDropsSnapshot();
+          if (retriedSnapshot.games.length === 0 && retriedSnapshot.drops.length === 0) {
+            logWarn('Drops snapshot API retry returned empty payload');
+            return null;
+          }
+          return retriedSnapshot;
+        } catch (retryError) {
+          console.error('Twitch API snapshot fetch failed after integrity refresh:', retryError);
+        }
+      }
+    }
+    if (isLikelyAuthError(error)) {
+      clearTwitchSessionCache();
+      if (!forceSessionRefresh) {
+        return fetchDropsSnapshotFromApi(true);
+      }
+    }
+    console.error('Twitch API snapshot fetch failed:', error);
+    return null;
+  }
+}
+
+async function fetchDirectoryStreamersFromApi(game: TwitchGame, forceSessionRefresh = false): Promise<TwitchStreamer[]> {
+  const session = await ensureTwitchSession(forceSessionRefresh);
+  if (!session) {
+    logWarn('Directory streamers fetch: session missing, using public client');
+  }
+
+  const client = new TwitchApiClient(
+    session ?? {
+      oauthToken: 'public',
+      userId: 'public',
+      deviceId: 'public',
+      uuid: 'public',
+    },
+  );
+  try {
+    const streamers = await client.fetchDirectoryStreamers(game.name, game.categorySlug ?? toSlug(game.name));
+    logInfo('Directory streamers fetched', {
+      game: game.name,
+      categorySlug: game.categorySlug ?? toSlug(game.name),
+      count: streamers.length,
+    });
+    return streamers;
+  } catch (error) {
+    if (session && isLikelyAuthError(error)) {
+      clearTwitchSessionCache();
+      if (!forceSessionRefresh) {
+        return fetchDirectoryStreamersFromApi(game, true);
+      }
+    }
+    console.error('Twitch API directory fetch failed:', error);
+    return [];
   }
 }
 
@@ -736,6 +1512,95 @@ async function waitForTabComplete(tabId: number, timeoutMs = 12_000): Promise<vo
       }
     }).catch(() => finish());
   });
+}
+
+async function fetchGamesFromHiddenDropsTab(): Promise<TwitchGame[]> {
+  let hiddenWindowId: number | null = null;
+  let tabId: number | null = null;
+  const hiddenWindow = await chrome.windows
+    .create({
+      url: 'https://www.twitch.tv/drops/campaigns',
+      focused: false,
+      state: 'minimized',
+    })
+    .catch(() => null);
+
+  if (hiddenWindow?.id) {
+    hiddenWindowId = hiddenWindow.id;
+    tabId = hiddenWindow.tabs?.find((tab) => Boolean(tab.id))?.id ?? null;
+  }
+
+  if (!tabId && hiddenWindowId) {
+    const tabs = await chrome.tabs.query({ windowId: hiddenWindowId }).catch(() => []);
+    tabId = tabs.find((tab) => Boolean(tab.id))?.id ?? null;
+  }
+
+  if (!tabId) {
+    if (hiddenWindowId) {
+      await chrome.windows.remove(hiddenWindowId).catch(() => undefined);
+    }
+    return [];
+  }
+
+  const send = async () => chrome.tabs.sendMessage(tabId as number, { type: 'FETCH_GAMES' });
+  try {
+    await waitForTabComplete(tabId, 15_000);
+    await ensureContentScriptOnTab(tabId);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    let response: any = await send().catch(() => null);
+    if (!response?.success) {
+      await ensureContentScriptOnTab(tabId);
+      response = await send().catch(() => null);
+    }
+    if (!response?.success) {
+      await chrome.tabs.reload(tabId).catch(() => undefined);
+      await waitForTabComplete(tabId, 12_000);
+      await ensureContentScriptOnTab(tabId);
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      response = await send().catch(() => null);
+    }
+
+    return response?.success && Array.isArray(response.games) ? (response.games as TwitchGame[]) : [];
+  } finally {
+    if (hiddenWindowId) {
+      await chrome.windows.remove(hiddenWindowId).catch(() => undefined);
+    } else {
+      await chrome.tabs.remove(tabId).catch(() => undefined);
+    }
+  }
+}
+
+async function refreshGamesCacheFromHiddenFetch(): Promise<TwitchGame[]> {
+  if (gamesCacheRefreshInFlight) {
+    return gamesCacheRefreshInFlight;
+  }
+
+  gamesCacheRefreshInFlight = (async () => {
+    let fetchedGames: TwitchGame[] = [];
+    const apiSnapshot = await fetchDropsSnapshotFromApi();
+    if (apiSnapshot?.games?.length) {
+      fetchedGames = apiSnapshot.games;
+      if (apiSnapshot.drops.length > 0) {
+        cachedDropsSnapshot = apiSnapshot.drops;
+      }
+    } else if (ENABLE_CONTENT_FALLBACK) {
+      fetchedGames = await fetchGamesFromHiddenDropsTab();
+    }
+
+    const mergedGames = mergeAvailableGames(appState.availableGames, fetchedGames);
+    appState.availableGames = mergedGames;
+    normalizeGameSelection(mergedGames);
+    normalizeQueueSelection(mergedGames);
+    gamesCacheLastFetchedAt = Date.now();
+    await chrome.storage.local.set({ gamesCacheLastFetchedAt });
+    await saveState();
+    return mergedGames;
+  })().finally(() => {
+    gamesCacheRefreshInFlight = null;
+  });
+
+  return gamesCacheRefreshInFlight;
 }
 
 async function refreshInventoryTabForFreshData(tabId: number) {
@@ -862,13 +1727,40 @@ function removeGameFromQueue(game: TwitchGame) {
 }
 
 function resolveGameFromState(game: TwitchGame): TwitchGame {
-  return findMatchingGame(game, appState.availableGames) ?? game;
+  const resolved = findMatchingGame(game, appState.availableGames);
+  if (resolved) {
+    if (resolved.id !== game.id || resolved.campaignId !== game.campaignId) {
+      logInfo('Resolved selected game to canonical campaign', {
+        inputId: game.id,
+        inputCampaignId: game.campaignId ?? null,
+        inputName: game.name,
+        resolvedId: resolved.id,
+        resolvedCampaignId: resolved.campaignId ?? null,
+        resolvedName: resolved.name,
+      });
+    }
+    return resolved;
+  }
+
+  const byNameCandidates = appState.availableGames.filter((candidate) => normalizeToken(candidate.name) === normalizeToken(game.name));
+  const byNamePreferred = choosePreferredGame(byNameCandidates);
+  if (byNamePreferred) {
+    logInfo('Resolved selected game by exact name fallback', {
+      inputId: game.id,
+      inputCampaignId: game.campaignId ?? null,
+      resolvedId: byNamePreferred.id,
+      resolvedCampaignId: byNamePreferred.campaignId ?? null,
+      name: game.name,
+    });
+    return byNamePreferred;
+  }
+
+  return game;
 }
 
 function evaluateDropsForGame(game: TwitchGame, drops: TwitchDrop[]): { allDrops: TwitchDrop[]; pendingDrops: TwitchDrop[] } {
   const relevantDrops = drops.filter((drop) => dropMatchesSelectedGame(drop, game));
-  const fallback = appState.allDrops.filter((drop) => dropMatchesSelectedGame(drop, game));
-  const allDrops = relevantDrops.length > 0 ? relevantDrops : fallback;
+  const allDrops = relevantDrops;
   const pendingDrops = allDrops.filter((drop) => !isDropCompleted(drop));
   return { allDrops, pendingDrops };
 }
@@ -879,21 +1771,14 @@ async function inspectGameProgress(game: TwitchGame): Promise<{
   pendingDrops: TwitchDrop[];
 }> {
   const initialGame = resolveGameFromState(game);
-  const snapshot = await fetchDropsSnapshot(initialGame.name);
+  const snapshot = await fetchDropsSnapshotFromApi();
   if (snapshot?.games?.length) {
     appState.availableGames = mergeAvailableGames(appState.availableGames, snapshot.games);
     normalizeQueueSelection(appState.availableGames);
   }
 
   const resolvedGame = resolveGameFromState(initialGame);
-  let candidateDrops = snapshot?.drops ?? [];
-  const inventoryDrops = await fetchInventoryDrops(resolvedGame.name, resolvedGame.imageUrl);
-  if (inventoryDrops.length > 0) {
-    candidateDrops = mergeDropsWithInventory(candidateDrops, inventoryDrops);
-  }
-  if (candidateDrops.length === 0 && inventoryDrops.length > 0) {
-    candidateDrops = inventoryDrops;
-  }
+  const candidateDrops = snapshot?.drops ?? cachedDropsSnapshot;
 
   return {
     resolvedGame,
@@ -945,6 +1830,14 @@ async function fetchDirectoryStreamers(categorySlug: string): Promise<TwitchStre
   }
 }
 
+async function focusTabWindow(tabId: number) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab?.windowId) {
+    return;
+  }
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+}
+
 async function fetchCategorySuggestions(gameName: string): Promise<Array<{ slug: string; label: string }>> {
   const tab = await createManagedTab(`https://www.twitch.tv/search?term=${encodeURIComponent(gameName)}`, false);
   if (!tab?.id) {
@@ -972,29 +1865,25 @@ async function resolveCategorySlug(game: TwitchGame): Promise<string> {
     return updated.categorySlug;
   }
 
-  const suggestions = await fetchCategorySuggestions(game.name);
-  if (suggestions.length > 0) {
-    const ranked = suggestions
-      .map((item) => ({ ...item, score: scoreCategoryMatch(game.name, item.slug, item.label) }))
-      .sort((a, b) => b.score - a.score);
-    return ranked[0].slug;
-  }
-
   return toSlug(game.name);
 }
 
-async function openMutedChannel(channelName: string, viewerCount?: number) {
-  const targetUrl = popoutPlayerUrl(channelName);
+async function openMutedChannel(streamer: TwitchStreamer) {
+  const channelName = streamer.name.toLowerCase();
+  const displayName = streamer.displayName || channelName;
+  const targetUrl = streamerWatchUrl(channelName);
   const managedTabId = await ensureManagedTab(appState.tabId, targetUrl, true);
   if (!managedTabId) {
     return;
   }
 
   const prepareAudioWithRetry = async () => {
+    await focusTabWindow(managedTabId);
     await chrome.tabs.update(managedTabId, { active: true, muted: false }).catch(() => undefined);
     await waitForTabComplete(managedTabId, 15_000).catch(() => undefined);
     await ensureContentScriptOnTab(managedTabId);
 
+    let audioReady = false;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       const prepared: any = await chrome.tabs
         .sendMessage(managedTabId, {
@@ -1002,23 +1891,40 @@ async function openMutedChannel(channelName: string, viewerCount?: number) {
         })
         .catch(() => null);
       if (prepared?.isAudioReady) {
+        audioReady = true;
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 900));
+      await focusTabWindow(managedTabId);
       await chrome.tabs.update(managedTabId, { active: true, muted: false }).catch(() => undefined);
+    }
+
+    if (!audioReady) {
+      try {
+        await chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon128.png',
+          title: 'Audio blocked by browser',
+          message: 'Chrome blocked autoplay audio. Click once on the Twitch player to unmute.',
+          priority: 1,
+        });
+      } catch {
+        // Ignore notification failures.
+      }
     }
   };
 
   void prepareAudioWithRetry().catch(() => undefined);
   appState.tabId = managedTabId;
   appState.activeStreamer = {
-    id: channelName.toLowerCase(),
-    name: channelName.toLowerCase(),
-    displayName: channelName,
+    id: channelName,
+    name: channelName,
+    displayName,
     isLive: true,
-    viewerCount,
+    viewerCount: streamer.viewerCount,
   };
   invalidStreamChecks = 0;
+  streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
 }
 
 async function enforcePlaybackPolicyOnStreamTab() {
@@ -1087,19 +1993,166 @@ async function evaluateDropTransitions(previousCompletedIds: Set<string>) {
   }
 }
 
+function canRetryDropClaim(claimId: string): boolean {
+  const retryAt = dropClaimRetryAtById.get(claimId) ?? 0;
+  return Date.now() >= retryAt;
+}
+
+function markDropClaimedLocally(claimId: string, fallbackDropId?: string): boolean {
+  let changed = false;
+  appState.allDrops = appState.allDrops.map((drop) => {
+    const isMatch = drop.claimId === claimId || (fallbackDropId ? drop.id === fallbackDropId : false);
+    if (!isMatch) {
+      return drop;
+    }
+    changed = true;
+    return {
+      ...drop,
+      claimed: true,
+      claimable: false,
+      progress: 100,
+      remainingMinutes: 0,
+      status: 'completed',
+    };
+  });
+
+  if (changed) {
+    splitDropsForSelectedGame(appState.allDrops);
+  }
+
+  return changed;
+}
+
+async function claimDropViaApi(drop: TwitchDrop): Promise<boolean> {
+  const claimId = (drop.claimId ?? '').trim();
+  if (!claimId) {
+    logWarn('Auto-claim skipped: missing claimId', { dropId: drop.id, dropName: drop.name });
+    return false;
+  }
+
+  if (!canRetryDropClaim(claimId)) {
+    logInfo('Auto-claim cooldown active', { claimId, dropName: drop.name });
+    return false;
+  }
+
+  const tryClaim = async (forceSessionRefresh: boolean): Promise<boolean> => {
+    const session = await ensureTwitchSession(forceSessionRefresh);
+    if (!session) {
+      logWarn('Auto-claim skipped: Twitch session unavailable', { claimId, dropName: drop.name });
+      return false;
+    }
+    const sessionWithIntegrity = await ensureSessionIntegrity(session);
+    const client = new TwitchApiClient(sessionWithIntegrity);
+    return client.claimDropReward(claimId);
+  };
+
+  try {
+    logInfo('Auto-claim attempt', { claimId, dropName: drop.name, game: drop.gameName });
+    const claimed = await tryClaim(false);
+    if (!claimed) {
+      dropClaimRetryAtById.set(claimId, Date.now() + DROP_CLAIM_RETRY_COOLDOWN_MS);
+      logWarn('Auto-claim did not complete, scheduled retry', { claimId, dropName: drop.name });
+      return false;
+    }
+    dropClaimRetryAtById.delete(claimId);
+    logInfo('Auto-claim success', { claimId, dropName: drop.name });
+    return true;
+  } catch (error) {
+    if (isLikelyAuthError(error)) {
+      clearTwitchSessionCache();
+      try {
+        const claimedAfterRefresh = await tryClaim(true);
+        if (claimedAfterRefresh) {
+          dropClaimRetryAtById.delete(claimId);
+          return true;
+        }
+      } catch (secondError) {
+        console.error('Drop claim retry failed after refreshing Twitch session:', secondError);
+      }
+    } else {
+      console.error('Drop claim failed:', error);
+    }
+
+    dropClaimRetryAtById.set(claimId, Date.now() + DROP_CLAIM_RETRY_COOLDOWN_MS);
+    logWarn('Auto-claim failed, scheduled retry', { claimId, dropName: drop.name, error: String(error) });
+    return false;
+  }
+}
+
+async function autoClaimClaimableDrops(): Promise<boolean> {
+  if (dropClaimInFlight) {
+    return false;
+  }
+
+  const claimTargets = appState.pendingDrops
+    .filter((drop) => Boolean(drop.claimable) && !drop.claimed)
+    .filter((drop) => Boolean((drop.claimId ?? '').trim()));
+
+  if (claimTargets.length === 0) {
+    return false;
+  }
+
+  dropClaimInFlight = true;
+  let claimedAny = false;
+  try {
+    for (const drop of claimTargets) {
+      const claimed = await claimDropViaApi(drop);
+      if (!claimed || !drop.claimId) {
+        continue;
+      }
+      const changed = markDropClaimedLocally(drop.claimId, drop.id);
+      if (changed) {
+        claimedAny = true;
+      }
+    }
+
+    if (claimedAny) {
+      await saveState();
+    }
+
+    return claimedAny;
+  } finally {
+    dropClaimInFlight = false;
+  }
+}
+
 interface RefreshDropsOptions {
   includeCampaignFetch?: boolean;
   includeInventoryFetch?: boolean;
+  forceInventoryFetch?: boolean;
 }
 
 async function refreshDropsData(options: RefreshDropsOptions = {}) {
   const includeCampaignFetch = options.includeCampaignFetch ?? false;
   const includeInventoryFetch = options.includeInventoryFetch ?? appState.isRunning;
+  const forceInventoryFetch = options.forceInventoryFetch ?? false;
   const previousCompletedIds = new Set(appState.completedDrops.map((drop) => drop.id));
   let games = appState.availableGames;
-  let drops = appState.allDrops;
+  let drops = includeCampaignFetch ? (cachedDropsSnapshot.length > 0 ? cachedDropsSnapshot : appState.allDrops) : appState.allDrops;
+  let apiSnapshotUsed = false;
+  const selectedGame = appState.selectedGame;
+  logInfo('Starting drops refresh', {
+    includeCampaignFetch,
+    includeInventoryFetch,
+    forceInventoryFetch,
+    selectedGame: selectedGame?.name ?? null,
+    cachedDrops: cachedDropsSnapshot.length,
+    currentAllDrops: appState.allDrops.length,
+  });
 
-  if (includeCampaignFetch) {
+  if (includeCampaignFetch || includeInventoryFetch) {
+    const apiSnapshot = await fetchDropsSnapshotFromApi();
+    if (apiSnapshot) {
+      games = mergeAvailableGames(appState.availableGames, apiSnapshot.games);
+      drops = apiSnapshot.drops;
+      if (apiSnapshot.drops.length > 0) {
+        cachedDropsSnapshot = apiSnapshot.drops;
+      }
+      apiSnapshotUsed = true;
+    }
+  }
+
+  if (ENABLE_CONTENT_FALLBACK && includeCampaignFetch && !apiSnapshotUsed) {
     const snapshot = await fetchDropsSnapshot();
     if (snapshot) {
       games = mergeAvailableGames(appState.availableGames, snapshot.games);
@@ -1107,22 +2160,44 @@ async function refreshDropsData(options: RefreshDropsOptions = {}) {
     }
   }
 
-  if (includeInventoryFetch && appState.selectedGame?.name) {
-    const inventoryDrops = await fetchInventoryDrops(appState.selectedGame.name, appState.selectedGame.imageUrl);
+  const shouldFetchInventory =
+    ENABLE_CONTENT_FALLBACK &&
+    includeInventoryFetch &&
+    selectedGame?.name &&
+    (!appState.isRunning || forceInventoryFetch || Date.now() - lastInventoryRefreshAt >= INVENTORY_REFRESH_INTERVAL_MS);
+  if (shouldFetchInventory && selectedGame) {
+    const inventoryDrops = await fetchInventoryDrops(selectedGame.name, selectedGame.imageUrl);
+    lastInventoryRefreshAt = Date.now();
     if (inventoryDrops.length > 0) {
       const baseDrops = drops.length > 0 ? drops : appState.allDrops;
       drops = mergeDropsWithInventory(baseDrops, inventoryDrops);
     }
   }
 
-  if (drops.length === 0 && appState.allDrops.length > 0) {
+  if (!includeCampaignFetch && !includeInventoryFetch && drops.length === 0 && appState.allDrops.length > 0) {
     drops = appState.allDrops;
+  }
+
+  if (includeCampaignFetch && !apiSnapshotUsed && cachedDropsSnapshot.length > 0) {
+    logWarn('Using cached drops snapshot because API refresh failed', {
+      cachedDrops: cachedDropsSnapshot.length,
+      selectedGame: selectedGame?.name ?? null,
+    });
   }
 
   updateStateFromSnapshot({
     games,
     drops,
     updatedAt: Date.now(),
+  });
+  logInfo('Drops data refresh', {
+    includeCampaignFetch,
+    includeInventoryFetch,
+    forceInventoryFetch,
+    apiSnapshotUsed,
+    games: games.length,
+    drops: drops.length,
+    selectedGame: appState.selectedGame?.name ?? null,
   });
   await evaluateDropTransitions(previousCompletedIds);
   await saveState();
@@ -1149,6 +2224,10 @@ async function checkDropProgress() {
     await enforcePlaybackPolicyOnStreamTab();
     await rotateStreamerIfInvalid();
     await refreshDropsData();
+    const claimedAny = await autoClaimClaimableDrops();
+    if (claimedAny) {
+      await refreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true, forceInventoryFetch: true });
+    }
     await advanceQueueIfCompleted();
   } finally {
     monitorTickInFlight = false;
@@ -1174,6 +2253,7 @@ function stopMonitoring() {
 
 async function openBestStreamerForSelectedGame(): Promise<boolean> {
   if (!appState.selectedGame) {
+    logWarn('Unable to open streamer: no selected game');
     return false;
   }
 
@@ -1183,13 +2263,23 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
     categorySlug: resolvedSlug,
   };
 
-  const streamers = await fetchDirectoryStreamers(resolvedSlug);
+  const streamers = await fetchDirectoryStreamersFromApi(appState.selectedGame);
   const streamer = streamers.find((item) => item.viewerCount !== undefined && item.viewerCount < Number.MAX_SAFE_INTEGER) ?? streamers[0];
   if (streamer) {
-    await openMutedChannel(streamer.displayName || streamer.name, streamer.viewerCount);
+    logInfo('Opening selected streamer', {
+      game: appState.selectedGame.name,
+      streamer: streamer.name,
+      viewers: streamer.viewerCount ?? null,
+      candidates: streamers.length,
+    });
+    await openMutedChannel(streamer);
     return true;
   }
 
+  logWarn('No streamer found for selected game', {
+    game: appState.selectedGame.name,
+    categorySlug: appState.selectedGame.categorySlug ?? null,
+  });
   appState.tabId = null;
   appState.activeStreamer = null;
   return false;
@@ -1205,8 +2295,7 @@ async function ensureWorkspaceForSelectedGame(options: { cleanupExternalTabs?: b
     categorySlug: resolvedSlug,
   };
 
-  await ensureInventoryTab();
-  if (options.cleanupExternalTabs) {
+  if (options.cleanupExternalTabs && ENABLE_CONTENT_FALLBACK) {
     await closeUtilityTabsOutsideWorkspace();
   }
 }
@@ -1280,8 +2369,16 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   appState.isRunning = true;
   appState.isPaused = false;
   appState.completionNotified = false;
+  appState.workspaceWindowId = null;
+  appState.directoryTabId = null;
+  appState.dropsTabId = null;
+  appState.inventoryTabId = null;
   invalidStreamChecks = 0;
   lastStreamRotationAt = 0;
+  streamValidationGraceUntil = 0;
+  lastInventoryRefreshAt = 0;
+  dropClaimRetryAtById.clear();
+  dropClaimInFlight = false;
   monitorTickInFlight = false;
 
   await openMonitorDashboardWindow().catch(() => undefined);
@@ -1326,29 +2423,37 @@ async function rotateStreamerIfInvalid() {
     return;
   }
 
-  const gameMatches = streamGameMatchesSelection(context, appState.selectedGame);
+  const now = Date.now();
+  if (now < streamValidationGraceUntil) {
+    return;
+  }
+
   const sameChannel = !appState.activeStreamer || context.channelName === appState.activeStreamer.name;
   const hasDropsSignal = context.titleContainsDrops || context.hasDropsSignal;
-  const isValid = context.isLive && gameMatches && sameChannel && hasDropsSignal;
-  if (isValid) {
+  if (context.isLive && sameChannel && hasDropsSignal) {
     invalidStreamChecks = 0;
     return;
   }
 
-  invalidStreamChecks += context.isLive && !hasDropsSignal ? 2 : context.isLive ? 1 : 2;
+  if (!context.isLive) {
+    invalidStreamChecks += 3;
+  } else if (!sameChannel) {
+    invalidStreamChecks += 2;
+  } else if (!hasDropsSignal) {
+    invalidStreamChecks += 2;
+  } else {
+    invalidStreamChecks += 1;
+  }
   if (invalidStreamChecks < INVALID_STREAM_THRESHOLD) {
     return;
   }
 
-  const now = Date.now();
   if (now - lastStreamRotationAt < STREAM_ROTATE_COOLDOWN_MS) {
     return;
   }
 
   invalidStreamChecks = 0;
   lastStreamRotationAt = now;
-  await chrome.tabs.remove(tab.id).catch(() => undefined);
-  appState.tabId = null;
   appState.activeStreamer = null;
   await openBestStreamerForSelectedGame();
 
@@ -1359,6 +2464,10 @@ async function handleStopFarming() {
   stopMonitoring();
   invalidStreamChecks = 0;
   lastStreamRotationAt = 0;
+  streamValidationGraceUntil = 0;
+  lastInventoryRefreshAt = 0;
+  dropClaimRetryAtById.clear();
+  dropClaimInFlight = false;
   monitorTickInFlight = false;
 
   if (appState.tabId) {
@@ -1379,6 +2488,16 @@ async function handleStopFarming() {
 
 async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   const selectedGame = resolveGameFromState(payload.game);
+  logInfo('Selected game changed', {
+    payloadGameId: payload.game.id,
+    payloadCampaignId: payload.game.campaignId ?? null,
+    payloadGameName: payload.game.name,
+    gameId: selectedGame.id,
+    campaignId: selectedGame.campaignId ?? null,
+    gameName: selectedGame.name,
+    running: appState.isRunning,
+    availableGames: appState.availableGames.length,
+  });
   appState.selectedGame = selectedGame;
   appState.completionNotified = false;
   if (appState.isRunning && !appState.isPaused) {
@@ -1387,9 +2506,29 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   }
   if (appState.isRunning && !appState.isPaused) {
     await ensureWorkspaceForSelectedGame({ cleanupExternalTabs: true });
-    await refreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true });
+    await refreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true, forceInventoryFetch: true });
   } else {
-    await refreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: false });
+    await refreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true, forceInventoryFetch: true });
+  }
+  if (appState.selectedGame) {
+    const canonicalSelected = resolveGameFromState(appState.selectedGame);
+    if (canonicalSelected.id !== appState.selectedGame.id || canonicalSelected.campaignId !== appState.selectedGame.campaignId) {
+      logInfo('Selected game canonicalized after refresh', {
+        previousId: appState.selectedGame.id,
+        previousCampaignId: appState.selectedGame.campaignId ?? null,
+        nextId: canonicalSelected.id,
+        nextCampaignId: canonicalSelected.campaignId ?? null,
+        name: canonicalSelected.name,
+      });
+      appState.selectedGame = canonicalSelected;
+      splitDropsForSelectedGame(cachedDropsSnapshot.length > 0 ? cachedDropsSnapshot : appState.allDrops);
+    }
+  }
+  if (appState.pendingDrops.length === 0 && appState.completedDrops.length === 0) {
+    logWarn('No rewards found after selected game refresh', {
+      selectedGame: appState.selectedGame?.name ?? null,
+      cachedDrops: cachedDropsSnapshot.length,
+    });
   }
   if (appState.isRunning && !appState.isPaused) {
     if (appState.tabId) {
@@ -1464,8 +2603,29 @@ async function handleClearQueue() {
   return { success: true, queueLength: 0 };
 }
 
+async function handleEnsureGamesCache(payload?: { force?: boolean }) {
+  await ensureStateHydratedForCache();
+  const force = Boolean(payload?.force);
+  const shouldRefresh = shouldRefreshGamesCache(force);
+  if (shouldRefresh) {
+    await refreshGamesCacheFromHiddenFetch();
+  }
+  return {
+    success: true,
+    refreshed: shouldRefresh,
+    games: appState.availableGames,
+    fetchedAt: gamesCacheLastFetchedAt,
+  };
+}
+
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   switch (message.type) {
+    case 'ENSURE_GAMES_CACHE':
+      handleEnsureGamesCache(message.payload)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
     case 'ADD_TO_QUEUE':
       handleAddToQueue(message.payload)
         .then((result) => sendResponse(result))
@@ -1519,6 +2679,8 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       appState.availableGames = mergeAvailableGames(appState.availableGames, message.payload ?? []);
       normalizeGameSelection(appState.availableGames);
       normalizeQueueSelection(appState.availableGames);
+      gamesCacheLastFetchedAt = Date.now();
+      chrome.storage.local.set({ gamesCacheLastFetchedAt }).catch(() => undefined);
       saveState().then(() => sendResponse({ success: true }));
       return true;
 
@@ -1534,8 +2696,28 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       sendResponse({ success: false });
       return true;
 
+    case 'SYNC_TWITCH_SESSION': {
+      const incoming = sanitizeTwitchSession((message.payload as { session?: unknown } | undefined)?.session ?? message.payload);
+      if (!incoming) {
+        sendResponse({ success: false, error: 'Invalid session payload' });
+        return true;
+      }
+      twitchSessionCache = incoming;
+      persistTwitchSession(incoming)
+        .then(() => {
+          logInfo('Twitch session synced from content script', sessionDebugSummary(incoming));
+          sendResponse({ success: true });
+        })
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+    }
+
     case 'REFRESH_DROPS':
-      refreshDropsData({ includeCampaignFetch: appState.isRunning, includeInventoryFetch: appState.isRunning })
+      refreshDropsData({
+        includeCampaignFetch: true,
+        includeInventoryFetch: Boolean(appState.selectedGame?.name),
+        forceInventoryFetch: true,
+      })
         .then(() => sendResponse({ success: true }))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;

@@ -186,12 +186,18 @@ function App() {
 
   useEffect(() => {
     const loadState = async () => {
+      let hasCachedGames = false;
       try {
         const result = await chrome.storage.local.get(['appState']);
         if (result.appState) {
           setState({ ...createInitialState(), ...result.appState });
+          hasCachedGames = Array.isArray(result.appState.availableGames) && result.appState.availableGames.length > 0;
         }
-        await fetchAvailableGames();
+        if (hasCachedGames) {
+          void fetchAvailableGames();
+        } else {
+          await fetchAvailableGames();
+        }
       } catch (error) {
         console.error('Error loading state:', error);
       } finally {
@@ -246,47 +252,16 @@ function App() {
   const pendingPages = Math.max(1, Math.ceil(pendingDrops.length / 3));
   const completedPages = Math.max(1, Math.ceil(completedDrops.length / 3));
 
-  const fetchAvailableGames = async () => {
-    const tabs = await chrome.tabs.query({
-      url: ['https://www.twitch.tv/drops/campaigns*', 'https://twitch.tv/drops/campaigns*'],
-    });
-    if (tabs.length > 0) {
-      const collected: TwitchGame[] = [];
-      await Promise.all(
-        tabs
-          .filter((tab) => Boolean(tab.id))
-          .map(async (tab) => {
-            const response = (await chrome.tabs.sendMessage(tab.id as number, { type: 'FETCH_GAMES' }).catch(() => null)) as
-              | { success?: boolean; games?: TwitchGame[] }
-              | null;
-            if (response?.success && Array.isArray(response.games)) {
-              collected.push(...response.games);
-            }
-          })
-      );
-
-      if (collected.length > 0) {
-        const merged = new Map<string, TwitchGame>();
-        collected.forEach((game) => {
-          const key = game.campaignId ? `campaign:${game.campaignId}` : `id:${game.id || `${game.name}-${game.endsAt ?? ''}`}`;
-          const previous = merged.get(key);
-          merged.set(key, {
-            ...(previous ?? game),
-            ...game,
-            imageUrl: game.imageUrl || previous?.imageUrl || '',
-            dropCount: game.dropCount ?? previous?.dropCount ?? 0,
-          });
-        });
-
-        await chrome.runtime
-          .sendMessage({
-            type: 'UPDATE_GAMES',
-            payload: Array.from(merged.values()),
-          })
-          .catch(() => undefined);
-      }
-
-      await chrome.runtime.sendMessage({ type: 'REFRESH_DROPS' }).catch(() => undefined);
+  const fetchAvailableGames = async (force = false) => {
+    await chrome.runtime
+      .sendMessage({
+        type: 'ENSURE_GAMES_CACHE',
+        payload: { force },
+      })
+      .catch(() => undefined);
+    const latest = await chrome.storage.local.get(['appState']);
+    if (latest.appState) {
+      setState({ ...createInitialState(), ...latest.appState });
     }
   };
 

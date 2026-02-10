@@ -7,12 +7,12 @@
     "storage",
     "tabs",
     "scripting",
-    "notifications"
+    "notifications",
+    "cookies"
   ],
   "host_permissions": [
-    "https://www.twitch.tv/*",
-    "https://twitch.tv/*",
-    "https://player.twitch.tv/*"
+    "https://*.twitch.tv/*",
+    "https://twitch.tv/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -29,7 +29,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.twitch.tv/*", "https://twitch.tv/*", "https://player.twitch.tv/*"],
+      "matches": ["https://*.twitch.tv/*", "https://twitch.tv/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
