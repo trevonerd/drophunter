@@ -1656,6 +1656,60 @@ if (window.location.href.includes('twitch.tv/drops') || window.location.href.inc
   }
 }
 
+// Inject a main-world script to intercept Twitch's own integrity token fetches.
+// The integrity token must come from the page context (not the Service Worker)
+// because Twitch binds integrity tokens to the browser/page context.
+function injectIntegrityInterceptor() {
+  const script = document.createElement('script');
+  script.textContent = `(function(){
+    const _fetch = window.fetch;
+    window.fetch = function() {
+      const url = typeof arguments[0] === 'string' ? arguments[0] : (arguments[0] && arguments[0].url ? arguments[0].url : '');
+      const promise = _fetch.apply(this, arguments);
+      if (url.includes('gql.twitch.tv/integrity')) {
+        promise.then(function(response) {
+          var clone = response.clone();
+          clone.json().then(function(data) {
+            if (data && typeof data.token === 'string') {
+              window.dispatchEvent(new CustomEvent('__drophunter_integrity__', {
+                detail: JSON.stringify({
+                  token: data.token,
+                  expiration: data.expiration || 0,
+                  request_id: data.request_id || ''
+                })
+              }));
+            }
+          }).catch(function(){});
+        }).catch(function(){});
+      }
+      return promise;
+    };
+  })();`;
+  (document.head || document.documentElement).appendChild(script);
+  script.remove();
+}
+
+// Listen for intercepted integrity tokens from the page context
+window.addEventListener('__drophunter_integrity__', ((event: CustomEvent) => {
+  try {
+    const detail = typeof event.detail === 'string' ? JSON.parse(event.detail) : event.detail;
+    if (detail && typeof detail.token === 'string' && detail.token.length > 0) {
+      console.info(LOG_PREFIX, 'Intercepted Twitch integrity token from page', {
+        tokenLength: detail.token.length,
+        expiration: detail.expiration,
+      });
+      chrome.runtime.sendMessage({
+        type: 'SYNC_TWITCH_INTEGRITY',
+        payload: detail,
+      }).catch(() => undefined);
+    }
+  } catch {
+    // Ignore parse errors
+  }
+}) as EventListener);
+
+injectIntegrityInterceptor();
+
 window.setTimeout(() => {
   syncTwitchSessionToBackground();
 }, 900);

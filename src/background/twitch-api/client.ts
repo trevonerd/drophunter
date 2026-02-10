@@ -4,6 +4,16 @@ import { TwitchSession } from './types';
 
 const DROPS_TAG_ID = 'c2542d6d-cd10-4532-919b-3d19f30a768b';
 
+const CURRENT_USER_QUERY = {
+  operationName: 'CoreActionsCurrentUser',
+  extensions: {
+    persistedQuery: {
+      version: 1,
+      sha256Hash: '6b5b63a013cf66a995d61f71a508ab5c8e4473350c5d4136f846ba65e8101e95',
+    },
+  },
+};
+
 const VIEWER_DROPS_DASHBOARD_QUERY = {
   operationName: 'ViewerDropsDashboard',
   variables: {
@@ -365,6 +375,12 @@ export class TwitchApiClient {
 
   constructor(session: TwitchSession) {
     this.transport = new TwitchGqlTransport(session);
+  }
+
+  async fetchCurrentUserId(): Promise<string | null> {
+    const data = await this.transport.postAuthorized<{ currentUser?: { id?: string } }>(CURRENT_USER_QUERY);
+    const userId = data.currentUser?.id;
+    return typeof userId === 'string' && userId.trim() ? userId.trim() : null;
   }
 
   async fetchDropsSnapshot(): Promise<DropsSnapshot> {
