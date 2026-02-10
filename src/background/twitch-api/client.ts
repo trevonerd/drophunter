@@ -37,6 +37,9 @@ const INVENTORY_QUERY = {
   },
 };
 
+const CAMPAIGN_DETAILS_HASH = '039277bf98f3130929262cc7c6efd9c141ca3749cb6dca442fc8ead9a53f77c1';
+const CAMPAIGN_DETAILS_BATCH_SIZE = 20;
+
 const DIRECTORY_GAME_QUERY_HASH = '76cb069d835b8a02914c08dc42c421d0dafda8af5b113a3f19141824b901402f';
 const CLAIM_DROP_REWARD_QUERY = {
   operationName: 'DropsPage_ClaimDropRewards',
@@ -372,15 +375,56 @@ function extractBroadcaster(node: Record<string, unknown>): { login: string; dis
 
 export class TwitchApiClient {
   private readonly transport: TwitchGqlTransport;
+  private readonly session: TwitchSession;
 
   constructor(session: TwitchSession) {
     this.transport = new TwitchGqlTransport(session);
+    this.session = session;
   }
 
   async fetchCurrentUserId(): Promise<string | null> {
     const data = await this.transport.postAuthorized<{ currentUser?: { id?: string } }>(CURRENT_USER_QUERY);
     const userId = data.currentUser?.id;
     return typeof userId === 'string' && userId.trim() ? userId.trim() : null;
+  }
+
+  private buildCampaignDetailsQuery(campaignId: string): Record<string, unknown> {
+    return {
+      operationName: 'DropCampaignDetails',
+      variables: {
+        dropID: campaignId,
+        channelLogin: this.session.userId || '',
+      },
+      extensions: {
+        persistedQuery: {
+          version: 1,
+          sha256Hash: CAMPAIGN_DETAILS_HASH,
+        },
+      },
+    };
+  }
+
+  private async fetchCampaignDetailsBatch(
+    campaignIds: string[],
+  ): Promise<Map<string, Record<string, unknown>>> {
+    const detailsMap = new Map<string, Record<string, unknown>>();
+    for (let i = 0; i < campaignIds.length; i += CAMPAIGN_DETAILS_BATCH_SIZE) {
+      const chunk = campaignIds.slice(i, i + CAMPAIGN_DETAILS_BATCH_SIZE);
+      const queries = chunk.map((id) => this.buildCampaignDetailsQuery(id));
+      const results = await this.transport.postAuthorizedBatch<{
+        user?: { dropCampaign?: Record<string, unknown> };
+      }>(queries);
+      results.forEach((result) => {
+        const campaign = result.data?.user?.dropCampaign;
+        if (campaign && typeof campaign === 'object') {
+          const id = normalizeText(campaign.id);
+          if (id) {
+            detailsMap.set(id, campaign);
+          }
+        }
+      });
+    }
+    return detailsMap;
   }
 
   async fetchDropsSnapshot(): Promise<DropsSnapshot> {
@@ -394,23 +438,37 @@ export class TwitchApiClient {
     const campaigns = dashboardData.currentUser?.dropCampaigns ?? [];
     const inventoryMaps = buildInventoryDropMaps(inventoryData.currentUser?.inventory);
 
+    // Filter to connected, usable campaigns
+    const usableCampaigns = campaigns.filter(
+      (c) => c && typeof c === 'object' && isCampaignConnected(c) && isCampaignUsable(c),
+    );
+
+    // Fetch detailed campaign data (with timeBasedDrops) for all usable campaigns
+    const campaignIds = usableCampaigns
+      .map((c) => normalizeText(c.id))
+      .filter((id) => id.length > 0);
+
+    const detailsMap = campaignIds.length > 0
+      ? await this.fetchCampaignDetailsBatch(campaignIds)
+      : new Map<string, Record<string, unknown>>();
+
     const games: TwitchGame[] = [];
     const drops: TwitchDrop[] = [];
 
-    campaigns.forEach((campaign) => {
-      if (!campaign || typeof campaign !== 'object') {
-        return;
-      }
-      if (!isCampaignConnected(campaign) || !isCampaignUsable(campaign)) {
-        return;
-      }
-
+    usableCampaigns.forEach((campaign) => {
       const game = parseGameFromCampaign(campaign);
       if (!game) {
         return;
       }
 
-      const campaignDrops = parseCampaignDrops(campaign, game, inventoryMaps);
+      // Merge campaign details (with timeBasedDrops) into the campaign object
+      const campaignId = normalizeText(campaign.id);
+      const details = campaignId ? detailsMap.get(campaignId) : undefined;
+      const mergedCampaign = details
+        ? { ...campaign, ...details }
+        : campaign;
+
+      const campaignDrops = parseCampaignDrops(mergedCampaign, game, inventoryMaps);
       games.push({
         ...game,
         dropCount: campaignDrops.length,
