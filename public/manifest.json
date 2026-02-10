@@ -30,6 +30,12 @@
   "content_scripts": [
     {
       "matches": ["https://*.twitch.tv/*", "https://twitch.tv/*"],
+      "js": ["integrity-interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://*.twitch.tv/*", "https://twitch.tv/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

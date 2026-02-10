@@ -1656,45 +1656,40 @@ if (window.location.href.includes('twitch.tv/drops') || window.location.href.inc
   }
 }
 
-// Inject a main-world script to intercept Twitch's own integrity token fetches.
-// The integrity token must come from the page context (not the Service Worker)
-// because Twitch binds integrity tokens to the browser/page context.
-function injectIntegrityInterceptor() {
-  const script = document.createElement('script');
-  script.textContent = `(function(){
-    const _fetch = window.fetch;
-    window.fetch = function() {
-      const url = typeof arguments[0] === 'string' ? arguments[0] : (arguments[0] && arguments[0].url ? arguments[0].url : '');
-      const promise = _fetch.apply(this, arguments);
-      if (url.includes('gql.twitch.tv/integrity')) {
-        promise.then(function(response) {
-          var clone = response.clone();
-          clone.json().then(function(data) {
-            if (data && typeof data.token === 'string') {
-              window.dispatchEvent(new CustomEvent('__drophunter_integrity__', {
-                detail: JSON.stringify({
-                  token: data.token,
-                  expiration: data.expiration || 0,
-                  request_id: data.request_id || ''
-                })
-              }));
-            }
-          }).catch(function(){});
-        }).catch(function(){});
-      }
-      return promise;
-    };
-  })();`;
-  (document.head || document.documentElement).appendChild(script);
-  script.remove();
+// The integrity-interceptor.js (MAIN world, document_start) patches fetch
+// to capture Twitch's integrity tokens and stores them in sessionStorage.
+// We read from sessionStorage here and also listen for real-time updates.
+
+const INTEGRITY_STORAGE_KEY = '__drophunter_integrity__';
+
+function syncIntegrityToBackground(source: string) {
+  try {
+    const raw = window.sessionStorage.getItem(INTEGRITY_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const detail = JSON.parse(raw) as { token?: string; expiration?: number; request_id?: string };
+    if (detail && typeof detail.token === 'string' && detail.token.length > 0) {
+      console.info(LOG_PREFIX, `Integrity token from page (${source})`, {
+        tokenLength: detail.token.length,
+        expiration: detail.expiration,
+      });
+      chrome.runtime.sendMessage({
+        type: 'SYNC_TWITCH_INTEGRITY',
+        payload: detail,
+      }).catch(() => undefined);
+    }
+  } catch {
+    // Ignore parse errors
+  }
 }
 
-// Listen for intercepted integrity tokens from the page context
-window.addEventListener('__drophunter_integrity__', ((event: CustomEvent) => {
+// Listen for real-time integrity updates from the MAIN world interceptor
+window.addEventListener(INTEGRITY_STORAGE_KEY, ((event: CustomEvent) => {
   try {
     const detail = typeof event.detail === 'string' ? JSON.parse(event.detail) : event.detail;
     if (detail && typeof detail.token === 'string' && detail.token.length > 0) {
-      console.info(LOG_PREFIX, 'Intercepted Twitch integrity token from page', {
+      console.info(LOG_PREFIX, 'Intercepted Twitch integrity token (live)', {
         tokenLength: detail.token.length,
         expiration: detail.expiration,
       });
@@ -1708,8 +1703,12 @@ window.addEventListener('__drophunter_integrity__', ((event: CustomEvent) => {
   }
 }) as EventListener);
 
-injectIntegrityInterceptor();
+// Read any integrity token that was already captured before this script loaded
+syncIntegrityToBackground('sessionStorage');
 
 window.setTimeout(() => {
   syncTwitchSessionToBackground();
+  // Re-check sessionStorage in case integrity was fetched between page load
+  // and content script initialization
+  syncIntegrityToBackground('delayed-check');
 }, 900);
