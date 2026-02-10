@@ -1320,12 +1320,22 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
     logWarn('Drops snapshot API skipped: Twitch session missing');
     return null;
   }
+  if (!session.userId) {
+    logWarn('Twitch session has no userId — user may not be logged in', sessionDebugSummary(session));
+  }
+
   logInfo('Fetching drops snapshot via API', {
     forceSessionRefresh,
     ...sessionDebugSummary(session),
   });
 
   const sessionWithIntegrity = await ensureSessionIntegrity(session);
+  logInfo('Attempting Twitch drops snapshot request', {
+    mode: sessionWithIntegrity.clientIntegrity ? 'primary-with-integrity' : 'primary-no-integrity',
+    hasIntegrity: Boolean(sessionWithIntegrity.clientIntegrity),
+    oauthTokenLength: sessionWithIntegrity.oauthToken?.length ?? 0,
+    deviceIdSuffix: sessionWithIntegrity.deviceId ? sessionWithIntegrity.deviceId.slice(-6) : null,
+  });
   let client = new TwitchApiClient(sessionWithIntegrity);
   try {
     const snapshot = await client.fetchDropsSnapshot();
@@ -1341,8 +1351,15 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
     if (message.includes('integrity')) {
+      // Retry 1: refresh integrity token and retry
       const refreshedIntegritySession = await ensureSessionIntegrity(session, true);
       if (refreshedIntegritySession.clientIntegrity && refreshedIntegritySession.clientIntegrity !== sessionWithIntegrity.clientIntegrity) {
+        logInfo('Attempting Twitch drops snapshot request', {
+          mode: 'retry-refreshed-integrity',
+          hasIntegrity: true,
+          oauthTokenLength: refreshedIntegritySession.oauthToken?.length ?? 0,
+          deviceIdSuffix: refreshedIntegritySession.deviceId ? refreshedIntegritySession.deviceId.slice(-6) : null,
+        });
         try {
           client = new TwitchApiClient(refreshedIntegritySession);
           const retriedSnapshot = await client.fetchDropsSnapshot();
@@ -1354,6 +1371,26 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
         } catch (retryError) {
           console.error('Twitch API snapshot fetch failed after integrity refresh:', retryError);
         }
+      }
+
+      // Retry 2: strip integrity and try without it
+      logInfo('Attempting Twitch drops snapshot request', {
+        mode: 'retry-without-integrity',
+        hasIntegrity: false,
+        oauthTokenLength: session.oauthToken?.length ?? 0,
+        deviceIdSuffix: session.deviceId ? session.deviceId.slice(-6) : null,
+      });
+      try {
+        const sessionWithoutIntegrity: TwitchSession = { ...session, clientIntegrity: undefined };
+        client = new TwitchApiClient(sessionWithoutIntegrity);
+        const fallbackSnapshot = await client.fetchDropsSnapshot();
+        if (fallbackSnapshot.games.length === 0 && fallbackSnapshot.drops.length === 0) {
+          logWarn('Drops snapshot API retry (no integrity) returned empty payload');
+          return null;
+        }
+        return fallbackSnapshot;
+      } catch (fallbackError) {
+        console.error('Twitch API snapshot fetch failed without integrity fallback:', fallbackError);
       }
     }
     if (isLikelyAuthError(error)) {
