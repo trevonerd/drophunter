@@ -3,6 +3,7 @@ import { DropsSnapshot, ExpiryStatus, Message, TwitchDrop, TwitchGame } from '..
 const DROPS_PATH = '/drops/campaigns';
 const INVENTORY_PATH = '/drops/inventory';
 const DROPS_TAG_ID = 'c2542d6d-cd10-4532-919b-3d19f30a768b';
+const LOG_PREFIX = '[DropHunter]';
 
 function normalizeText(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -1048,53 +1049,28 @@ function parseViewerCount(text: string): number | null {
   return Math.round(num);
 }
 
-function hasDropsSignal(card: Element): boolean {
-  const explicitBadge = card.querySelector('[data-test-selector*="drops" i], [aria-label*="drops" i], [title*="drops" i]');
-  if (explicitBadge) {
-    return true;
-  }
-
-  const tokens = Array.from(card.querySelectorAll('span, p, a, div'))
-    .map((node) => normalizeForCompare(node.textContent ?? ''))
-    .filter((text) => text.length > 0 && text.length <= 48);
-
-  return tokens.some((text) => text === 'drops' || text === 'drops enabled' || text === 'drop enabled' || text === 'with drops');
-}
-
 function streamTitleHasDrops(value: string): boolean {
-  return /\bdrops?\b/i.test(normalizeText(value));
+  return /\bdrops\b/i.test(normalizeText(value));
 }
 
 function extractDirectoryCardTitle(card: Element): string {
-  const titledLink = card.querySelector('a[data-a-target="preview-card-title"], a[title][href^="/"]') as HTMLAnchorElement | null;
-  const directTitle =
-    normalizeText(titledLink?.getAttribute('title')) ||
-    normalizeText(titledLink?.textContent) ||
-    normalizeText(card.querySelector('[data-a-target="preview-card-title"]')?.textContent) ||
-    normalizeText(card.querySelector('[data-test-selector*="preview-card-title"]')?.textContent) ||
-    normalizeText(card.querySelector('h3')?.textContent) ||
-    normalizeText(card.querySelector('h2')?.textContent);
+  const titleNode = card.querySelector(
+    'a[data-test-selector="TitleAndChannel"] h4, a[data-test-selector="TitleAndChannel"] h3, h4[title], h3[title], [data-a-target="preview-card-title"], [data-test-selector*="preview-card-title"]'
+  );
+  const directTitle = normalizeText(titleNode?.getAttribute('title')) || normalizeText(titleNode?.textContent);
   if (directTitle) {
     return directTitle;
   }
 
-  const candidates = Array.from(card.querySelectorAll('p, span'))
-    .map((node) => normalizeText(node.textContent))
-    .filter((text) => text.length >= 8 && text.length <= 180);
-  return candidates.find((text) => streamTitleHasDrops(text)) ?? '';
+  const channelLink = card.querySelector('a[data-test-selector="TitleAndChannel"][aria-label]') as HTMLAnchorElement | null;
+  const ariaLabel = normalizeText(channelLink?.getAttribute('aria-label'));
+  const ariaTitle = ariaLabel.match(/\bstreaming\b\s+(.+)$/i)?.[1] ?? '';
+  return normalizeText(ariaTitle);
 }
 
 function extractDirectoryStreamers() {
   const cards = Array.from(document.querySelectorAll('article, [data-target="directory-page__card"], [data-a-target="preview-card-image-link"]'));
-  const strictCandidates: Array<{
-    id: string;
-    name: string;
-    displayName: string;
-    isLive: true;
-    viewerCount: number;
-    thumbnailUrl?: string;
-  }> = [];
-  const fallbackCandidates: Array<{
+  const strictTitleCandidates: Array<{
     id: string;
     name: string;
     displayName: string;
@@ -1106,7 +1082,9 @@ function extractDirectoryStreamers() {
   cards.forEach((card) => {
     const root = (card.closest('article, [data-target="directory-page__card"]') as Element | null) ?? card;
     const anchor =
-      (root.querySelector('a[href^="/"]') as HTMLAnchorElement | null) ||
+      (root.querySelector(
+        'a[data-a-target="preview-card-channel-link"], a[data-a-target="preview-card-image-link"], a[data-test-selector="TitleAndChannel"], a[href^="/"]'
+      ) as HTMLAnchorElement | null) ||
       (root.matches('a[href^="/"]') ? (root as HTMLAnchorElement) : null);
     if (!anchor) {
       return;
@@ -1118,12 +1096,11 @@ function extractDirectoryStreamers() {
       return;
     }
 
-    if (!hasDropsSignal(root)) {
+    const streamTitle = extractDirectoryCardTitle(root);
+    if (!streamTitleHasDrops(streamTitle)) {
       return;
     }
 
-    const streamTitle = extractDirectoryCardTitle(root);
-    const titleContainsDrops = streamTitleHasDrops(streamTitle);
     const viewersText =
       normalizeText(root.querySelector('[data-a-target="animated-channel-viewers-count"], [class*="viewer"]')?.textContent) ||
       normalizeText(root.textContent);
@@ -1136,12 +1113,7 @@ function extractDirectoryStreamers() {
       viewerCount,
       thumbnailUrl: (root.querySelector('img') as HTMLImageElement | null)?.src,
     };
-
-    if (titleContainsDrops) {
-      strictCandidates.push(candidate);
-      return;
-    }
-    fallbackCandidates.push(candidate);
+    strictTitleCandidates.push(candidate);
   });
 
   const sortAndUnique = (input: Array<{
@@ -1162,11 +1134,7 @@ function extractDirectoryStreamers() {
     return Array.from(byChannel.values()).sort((a, b) => a.viewerCount - b.viewerCount).slice(0, 25);
   };
 
-  const strict = sortAndUnique(strictCandidates);
-  if (strict.length > 0) {
-    return strict;
-  }
-  return sortAndUnique(fallbackCandidates);
+  return sortAndUnique(strictTitleCandidates);
 }
 
 function extractChannelNameFromPath(): string | null {
@@ -1397,6 +1365,116 @@ function prepareStreamPlayback() {
   return { played, unmuted, volumeAdjusted, clickedSurface, isAudioReady };
 }
 
+function getCookieValue(name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match?.[1] ? decodeURIComponent(match[1]) : '';
+}
+
+function parseTwilightUserEntry(): { oauthToken: string; userId: string } {
+  const keys = ['twilight-user', 'twilight-user-data', 'twilight-user-data-v2', '__twilight-user', 'twilight-session'];
+  const stores: Storage[] = [window.localStorage, window.sessionStorage];
+  for (const store of stores) {
+    for (const key of keys) {
+      const raw = store.getItem(key);
+      if (!raw) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const asText = (value: unknown): string => (typeof value === 'string' ? normalizeText(value) : '');
+        const parsedUser = parsed.user && typeof parsed.user === 'object' ? (parsed.user as Record<string, unknown>) : null;
+        const oauthToken = asText(parsed.authToken) || asText(parsed.token) || asText(parsed.accessToken) || asText(parsed.oauthToken);
+        const userId =
+          asText(parsed.userID) ||
+          asText(parsed.userId) ||
+          asText(parsed.id) ||
+          asText(parsedUser?.id);
+        if (oauthToken || userId) {
+          return { oauthToken, userId };
+        }
+      } catch {
+        // Ignore malformed entries.
+      }
+    }
+  }
+  return { oauthToken: '', userId: '' };
+}
+
+function createSessionUuid(): string {
+  const random = crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(random, (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+function extractTwitchSession() {
+  const twilight = parseTwilightUserEntry();
+  const oauthToken =
+    twilight.oauthToken ||
+    normalizeText(getCookieValue('auth-token')) ||
+    normalizeText(getCookieValue('__Secure-auth-token'));
+  const userId = twilight.userId;
+  const deviceId =
+    normalizeText(window.localStorage.getItem('local_copy_unique_id')) ||
+    normalizeText(window.localStorage.getItem('device_id')) ||
+    normalizeText(window.localStorage.getItem('deviceId')) ||
+    normalizeText(window.sessionStorage.getItem('local_copy_unique_id')) ||
+    normalizeText(window.sessionStorage.getItem('device_id')) ||
+    normalizeText(window.sessionStorage.getItem('deviceId')) ||
+    normalizeText(getCookieValue('unique_id')) ||
+    normalizeText(getCookieValue('__Secure-unique_id')) ||
+    normalizeText(getCookieValue('device_id'));
+  const uuid =
+    normalizeText(window.localStorage.getItem('client-session-id')) ||
+    normalizeText(window.localStorage.getItem('clientSessionId')) ||
+    normalizeText(window.sessionStorage.getItem('client-session-id')) ||
+    normalizeText(window.sessionStorage.getItem('clientSessionId')) ||
+    createSessionUuid();
+  const clientIntegrity =
+    normalizeText(window.localStorage.getItem('client-integrity')) ||
+    normalizeText(window.localStorage.getItem('clientIntegrity'));
+
+  if (!oauthToken || !deviceId) {
+    console.warn(LOG_PREFIX, 'Content session extraction failed', {
+      hasOAuthToken: Boolean(oauthToken),
+      hasUserId: Boolean(userId),
+      hasDeviceId: Boolean(deviceId),
+      hasClientIntegrity: Boolean(clientIntegrity),
+      hasCookieAuthToken: Boolean(normalizeText(getCookieValue('auth-token'))),
+      hasCookieUniqueId: Boolean(normalizeText(getCookieValue('unique_id')) || normalizeText(getCookieValue('device_id'))),
+    });
+    return null;
+  }
+
+  console.info(LOG_PREFIX, 'Content session extracted', {
+    userId,
+    oauthTokenLength: oauthToken.length,
+    hasClientIntegrity: Boolean(clientIntegrity),
+    deviceIdSuffix: deviceId.slice(-6),
+    uuid,
+  });
+
+  return {
+    oauthToken,
+    userId: userId || '',
+    deviceId,
+    uuid,
+    clientIntegrity: clientIntegrity || undefined,
+  };
+}
+
+function syncTwitchSessionToBackground() {
+  const session = extractTwitchSession();
+  if (!session) {
+    return;
+  }
+  chrome.runtime
+    .sendMessage({
+      type: 'SYNC_TWITCH_SESSION',
+      payload: { session },
+    })
+    .catch(() => undefined);
+}
+
 function showToast(message: string) {
   const id = 'drophunter-toast';
   const existing = document.getElementById(id);
@@ -1511,6 +1589,11 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       sendResponse({ success: true, streamers: extractDirectoryStreamers() });
       break;
     }
+    case 'GET_TWITCH_SESSION': {
+      const session = extractTwitchSession();
+      sendResponse({ success: Boolean(session), session });
+      break;
+    }
     case 'GET_STREAM_CONTEXT': {
       sendResponse({ success: true, context: extractStreamContext() });
       break;
@@ -1572,3 +1655,7 @@ if (window.location.href.includes('twitch.tv/drops') || window.location.href.inc
     }
   }
 }
+
+window.setTimeout(() => {
+  syncTwitchSessionToBackground();
+}, 900);
