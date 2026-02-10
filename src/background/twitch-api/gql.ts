@@ -2,9 +2,6 @@ import { DEFAULT_TWITCH_CLIENT_ID, TwitchGraphQLResponse, TwitchSession } from '
 
 const GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
 const INTEGRITY_ENDPOINT = 'https://gql.twitch.tv/integrity';
-const INTEGRITY_CLIENT_ID = 'ue6666qo983tsx6so1t0vnawi233wa';
-const INTEGRITY_CLIENT_VERSION = 'da69d5f2-ac48-4169-9574-48fee4a96513';
-const INTEGRITY_USER_AGENT = 'Mozilla/5.0 (Linux; Android 7.1; Smart Box C1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36';
 
 function createErrorFromResponse(payload: unknown): Error {
   if (Array.isArray(payload)) {
@@ -44,6 +41,7 @@ export class TwitchGqlTransport {
       ...this.buildBaseHeaders(),
       Authorization: `OAuth ${this.session.oauthToken}`,
       'X-Device-Id': this.session.deviceId,
+      'Client-Session-Id': this.session.uuid,
     };
 
     if (this.session.clientIntegrity) {
@@ -118,12 +116,10 @@ export async function fetchTwitchIntegrityToken(session: TwitchSession): Promise
   const response = await fetch(INTEGRITY_ENDPOINT, {
     method: 'POST',
     headers: {
-      'Client-Id': INTEGRITY_CLIENT_ID,
+      'Client-Id': session.clientId || DEFAULT_TWITCH_CLIENT_ID,
       Authorization: `OAuth ${session.oauthToken}`,
       'X-Device-Id': session.deviceId,
       'Client-Session-Id': session.uuid,
-      'Client-Version': INTEGRITY_CLIENT_VERSION,
-      'User-Agent': INTEGRITY_USER_AGENT,
     },
   });
 
