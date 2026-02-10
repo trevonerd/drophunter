@@ -102,6 +102,7 @@ export type MessageType =
   | 'UPDATE_GAMES'
   | 'SYNC_DROPS_DATA'
   | 'SYNC_TWITCH_SESSION'
+  | 'SYNC_TWITCH_INTEGRITY'
   | 'PLAY_ALERT'
   | 'OPEN_STREAMER';
 

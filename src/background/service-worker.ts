@@ -1016,10 +1016,39 @@ async function refreshTwitchIntegrityToken(session: TwitchSession): Promise<Twit
   }
 }
 
+async function loadPageIntegrityToken(): Promise<string | null> {
+  try {
+    const stored = (await chrome.storage.local.get(['twitchIntegrity']).catch(() => ({}))) as Record<string, unknown>;
+    const integ = stored.twitchIntegrity as { token?: string; expiration?: number } | undefined;
+    if (!integ || typeof integ.token !== 'string' || !integ.token) {
+      return null;
+    }
+    if (typeof integ.expiration === 'number' && integ.expiration > 0 && integ.expiration < Date.now()) {
+      logInfo('Page-intercepted integrity token has expired', { expiration: integ.expiration });
+      return null;
+    }
+    return integ.token;
+  } catch {
+    return null;
+  }
+}
+
 async function ensureSessionIntegrity(session: TwitchSession, forceRefresh = false): Promise<TwitchSession> {
   if (!forceRefresh && session.clientIntegrity) {
     return session;
   }
+
+  // Prefer the integrity token intercepted from the Twitch page
+  const pageToken = await loadPageIntegrityToken();
+  if (pageToken && !forceRefresh) {
+    logInfo('Using page-intercepted integrity token', { tokenLength: pageToken.length });
+    const updated: TwitchSession = { ...session, clientIntegrity: pageToken };
+    twitchSessionCache = updated;
+    await persistTwitchSession(updated);
+    return updated;
+  }
+
+  // Fallback: fetch our own integrity token from the API
   const refreshed = await refreshTwitchIntegrityToken(session);
   return refreshed ?? session;
 }
@@ -1315,13 +1344,28 @@ async function ensureTwitchSession(forceRefresh = false): Promise<TwitchSession 
 }
 
 async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<DropsSnapshot | null> {
-  const session = await ensureTwitchSession(forceSessionRefresh);
+  let session = await ensureTwitchSession(forceSessionRefresh);
   if (!session) {
     logWarn('Drops snapshot API skipped: Twitch session missing');
     return null;
   }
   if (!session.userId) {
-    logWarn('Twitch session has no userId — user may not be logged in', sessionDebugSummary(session));
+    logWarn('Twitch session has no userId — attempting auto-detect', sessionDebugSummary(session));
+    try {
+      const sessionForDetect = await ensureSessionIntegrity(session);
+      const detectClient = new TwitchApiClient(sessionForDetect);
+      const detectedId = await detectClient.fetchCurrentUserId();
+      if (detectedId) {
+        logInfo('Auto-detected Twitch userId', { userId: detectedId });
+        session = { ...session, userId: detectedId, clientIntegrity: sessionForDetect.clientIntegrity };
+        twitchSessionCache = session;
+        await persistTwitchSession(session);
+      } else {
+        logWarn('Could not auto-detect userId — user may not be logged in');
+      }
+    } catch (error) {
+      logWarn('Failed to auto-detect userId', String(error));
+    }
   }
 
   logInfo('Fetching drops snapshot via API', {
@@ -2746,6 +2790,29 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
           sendResponse({ success: true });
         })
         .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+    }
+
+    case 'SYNC_TWITCH_INTEGRITY': {
+      const payload = message.payload as { token?: string; expiration?: number; request_id?: string } | undefined;
+      const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
+      if (!token) {
+        sendResponse({ success: false, error: 'Empty integrity token' });
+        return true;
+      }
+      const expiration = typeof payload?.expiration === 'number' ? payload.expiration : 0;
+      logInfo('Integrity token synced from content script', {
+        tokenLength: token.length,
+        expiration,
+        hasSession: Boolean(twitchSessionCache),
+      });
+      if (twitchSessionCache) {
+        twitchSessionCache = { ...twitchSessionCache, clientIntegrity: token };
+        persistTwitchSession(twitchSessionCache).catch(() => undefined);
+      }
+      // Also store the full integrity object separately for expiration tracking
+      chrome.storage.local.set({ twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' } }).catch(() => undefined);
+      sendResponse({ success: true });
       return true;
     }
 

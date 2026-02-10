@@ -2,6 +2,8 @@ import { DEFAULT_TWITCH_CLIENT_ID, TwitchGraphQLResponse, TwitchSession } from '
 
 const GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
 const INTEGRITY_ENDPOINT = 'https://gql.twitch.tv/integrity';
+const INTEGRITY_CLIENT_ID = 'ue6666qo983tsx6so1t0vnawi233wa';
+const INTEGRITY_CLIENT_VERSION = 'da69d5f2-ac48-4169-9574-48fee4a96513';
 
 function createErrorFromResponse(payload: unknown): Error {
   if (Array.isArray(payload)) {
@@ -116,10 +118,11 @@ export async function fetchTwitchIntegrityToken(session: TwitchSession): Promise
   const response = await fetch(INTEGRITY_ENDPOINT, {
     method: 'POST',
     headers: {
-      'Client-Id': session.clientId || DEFAULT_TWITCH_CLIENT_ID,
+      'Client-Id': INTEGRITY_CLIENT_ID,
       Authorization: `OAuth ${session.oauthToken}`,
       'X-Device-Id': session.deviceId,
       'Client-Session-Id': session.uuid,
+      'Client-Version': INTEGRITY_CLIENT_VERSION,
     },
   });
 
