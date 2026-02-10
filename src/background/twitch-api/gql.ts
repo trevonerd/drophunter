@@ -108,6 +108,25 @@ export class TwitchGqlTransport {
 
     return typed.data;
   }
+
+  async postAuthorizedBatch<T>(payloads: unknown[]): Promise<Array<TwitchGraphQLResponse<T>>> {
+    const response = await fetch(GQL_ENDPOINT, {
+      method: 'POST',
+      headers: this.buildAuthorizedHeaders(),
+      body: JSON.stringify(payloads),
+    });
+
+    const json = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(`Twitch GQL HTTP ${response.status}`);
+    }
+
+    if (!Array.isArray(json)) {
+      throw new Error('Expected batched response from Twitch GQL.');
+    }
+
+    return json as Array<TwitchGraphQLResponse<T>>;
+  }
 }
 
 export async function fetchTwitchIntegrityToken(session: TwitchSession): Promise<string | null> {
