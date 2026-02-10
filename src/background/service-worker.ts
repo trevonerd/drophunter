@@ -668,7 +668,8 @@ async function openMonitorDashboardWindow() {
     .create({
       url,
       type: 'popup',
-      state: 'maximized',
+      width: 360,
+      height: 220,
       focused: true,
     })
     .catch(() => null);
