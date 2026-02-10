@@ -419,7 +419,7 @@ function App() {
           <select
             value={state.selectedGame?.id ?? ''}
             onChange={(e) => void handleGameSelect(e.target.value)}
-            className="min-w-0 flex-1 glass-dark rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-twitch-purple"
+            className="min-w-0 flex-1 glass-dark rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-1 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white"
             disabled={state.isRunning}
           >
             <option value="">Select a campaign...</option>
