@@ -8,6 +8,8 @@ export interface TwitchGame {
   expiresInMs?: number | null;
   expiryStatus?: ExpiryStatus;
   dropCount?: number;
+  isConnected?: boolean;
+  allowedChannels?: string[] | null; // null = any channel, string[] = restricted to these logins
 }
 
 export interface TwitchDrop {
@@ -48,6 +50,7 @@ export type DropProgressSource = 'campaign' | 'inventory';
 export interface DropsSnapshot {
   games: TwitchGame[];
   drops: TwitchDrop[];
+  campaignChannelsMap?: Record<string, string[] | null>;
   updatedAt: number;
 }
 

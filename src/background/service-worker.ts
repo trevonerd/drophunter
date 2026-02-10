@@ -9,7 +9,6 @@ const INVALID_STREAM_THRESHOLD = 8;
 const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
 const STREAM_VALIDATION_GRACE_MS = 75_000;
 const INVENTORY_REFRESH_INTERVAL_MS = 90_000;
-const GAMES_CACHE_TTL_MS = 45 * 60_000;
 const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
 const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
@@ -82,12 +81,12 @@ let invalidStreamChecks = 0;
 let lastStreamRotationAt = 0;
 let streamValidationGraceUntil = 0;
 let lastInventoryRefreshAt = 0;
-let gamesCacheLastFetchedAt = 0;
 let gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null = null;
 let twitchSessionCache: TwitchSession | null = null;
 let twitchSessionFetchInFlight: Promise<TwitchSession | null> | null = null;
 let twitchSessionLastAttemptAt = 0;
 let cachedDropsSnapshot: TwitchDrop[] = [];
+let cachedCampaignChannelsMap: Record<string, string[] | null> = {};
 let dropClaimInFlight = false;
 const dropClaimRetryAtById = new Map<string, number>();
 
@@ -98,8 +97,7 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'update') {
     appState = createInitialState();
-    gamesCacheLastFetchedAt = 0;
-    await chrome.storage.local.set({ appState, gamesCacheLastFetchedAt });
+    await chrome.storage.local.set({ appState });
     broadcastStateUpdate();
     return;
   }
@@ -211,19 +209,21 @@ function dedupeAvailableGames(games: TwitchGame[]): TwitchGame[] {
   byName.forEach((group) => {
     const withCampaign = group.filter((game) => Boolean(game.campaignId));
     if (withCampaign.length > 0) {
-      const byCampaign = new Map<string, TwitchGame[]>();
-      withCampaign.forEach((game) => {
-        const key = game.campaignId as string;
-        const current = byCampaign.get(key) ?? [];
-        current.push(game);
-        byCampaign.set(key, current);
-      });
-      byCampaign.forEach((campaignGroup) => {
-        const preferred = choosePreferredGame(campaignGroup);
-        if (preferred) {
-          deduped.push(preferred);
+      const preferred = choosePreferredGame(withCampaign);
+      if (preferred) {
+        const totalDrops = withCampaign.reduce(
+          (sum, g) => sum + (typeof g.dropCount === 'number' && Number.isFinite(g.dropCount) ? g.dropCount : 0),
+          0,
+        );
+        const hasUnrestricted = withCampaign.some((g) => !g.allowedChannels);
+        let mergedChannels: string[] | null = null;
+        if (!hasUnrestricted) {
+          const channelSet = new Set<string>();
+          withCampaign.forEach((g) => g.allowedChannels?.forEach((ch) => channelSet.add(ch)));
+          mergedChannels = channelSet.size > 0 ? Array.from(channelSet) : null;
         }
-      });
+        deduped.push({ ...preferred, dropCount: totalDrops, allowedChannels: mergedChannels });
+      }
       return;
     }
 
@@ -318,6 +318,7 @@ function mergeAvailableGames(existing: TwitchGame[], incoming: TwitchGame[]): Tw
         dropCount: 0,
       }),
       ...game,
+      categorySlug: game.categorySlug || previous?.categorySlug || undefined,
       imageUrl: game.imageUrl || previous?.imageUrl || '',
       endsAt: game.endsAt ?? previous?.endsAt ?? null,
       expiresInMs: game.expiresInMs ?? previous?.expiresInMs ?? null,
@@ -449,6 +450,10 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
       totalDrops: allDrops.length,
       sampleGameNames,
     });
+    // When farming is active, preserve previous state to avoid flickering in monitor
+    if (appState.isRunning) {
+      return;
+    }
   }
 
   const relevant = relaxedRelevant;
@@ -497,7 +502,25 @@ function updateStateFromSnapshot(snapshot: DropsSnapshot) {
   if (Array.isArray(snapshot.drops) && snapshot.drops.length > 0) {
     cachedDropsSnapshot = snapshot.drops;
   }
-  const orderedGames = mergeAvailableGames(appState.availableGames, snapshot.games);
+  if (snapshot.campaignChannelsMap) {
+    cachedCampaignChannelsMap = snapshot.campaignChannelsMap;
+  }
+  // Replace instead of merge when API provides games
+  const isExpired = (game: TwitchGame): boolean => {
+    if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)) {
+      return game.expiresInMs <= 0;
+    }
+    if (game.endsAt) {
+      const endsAtMs = new Date(game.endsAt).getTime();
+      if (Number.isFinite(endsAtMs)) {
+        return endsAtMs <= Date.now();
+      }
+    }
+    return false;
+  };
+  const orderedGames = snapshot.games.length > 0
+    ? dedupeAvailableGames(snapshot.games.filter((g) => !isExpired(g)))
+    : appState.availableGames;
   appState.availableGames = orderedGames;
   normalizeGameSelection(orderedGames);
   normalizeQueueSelection(orderedGames);
@@ -508,7 +531,6 @@ async function loadState() {
   try {
     const result = await chrome.storage.local.get([
       'appState',
-      'gamesCacheLastFetchedAt',
       TWITCH_SESSION_STORAGE_KEY,
       DROPS_SNAPSHOT_CACHE_KEY,
     ]);
@@ -524,16 +546,6 @@ async function loadState() {
       appState.dropsTabId = null;
       appState.inventoryTabId = null;
     }
-    const restoredCacheFetchedAt = Number(result.gamesCacheLastFetchedAt);
-    if (Number.isFinite(restoredCacheFetchedAt) && restoredCacheFetchedAt > 0) {
-      gamesCacheLastFetchedAt = restoredCacheFetchedAt;
-    } else if (appState.availableGames.length > 0) {
-      gamesCacheLastFetchedAt = Date.now();
-      await chrome.storage.local.set({ gamesCacheLastFetchedAt });
-    } else {
-      gamesCacheLastFetchedAt = 0;
-    }
-
     twitchSessionCache = sanitizeTwitchSession(result[TWITCH_SESSION_STORAGE_KEY] as unknown);
     logInfo('Initial Twitch session state from storage', sessionDebugSummary(twitchSessionCache));
     cachedDropsSnapshot = Array.isArray(result[DROPS_SNAPSHOT_CACHE_KEY]) ? (result[DROPS_SNAPSHOT_CACHE_KEY] as TwitchDrop[]) : [];
@@ -545,23 +557,13 @@ async function loadState() {
   }
 }
 
-function shouldRefreshGamesCache(force = false): boolean {
-  if (force) {
-    return true;
-  }
-  const hasGames = appState.availableGames.length > 0;
-  if (!hasGames) {
-    return true;
-  }
-  if (gamesCacheLastFetchedAt <= 0) {
-    return false;
-  }
-  return Date.now() - gamesCacheLastFetchedAt >= GAMES_CACHE_TTL_MS;
+function shouldRefreshGamesCache(_force = false): boolean {
+  return true;
 }
 
 async function ensureStateHydratedForCache() {
   const hasRuntimeState =
-    appState.availableGames.length > 0 || appState.queue.length > 0 || Boolean(appState.selectedGame) || appState.isRunning || gamesCacheLastFetchedAt > 0;
+    appState.availableGames.length > 0 || appState.queue.length > 0 || Boolean(appState.selectedGame) || appState.isRunning;
   if (hasRuntimeState) {
     return;
   }
@@ -578,6 +580,16 @@ function broadcastStateUpdate() {
     type: 'UPDATE_STATE',
     payload: appState,
   }).catch(() => undefined);
+
+  if (appState.currentDrop && appState.isRunning) {
+    chrome.action.setBadgeText({ text: `${appState.currentDrop.progress}%` });
+    chrome.action.setBadgeBackgroundColor({ color: '#9146FF' });
+  } else if (appState.isRunning) {
+    chrome.action.setBadgeText({ text: '...' });
+    chrome.action.setBadgeBackgroundColor({ color: '#9146FF' });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
 }
 
 function directoryUrl(gameName: string): string {
@@ -641,19 +653,11 @@ async function applyBestEffortAlwaysOnTop(windowId: number) {
 async function openMonitorDashboardWindow() {
   const url = monitorDashboardUrl();
   if (appState.monitorWindowId) {
-    const existingWindow = await chrome.windows.get(appState.monitorWindowId, { populate: true }).catch(() => null);
+    const existingWindow = await chrome.windows.get(appState.monitorWindowId).catch(() => null);
     if (existingWindow?.id) {
-      const monitorTab = existingWindow.tabs?.find((tab) => (tab.url ?? '').startsWith(url));
-      if (monitorTab?.id) {
-        await chrome.tabs.update(monitorTab.id, { active: true }).catch(() => undefined);
-      } else {
-        await chrome.tabs.create({
-          windowId: existingWindow.id,
-          url,
-          active: true,
-        }).catch(() => undefined);
-      }
-      await applyBestEffortAlwaysOnTop(existingWindow.id);
+      // Toggle: window exists, close it
+      await chrome.windows.remove(existingWindow.id).catch(() => undefined);
+      appState.monitorWindowId = null;
       await saveState();
       return { success: true };
     }
@@ -664,8 +668,7 @@ async function openMonitorDashboardWindow() {
     .create({
       url,
       type: 'popup',
-      width: 360,
-      height: 300,
+      state: 'maximized',
       focused: true,
     })
     .catch(() => null);
@@ -1463,10 +1466,12 @@ async function fetchDirectoryStreamersFromApi(game: TwitchGame, forceSessionRefr
     },
   );
   try {
-    const streamers = await client.fetchDirectoryStreamers(game.name, game.categorySlug ?? toSlug(game.name));
+    const slug = game.categorySlug ?? toSlug(game.name);
+    logInfo('Directory streamers fetching', { game: game.name, slug });
+    const streamers = await client.fetchDirectoryStreamers(game.name, slug);
     logInfo('Directory streamers fetched', {
       game: game.name,
-      categorySlug: game.categorySlug ?? toSlug(game.name),
+      slug,
       count: streamers.length,
     });
     return streamers;
@@ -1665,6 +1670,9 @@ async function refreshGamesCacheFromHiddenFetch(): Promise<TwitchGame[]> {
       if (apiSnapshot.drops.length > 0) {
         cachedDropsSnapshot = apiSnapshot.drops;
       }
+      if (apiSnapshot.campaignChannelsMap) {
+        cachedCampaignChannelsMap = apiSnapshot.campaignChannelsMap;
+      }
     } else if (ENABLE_CONTENT_FALLBACK) {
       fetchedGames = await fetchGamesFromHiddenDropsTab();
     }
@@ -1673,8 +1681,6 @@ async function refreshGamesCacheFromHiddenFetch(): Promise<TwitchGame[]> {
     appState.availableGames = mergedGames;
     normalizeGameSelection(mergedGames);
     normalizeQueueSelection(mergedGames);
-    gamesCacheLastFetchedAt = Date.now();
-    await chrome.storage.local.set({ gamesCacheLastFetchedAt });
     await saveState();
     return mergedGames;
   })().finally(() => {
@@ -1937,13 +1943,16 @@ async function fetchCategorySuggestions(gameName: string): Promise<Array<{ slug:
 }
 
 async function resolveCategorySlug(game: TwitchGame): Promise<string> {
-  if (game.categorySlug) {
-    return game.categorySlug;
-  }
-
-  const updated = appState.availableGames.find((item) => item.id === game.id || sameCampaignId(item.campaignId, game.campaignId));
+  // Prefer availableGames — may have the correct slug from content script
+  const updated = appState.availableGames.find(
+    (item) => item.id === game.id || sameCampaignId(item.campaignId, game.campaignId)
+  );
   if (updated?.categorySlug) {
     return updated.categorySlug;
+  }
+
+  if (game.categorySlug) {
+    return game.categorySlug;
   }
 
   return toSlug(game.name);
@@ -1993,6 +2002,9 @@ async function openMutedChannel(streamer: TwitchStreamer) {
         // Ignore notification failures.
       }
     }
+
+    // Mute tab at browser level (video keeps playing, audio silenced)
+    await chrome.tabs.update(managedTabId, { muted: true }).catch(() => undefined);
   };
 
   void prepareAudioWithRetry().catch(() => undefined);
@@ -2010,6 +2022,11 @@ async function openMutedChannel(streamer: TwitchStreamer) {
 
 async function enforcePlaybackPolicyOnStreamTab() {
   if (!appState.tabId) {
+    return;
+  }
+  // Only enforce playback policy during the initial grace period after opening a stream.
+  // After that the stream should be playing fine and repeated enforcement causes unnecessary tab disruption.
+  if (Date.now() >= streamValidationGraceUntil) {
     return;
   }
   const tab = await chrome.tabs.get(appState.tabId).catch(() => null);
@@ -2030,6 +2047,9 @@ async function enforcePlaybackPolicyOnStreamTab() {
       })
       .catch(() => undefined);
   }
+
+  // Re-ensure tab-level mute after playback prep
+  await chrome.tabs.update(tab.id, { muted: true }).catch(() => undefined);
 }
 
 async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string) {
@@ -2184,6 +2204,7 @@ async function autoClaimClaimableDrops(): Promise<boolean> {
       const changed = markDropClaimedLocally(drop.claimId, drop.id);
       if (changed) {
         claimedAny = true;
+        await sendAlert('drop-complete', `Claimed: ${drop.name} (${drop.gameName})`);
       }
     }
 
@@ -2228,6 +2249,9 @@ async function refreshDropsData(options: RefreshDropsOptions = {}) {
       drops = apiSnapshot.drops;
       if (apiSnapshot.drops.length > 0) {
         cachedDropsSnapshot = apiSnapshot.drops;
+      }
+      if (apiSnapshot.campaignChannelsMap) {
+        cachedCampaignChannelsMap = apiSnapshot.campaignChannelsMap;
       }
       apiSnapshotUsed = true;
     }
@@ -2338,6 +2362,15 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
     return false;
   }
 
+  // Fix 3: Pre-farming guard — skip streamer search if all drops for this game are completed
+  const dropsForGame = cachedDropsSnapshot.filter((drop) =>
+    dropMatchesSelectedGame(drop, appState.selectedGame!)
+  );
+  if (dropsForGame.length > 0 && dropsForGame.every((d) => isDropCompleted(d))) {
+    logInfo('Skipping streamer: all drops completed', { game: appState.selectedGame.name });
+    return false;
+  }
+
   const resolvedSlug = await resolveCategorySlug(appState.selectedGame);
   appState.selectedGame = {
     ...appState.selectedGame,
@@ -2345,13 +2378,57 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
   };
 
   const streamers = await fetchDirectoryStreamersFromApi(appState.selectedGame);
-  const streamer = streamers.find((item) => item.viewerCount !== undefined && item.viewerCount < Number.MAX_SAFE_INTEGER) ?? streamers[0];
+
+  // Fix 2c: Per-campaign channel filtering — only use allowedChannels from PENDING campaigns
+  const pendingDropsForGame = dropsForGame.filter((d) => !isDropCompleted(d));
+  const pendingCampaignIds = new Set(
+    pendingDropsForGame.map((d) => d.campaignId).filter((id): id is string => Boolean(id))
+  );
+  let allowed: string[] | null = null;
+  let hasUnrestrictedCampaign = false;
+  const restrictedChannels: string[] = [];
+  pendingCampaignIds.forEach((cId) => {
+    const channels = cachedCampaignChannelsMap[cId];
+    if (channels == null) {
+      hasUnrestrictedCampaign = true;
+    } else {
+      restrictedChannels.push(...channels);
+    }
+  });
+  if (!hasUnrestrictedCampaign && restrictedChannels.length > 0) {
+    allowed = [...new Set(restrictedChannels)];
+  }
+  // Fallback to game-level allowedChannels if no campaign mapping is available
+  if (pendingCampaignIds.size === 0) {
+    allowed = appState.selectedGame.allowedChannels ?? null;
+  }
+
+  logInfo('Streamer selection debug', {
+    game: appState.selectedGame.name,
+    pendingCampaignIds: Array.from(pendingCampaignIds),
+    allowedChannels: allowed ?? 'null (any channel)',
+    directoryStreamers: streamers.map((s) => s.name),
+    directoryCount: streamers.length,
+  });
+  const candidates = (allowed != null && allowed.length > 0)
+    ? streamers.filter((s) => allowed!.includes(s.name.toLowerCase()))
+    : streamers;
+  if (allowed != null && allowed.length > 0) {
+    logInfo('Filtered streamers by allowedChannels', {
+      game: appState.selectedGame.name,
+      beforeFilter: streamers.length,
+      afterFilter: candidates.length,
+      candidateNames: candidates.map((s) => s.name),
+      rejected: streamers.filter((s) => !allowed!.includes(s.name.toLowerCase())).map((s) => s.name),
+    });
+  }
+  const streamer = candidates.find((item) => item.viewerCount !== undefined && item.viewerCount < Number.MAX_SAFE_INTEGER) ?? candidates[0];
   if (streamer) {
     logInfo('Opening selected streamer', {
       game: appState.selectedGame.name,
       streamer: streamer.name,
       viewers: streamer.viewerCount ?? null,
-      candidates: streamers.length,
+      candidates: candidates.length,
     });
     await openMutedChannel(streamer);
     return true;
@@ -2462,7 +2539,6 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   dropClaimInFlight = false;
   monitorTickInFlight = false;
 
-  await openMonitorDashboardWindow().catch(() => undefined);
   await ensureWorkspaceForSelectedGame({ cleanupExternalTabs: true });
   await refreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true });
   const advanced = await advanceQueueIfCompleted();
@@ -2472,6 +2548,7 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   if (!appState.tabId && appState.selectedGame) {
     await openBestStreamerForSelectedGame();
   }
+  await openMonitorDashboardWindow().catch(() => undefined);
 
   await saveState();
   startMonitoring();
@@ -2695,7 +2772,6 @@ async function handleEnsureGamesCache(payload?: { force?: boolean }) {
     success: true,
     refreshed: shouldRefresh,
     games: appState.availableGames,
-    fetchedAt: gamesCacheLastFetchedAt,
   };
 }
 
@@ -2760,8 +2836,6 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       appState.availableGames = mergeAvailableGames(appState.availableGames, message.payload ?? []);
       normalizeGameSelection(appState.availableGames);
       normalizeQueueSelection(appState.availableGames);
-      gamesCacheLastFetchedAt = Date.now();
-      chrome.storage.local.set({ gamesCacheLastFetchedAt }).catch(() => undefined);
       saveState().then(() => sendResponse({ success: true }));
       return true;
 
