@@ -31,11 +31,13 @@ export default defineConfig({
         monitor: resolve(__dirname, 'monitor.html'),
         background: resolve(__dirname, 'src/background/service-worker.ts'),
         content: resolve(__dirname, 'src/content/content-script.ts'),
+        'integrity-interceptor': resolve(__dirname, 'src/content/integrity-interceptor.ts'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
           if (chunkInfo.name === 'background') return 'background.js';
           if (chunkInfo.name === 'content') return 'content.js';
+          if (chunkInfo.name === 'integrity-interceptor') return 'integrity-interceptor.js';
           return 'assets/[name]-[hash].js';
         },
         chunkFileNames: 'assets/[name]-[hash].js',
