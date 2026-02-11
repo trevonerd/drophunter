@@ -319,6 +319,22 @@ function buildClaimedRewardLookup(inventoryRaw: unknown): ClaimedRewardLookup {
   return lookup;
 }
 
+/** Global (cross-game) benefit ID counts — fallback when game name doesn't match between campaign and inventory */
+function buildGlobalClaimedIdCounts(inventoryRaw: unknown): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (!inventoryRaw || typeof inventoryRaw !== 'object') return counts;
+  const inventory = inventoryRaw as Record<string, unknown>;
+  const gameEventDrops = Array.isArray(inventory.gameEventDrops)
+    ? (inventory.gameEventDrops as Array<Record<string, unknown>>)
+    : [];
+  gameEventDrops.forEach((drop) => {
+    if (!drop || typeof drop !== 'object') return;
+    const benefitId = normalizeText(drop.id);
+    if (benefitId) counts.set(benefitId, (counts.get(benefitId) ?? 0) + 1);
+  });
+  return counts;
+}
+
 function isCampaignConnected(campaign: Record<string, unknown>): boolean {
   const self = campaign.self;
   if (!self || typeof self !== 'object') {
@@ -389,7 +405,7 @@ function parseGameFromCampaign(campaign: Record<string, unknown>): TwitchGame | 
   };
 }
 
-function parseCampaignDrops(campaign: Record<string, unknown>, game: TwitchGame, inventoryMaps: InventoryDropMaps, claimedRewards: ClaimedRewardLookup): TwitchDrop[] {
+function parseCampaignDrops(campaign: Record<string, unknown>, game: TwitchGame, inventoryMaps: InventoryDropMaps, claimedRewards: ClaimedRewardLookup, globalClaimedIdCounts: Map<string, number>): TwitchDrop[] {
   const campaignId = normalizeText(campaign.id) || game.campaignId || '';
   const campaignEndsAt = toIsoDate(campaign.endAt);
   const timeBasedDrops = Array.isArray(campaign.timeBasedDrops) ? (campaign.timeBasedDrops as Array<Record<string, unknown>>) : [];
@@ -431,10 +447,22 @@ function parseCampaignDrops(campaign: Record<string, unknown>, game: TwitchGame,
         }
       }
     }
-    const claimedFromGameEvents = idMatch || nameMatch;
+    // Global fallback: when per-game lookup misses (game name mismatch), check cross-game counts with consumption
+    let globalIdMatch = false;
+    if (!idMatch && !nameMatch && gameClaimedRewards == null) {
+      for (const id of benefitIds) {
+        const remaining = globalClaimedIdCounts.get(id) ?? 0;
+        if (remaining > 0) {
+          globalIdMatch = true;
+          globalClaimedIdCounts.set(id, remaining - 1);
+          break;
+        }
+      }
+    }
+    const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
     const claimedFromInventory = inventoryState?.claimed ?? Boolean(self.isClaimed ?? drop.isClaimed);
     const claimed = claimedFromGameEvents || claimedFromInventory;
-    console.info(`[parseCampaignDrops] drop="${normalizeText(drop.name)}" game="${game.name}" benefitIds=[${benefitIds.join(', ')}] benefitNames=[${benefitNames.join(', ')}] idMatch=${idMatch} nameMatch=${nameMatch} claimedFromGameEvents=${claimedFromGameEvents} claimedFromInventory=${claimedFromInventory} claimed=${claimed} hasGameClaimedRewards=${gameClaimedRewards != null}`);
+    console.info(`[parseCampaignDrops] drop="${normalizeText(drop.name)}" game="${game.name}" benefitIds=[${benefitIds.join(', ')}] benefitNames=[${benefitNames.join(', ')}] idMatch=${idMatch} nameMatch=${nameMatch} globalIdMatch=${globalIdMatch} claimedFromGameEvents=${claimedFromGameEvents} claimedFromInventory=${claimedFromInventory} claimed=${claimed} hasGameClaimedRewards=${gameClaimedRewards != null}`);
     const claimableFromApi = inventoryState?.claimable ?? Boolean(self.isClaimable ?? self.canClaim);
     const claimableFromProgress = Boolean(!claimed && requiredMinutes !== null && requiredMinutes > 0 && currentMinutes >= requiredMinutes);
     const hasDropInstance = Boolean(claimId) && !claimed;
@@ -594,7 +622,8 @@ export class TwitchApiClient {
     }
     const inventoryMaps = buildInventoryDropMaps(inventoryRaw);
     const claimedRewards = buildClaimedRewardLookup(inventoryRaw);
-    console.info(`[TwitchApiClient] Inventory maps: ${inventoryMaps.byCampaignDrop.size} campaign::drop entries, ${inventoryMaps.byDropId.size} drop entries, ${claimedRewards.size} games with claimed rewards`);
+    const globalClaimedIdCounts = buildGlobalClaimedIdCounts(inventoryRaw);
+    console.info(`[TwitchApiClient] Inventory maps: ${inventoryMaps.byCampaignDrop.size} campaign::drop entries, ${inventoryMaps.byDropId.size} drop entries, ${claimedRewards.size} games with claimed rewards, ${globalClaimedIdCounts.size} global claimed IDs`);
 
     // Filter to usable (non-expired) campaigns — show all, not just connected ones
     const usableCampaigns = campaigns.filter(
@@ -633,7 +662,7 @@ export class TwitchApiClient {
         campaignChannelsMap[campaignId] = game.allowedChannels ?? null;
       }
 
-      const campaignDrops = parseCampaignDrops(mergedCampaign, game, inventoryMaps, claimedRewards);
+      const campaignDrops = parseCampaignDrops(mergedCampaign, game, inventoryMaps, claimedRewards, globalClaimedIdCounts);
       games.push({
         ...game,
         dropCount: campaignDrops.length,

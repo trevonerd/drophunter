@@ -452,7 +452,7 @@ function App() {
         <div className="about-panel relative border-b border-white/10">
           <div className="px-4 py-3 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-bold text-white">DropHunter <span className="text-purple-300 font-normal">v1.3.0</span></p>
+              <p className="text-sm font-bold text-white">DropHunter <span className="text-purple-300 font-normal">v1.4.0</span></p>
               <button
                 type="button"
                 onClick={() => setShowAbout(false)}

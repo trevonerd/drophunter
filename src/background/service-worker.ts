@@ -237,8 +237,8 @@ function dedupeAvailableGames(games: TwitchGame[]): TwitchGame[] {
 }
 
 function tokenOverlapScore(left: string, right: string): number {
-  const leftTokens = new Set(normalizeToken(left).split(' ').filter((token) => token.length >= 2));
-  const rightTokens = new Set(normalizeToken(right).split(' ').filter((token) => token.length >= 2));
+  const leftTokens = new Set(normalizeToken(left).split(' ').filter((token) => token.length >= 3));
+  const rightTokens = new Set(normalizeToken(right).split(' ').filter((token) => token.length >= 3));
   if (leftTokens.size === 0 || rightTokens.size === 0) {
     return 0;
   }
@@ -373,7 +373,7 @@ function dropMatchesSelectedGame(drop: TwitchDrop, selected: TwitchGame): boolea
     (dropName === selectedName ||
       dropName.includes(selectedName) ||
       selectedName.includes(dropName) ||
-      tokenOverlapScore(dropName, selectedName) >= 0.5);
+      tokenOverlapScore(dropName, selectedName) > 0.5);
   const dropCategory = normalizeToken(drop.categorySlug ?? toSlug(drop.gameName));
   const byCategory = selectedCategory.length > 0 && dropCategory.length > 0 && selectedCategory === dropCategory;
   return byId || byCampaign || byName || byCategory;
@@ -430,7 +430,7 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
           const dropName = normalizeToken(drop.gameName);
           return (
             selectedName.length > 0 &&
-            (dropName.includes(selectedName) || selectedName.includes(dropName) || tokenOverlapScore(dropName, selectedName) >= 0.45)
+            (dropName.includes(selectedName) || selectedName.includes(dropName) || tokenOverlapScore(dropName, selectedName) > 0.5)
           );
         });
 
