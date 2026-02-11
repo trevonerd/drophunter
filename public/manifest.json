@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DropHunter",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Automatically farm and collect Twitch Drops — queue multiple campaigns, track progress in real time, and never miss a reward.",
   "minimum_chrome_version": "120",
   "permissions": [

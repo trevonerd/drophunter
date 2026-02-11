@@ -1,87 +1,86 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import { describe, expect, test } from 'bun:test';
 import { createInitialState, isExpiredGame, toSlug } from '../src/shared/utils.ts';
 
 // --- toSlug ---
 
 test('toSlug lowercases and slugifies', () => {
-  assert.equal(toSlug('Hello World'), 'hello-world');
+  expect(toSlug('Hello World')).toBe('hello-world');
 });
 
 test('toSlug replaces multiple non-alnum chars with single dash', () => {
-  assert.equal(toSlug('  Foo---Bar  '), 'foo-bar');
+  expect(toSlug('  Foo---Bar  ')).toBe('foo-bar');
 });
 
 test('toSlug strips leading/trailing dashes', () => {
-  assert.equal(toSlug('---test---'), 'test');
+  expect(toSlug('---test---')).toBe('test');
 });
 
 test('toSlug handles special characters', () => {
-  assert.equal(toSlug("Tom Clancy's Rainbow Six"), 'tom-clancy-s-rainbow-six');
+  expect(toSlug("Tom Clancy's Rainbow Six")).toBe('tom-clancy-s-rainbow-six');
 });
 
 test('toSlug returns empty string for empty input', () => {
-  assert.equal(toSlug(''), '');
+  expect(toSlug('')).toBe('');
 });
 
 // --- isExpiredGame ---
 
 test('isExpiredGame returns true when expiresInMs is 0', () => {
-  assert.equal(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: 0 }), true);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: 0 })).toBe(true);
 });
 
 test('isExpiredGame returns true when expiresInMs is negative', () => {
-  assert.equal(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: -1000 }), true);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: -1000 })).toBe(true);
 });
 
 test('isExpiredGame returns false when expiresInMs is positive', () => {
-  assert.equal(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: 60000 }), false);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: 60000 })).toBe(false);
 });
 
 test('isExpiredGame returns true when endsAt is in the past', () => {
   const pastDate = new Date(Date.now() - 60_000).toISOString();
-  assert.equal(isExpiredGame({ id: '1', name: 'G', imageUrl: '', endsAt: pastDate }), true);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', endsAt: pastDate })).toBe(true);
 });
 
 test('isExpiredGame returns false when endsAt is in the future', () => {
   const futureDate = new Date(Date.now() + 60_000).toISOString();
-  assert.equal(isExpiredGame({ id: '1', name: 'G', imageUrl: '', endsAt: futureDate }), false);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', endsAt: futureDate })).toBe(false);
 });
 
 test('isExpiredGame returns false when no expiry info', () => {
-  assert.equal(isExpiredGame({ id: '1', name: 'G', imageUrl: '' }), false);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '' })).toBe(false);
 });
 
 test('isExpiredGame prefers expiresInMs over endsAt', () => {
   const futureDate = new Date(Date.now() + 60_000).toISOString();
   // expiresInMs=0 means expired, even though endsAt is in the future
-  assert.equal(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: 0, endsAt: futureDate }), true);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: 0, endsAt: futureDate })).toBe(true);
 });
 
 test('isExpiredGame handles null expiresInMs gracefully', () => {
-  assert.equal(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: null }), false);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: null })).toBe(false);
 });
 
 // --- createInitialState ---
 
 test('createInitialState returns fresh state object', () => {
   const state = createInitialState();
-  assert.equal(state.isRunning, false);
-  assert.equal(state.isPaused, false);
-  assert.equal(state.selectedGame, null);
-  assert.equal(state.activeStreamer, null);
-  assert.equal(state.currentDrop, null);
-  assert.deepEqual(state.completedDrops, []);
-  assert.deepEqual(state.pendingDrops, []);
-  assert.deepEqual(state.allDrops, []);
-  assert.deepEqual(state.availableGames, []);
-  assert.deepEqual(state.queue, []);
-  assert.equal(state.completionNotified, false);
+  expect(state.isRunning).toBe(false);
+  expect(state.isPaused).toBe(false);
+  expect(state.selectedGame).toBe(null);
+  expect(state.activeStreamer).toBe(null);
+  expect(state.currentDrop).toBe(null);
+  expect(state.completedDrops).toEqual([]);
+  expect(state.pendingDrops).toEqual([]);
+  expect(state.allDrops).toEqual([]);
+  expect(state.availableGames).toEqual([]);
+  expect(state.queue).toEqual([]);
+  expect(state.completionNotified).toBe(false);
 });
 
 test('createInitialState returns independent instances', () => {
   const a = createInitialState();
   const b = createInitialState();
   a.queue.push({ id: '1', name: 'G', imageUrl: '' });
-  assert.equal(b.queue.length, 0);
+  expect(b.queue.length).toBe(0);
 });

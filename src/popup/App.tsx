@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { sortPendingDrops } from '../shared/drop-order.js';
 import { createInitialState, isExpiredGame } from '../shared/utils';
 import { AppState, ExpiryStatus, TwitchDrop, TwitchGame } from '../types';
@@ -211,6 +211,16 @@ function App() {
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
   const [showAbout, setShowAbout] = useState(false);
 
+  const fetchAvailableGames = useCallback(async (force = false) => {
+    await chrome.runtime
+      .sendMessage({ type: 'ENSURE_GAMES_CACHE', payload: { force } })
+      .catch(() => undefined);
+    const latest = await chrome.storage.local.get(['appState']);
+    if (latest.appState) {
+      setState({ ...createInitialState(), ...latest.appState });
+    }
+  }, []);
+
   useEffect(() => {
     const loadState = async () => {
       try {
@@ -236,7 +246,7 @@ function App() {
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
-  }, []);
+  }, [fetchAvailableGames]);
 
   const pendingDrops = useMemo(() => sortPendingDrops(state.pendingDrops), [state.pendingDrops]);
   const completedDrops = state.completedDrops;
@@ -253,16 +263,6 @@ function App() {
     const fallbackById = new Map(sortedGames.map((g) => [g.id, g]));
     return state.queue.map((q) => fallbackById.get(q.id) ?? q);
   }, [state.queue, sortedGames]);
-
-  const fetchAvailableGames = async (force = false) => {
-    await chrome.runtime
-      .sendMessage({ type: 'ENSURE_GAMES_CACHE', payload: { force } })
-      .catch(() => undefined);
-    const latest = await chrome.storage.local.get(['appState']);
-    if (latest.appState) {
-      setState({ ...createInitialState(), ...latest.appState });
-    }
-  };
 
   const handleGameSelect = async (gameId: string) => {
     const selected = sortedGames.find((g) => g.id === gameId);
@@ -587,8 +587,10 @@ function App() {
         {/* Pending drops */}
         <div className="glass rounded-lg border border-white/10">
           <div className="px-3 py-2 flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-gray-200">Pending ({pendingDrops.length})</h3>
-            {claimableCount > 0 && (
+            <h3 className="text-xs font-semibold text-gray-200">
+              Pending{!rewardsLoading && ` (${pendingDrops.length})`}
+            </h3>
+            {!rewardsLoading && claimableCount > 0 && (
               <span className="text-[11px] text-yellow-300 font-medium">{claimableCount} claimable</span>
             )}
           </div>

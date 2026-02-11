@@ -11,6 +11,7 @@ const FULL_REFRESH_INTERVAL_MS = 2 * 60_000;
 const INVALID_STREAM_THRESHOLD = 8;
 const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
 const STREAM_VALIDATION_GRACE_MS = 75_000;
+const PROGRESS_STALL_THRESHOLD_MS = 10 * 60_000;
 const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
 const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
@@ -76,6 +77,8 @@ let monitorTickInFlight = false;
 let invalidStreamChecks = 0;
 let lastStreamRotationAt = 0;
 let streamValidationGraceUntil = 0;
+let lastTrackedProgress = -1;
+let lastProgressAdvanceAt = 0;
 let gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null = null;
 let twitchSessionCache: TwitchSession | null = null;
 let twitchSessionFetchInFlight: Promise<TwitchSession | null> | null = null;
@@ -505,6 +508,13 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
   appState.pendingDrops = normalizedPending;
   appState.currentDrop = activeDrop ? { ...activeDrop, status: 'active' } : null;
 
+  // Track progress advances for stall detection
+  const currentProgress = appState.currentDrop?.progress ?? -1;
+  if (currentProgress > lastTrackedProgress) {
+    lastTrackedProgress = currentProgress;
+    lastProgressAdvanceAt = Date.now();
+  }
+
   logDebug('Selected game rewards updated', {
     selectedGame: selected.name,
     total: relevantForState.length,
@@ -613,11 +623,9 @@ function monitorDashboardUrl(): string {
 }
 
 async function applyBestEffortAlwaysOnTop(windowId: number) {
+  const opts = { focused: true, alwaysOnTop: true };
   await chrome.windows
-    .update(windowId, {
-      focused: true,
-      ...({ alwaysOnTop: true } as any),
-    } as any)
+    .update(windowId, opts as unknown as chrome.windows.UpdateInfo)
     .catch(() => chrome.windows.update(windowId, { focused: true }).catch(() => undefined));
 }
 
@@ -1052,7 +1060,7 @@ async function readTwitchSessionViaExecuteScript(tabId: number): Promise<TwitchS
 
 async function readTwitchSessionFromTab(tabId: number): Promise<TwitchSession | null> {
   const send = async () => chrome.tabs.sendMessage(tabId, { type: 'GET_TWITCH_SESSION' });
-  let response: any = null;
+  let response: { success?: boolean; session?: unknown } | null = null;
   try {
     response = await send();
   } catch (error) {
@@ -1337,7 +1345,7 @@ async function fetchDirectoryStreamersFromApi(
 
 async function fetchStreamContext(tabId: number): Promise<StreamContext | null> {
   const send = async () => chrome.tabs.sendMessage(tabId, { type: 'GET_STREAM_CONTEXT' });
-  let response: any;
+  let response: { success?: boolean; context?: StreamContext } | null = null;
   try {
     response = await send();
   } catch {
@@ -1545,7 +1553,7 @@ async function openMutedChannel(streamer: TwitchStreamer) {
 
     let audioReady = false;
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const prepared: any = await chrome.tabs
+      const prepared: { isAudioReady?: boolean } | null = await chrome.tabs
         .sendMessage(managedTabId, {
           type: 'PREPARE_STREAM_PLAYBACK',
         })
@@ -1604,7 +1612,7 @@ async function enforcePlaybackPolicyOnStreamTab() {
     return;
   }
   await ensureContentScriptOnTab(tab.id);
-  const prepared: any = await chrome.tabs
+  const prepared: { isAudioReady?: boolean } | null = await chrome.tabs
     .sendMessage(tab.id, {
       type: 'PREPARE_STREAM_PLAYBACK',
     })
@@ -2072,6 +2080,8 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     appState.selectedGame = nextGame;
     appState.completionNotified = false;
     invalidStreamChecks = 0;
+    lastTrackedProgress = -1;
+    lastProgressAdvanceAt = 0;
 
     await ensureWorkspaceForSelectedGame();
     await refreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true });
@@ -2119,6 +2129,8 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   invalidStreamChecks = 0;
   lastStreamRotationAt = 0;
   streamValidationGraceUntil = 0;
+  lastTrackedProgress = -1;
+  lastProgressAdvanceAt = 0;
   dropClaimRetryAtById.clear();
   dropClaimInFlight = false;
   monitorTickInFlight = false;
@@ -2172,8 +2184,19 @@ async function rotateStreamerIfInvalid() {
 
   const sameChannel = !appState.activeStreamer || context.channelName === appState.activeStreamer.name;
   const hasDropsSignal = context.titleContainsDrops || context.hasDropsSignal;
-  if (context.isLive && sameChannel && hasDropsSignal) {
-    invalidStreamChecks = 0;
+
+  // Check for progress stall: if progress hasn't advanced in PROGRESS_STALL_THRESHOLD_MS, rotate
+  const progressStalled =
+    lastProgressAdvanceAt > 0 &&
+    appState.currentDrop != null &&
+    appState.currentDrop.progress > 0 &&
+    now - lastProgressAdvanceAt >= PROGRESS_STALL_THRESHOLD_MS;
+
+  if (context.isLive && sameChannel && !progressStalled) {
+    // Stream is live and on correct channel — only rotate if progress is stalled
+    if (hasDropsSignal) {
+      invalidStreamChecks = 0;
+    }
     return;
   }
 
@@ -2181,8 +2204,12 @@ async function rotateStreamerIfInvalid() {
     invalidStreamChecks += 3;
   } else if (!sameChannel) {
     invalidStreamChecks += 2;
-  } else if (!hasDropsSignal) {
-    invalidStreamChecks += 2;
+  } else if (progressStalled) {
+    logInfo('Drop progress stalled, triggering stream rotation', {
+      progress: appState.currentDrop?.progress ?? null,
+      stalledForMs: now - lastProgressAdvanceAt,
+    });
+    invalidStreamChecks = INVALID_STREAM_THRESHOLD; // Force immediate rotation
   } else {
     invalidStreamChecks += 1;
   }
@@ -2196,6 +2223,7 @@ async function rotateStreamerIfInvalid() {
 
   invalidStreamChecks = 0;
   lastStreamRotationAt = now;
+  lastProgressAdvanceAt = Date.now(); // Reset stall timer after rotation
   appState.activeStreamer = null;
   await openBestStreamerForSelectedGame();
 
@@ -2207,6 +2235,8 @@ async function handleStopFarming() {
   invalidStreamChecks = 0;
   lastStreamRotationAt = 0;
   streamValidationGraceUntil = 0;
+  lastTrackedProgress = -1;
+  lastProgressAdvanceAt = 0;
   dropClaimRetryAtById.clear();
   dropClaimInFlight = false;
   monitorTickInFlight = false;

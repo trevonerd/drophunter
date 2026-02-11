@@ -22,8 +22,8 @@ The extension opens a muted stream tab in the background and tracks everything. 
 ## Build from source
 
 ```bash
-npm install
-npm run build
+bun install
+bun run build
 ```
 
 The compiled extension ends up in `dist/`. Load that folder as unpacked extension.
@@ -31,10 +31,10 @@ The compiled extension ends up in `dist/`. Load that folder as unpacked extensio
 ## Dev
 
 ```bash
-npm run dev       # vite dev server
-npm run build     # tsc + vite build
-npm run lint      # biome lint
-npm run test      # run tests
+bun run dev       # vite dev server
+bun run build     # vite build
+bun run lint      # biome lint
+bun test          # run tests
 ```
 
 Edit code in `src/`, rebuild, then hit the reload button on `chrome://extensions/`.

@@ -1,5 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, expect, test } from 'bun:test';
 import { pickNearestDrop, sortPendingDrops } from '../src/shared/drop-order.js';
 
 function createDrop(overrides = {}) {
@@ -23,9 +22,9 @@ test('sortPendingDrops prioritizes lower ETA first', () => {
   ];
 
   const ordered = sortPendingDrops(drops);
-  assert.equal(ordered[0].name, 'A');
-  assert.equal(ordered[1].name, 'B');
-  assert.equal(ordered[2].name, 'C');
+  expect(ordered[0].name).toBe('A');
+  expect(ordered[1].name).toBe('B');
+  expect(ordered[2].name).toBe('C');
 });
 
 test('sortPendingDrops uses nearest expiry when ETA ties', () => {
@@ -35,8 +34,8 @@ test('sortPendingDrops uses nearest expiry when ETA ties', () => {
   ];
 
   const ordered = sortPendingDrops(drops);
-  assert.equal(ordered[0].name, 'Soon');
-  assert.equal(ordered[1].name, 'Late');
+  expect(ordered[0].name).toBe('Soon');
+  expect(ordered[1].name).toBe('Late');
 });
 
 test('sortPendingDrops prefers higher progress if ETA and expiry tie', () => {
@@ -46,10 +45,10 @@ test('sortPendingDrops prefers higher progress if ETA and expiry tie', () => {
   ];
 
   const ordered = sortPendingDrops(drops);
-  assert.equal(ordered[0].name, 'High');
-  assert.equal(ordered[1].name, 'Low');
+  expect(ordered[0].name).toBe('High');
+  expect(ordered[1].name).toBe('Low');
 });
 
 test('pickNearestDrop returns null for empty collections', () => {
-  assert.equal(pickNearestDrop([]), null);
+  expect(pickNearestDrop([])).toBe(null);
 });

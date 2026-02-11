@@ -1,15 +1,16 @@
 {
   "name": "drophunter",
   "private": true,
-  "version": "1.4.2",
+  "version": "1.4.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "test": "node --test tests/*.test.mjs",
+    "build": "vite build",
+    "test": "bun test tests/",
     "lint": "biome lint .",
     "format": "biome format --write .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "typecheck": "tsc"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -28,9 +29,6 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
     "vite": "^6.0.7"
-  },
-  "engines": {
-    "node": ">=20"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,css}": [
