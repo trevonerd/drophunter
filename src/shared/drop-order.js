@@ -7,6 +7,11 @@ function expiryOrInfinity(value) {
 }
 
 export function comparePendingDrops(a, b) {
+  // Event-based (sub-only) drops always sort after time-based drops
+  const aEvent = a.dropType === 'event-based' ? 1 : 0;
+  const bEvent = b.dropType === 'event-based' ? 1 : 0;
+  if (aEvent !== bEvent) return aEvent - bEvent;
+
   const etaOrder = etaOrInfinity(a.remainingMinutes) - etaOrInfinity(b.remainingMinutes);
   if (etaOrder !== 0) {
     return etaOrder;
@@ -32,5 +37,7 @@ export function pickNearestDrop(pendingDrops) {
   if (!Array.isArray(pendingDrops) || pendingDrops.length === 0) {
     return null;
   }
-  return sortPendingDrops(pendingDrops)[0] ?? null;
+  // Exclude event-based (sub-only) drops — monitor only shows farmable drops
+  const farmable = pendingDrops.filter((d) => d.dropType !== 'event-based');
+  return farmable.length > 0 ? (sortPendingDrops(farmable)[0] ?? null) : null;
 }

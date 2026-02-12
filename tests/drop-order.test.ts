@@ -52,3 +52,36 @@ test('sortPendingDrops prefers higher progress if ETA and expiry tie', () => {
 test('pickNearestDrop returns null for empty collections', () => {
   expect(pickNearestDrop([])).toBe(null);
 });
+
+test('sortPendingDrops puts event-based drops after time-based drops', () => {
+  const drops = [
+    createDrop({ name: 'EventDrop', dropType: 'event-based', remainingMinutes: null }),
+    createDrop({ name: 'TimeDrop1', remainingMinutes: 60, expiresInMs: 100_000 }),
+    createDrop({ name: 'TimeDrop2', remainingMinutes: 30, expiresInMs: 100_000 }),
+  ];
+
+  const ordered = sortPendingDrops(drops);
+  expect(ordered[0].name).toBe('TimeDrop2');
+  expect(ordered[1].name).toBe('TimeDrop1');
+  expect(ordered[2].name).toBe('EventDrop');
+});
+
+test('pickNearestDrop excludes event-based drops', () => {
+  const drops = [
+    createDrop({ name: 'EventDrop', dropType: 'event-based', remainingMinutes: null }),
+    createDrop({ name: 'TimeDrop', remainingMinutes: 30, expiresInMs: 100_000 }),
+  ];
+
+  const nearest = pickNearestDrop(drops);
+  expect(nearest).not.toBeNull();
+  expect(nearest!.name).toBe('TimeDrop');
+});
+
+test('pickNearestDrop returns null when only event-based drops exist', () => {
+  const drops = [
+    createDrop({ name: 'EventDrop1', dropType: 'event-based', remainingMinutes: null }),
+    createDrop({ name: 'EventDrop2', dropType: 'event-based', remainingMinutes: null }),
+  ];
+
+  expect(pickNearestDrop(drops)).toBe(null);
+});

@@ -497,11 +497,12 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
     ...drop,
     status: drop.progress > 0 || Boolean(drop.claimable) ? ('active' as const) : ('pending' as const),
   }));
-  const activeCandidates = normalizedPending.filter((drop) => drop.progress > 0 || Boolean(drop.claimable));
+  // Exclude event-based (sub-only) drops from farming selection — they stay in pendingDrops for UI display
+  const farmablePending = normalizedPending.filter((drop) => drop.dropType !== 'event-based');
+  const activeCandidates = farmablePending.filter((drop) => drop.progress > 0 || Boolean(drop.claimable));
   const activeDrop =
-    (activeCandidates.length > 0 ? activeCandidates : normalizedPending)
-      .slice()
-      .sort(compareDropPriority)[0] ?? null;
+    (activeCandidates.length > 0 ? activeCandidates : farmablePending).slice().sort(compareDropPriority)[0] ??
+    null;
 
   appState.allDrops = relevantForState;
   appState.completedDrops = completed;

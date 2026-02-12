@@ -24,6 +24,7 @@ export function mergeDropProgressMonotonic(nextDrop: TwitchDrop, previousDrop: T
     requiredMinutes: mergedRequiredMinutes,
     remainingMinutes: mergedRemainingMinutes,
     progressSource: nextDrop.progressSource ?? previousDrop.progressSource,
+    dropType: nextDrop.dropType ?? previousDrop.dropType,
     status: mergedClaimed
       ? 'completed'
       : mergedClaimable

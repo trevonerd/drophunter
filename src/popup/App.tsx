@@ -132,6 +132,14 @@ function CoffeeIcon() {
   );
 }
 
+function SubIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M20 6h-2.18c.11-.31.18-.65.18-1a3 3 0 0 0-3-3c-1.05 0-1.95.56-2.56 1.35L12 4.02l-.44-.67C10.95 2.56 10.05 2 9 2a3 3 0 0 0-3 3c0 .35.07.69.18 1H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.1.89 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.11-.89-2-2-2zm-5-2c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM9 4c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm11 15H4v-2h16v2zm0-5H4V8h5.08L7 10.83 8.62 12 12 7.4 15.38 12 17 10.83 14.92 8H20v6z" />
+    </svg>
+  );
+}
+
 /* ── Compact Drop Image (32x32) ── */
 
 function CompactDropImage({ drop }: { drop: TwitchDrop }) {
@@ -157,6 +165,7 @@ function CompactDropImage({ drop }: { drop: TwitchDrop }) {
 /* ── Compact Drop Card ── */
 
 function CompactDropCard({ drop }: { drop: TwitchDrop }) {
+  const isEventBased = drop.dropType === 'event-based';
   const eta = formatEtaMinutes(drop.remainingMinutes);
   let statusText: string;
   let statusClass: string;
@@ -167,6 +176,9 @@ function CompactDropCard({ drop }: { drop: TwitchDrop }) {
   } else if (drop.claimable) {
     statusText = 'Claim!';
     statusClass = 'text-yellow-300 font-bold';
+  } else if (isEventBased) {
+    statusText = 'Sub Only';
+    statusClass = 'text-orange-400';
   } else if (drop.status === 'active') {
     statusText = 'Active';
     statusClass = 'text-blue-300';
@@ -176,25 +188,40 @@ function CompactDropCard({ drop }: { drop: TwitchDrop }) {
   }
 
   return (
-    <div className="flex items-center gap-2.5 px-3 py-2">
+    <div
+      className={`flex items-center gap-2.5 px-3 py-2${isEventBased && !drop.claimed ? ' opacity-60' : ''}`}
+    >
       <CompactDropImage drop={drop} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1">
-          <p className="text-xs font-medium text-white truncate">{drop.name}</p>
+          <p className="text-xs font-medium text-white truncate">
+            {isEventBased && (
+              <span className="text-orange-400 inline-flex align-middle mr-1">
+                <SubIcon />
+              </span>
+            )}
+            {drop.name}
+          </p>
           <span className="text-[11px] whitespace-nowrap shrink-0">
             <span className={statusClass}>{statusText}</span>
-            <span className="text-gray-500"> · {drop.progress}%</span>
-            {eta && !drop.claimed && !drop.claimable && <span className="text-gray-500"> · ETA {eta}</span>}
+            {!isEventBased && <span className="text-gray-500"> · {drop.progress}%</span>}
+            {!isEventBased && eta && !drop.claimed && !drop.claimable && (
+              <span className="text-gray-500"> · ETA {eta}</span>
+            )}
           </span>
         </div>
-        <div className="mt-1 h-1 w-full rounded-full bg-gray-800 overflow-hidden">
-          <div
-            className={`h-1 rounded-full transition-all duration-500 ${
-              drop.claimable ? 'bg-yellow-400' : 'bg-gradient-to-r from-twitch-purple to-pink-500'
-            }`}
-            style={{ width: `${drop.progress}%` }}
-          />
-        </div>
+        {isEventBased ? (
+          <p className="mt-1 text-[10px] text-orange-400/70">Subscribe to redeem</p>
+        ) : (
+          <div className="mt-1 h-1 w-full rounded-full bg-gray-800 overflow-hidden">
+            <div
+              className={`h-1 rounded-full transition-all duration-500 ${
+                drop.claimable ? 'bg-yellow-400' : 'bg-gradient-to-r from-twitch-purple to-pink-500'
+              }`}
+              style={{ width: `${drop.progress}%` }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -251,7 +278,7 @@ function App() {
   const pendingDrops = useMemo(() => sortPendingDrops(state.pendingDrops), [state.pendingDrops]);
   const completedDrops = state.completedDrops;
   const claimableCount = useMemo(
-    () => state.pendingDrops.filter((d) => d.claimable).length,
+    () => state.pendingDrops.filter((d) => d.claimable && d.dropType !== 'event-based').length,
     [state.pendingDrops],
   );
   const sortedGames = useMemo(

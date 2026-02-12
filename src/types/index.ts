@@ -31,6 +31,7 @@ export interface TwitchDrop {
   requiredMinutes?: number | null;
   remainingMinutes?: number | null;
   progressSource?: DropProgressSource;
+  dropType?: DropType;
 }
 
 export interface TwitchStreamer {
@@ -43,6 +44,7 @@ export interface TwitchStreamer {
 }
 
 export type ExpiryStatus = 'safe' | 'warning' | 'urgent' | 'unknown';
+export type DropType = 'time-based' | 'event-based';
 
 export type DropStatus = 'active' | 'pending' | 'completed';
 export type DropProgressSource = 'campaign' | 'inventory';

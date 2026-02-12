@@ -259,7 +259,11 @@ function prepareStreamPlayback() {
   const video = document.querySelector('video') as HTMLVideoElement | null;
   if (video) {
     clickElement(video);
-    if (video.muted) {
+    // Only attempt programmatic unmute when the page has received a user
+    // gesture; otherwise Chrome logs "Unmuting failed and the element was
+    // paused instead because the user didn't interact with the document
+    // before." A muted video still accrues drop watch time.
+    if (video.muted && navigator.userActivation?.hasBeenActive) {
       const wasPlaying = !video.paused;
       video.muted = false;
       // Chrome autoplay policy may pause the video when unmuted programmatically.
@@ -436,6 +440,12 @@ function showToast(message: string) {
 }
 
 function playBeep(kind: 'drop-complete' | 'all-complete') {
+  // AudioContext requires a prior user gesture; skip entirely when the page
+  // has never been activated to avoid the Chrome console warning:
+  // "The AudioContext was not allowed to start."
+  if (!navigator.userActivation?.hasBeenActive) {
+    return;
+  }
   try {
     const AudioCtx =
       window.AudioContext ||
@@ -472,8 +482,8 @@ function playBeep(kind: 'drop-complete' | 'all-complete') {
     // Close AudioContext after all oscillators finish
     const closeDelayMs = Math.max(0, (lastEnd - ctx.currentTime) * 1000) + 200;
     setTimeout(() => ctx.close().catch(() => undefined), closeDelayMs);
-  } catch (error) {
-    console.error('Unable to play audio cue:', error);
+  } catch {
+    // Audio cue is non-critical — silently ignore failures.
   }
 }
 
