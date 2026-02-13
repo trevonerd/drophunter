@@ -2173,13 +2173,34 @@ async function rotateStreamerIfInvalid() {
   }
 
   const context = await fetchStreamContext(tab.id);
-  if (!context) {
-    // If we cannot inspect, avoid aggressive churn.
-    return;
-  }
 
   const now = Date.now();
   if (now < streamValidationGraceUntil) {
+    return;
+  }
+
+  if (!context) {
+    // No stream context — tab may have navigated away from Twitch.
+    // Check the tab URL to confirm before counting as invalid.
+    const tabUrl = tab.url ?? '';
+    const isStillOnTwitch = /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(tabUrl);
+    if (!isStillOnTwitch) {
+      logInfo('Managed tab navigated away from Twitch', { tabUrl });
+      invalidStreamChecks = INVALID_STREAM_THRESHOLD; // Force immediate rotation
+    } else {
+      invalidStreamChecks += 1;
+    }
+    if (invalidStreamChecks >= INVALID_STREAM_THRESHOLD) {
+      if (now - lastStreamRotationAt < STREAM_ROTATE_COOLDOWN_MS) {
+        return;
+      }
+      invalidStreamChecks = 0;
+      lastStreamRotationAt = now;
+      lastProgressAdvanceAt = Date.now();
+      appState.activeStreamer = null;
+      await openBestStreamerForSelectedGame();
+      await saveState();
+    }
     return;
   }
 
@@ -2539,6 +2560,19 @@ chrome.tabs.onRemoved.addListener((removedTabId) => {
     appState.tabId = null;
     appState.activeStreamer = null;
     saveState().catch(() => undefined);
+  }
+});
+
+// Detect when the managed farming tab navigates away from Twitch
+chrome.tabs.onUpdated.addListener((updatedTabId, changeInfo) => {
+  if (updatedTabId !== appState.tabId || !changeInfo.url) {
+    return;
+  }
+  const isStillOnTwitch = /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(changeInfo.url);
+  if (!isStillOnTwitch) {
+    logInfo('Managed tab navigated away from Twitch (onUpdated)', { url: changeInfo.url });
+    // Force rotation on next tick by maxing the invalid counter
+    invalidStreamChecks = INVALID_STREAM_THRESHOLD;
   }
 });
 
