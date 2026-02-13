@@ -1480,17 +1480,19 @@ function resolveGameFromState(game: TwitchGame): TwitchGame {
 function evaluateDropsForGame(
   game: TwitchGame,
   drops: TwitchDrop[],
-): { allDrops: TwitchDrop[]; pendingDrops: TwitchDrop[] } {
+): { allDrops: TwitchDrop[]; pendingDrops: TwitchDrop[]; hasFarmableDrops: boolean } {
   const relevantDrops = drops.filter((drop) => dropMatchesSelectedGame(drop, game));
   const allDrops = relevantDrops;
   const pendingDrops = allDrops.filter((drop) => !isDropCompleted(drop));
-  return { allDrops, pendingDrops };
+  const hasFarmableDrops = pendingDrops.some((drop) => drop.dropType !== 'event-based');
+  return { allDrops, pendingDrops, hasFarmableDrops };
 }
 
 async function inspectGameProgress(game: TwitchGame): Promise<{
   resolvedGame: TwitchGame;
   allDrops: TwitchDrop[];
   pendingDrops: TwitchDrop[];
+  hasFarmableDrops: boolean;
 }> {
   const initialGame = resolveGameFromState(game);
   const snapshot = await fetchDropsSnapshotFromApi();
@@ -2066,8 +2068,12 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     return false;
   }
 
+  // A game is "done for farming" when we have drops data but nothing farmable remains.
+  // pendingDrops may still contain event-based (sub-only) drops, so check currentDrop
+  // which already excludes non-farmable drops.
+  const hasFarmablePending = appState.pendingDrops.some((d) => d.dropType !== 'event-based');
   const knownCompletedCurrent =
-    appState.allDrops.length > 0 && appState.pendingDrops.length === 0 && appState.currentDrop === null;
+    appState.allDrops.length > 0 && !hasFarmablePending && appState.currentDrop === null;
   if (!knownCompletedCurrent) {
     return true;
   }
@@ -2087,8 +2093,9 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     await ensureWorkspaceForSelectedGame();
     await refreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true });
 
+    const hasFarmablePendingNext = appState.pendingDrops.some((d) => d.dropType !== 'event-based');
     const knownCompletedNext =
-      appState.allDrops.length > 0 && appState.pendingDrops.length === 0 && appState.currentDrop === null;
+      appState.allDrops.length > 0 && !hasFarmablePendingNext && appState.currentDrop === null;
     if (knownCompletedNext) {
       removeGameFromQueue(nextGame);
       continue;
@@ -2357,7 +2364,7 @@ async function handleAddToQueue(payload: { game?: TwitchGame }) {
   }
 
   const inspection = await inspectGameProgress(targetGame);
-  if (inspection.allDrops.length > 0 && inspection.pendingDrops.length === 0) {
+  if (inspection.allDrops.length > 0 && !inspection.hasFarmableDrops) {
     await saveState();
     return {
       success: true,
