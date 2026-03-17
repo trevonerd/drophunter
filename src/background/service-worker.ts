@@ -17,8 +17,10 @@ const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
 const DROPS_SNAPSHOT_CACHE_KEY = 'dropsSnapshotCache';
 const TIMING_STATE_KEY = 'timingState';
+const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
 const ALARM_NAME = 'dropCheck';
 const LOG_PREFIX = '[DropHunter]';
+const INACTIVITY_RESET_MS = 60 * 60_000;
 
 interface TimingState {
   lastStreamRotationAt: number;
@@ -88,6 +90,64 @@ let cachedCampaignChannelsMap: Record<string, string[] | null> = {};
 let lastFullRefreshAt = 0;
 let dropClaimInFlight = false;
 const dropClaimRetryAtById = new Map<string, number>();
+let lastActivityAt = 0;
+
+async function markActivity(reason: string) {
+  lastActivityAt = Date.now();
+  await chrome.storage.local.set({ [LAST_ACTIVITY_AT_KEY]: lastActivityAt }).catch(() => undefined);
+  logDebug('Activity marked', { reason, lastActivityAt });
+}
+
+async function resetStateForInactivity(trigger: string, idleForMs: number) {
+  logInfo('Resetting state after inactivity', {
+    trigger,
+    idleForMs,
+    wasRunning: appState.isRunning,
+    wasPaused: appState.isPaused,
+  });
+  stopMonitoring();
+  appState = createInitialState();
+  cachedDropsSnapshot = [];
+  cachedCampaignChannelsMap = {};
+  invalidStreamChecks = 0;
+  lastStreamRotationAt = 0;
+  streamValidationGraceUntil = 0;
+  lastTrackedProgress = -1;
+  lastProgressAdvanceAt = 0;
+  lastFullRefreshAt = 0;
+  lastGamesCacheRefreshAt = 0;
+  dropClaimRetryAtById.clear();
+  lastActivityAt = Date.now();
+  await chrome.storage.local
+    .set({
+      appState,
+      [DROPS_SNAPSHOT_CACHE_KEY]: [],
+      [LAST_ACTIVITY_AT_KEY]: lastActivityAt,
+    })
+    .catch(() => undefined);
+  await chrome.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
+  await saveTimingState();
+  broadcastStateUpdate();
+}
+
+async function enforceInactivityReset(trigger: string): Promise<boolean> {
+  const reference = lastActivityAt || appState.lastSuccessfulRefreshAt || 0;
+  if (!reference) {
+    await markActivity(`${trigger}:bootstrap`);
+    return false;
+  }
+  const idleForMs = Date.now() - reference;
+  if (idleForMs < INACTIVITY_RESET_MS) {
+    return false;
+  }
+  await resetStateForInactivity(trigger, idleForMs);
+  return true;
+}
+
+async function trackActivity(reason: string) {
+  await enforceInactivityReset(`activity:${reason}`);
+  await markActivity(reason);
+}
 
 async function saveTimingState() {
   const state: TimingState = {
@@ -568,6 +628,7 @@ async function loadState() {
       'appState',
       TWITCH_SESSION_STORAGE_KEY,
       DROPS_SNAPSHOT_CACHE_KEY,
+      LAST_ACTIVITY_AT_KEY,
     ]);
     if (result.appState) {
       appState = { ...createInitialState(), ...result.appState };
@@ -580,7 +641,13 @@ async function loadState() {
     cachedDropsSnapshot = Array.isArray(result[DROPS_SNAPSHOT_CACHE_KEY])
       ? (result[DROPS_SNAPSHOT_CACHE_KEY] as TwitchDrop[])
       : [];
+    lastActivityAt =
+      typeof result[LAST_ACTIVITY_AT_KEY] === 'number' ? (result[LAST_ACTIVITY_AT_KEY] as number) : 0;
     await loadTimingState();
+    const resetForInactivity = await enforceInactivityReset('loadState');
+    if (resetForInactivity) {
+      return;
+    }
     if (appState.isRunning && !appState.isPaused) {
       startMonitoring();
     }
@@ -1515,33 +1582,6 @@ function evaluateDropsForGame(
   return { allDrops, pendingDrops, hasFarmableDrops };
 }
 
-async function inspectGameProgress(game: TwitchGame): Promise<{
-  resolvedGame: TwitchGame;
-  allDrops: TwitchDrop[];
-  pendingDrops: TwitchDrop[];
-  hasFarmableDrops: boolean;
-}> {
-  const initialGame = resolveGameFromState(game);
-  const snapshot = await fetchDropsSnapshotFromApi();
-  if (snapshot?.games?.length) {
-    appState.availableGames = mergeAvailableGames(appState.availableGames, snapshot.games);
-    normalizeGameSelection(appState.availableGames);
-    normalizeQueueSelection(appState.availableGames);
-    // Update cached drops if API returned them
-    if (snapshot.drops.length > 0) {
-      cachedDropsSnapshot = snapshot.drops;
-    }
-  }
-
-  const resolvedGame = resolveGameFromState(initialGame);
-  const candidateDrops = snapshot?.drops?.length ? snapshot.drops : cachedDropsSnapshot;
-
-  return {
-    resolvedGame,
-    ...evaluateDropsForGame(resolvedGame, candidateDrops),
-  };
-}
-
 async function focusTabWindow(tabId: number) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab?.windowId) {
@@ -1936,6 +1976,11 @@ async function checkDropProgress() {
     return;
   }
 
+  const resetForInactivity = await enforceInactivityReset('checkDropProgress');
+  if (resetForInactivity) {
+    return;
+  }
+
   if (monitorTickInFlight) {
     return;
   }
@@ -2156,6 +2201,7 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
 }
 
 async function handleStartFarming(payload: { game?: TwitchGame }) {
+  await trackActivity('start-farming');
   if (!payload?.game) {
     return { success: false, error: 'No game selected.' };
   }
@@ -2312,6 +2358,7 @@ async function rotateStreamerIfInvalid() {
 }
 
 async function handleStopFarming() {
+  await trackActivity('stop-farming');
   stopMonitoring();
   invalidStreamChecks = 0;
   lastStreamRotationAt = 0;
@@ -2339,6 +2386,7 @@ async function handleStopFarming() {
 }
 
 async function handleSetSelectedGame(payload: { game: TwitchGame }) {
+  await trackActivity('set-selected-game');
   const selectedGame = resolveGameFromState(payload.game);
   logDebug('Selected game changed', {
     payloadGameId: payload.game.id,
@@ -2408,6 +2456,7 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
 }
 
 async function handleAddToQueue(payload: { game?: TwitchGame }) {
+  await trackActivity('add-to-queue');
   if (!payload?.game) {
     return { success: false, error: 'No game provided.' };
   }
@@ -2442,6 +2491,7 @@ async function handleAddToQueue(payload: { game?: TwitchGame }) {
 }
 
 async function handleRemoveFromQueue(payload: { game?: TwitchGame; gameId?: string; campaignId?: string }) {
+  await trackActivity('remove-from-queue');
   const before = appState.queue.length;
 
   if (payload?.game) {
@@ -2466,12 +2516,14 @@ async function handleRemoveFromQueue(payload: { game?: TwitchGame; gameId?: stri
 }
 
 async function handleClearQueue() {
+  await trackActivity('clear-queue');
   appState.queue = [];
   await saveState();
   return { success: true, queueLength: 0 };
 }
 
 async function handleEnsureGamesCache(payload?: { force?: boolean }) {
+  await trackActivity('ensure-games-cache');
   await ensureStateHydratedForCache();
   const force = Boolean(payload?.force);
   const shouldRefresh = shouldRefreshGamesCache(force);
@@ -2483,6 +2535,33 @@ async function handleEnsureGamesCache(payload?: { force?: boolean }) {
     refreshed: shouldRefresh,
     games: appState.availableGames,
   };
+}
+
+async function handlePauseFarming() {
+  await trackActivity('pause-farming');
+  appState.isPaused = true;
+  stopMonitoring();
+  await saveState();
+  return { success: true };
+}
+
+async function handleResumeFarming() {
+  await trackActivity('resume-farming');
+  appState.isPaused = false;
+  invalidStreamChecks = 0;
+  startMonitoring();
+  await saveState();
+  return { success: true };
+}
+
+async function handleRefreshDrops() {
+  await trackActivity('refresh-drops');
+  await refreshDropsData({
+    includeCampaignFetch: true,
+    includeInventoryFetch: Boolean(appState.selectedGame?.name),
+    forceInventoryFetch: true,
+  });
+  return { success: true };
 }
 
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
@@ -2524,16 +2603,15 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       return true;
 
     case 'PAUSE_FARMING':
-      appState.isPaused = true;
-      stopMonitoring();
-      saveState().then(() => sendResponse({ success: true }));
+      handlePauseFarming()
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'RESUME_FARMING':
-      appState.isPaused = false;
-      invalidStreamChecks = 0;
-      startMonitoring();
-      saveState().then(() => sendResponse({ success: true }));
+      handleResumeFarming()
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'STOP_FARMING':
@@ -2601,12 +2679,8 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
     }
 
     case 'REFRESH_DROPS':
-      refreshDropsData({
-        includeCampaignFetch: true,
-        includeInventoryFetch: Boolean(appState.selectedGame?.name),
-        forceInventoryFetch: true,
-      })
-        .then(() => sendResponse({ success: true }))
+      handleRefreshDrops()
+        .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
