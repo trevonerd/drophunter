@@ -553,9 +553,9 @@ function App() {
         {queueGames.length > 0 && (
           <div className="flex flex-wrap gap-1 items-center">
             <span className="text-[11px] text-gray-500">Queue:</span>
-            {queueGames.map((game, i) => (
+            {queueGames.map((game) => (
               <span
-                key={`${game.id}-${i}`}
+                key={game.campaignId ? `campaign:${game.campaignId}` : `id:${game.id}`}
                 className="inline-flex items-center gap-0.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-200"
               >
                 {game.allDropsCompleted ? '\u2705 ' : ''}
