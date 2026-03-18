@@ -376,10 +376,15 @@ function parseGameFromCampaign(campaign: Record<string, unknown>): TwitchGame | 
 
   const game = gameRaw as Record<string, unknown>;
   const campaignId = normalizeText(campaign.id);
-  const displayName = normalizeText(game.displayName) || normalizeText(game.name);
-  if (!displayName) {
+  const gameName = normalizeText(game.displayName) || normalizeText(game.name);
+  if (!gameName) {
     return null;
   }
+  const campaignName =
+    normalizeText(campaign.name) ||
+    normalizeText(campaign.displayName) ||
+    normalizeText(campaign.title) ||
+    undefined;
 
   const categorySlug = normalizeText(game.slug) || undefined;
   const imageUrl = normalizeImageUrl(game.boxArtURL) || normalizeImageUrl(game.boxArtUrl);
@@ -406,12 +411,14 @@ function parseGameFromCampaign(campaign: Record<string, unknown>): TwitchGame | 
     }
   }
   console.info(
-    `[parseGameFromCampaign] game="${displayName}" campaign="${campaignId}" allowedChannels=${allowedChannels ? JSON.stringify(allowedChannels) : 'null (any channel)'}`,
+    `[parseGameFromCampaign] game="${gameName}" campaign="${campaignId}" campaignName="${campaignName ?? ''}" allowedChannels=${allowedChannels ? JSON.stringify(allowedChannels) : 'null (any channel)'}`,
   );
 
   return {
-    id: campaignId ? `campaign-${campaignId}` : `game-${toSlug(displayName)}`,
-    name: displayName,
+    id: campaignId ? `campaign-${campaignId}` : `game-${toSlug(gameName)}`,
+    name: gameName,
+    displayName: gameName,
+    campaignName,
     imageUrl,
     categorySlug: categorySlug || undefined,
     campaignId: campaignId || undefined,

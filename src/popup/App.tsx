@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { sortPendingDrops } from '../shared/drop-order.js';
+import { getGameDisplayLabel } from '../shared/game-selection';
 import { createInitialState, isExpiredGame } from '../shared/utils';
 import { AppState, ExpiryStatus, TwitchDrop, TwitchGame } from '../types';
 
@@ -288,7 +289,9 @@ function App() {
   );
   const sortedGames = useMemo(
     () =>
-      [...state.availableGames].filter((g) => !isExpiredGame(g)).sort((a, b) => a.name.localeCompare(b.name)),
+      [...state.availableGames]
+        .filter((g) => !isExpiredGame(g))
+        .sort((a, b) => getGameDisplayLabel(a).localeCompare(getGameDisplayLabel(b))),
     [state.availableGames],
   );
   const queueGames = useMemo(() => {
@@ -325,18 +328,18 @@ function App() {
         return;
       }
       if (response.added) {
-        setQueueMessage(`Added "${state.selectedGame.name}" to queue.`);
+        setQueueMessage(`Added "${getGameDisplayLabel(state.selectedGame)}" to queue.`);
         return;
       }
       if (response.reason === 'already-completed') {
-        setQueueMessage(`"${state.selectedGame.name}" already has all rewards completed.`);
+        setQueueMessage(`"${getGameDisplayLabel(state.selectedGame)}" already has all rewards completed.`);
         return;
       }
       if (response.reason === 'already-queued') {
-        setQueueMessage(`"${state.selectedGame.name}" is already in queue.`);
+        setQueueMessage(`"${getGameDisplayLabel(state.selectedGame)}" is already in queue.`);
         return;
       }
-      setQueueMessage(`"${state.selectedGame.name}" was not added to queue.`);
+      setQueueMessage(`"${getGameDisplayLabel(state.selectedGame)}" was not added to queue.`);
     } catch {
       setQueueMessage('Queue add failed.');
     } finally {
@@ -532,7 +535,7 @@ function App() {
             {sortedGames.map((game) => (
               <option key={game.id} value={game.id}>
                 {game.allDropsCompleted ? '\u2705 ' : game.isConnected === false ? '\u{1F512} ' : ''}
-                {game.name} · {expiryLabel(game.expiryStatus)}
+                {getGameDisplayLabel(game)} · {expiryLabel(game.expiryStatus)}
               </option>
             ))}
           </select>
@@ -559,7 +562,7 @@ function App() {
                 className="inline-flex items-center gap-0.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-200"
               >
                 {game.allDropsCompleted ? '\u2705 ' : ''}
-                {game.name}
+                {getGameDisplayLabel(game)}
                 {!state.isRunning && (
                   <button
                     onClick={() => void handleRemoveFromQueue(game)}

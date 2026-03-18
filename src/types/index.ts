@@ -1,6 +1,8 @@
 export interface TwitchGame {
   id: string;
   name: string;
+  displayName?: string;
+  campaignName?: string;
   imageUrl: string;
   categorySlug?: string;
   campaignId?: string;

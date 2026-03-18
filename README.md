@@ -19,6 +19,8 @@ Grab the latest zip from [Releases](https://github.com/trevonerd/drophunter/rele
 
 The extension opens a muted stream tab in the background and tracks everything. You'll see progress right in the popup, and the extension badge shows the current percentage. When a drop is ready it gets claimed automatically and you get a notification.
 
+If Twitch has multiple active campaigns for the same game, DropHunter now shows them as separate options in the selector, using the campaign title so you can choose the exact claimable campaign you want to farm.
+
 ## Build from source
 
 ```bash
@@ -35,6 +37,7 @@ bun run dev       # vite dev server
 bun run build     # vite build
 bun run lint      # biome lint
 bun test          # run tests
+bun run test:ts   # run TypeScript typecheck
 ```
 
 Edit code in `src/`, rebuild, then hit the reload button on `chrome://extensions/`.

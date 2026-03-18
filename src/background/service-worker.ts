@@ -1,4 +1,14 @@
 import { isDropCompleted, mergeDropProgressMonotonic } from '../shared/drops';
+import {
+  applyGameDisplayNames,
+  compareGamesForDisplayOrder,
+  dedupeGamesByIdentity,
+  dropMatchesGame,
+  findMatchingGame,
+  gameKey,
+  getGameDisplayLabel,
+  isSameGame,
+} from '../shared/game-selection';
 import { normalizeToken, tokenOverlapScore } from '../shared/matching';
 import { createInitialState, isExpiredGame, toSlug } from '../shared/utils';
 import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
@@ -236,173 +246,18 @@ function normalizeQueueSelection(games: TwitchGame[]) {
   appState.queue = normalized;
 }
 
-function gameKey(game: TwitchGame): string {
-  if (game.campaignId) {
-    return `campaign:${game.campaignId}`;
-  }
-  if (game.id) {
-    return `id:${game.id}`;
-  }
-  return `name:${normalizeToken(game.name)}::${game.endsAt ?? ''}`;
-}
-
-function gameSpecificityScore(game: TwitchGame): number {
-  let score = 0;
-  if (game.campaignId) {
-    score += 100;
-  }
-  if (typeof game.id === 'string' && game.id.startsWith('campaign-')) {
-    score += 20;
-  }
-  if (typeof game.dropCount === 'number' && Number.isFinite(game.dropCount)) {
-    score += Math.max(0, game.dropCount);
-  }
-  if (typeof game.imageUrl === 'string' && game.imageUrl.length > 0) {
-    score += 5;
-  }
-  if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs) && game.expiresInMs > 0) {
-    score += 3;
-  }
-  return score;
-}
-
-function choosePreferredGame(candidates: TwitchGame[]): TwitchGame | null {
-  if (!Array.isArray(candidates) || candidates.length === 0) {
-    return null;
-  }
-  return candidates.slice().sort((left, right) => {
-    const byScore = gameSpecificityScore(right) - gameSpecificityScore(left);
-    if (byScore !== 0) {
-      return byScore;
-    }
-    return left.name.localeCompare(right.name);
-  })[0];
-}
-
-function dedupeAvailableGames(games: TwitchGame[]): TwitchGame[] {
-  const byName = new Map<string, TwitchGame[]>();
-  games.forEach((game) => {
-    const nameKey = normalizeToken(game.name) || game.id;
-    const current = byName.get(nameKey) ?? [];
-    current.push(game);
-    byName.set(nameKey, current);
-  });
-
-  const deduped: TwitchGame[] = [];
-  byName.forEach((group) => {
-    const withCampaign = group.filter((game) => Boolean(game.campaignId));
-    if (withCampaign.length > 0) {
-      const preferred = choosePreferredGame(withCampaign);
-      if (preferred) {
-        const totalDrops = withCampaign.reduce(
-          (sum, g) =>
-            sum + (typeof g.dropCount === 'number' && Number.isFinite(g.dropCount) ? g.dropCount : 0),
-          0,
-        );
-        const hasUnrestricted = withCampaign.some((g) => !g.allowedChannels);
-        let mergedChannels: string[] | null = null;
-        if (!hasUnrestricted) {
-          const channelSet = new Set<string>();
-          withCampaign.forEach((g) => g.allowedChannels?.forEach((ch) => channelSet.add(ch)));
-          mergedChannels = channelSet.size > 0 ? Array.from(channelSet) : null;
-        }
-        deduped.push({ ...preferred, dropCount: totalDrops, allowedChannels: mergedChannels });
-      }
-      return;
-    }
-
-    const preferred = choosePreferredGame(group);
-    if (preferred) {
-      deduped.push(preferred);
-    }
-  });
-
-  return deduped.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function findMatchingGame(target: TwitchGame, source: TwitchGame[]): TwitchGame | null {
-  const targetKey = gameKey(target);
-  const exact = source.find(
-    (game) =>
-      game.id === target.id ||
-      sameCampaignId(game.campaignId, target.campaignId) ||
-      gameKey(game) === targetKey,
-  );
-  if (exact) {
-    return exact;
-  }
-
-  const targetName = normalizeToken(target.name);
-  const targetCategory = normalizeToken(target.categorySlug ?? toSlug(target.name));
-  let bestMatch: TwitchGame | null = null;
-  let bestScore = 0;
-
-  source.forEach((candidate) => {
-    const candidateName = normalizeToken(candidate.name);
-    const candidateCategory = normalizeToken(candidate.categorySlug ?? toSlug(candidate.name));
-    let score = 0;
-    if (targetName && candidateName && targetName === candidateName) {
-      score += 100;
-    }
-    if (
-      targetName &&
-      candidateName &&
-      (candidateName.includes(targetName) || targetName.includes(candidateName))
-    ) {
-      score += 40;
-    }
-    score += Math.round(tokenOverlapScore(targetName, candidateName) * 40);
-    if (targetCategory && candidateCategory && targetCategory === candidateCategory) {
-      score += 35;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = candidate;
-    }
-  });
-
-  return bestScore >= 35 ? bestMatch : null;
-}
-
 function mergeAvailableGames(existing: TwitchGame[], incoming: TwitchGame[]): TwitchGame[] {
-  const merged = new Map<string, TwitchGame>();
-  const upsert = (game: TwitchGame) => {
-    if (isExpiredGame(game)) {
-      return;
-    }
-    const key = gameKey(game);
-    const previous = merged.get(key);
-    merged.set(key, {
-      ...(previous ?? {
-        id: game.id || key.replace(/[^a-z0-9-]+/gi, '-'),
-        name: game.name,
-        imageUrl: '',
-        endsAt: null,
-        expiresInMs: null,
-        expiryStatus: 'unknown',
-        dropCount: 0,
+  return applyGameDisplayNames(
+    dedupeGamesByIdentity([...existing, ...incoming])
+      .filter((game) => !isExpiredGame(game))
+      .sort((left, right) => {
+        const byName = left.name.localeCompare(right.name);
+        if (byName !== 0) {
+          return byName;
+        }
+        return compareGamesForDisplayOrder(left, right);
       }),
-      ...game,
-      categorySlug: game.categorySlug || previous?.categorySlug || undefined,
-      imageUrl: game.imageUrl || previous?.imageUrl || '',
-      endsAt: game.endsAt ?? previous?.endsAt ?? null,
-      expiresInMs: game.expiresInMs ?? previous?.expiresInMs ?? null,
-      expiryStatus: game.expiryStatus ?? previous?.expiryStatus ?? 'unknown',
-      dropCount: game.dropCount ?? previous?.dropCount ?? 0,
-    });
-  };
-
-  existing.forEach(upsert);
-  incoming.forEach(upsert);
-  const filtered = Array.from(merged.values()).filter((game) => !isExpiredGame(game));
-  const deduped = dedupeAvailableGames(filtered);
-  if (filtered.length !== deduped.length) {
-    logDebug('Collapsed duplicate games after merge', {
-      before: filtered.length,
-      after: deduped.length,
-    });
-  }
-  return deduped;
+  );
 }
 
 function dropRemainingMinutes(drop: TwitchDrop): number {
@@ -434,21 +289,7 @@ function isDropCampaignExpired(drop: TwitchDrop): boolean {
 }
 
 function dropMatchesSelectedGame(drop: TwitchDrop, selected: TwitchGame): boolean {
-  const selectedName = normalizeToken(selected.name);
-  const selectedCategory = normalizeToken(selected.categorySlug ?? toSlug(selected.name));
-  const byId = drop.gameId === selected.id;
-  const byCampaign = sameCampaignId(drop.campaignId, selected.campaignId);
-  const dropName = normalizeToken(drop.gameName);
-  const byName =
-    selectedName.length > 0 &&
-    (dropName === selectedName ||
-      dropName.includes(selectedName) ||
-      selectedName.includes(dropName) ||
-      tokenOverlapScore(dropName, selectedName) > 0.5);
-  const dropCategory = normalizeToken(drop.categorySlug ?? toSlug(drop.gameName));
-  const byCategory =
-    selectedCategory.length > 0 && dropCategory.length > 0 && selectedCategory === dropCategory;
-  return byId || byCampaign || byName || byCategory;
+  return dropMatchesGame(drop, selected);
 }
 
 function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
@@ -501,8 +342,9 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
     });
   }
   const selectedName = normalizeToken(selected.name);
+  const shouldAllowRelaxedFallback = !selected.campaignId;
   const relaxedRelevant =
-    strictRelevant.length > 0
+    strictRelevant.length > 0 || !shouldAllowRelaxedFallback
       ? strictRelevant
       : allDrops.filter((drop) => {
           const dropName = normalizeToken(drop.gameName);
@@ -516,7 +358,7 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
 
   if (strictRelevant.length === 0 && relaxedRelevant.length > 0) {
     logWarn('Relaxed game-drop matching used for selection', {
-      selectedGame: selected.name,
+      selectedGame: getGameDisplayLabel(selected),
       selectedCampaignId: selected.campaignId ?? null,
       matchedDrops: relaxedRelevant.length,
     });
@@ -525,7 +367,7 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
   if (strictRelevant.length === 0 && relaxedRelevant.length === 0 && allDrops.length > 0) {
     const sampleGameNames = Array.from(new Set(allDrops.map((drop) => drop.gameName))).slice(0, 5);
     logWarn('No drops matched selected game', {
-      selectedGame: selected.name,
+      selectedGame: getGameDisplayLabel(selected),
       selectedCampaignId: selected.campaignId ?? null,
       totalDrops: allDrops.length,
       sampleGameNames,
@@ -585,7 +427,7 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
   }
 
   logDebug('Selected game rewards updated', {
-    selectedGame: selected.name,
+    selectedGame: getGameDisplayLabel(selected),
     total: relevantForState.length,
     pending: normalizedPending.length,
     completed: completed.length,
@@ -613,7 +455,17 @@ function updateStateFromSnapshot(snapshot: DropsSnapshot) {
   // Replace instead of merge when API provides games
   const orderedGames =
     snapshot.games.length > 0
-      ? dedupeAvailableGames(snapshot.games.filter((g) => !isExpiredGame(g)))
+      ? applyGameDisplayNames(
+          snapshot.games
+            .filter((g) => !isExpiredGame(g))
+            .sort((left, right) => {
+              const byName = left.name.localeCompare(right.name);
+              if (byName !== 0) {
+                return byName;
+              }
+              return compareGamesForDisplayOrder(left, right);
+            }),
+        )
       : appState.availableGames;
   const annotatedGames = annotateGameCompletion(orderedGames, snapshot.drops);
   appState.availableGames = annotatedGames;
@@ -1521,14 +1373,6 @@ async function refreshGamesCacheFromHiddenFetch(): Promise<TwitchGame[]> {
   return gamesCacheRefreshInFlight;
 }
 
-function isSameGame(left: TwitchGame, right: TwitchGame): boolean {
-  return (
-    left.id === right.id ||
-    sameCampaignId(left.campaignId, right.campaignId) ||
-    gameKey(left) === gameKey(right)
-  );
-}
-
 function queueContainsGame(game: TwitchGame): boolean {
   return appState.queue.some((queuedGame) => isSameGame(queuedGame, game));
 }
@@ -1544,19 +1388,24 @@ function resolveGameFromState(game: TwitchGame): TwitchGame {
       logDebug('Resolved selected game to canonical campaign', {
         inputId: game.id,
         inputCampaignId: game.campaignId ?? null,
-        inputName: game.name,
+        inputName: getGameDisplayLabel(game),
         resolvedId: resolved.id,
         resolvedCampaignId: resolved.campaignId ?? null,
-        resolvedName: resolved.name,
+        resolvedName: getGameDisplayLabel(resolved),
       });
     }
     return resolved;
   }
 
-  const byNameCandidates = appState.availableGames.filter(
-    (candidate) => normalizeToken(candidate.name) === normalizeToken(game.name),
-  );
-  const byNamePreferred = choosePreferredGame(byNameCandidates);
+  const byNameCandidates = appState.availableGames
+    .filter((candidate) => normalizeToken(candidate.name) === normalizeToken(game.name))
+    .sort((left, right) => {
+      if (Boolean(left.campaignId) !== Boolean(right.campaignId)) {
+        return left.campaignId ? 1 : -1;
+      }
+      return compareGamesForDisplayOrder(left, right);
+    });
+  const byNamePreferred = byNameCandidates[0];
   if (byNamePreferred) {
     logDebug('Resolved selected game by exact name fallback', {
       inputId: game.id,
@@ -1737,7 +1586,7 @@ async function evaluateDropTransitions(previousCompletedIds: Set<string>) {
   if (allCompleted && !appState.completionNotified) {
     await sendAlert(
       'all-complete',
-      `All rewards for ${appState.selectedGame?.name ?? 'this campaign'} are complete.`,
+      `All rewards for ${appState.selectedGame ? getGameDisplayLabel(appState.selectedGame) : 'this campaign'} are complete.`,
     );
     appState.completionNotified = true;
   }
@@ -1904,6 +1753,7 @@ async function refreshDropsData(options: RefreshDropsOptions = {}) {
     includeInventoryFetch,
     forceInventoryFetch,
     selectedGame: selectedGame?.name ?? null,
+    selectedGameLabel: selectedGame ? getGameDisplayLabel(selectedGame) : null,
     cachedDrops: cachedDropsSnapshot.length,
     currentAllDrops: appState.allDrops.length,
   });
@@ -1937,7 +1787,7 @@ async function refreshDropsData(options: RefreshDropsOptions = {}) {
   if (includeCampaignFetch && !apiSnapshotUsed && cachedDropsSnapshot.length > 0) {
     logWarn('Using cached drops snapshot because API refresh failed', {
       cachedDrops: cachedDropsSnapshot.length,
-      selectedGame: selectedGame?.name ?? null,
+      selectedGame: selectedGame ? getGameDisplayLabel(selectedGame) : null,
     });
     drops = cachedDropsSnapshot;
   }
@@ -1963,7 +1813,7 @@ async function refreshDropsData(options: RefreshDropsOptions = {}) {
     apiSnapshotUsed,
     games: games.length,
     drops: drops.length,
-    selectedGame: appState.selectedGame?.name ?? null,
+    selectedGame: appState.selectedGame ? getGameDisplayLabel(appState.selectedGame) : null,
   });
   if (!options.suppressNotifications) {
     await evaluateDropTransitions(previousCompletedIds);
@@ -2041,7 +1891,7 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
     dropMatchesSelectedGame(drop, appState.selectedGame!),
   );
   if (dropsForGame.length > 0 && dropsForGame.every((d) => isDropCompleted(d))) {
-    logInfo('Skipping streamer: all drops completed', { game: appState.selectedGame.name });
+    logInfo('Skipping streamer: all drops completed', { game: getGameDisplayLabel(appState.selectedGame) });
     return false;
   }
 
@@ -2078,7 +1928,7 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
   }
 
   logDebug('Streamer selection debug', {
-    game: appState.selectedGame.name,
+    game: getGameDisplayLabel(appState.selectedGame),
     pendingCampaignIds: Array.from(pendingCampaignIds),
     allowedChannels: allowed ?? 'null (any channel)',
     directoryStreamers: streamers.map((s) => s.name),
@@ -2090,7 +1940,7 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
       : streamers;
   if (allowed != null && allowed.length > 0) {
     logDebug('Filtered streamers by allowedChannels', {
-      game: appState.selectedGame.name,
+      game: getGameDisplayLabel(appState.selectedGame),
       beforeFilter: streamers.length,
       afterFilter: candidates.length,
       candidateNames: candidates.map((s) => s.name),
@@ -2102,7 +1952,7 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
     candidates[0];
   if (streamer) {
     logInfo('Opening selected streamer', {
-      game: appState.selectedGame.name,
+      game: getGameDisplayLabel(appState.selectedGame),
       streamer: streamer.name,
       viewers: streamer.viewerCount ?? null,
       candidates: candidates.length,
@@ -2112,7 +1962,7 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
   }
 
   logWarn('No streamer found for selected game', {
-    game: appState.selectedGame.name,
+    game: getGameDisplayLabel(appState.selectedGame),
     categorySlug: appState.selectedGame.categorySlug ?? null,
   });
   appState.tabId = null;
@@ -2391,10 +2241,10 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   logDebug('Selected game changed', {
     payloadGameId: payload.game.id,
     payloadCampaignId: payload.game.campaignId ?? null,
-    payloadGameName: payload.game.name,
+    payloadGameName: getGameDisplayLabel(payload.game),
     gameId: selectedGame.id,
     campaignId: selectedGame.campaignId ?? null,
-    gameName: selectedGame.name,
+    gameName: getGameDisplayLabel(selectedGame),
     running: appState.isRunning,
     availableGames: appState.availableGames.length,
   });
@@ -2431,7 +2281,7 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
         previousCampaignId: appState.selectedGame.campaignId ?? null,
         nextId: canonicalSelected.id,
         nextCampaignId: canonicalSelected.campaignId ?? null,
-        name: canonicalSelected.name,
+        name: getGameDisplayLabel(canonicalSelected),
       });
       appState.selectedGame = canonicalSelected;
       splitDropsForSelectedGame(cachedDropsSnapshot.length > 0 ? cachedDropsSnapshot : appState.allDrops);
@@ -2439,7 +2289,7 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   }
   if (appState.pendingDrops.length === 0 && appState.completedDrops.length === 0) {
     logWarn('No rewards found after selected game refresh', {
-      selectedGame: appState.selectedGame?.name ?? null,
+      selectedGame: appState.selectedGame ? getGameDisplayLabel(appState.selectedGame) : null,
       cachedDrops: cachedDropsSnapshot.length,
     });
   }
@@ -2558,7 +2408,7 @@ async function handleRefreshDrops() {
   await trackActivity('refresh-drops');
   await refreshDropsData({
     includeCampaignFetch: true,
-    includeInventoryFetch: Boolean(appState.selectedGame?.name),
+    includeInventoryFetch: Boolean(appState.selectedGame),
     forceInventoryFetch: true,
   });
   return { success: true };
