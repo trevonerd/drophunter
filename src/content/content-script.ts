@@ -151,11 +151,10 @@ function prepareStreamPlayback() {
   if (!channelName) {
     return {
       played: false,
-      unmuted: false,
-      volumeAdjusted: false,
       clickedSurface: false,
-      isAudioReady: false,
+      isPlaybackReady: false,
       gateDismissed: false,
+      userInteractionRequired: false,
     };
   }
 
@@ -174,17 +173,14 @@ function prepareStreamPlayback() {
     gateButton.dispatchEvent(clickEvt);
     return {
       played: false,
-      unmuted: false,
-      volumeAdjusted: false,
       clickedSurface: false,
-      isAudioReady: false,
+      isPlaybackReady: false,
       gateDismissed: true,
+      userInteractionRequired: false,
     };
   }
 
   let played = false;
-  let unmuted = false;
-  let volumeAdjusted = false;
   let clickedSurface = false;
 
   const clickElement = (element: Element | null | undefined) => {
@@ -226,7 +222,6 @@ function prepareStreamPlayback() {
     const label = normalizeForCompare(muteButton.getAttribute('aria-label') ?? muteButton.textContent ?? '');
     if (label.includes('unmute')) {
       muteButton.click();
-      unmuted = true;
     }
   }
 
@@ -239,45 +234,17 @@ function prepareStreamPlayback() {
     );
     if (label.includes('unmute')) {
       overlayUnmuteButton.click();
-      unmuted = true;
-    }
-  }
-
-  const volumeSlider = document.querySelector(
-    'input[data-a-target="player-volume-slider"]',
-  ) as HTMLInputElement | null;
-  if (volumeSlider) {
-    const currentValue = Number.parseFloat(volumeSlider.value || '0');
-    if (!Number.isFinite(currentValue) || currentValue <= 0.01) {
-      volumeSlider.value = '0.35';
-      volumeSlider.dispatchEvent(new Event('input', { bubbles: true }));
-      volumeSlider.dispatchEvent(new Event('change', { bubbles: true }));
-      volumeAdjusted = true;
     }
   }
 
   const video = document.querySelector('video') as HTMLVideoElement | null;
   if (video) {
     clickElement(video);
-    // Only attempt programmatic unmute when the page has received a user
-    // gesture; otherwise Chrome logs "Unmuting failed and the element was
-    // paused instead because the user didn't interact with the document
-    // before." A muted video still accrues drop watch time.
     if (video.muted && navigator.userActivation?.hasBeenActive) {
-      const wasPlaying = !video.paused;
       video.muted = false;
-      // Chrome autoplay policy may pause the video when unmuted programmatically.
-      // Revert to muted playback — a playing muted video still accrues drop watch time.
-      if (wasPlaying && video.paused) {
-        video.muted = true;
-        video.play().catch(() => undefined);
-      } else {
-        unmuted = true;
-      }
     }
     if (video.volume <= 0.01) {
       video.volume = 0.35;
-      volumeAdjusted = true;
     }
     if (video.paused) {
       video.play().catch(() => undefined);
@@ -285,8 +252,9 @@ function prepareStreamPlayback() {
     }
   }
 
-  const isAudioReady = Boolean(video && !video.paused && !video.muted && video.volume > 0.01);
-  return { played, unmuted, volumeAdjusted, clickedSurface, isAudioReady, gateDismissed: false };
+  const isPlaybackReady = Boolean(video && !video.paused);
+  const userInteractionRequired = Boolean(video && (video.paused || video.muted || video.volume <= 0.01));
+  return { played, clickedSurface, isPlaybackReady, gateDismissed: false, userInteractionRequired };
 }
 
 function getCookieValue(name: string): string {

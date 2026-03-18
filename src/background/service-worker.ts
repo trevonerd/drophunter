@@ -12,6 +12,13 @@ import {
 import { normalizeToken, tokenOverlapScore } from '../shared/matching';
 import { createInitialState, isExpiredGame, toSlug } from '../shared/utils';
 import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import {
+  didDropProgressAdvance,
+  MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
+  nextNoProgressRotationAttempts,
+  shouldIncrementNoProgressRotationAttempts,
+  StreamRotationReason,
+} from './stream-rotation';
 import { TwitchApiClient } from './twitch-api/client';
 import { fetchTwitchIntegrityToken } from './twitch-api/gql';
 import { isLikelyAuthError, sanitizeTwitchSession, TwitchSession } from './twitch-api/types';
@@ -24,6 +31,7 @@ const STREAM_VALIDATION_GRACE_MS = 75_000;
 const PROGRESS_STALL_THRESHOLD_MS = 10 * 60_000;
 const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
 const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
+const MONITOR_AUTO_OPEN_DELAY_MS = 450;
 const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
 const DROPS_SNAPSHOT_CACHE_KEY = 'dropsSnapshotCache';
 const TIMING_STATE_KEY = 'timingState';
@@ -36,6 +44,7 @@ interface TimingState {
   lastStreamRotationAt: number;
   streamValidationGraceUntil: number;
   invalidStreamChecks: number;
+  noProgressRotationAttempts: number;
   twitchSessionLastAttemptAt: number;
   dropClaimRetryAtById: Record<string, number>;
 }
@@ -49,6 +58,12 @@ interface StreamContext {
   hasDropsSignal: boolean;
   isLive: boolean;
   pageUrl: string;
+}
+
+interface PlaybackPrepResult {
+  gateDismissed?: boolean;
+  isPlaybackReady?: boolean;
+  userInteractionRequired?: boolean;
 }
 
 const DEBUG = true;
@@ -91,6 +106,8 @@ let lastStreamRotationAt = 0;
 let streamValidationGraceUntil = 0;
 let lastTrackedProgress = -1;
 let lastProgressAdvanceAt = 0;
+let noProgressRotationAttempts = 0;
+let playbackAttentionWarningSent = false;
 let gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null = null;
 let twitchSessionCache: TwitchSession | null = null;
 let twitchSessionFetchInFlight: Promise<TwitchSession | null> | null = null;
@@ -119,11 +136,7 @@ async function resetStateForInactivity(trigger: string, idleForMs: number) {
   appState = createInitialState();
   cachedDropsSnapshot = [];
   cachedCampaignChannelsMap = {};
-  invalidStreamChecks = 0;
-  lastStreamRotationAt = 0;
-  streamValidationGraceUntil = 0;
-  lastTrackedProgress = -1;
-  lastProgressAdvanceAt = 0;
+  resetStreamTrackingState();
   lastFullRefreshAt = 0;
   lastGamesCacheRefreshAt = 0;
   dropClaimRetryAtById.clear();
@@ -164,6 +177,7 @@ async function saveTimingState() {
     lastStreamRotationAt,
     streamValidationGraceUntil,
     invalidStreamChecks,
+    noProgressRotationAttempts,
     twitchSessionLastAttemptAt,
     dropClaimRetryAtById: Object.fromEntries(dropClaimRetryAtById),
   };
@@ -178,6 +192,7 @@ async function loadTimingState() {
     lastStreamRotationAt = saved.lastStreamRotationAt ?? 0;
     streamValidationGraceUntil = saved.streamValidationGraceUntil ?? 0;
     invalidStreamChecks = saved.invalidStreamChecks ?? 0;
+    noProgressRotationAttempts = saved.noProgressRotationAttempts ?? 0;
     twitchSessionLastAttemptAt = saved.twitchSessionLastAttemptAt ?? 0;
     if (saved.dropClaimRetryAtById) {
       dropClaimRetryAtById.clear();
@@ -244,6 +259,58 @@ function normalizeQueueSelection(games: TwitchGame[]) {
   });
 
   appState.queue = normalized;
+}
+
+function resetNoProgressRotationAttempts() {
+  noProgressRotationAttempts = 0;
+}
+
+function resetStreamTrackingState() {
+  invalidStreamChecks = 0;
+  lastStreamRotationAt = 0;
+  streamValidationGraceUntil = 0;
+  lastTrackedProgress = -1;
+  lastProgressAdvanceAt = 0;
+  resetNoProgressRotationAttempts();
+  playbackAttentionWarningSent = false;
+}
+
+async function notify(title: string, message: string, priority = 2) {
+  await chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icons/icon128.png',
+    title,
+    message,
+    priority,
+  });
+}
+
+async function stopFarmingSession(notification?: { title: string; message: string }) {
+  stopMonitoring();
+  resetStreamTrackingState();
+  dropClaimRetryAtById.clear();
+  dropClaimInFlight = false;
+  monitorTickInFlight = false;
+
+  if (appState.tabId) {
+    await chrome.tabs.remove(appState.tabId).catch(() => undefined);
+  }
+
+  appState = {
+    ...appState,
+    isRunning: false,
+    isPaused: false,
+    activeStreamer: null,
+    tabId: null,
+    completionNotified: false,
+  };
+
+  if (notification) {
+    await notify(notification.title, notification.message);
+  }
+
+  await saveState();
+  await saveTimingState();
 }
 
 function mergeAvailableGames(existing: TwitchGame[], incoming: TwitchGame[]): TwitchGame[] {
@@ -421,9 +488,10 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
 
   // Track progress advances for stall detection
   const currentProgress = appState.currentDrop?.progress ?? -1;
-  if (currentProgress > lastTrackedProgress) {
+  if (didDropProgressAdvance(lastTrackedProgress, currentProgress)) {
     lastTrackedProgress = currentProgress;
     lastProgressAdvanceAt = Date.now();
+    resetNoProgressRotationAttempts();
   }
 
   logDebug('Selected game rewards updated', {
@@ -568,16 +636,19 @@ async function applyBestEffortAlwaysOnTop(windowId: number) {
     .catch(() => chrome.windows.update(windowId, { focused: true }).catch(() => undefined));
 }
 
-async function openMonitorDashboardWindow() {
+async function openMonitorDashboardWindow(options?: { toggle?: boolean }) {
   const url = monitorDashboardUrl();
   if (appState.monitorWindowId) {
     const existingWindow = await chrome.windows.get(appState.monitorWindowId).catch(() => null);
     if (existingWindow?.id) {
-      // Toggle: window exists, close it
-      await chrome.windows.remove(existingWindow.id).catch(() => undefined);
-      appState.monitorWindowId = null;
-      await saveState();
-      return { success: true };
+      if (options?.toggle) {
+        await chrome.windows.remove(existingWindow.id).catch(() => undefined);
+        appState.monitorWindowId = null;
+        await saveState();
+        return { success: true, opened: false };
+      }
+      await applyBestEffortAlwaysOnTop(existingWindow.id);
+      return { success: true, opened: true };
     }
     appState.monitorWindowId = null;
   }
@@ -598,7 +669,7 @@ async function openMonitorDashboardWindow() {
   appState.monitorWindowId = createdWindow.id;
   await applyBestEffortAlwaysOnTop(createdWindow.id);
   await saveState();
-  return { success: true };
+  return { success: true, opened: true };
 }
 
 async function createManagedTab(url: string, active = false): Promise<chrome.tabs.Tab | null> {
@@ -1431,14 +1502,6 @@ function evaluateDropsForGame(
   return { allDrops, pendingDrops, hasFarmableDrops };
 }
 
-async function focusTabWindow(tabId: number) {
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab?.windowId) {
-    return;
-  }
-  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
-}
-
 async function resolveCategorySlug(game: TwitchGame): Promise<string> {
   // Prefer availableGames — may have the correct slug from content script
   const updated = appState.availableGames.find(
@@ -1455,7 +1518,56 @@ async function resolveCategorySlug(game: TwitchGame): Promise<string> {
   return toSlug(game.name);
 }
 
-async function openMutedChannel(streamer: TwitchStreamer) {
+async function focusManagedTab(tabId: number) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab?.id) {
+    return;
+  }
+  if (typeof tab.windowId === 'number') {
+    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+  }
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined);
+}
+
+async function sendPlaybackAttentionWarning() {
+  if (playbackAttentionWarningSent) {
+    return;
+  }
+  playbackAttentionWarningSent = true;
+  await notify(
+    'DropHunter needs your attention',
+    "Keep Twitch in front and click the video if playback didn't start.",
+    2,
+  );
+}
+
+async function prepareStreamPlayback(
+  tabId: number,
+  options?: { activateTab?: boolean; unmuteTab?: boolean; muteAfterPrep?: boolean },
+): Promise<PlaybackPrepResult> {
+  await ensureContentScriptOnTab(tabId);
+  const tabUpdate: chrome.tabs.UpdateProperties = {};
+  if (options?.activateTab) {
+    tabUpdate.active = true;
+  }
+  if (options?.unmuteTab !== false) {
+    tabUpdate.muted = false;
+  }
+  if (Object.keys(tabUpdate).length > 0) {
+    await chrome.tabs.update(tabId, tabUpdate).catch(() => undefined);
+  }
+  const prepared = await chrome.tabs
+    .sendMessage(tabId, {
+      type: 'PREPARE_STREAM_PLAYBACK',
+    })
+    .catch(() => null);
+  if (options?.muteAfterPrep) {
+    await chrome.tabs.update(tabId, { muted: true }).catch(() => undefined);
+  }
+  return (prepared ?? {}) as PlaybackPrepResult;
+}
+
+async function openForegroundChannel(streamer: TwitchStreamer) {
   const channelName = streamer.name.toLowerCase();
   const displayName = streamer.displayName || channelName;
   const targetUrl = streamerWatchUrl(channelName);
@@ -1464,47 +1576,29 @@ async function openMutedChannel(streamer: TwitchStreamer) {
     return;
   }
 
-  const prepareAudioWithRetry = async () => {
-    await focusTabWindow(managedTabId);
-    await chrome.tabs.update(managedTabId, { active: true, muted: false }).catch(() => undefined);
+  const prepareVisiblePlayback = async () => {
+    playbackAttentionWarningSent = false;
+    await focusManagedTab(managedTabId);
     await waitForTabComplete(managedTabId, 15_000).catch(() => undefined);
-    await ensureContentScriptOnTab(managedTabId);
-
-    let audioReady = false;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const prepared: { isAudioReady?: boolean } | null = await chrome.tabs
-        .sendMessage(managedTabId, {
-          type: 'PREPARE_STREAM_PLAYBACK',
-        })
-        .catch(() => null);
-      if (prepared?.isAudioReady) {
-        audioReady = true;
-        break;
+    const prepared = await prepareStreamPlayback(managedTabId, {
+      activateTab: true,
+      unmuteTab: true,
+      muteAfterPrep: true,
+    });
+    if (prepared?.gateDismissed) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const retried = await prepareStreamPlayback(managedTabId, { muteAfterPrep: true });
+      if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
+        await sendPlaybackAttentionWarning();
       }
-      await new Promise((resolve) => setTimeout(resolve, 900));
-      await focusTabWindow(managedTabId);
-      await chrome.tabs.update(managedTabId, { active: true, muted: false }).catch(() => undefined);
+      return;
     }
-
-    if (!audioReady) {
-      try {
-        await chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon128.png',
-          title: 'Audio blocked by browser',
-          message: 'Chrome blocked autoplay audio. Click once on the Twitch player to unmute.',
-          priority: 1,
-        });
-      } catch {
-        // Ignore notification failures.
-      }
+    if (prepared?.userInteractionRequired || !prepared?.isPlaybackReady) {
+      await sendPlaybackAttentionWarning();
     }
-
-    // Mute tab at browser level (video keeps playing, audio silenced)
-    await chrome.tabs.update(managedTabId, { muted: true }).catch(() => undefined);
   };
 
-  void prepareAudioWithRetry().catch(() => undefined);
+  void prepareVisiblePlayback().catch(() => undefined);
   appState.tabId = managedTabId;
   appState.activeStreamer = {
     id: channelName,
@@ -1530,33 +1624,22 @@ async function enforcePlaybackPolicyOnStreamTab() {
   if (!tab?.id) {
     return;
   }
-  await ensureContentScriptOnTab(tab.id);
-  const prepared: { isAudioReady?: boolean } | null = await chrome.tabs
-    .sendMessage(tab.id, {
-      type: 'PREPARE_STREAM_PLAYBACK',
-    })
-    .catch(() => null);
-  if (!prepared?.isAudioReady) {
+  const prepared = await prepareStreamPlayback(tab.id, { muteAfterPrep: true });
+  if (prepared?.gateDismissed) {
     await new Promise((resolve) => setTimeout(resolve, 700));
-    await chrome.tabs
-      .sendMessage(tab.id, {
-        type: 'PREPARE_STREAM_PLAYBACK',
-      })
-      .catch(() => undefined);
+    const retried = await prepareStreamPlayback(tab.id, { muteAfterPrep: true });
+    if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
+      await sendPlaybackAttentionWarning();
+    }
+    return;
   }
-
-  // Re-ensure tab-level mute after playback prep
-  await chrome.tabs.update(tab.id, { muted: true }).catch(() => undefined);
+  if (prepared?.userInteractionRequired || !prepared?.isPlaybackReady) {
+    await sendPlaybackAttentionWarning();
+  }
 }
 
 async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string) {
-  await chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icons/icon128.png',
-    title: kind === 'all-complete' ? 'All drops completed' : 'Drop completed',
-    message,
-    priority: 2,
-  });
+  await notify(kind === 'all-complete' ? 'All drops completed' : 'Drop completed', message);
 
   const tabs = await chrome.tabs.query({ url: ['https://www.twitch.tv/*', 'https://twitch.tv/*'] });
   await Promise.all(
@@ -1957,7 +2040,7 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
       viewers: streamer.viewerCount ?? null,
       candidates: candidates.length,
     });
-    await openMutedChannel(streamer);
+    await openForegroundChannel(streamer);
     return true;
   }
 
@@ -2014,6 +2097,7 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     invalidStreamChecks = 0;
     lastTrackedProgress = -1;
     lastProgressAdvanceAt = 0;
+    resetNoProgressRotationAttempts();
 
     await ensureWorkspaceForSelectedGame();
     await refreshDropsData({
@@ -2064,11 +2148,7 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   appState.isRunning = true;
   appState.isPaused = false;
   appState.completionNotified = false;
-  invalidStreamChecks = 0;
-  lastStreamRotationAt = 0;
-  streamValidationGraceUntil = 0;
-  lastTrackedProgress = -1;
-  lastProgressAdvanceAt = 0;
+  resetStreamTrackingState();
   dropClaimRetryAtById.clear();
   dropClaimInFlight = false;
   monitorTickInFlight = false;
@@ -2100,11 +2180,46 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   if (!appState.tabId && appState.selectedGame) {
     await openBestStreamerForSelectedGame();
   }
-  await openMonitorDashboardWindow().catch(() => undefined);
+  if (appState.monitorAutoOpen) {
+    await new Promise((resolve) => setTimeout(resolve, MONITOR_AUTO_OPEN_DELAY_MS));
+    await openMonitorDashboardWindow({ toggle: false }).catch(() => undefined);
+  }
 
   await saveState();
+  await saveTimingState();
   startMonitoring();
   return { success: true };
+}
+
+async function rotateStreamer(reason: StreamRotationReason) {
+  noProgressRotationAttempts = nextNoProgressRotationAttempts(noProgressRotationAttempts, reason);
+  if (noProgressRotationAttempts >= MAX_NO_PROGRESS_ROTATION_ATTEMPTS) {
+    await stopFarmingSession({
+      title: 'Farming stopped',
+      message: "I've tried three times but the drop percentage isn't increasing.",
+    });
+    return false;
+  }
+
+  lastStreamRotationAt = Date.now();
+  lastProgressAdvanceAt = Date.now();
+  appState.activeStreamer = null;
+
+  const opened = await openBestStreamerForSelectedGame();
+  if (!opened && !shouldIncrementNoProgressRotationAttempts(reason)) {
+    noProgressRotationAttempts = nextNoProgressRotationAttempts(noProgressRotationAttempts, 'open-failed');
+    if (noProgressRotationAttempts >= MAX_NO_PROGRESS_ROTATION_ATTEMPTS) {
+      await stopFarmingSession({
+        title: 'Farming stopped',
+        message: "I've tried three times but the drop percentage isn't increasing.",
+      });
+      return false;
+    }
+  }
+
+  await saveState();
+  await saveTimingState();
+  return opened;
 }
 
 async function rotateStreamerIfInvalid() {
@@ -2113,8 +2228,7 @@ async function rotateStreamerIfInvalid() {
   }
 
   if (!appState.tabId) {
-    await openBestStreamerForSelectedGame();
-    await saveState();
+    await rotateStreamer('open-failed');
     return;
   }
 
@@ -2122,8 +2236,7 @@ async function rotateStreamerIfInvalid() {
   if (!tab?.id) {
     appState.tabId = null;
     appState.activeStreamer = null;
-    await openBestStreamerForSelectedGame();
-    await saveState();
+    await rotateStreamer('open-failed');
     return;
   }
 
@@ -2150,11 +2263,7 @@ async function rotateStreamerIfInvalid() {
         return;
       }
       invalidStreamChecks = 0;
-      lastStreamRotationAt = now;
-      lastProgressAdvanceAt = Date.now();
-      appState.activeStreamer = null;
-      await openBestStreamerForSelectedGame();
-      await saveState();
+      await rotateStreamer(isStillOnTwitch ? 'missing-context' : 'navigated-away');
     }
     return;
   }
@@ -2199,39 +2308,19 @@ async function rotateStreamerIfInvalid() {
   }
 
   invalidStreamChecks = 0;
-  lastStreamRotationAt = now;
-  lastProgressAdvanceAt = Date.now(); // Reset stall timer after rotation
-  appState.activeStreamer = null;
-  await openBestStreamerForSelectedGame();
-
-  await saveState();
+  const reason: StreamRotationReason = !context.isLive
+    ? 'offline'
+    : !sameChannel
+      ? 'wrong-channel'
+      : progressStalled
+        ? 'stalled-progress'
+        : 'missing-context';
+  await rotateStreamer(reason);
 }
 
 async function handleStopFarming() {
   await trackActivity('stop-farming');
-  stopMonitoring();
-  invalidStreamChecks = 0;
-  lastStreamRotationAt = 0;
-  streamValidationGraceUntil = 0;
-  lastTrackedProgress = -1;
-  lastProgressAdvanceAt = 0;
-  dropClaimRetryAtById.clear();
-  dropClaimInFlight = false;
-  monitorTickInFlight = false;
-
-  if (appState.tabId) {
-    await chrome.tabs.remove(appState.tabId).catch(() => undefined);
-  }
-
-  appState = {
-    ...appState,
-    isRunning: false,
-    isPaused: false,
-    activeStreamer: null,
-    tabId: null,
-    completionNotified: false,
-  };
-  await saveState();
+  await stopFarmingSession();
   return { success: true };
 }
 
@@ -2250,6 +2339,9 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   });
   appState.selectedGame = selectedGame;
   appState.completionNotified = false;
+  lastTrackedProgress = -1;
+  lastProgressAdvanceAt = 0;
+  resetNoProgressRotationAttempts();
   if (appState.isRunning && !appState.isPaused) {
     removeGameFromQueue(selectedGame);
     appState.queue = [selectedGame, ...appState.queue];
@@ -2302,6 +2394,7 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
     await openBestStreamerForSelectedGame();
   }
   await saveState();
+  await saveTimingState();
   return { success: true };
 }
 
@@ -2392,6 +2485,7 @@ async function handlePauseFarming() {
   appState.isPaused = true;
   stopMonitoring();
   await saveState();
+  await saveTimingState();
   return { success: true };
 }
 
@@ -2399,8 +2493,10 @@ async function handleResumeFarming() {
   await trackActivity('resume-farming');
   appState.isPaused = false;
   invalidStreamChecks = 0;
+  resetNoProgressRotationAttempts();
   startMonitoring();
   await saveState();
+  await saveTimingState();
   return { success: true };
 }
 
@@ -2412,6 +2508,13 @@ async function handleRefreshDrops() {
     forceInventoryFetch: true,
   });
   return { success: true };
+}
+
+async function handleSetMonitorAutoOpen(payload?: { enabled?: boolean }) {
+  await trackActivity('set-monitor-auto-open');
+  appState.monitorAutoOpen = payload?.enabled !== false;
+  await saveState();
+  return { success: true, monitorAutoOpen: appState.monitorAutoOpen };
 }
 
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
@@ -2534,8 +2637,14 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
+    case 'SET_MONITOR_AUTO_OPEN':
+      handleSetMonitorAutoOpen(message.payload as { enabled?: boolean } | undefined)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
     case 'OPEN_MONITOR_DASHBOARD':
-      openMonitorDashboardWindow()
+      openMonitorDashboardWindow((message.payload ?? {}) as { toggle?: boolean } | undefined)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;

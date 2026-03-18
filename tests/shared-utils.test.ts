@@ -67,6 +67,7 @@ test('createInitialState returns fresh state object', () => {
   const state = createInitialState();
   expect(state.isRunning).toBe(false);
   expect(state.isPaused).toBe(false);
+  expect(state.monitorAutoOpen).toBe(true);
   expect(state.selectedGame).toBe(null);
   expect(state.activeStreamer).toBe(null);
   expect(state.currentDrop).toBe(null);

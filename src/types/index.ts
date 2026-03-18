@@ -63,6 +63,7 @@ export interface AppState {
   selectedGame: TwitchGame | null;
   isRunning: boolean;
   isPaused: boolean;
+  monitorAutoOpen: boolean;
   activeStreamer: TwitchStreamer | null;
   currentDrop: TwitchDrop | null;
   completedDrops: TwitchDrop[];
@@ -86,6 +87,7 @@ export type MessageType =
   | 'GET_STREAM_CONTEXT'
   | 'PREPARE_STREAM_PLAYBACK'
   | 'OPEN_MONITOR_DASHBOARD'
+  | 'SET_MONITOR_AUTO_OPEN'
   | 'ADD_TO_QUEUE'
   | 'REMOVE_FROM_QUEUE'
   | 'CLEAR_QUEUE'

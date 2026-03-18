@@ -27,9 +27,16 @@ export const CtaScene: React.FC = () => {
   });
   const titleY = interpolate(titleProgress, [0, 1], [40, 0]);
 
+  const subtitleProgress = spring({
+    frame: Math.max(0, frame - 18),
+    fps,
+    config: { damping: 16, stiffness: 90 },
+  });
+  const subtitleY = interpolate(subtitleProgress, [0, 1], [22, 0]);
+
   // Button
   const buttonProgress = spring({
-    frame: Math.max(0, frame - 30),
+    frame: Math.max(0, frame - 34),
     fps,
     config: { damping: 12, stiffness: 80 },
   });
@@ -44,9 +51,15 @@ export const CtaScene: React.FC = () => {
 
   // GitHub link
   const githubProgress = spring({
-    frame: Math.max(0, frame - 50),
+    frame: Math.max(0, frame - 56),
     fps,
     config: { damping: 16, stiffness: 80 },
+  });
+
+  const badgeProgress = spring({
+    frame: Math.max(0, frame - 70),
+    fps,
+    config: { damping: 18, stiffness: 85 },
   });
 
   return (
@@ -101,16 +114,18 @@ export const CtaScene: React.FC = () => {
           style={{
             fontFamily:
               '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            fontSize: 64,
+            fontSize: 62,
             fontWeight: 800,
             color: "white",
             margin: 0,
             opacity: titleProgress,
             transform: `translateY(${titleY}px)`,
             letterSpacing: -1,
+            lineHeight: 1.02,
           }}
         >
-          Get{" "}
+          Queue campaigns.
+          <br />
           <span
             style={{
               background: "linear-gradient(135deg, #a970ff, #772ce8)",
@@ -118,15 +133,33 @@ export const CtaScene: React.FC = () => {
               WebkitTextFillColor: "transparent",
             }}
           >
-            DropHunter
-          </span>{" "}
-          Today
+            Monitor drops.
+          </span>
+          <br />
+          Recover playback fast.
         </h2>
+
+        <p
+          style={{
+            maxWidth: 900,
+            marginTop: 24,
+            marginBottom: 0,
+            fontFamily:
+              '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            fontSize: 22,
+            lineHeight: 1.45,
+            color: "rgba(255,255,255,0.72)",
+            opacity: subtitleProgress,
+            transform: `translateY(${subtitleY}px)`,
+          }}
+        >
+          Live monitor, smarter stream rotation, playback recovery alerts, and monitor auto-open settings.
+        </p>
 
         {/* CTA Button */}
         <div
           style={{
-            marginTop: 40,
+            marginTop: 36,
             opacity: buttonProgress,
             transform: `scale(${buttonScale})`,
           }}
@@ -143,13 +176,13 @@ export const CtaScene: React.FC = () => {
               style={{
                 fontFamily:
                   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                fontSize: 28,
+                fontSize: 26,
                 fontWeight: 700,
                 color: "white",
                 letterSpacing: 0.5,
               }}
             >
-              Free on Chrome Web Store
+              Install DropHunter for Chrome
             </span>
           </div>
         </div>
@@ -165,20 +198,21 @@ export const CtaScene: React.FC = () => {
             style={{
               fontFamily:
                 '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-              fontSize: 20,
+              fontSize: 19,
               color: "rgba(255,255,255,0.4)",
               fontWeight: 400,
             }}
           >
-            Open Source on GitHub
+            Open source. Built for Twitch Drops power users.
           </span>
         </div>
 
         {/* Version badge */}
         <div
           style={{
-            marginTop: 60,
-            opacity: githubProgress * 0.6,
+            marginTop: 54,
+            opacity: badgeProgress * 0.7,
+            transform: `translateY(${interpolate(badgeProgress, [0, 1], [12, 0])}px)`,
           }}
         >
           <span
@@ -191,7 +225,7 @@ export const CtaScene: React.FC = () => {
               textTransform: "uppercase",
             }}
           >
-            v1.6.2 &middot; Chrome &amp; Brave
+            v1.7.0 &middot; Live Monitor &amp; Smart Recovery
           </span>
         </div>
       </div>

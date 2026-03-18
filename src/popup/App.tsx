@@ -94,11 +94,17 @@ function MonitorIcon() {
   );
 }
 
-function InfoIcon() {
+function SettingsIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.18 7.18 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94L2.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.13-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -242,7 +248,7 @@ function App() {
   const [rewardsLoading, setRewardsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
-  const [showAbout, setShowAbout] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const fetchAvailableGames = useCallback(async (force = false) => {
     await chrome.runtime
@@ -399,7 +405,23 @@ function App() {
   };
 
   const openMiniDashboard = async () => {
-    await chrome.runtime.sendMessage({ type: 'OPEN_MONITOR_DASHBOARD' }).catch(() => undefined);
+    await chrome.runtime
+      .sendMessage({ type: 'OPEN_MONITOR_DASHBOARD', payload: { toggle: true } })
+      .catch(() => undefined);
+  };
+
+  const handleMonitorAutoOpenToggle = async () => {
+    const next = !state.monitorAutoOpen;
+    setState((prev) => ({ ...prev, monitorAutoOpen: next }));
+    const response = (await chrome.runtime.sendMessage({
+      type: 'SET_MONITOR_AUTO_OPEN',
+      payload: { enabled: next },
+    })) as { success?: boolean; monitorAutoOpen?: boolean } | undefined;
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, monitorAutoOpen: !next }));
+      return;
+    }
+    setState((prev) => ({ ...prev, monitorAutoOpen: response.monitorAutoOpen ?? next }));
   };
 
   if (loading) {
@@ -469,32 +491,62 @@ function App() {
           </button>
           <button
             type="button"
-            onClick={() => setShowAbout((v) => !v)}
+            onClick={() => setShowSettings((v) => !v)}
             className="p-1 rounded hover:bg-white/20 text-[#1B1030]"
-            title="About"
+            title="Settings"
           >
-            <InfoIcon />
+            <SettingsIcon />
           </button>
         </div>
       </div>
 
-      {/* ── About Panel ── */}
-      {showAbout && (
+      {/* ── Settings Panel ── */}
+      {showSettings && (
         <div className="about-panel relative border-b border-white/10">
           <div className="px-4 py-3 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-bold text-white">
-                DropHunter{' '}
-                <span className="text-purple-300 font-normal">v{chrome.runtime.getManifest().version}</span>
-              </p>
+              <p className="text-sm font-bold text-white">Settings</p>
               <button
                 type="button"
-                onClick={() => setShowAbout(false)}
+                onClick={() => setShowSettings(false)}
                 className="text-gray-400 hover:text-white text-sm leading-none"
               >
                 ×
               </button>
             </div>
+            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-white">Auto-open monitor</p>
+                  <p className="mt-1 text-[11px] text-gray-400">
+                    Open the Drop Hunter Monitor shortly after farming starts.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={state.monitorAutoOpen}
+                  onClick={() => void handleMonitorAutoOpenToggle()}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                    state.monitorAutoOpen ? 'bg-green-500/90' : 'bg-white/15'
+                  }`}
+                >
+                  <span
+                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                      state.monitorAutoOpen ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <div className="pt-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-purple-300/80">
+                About
+              </p>
+            </div>
+            <p className="text-sm font-bold text-white">
+              DropHunter <span className="text-purple-300 font-normal">v{chrome.runtime.getManifest().version}</span>
+            </p>
             <p className="text-[11px] text-gray-400">
               by <span className="text-gray-200">Marco Trevisani</span> (trevonerd)
             </p>

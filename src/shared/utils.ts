@@ -24,6 +24,7 @@ export const createInitialState = (): AppState => ({
   selectedGame: null,
   isRunning: false,
   isPaused: false,
+  monitorAutoOpen: true,
   activeStreamer: null,
   currentDrop: null,
   completedDrops: [],
