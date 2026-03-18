@@ -38,7 +38,7 @@ const TIMING_STATE_KEY = 'timingState';
 const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
 const ALARM_NAME = 'dropCheck';
 const LOG_PREFIX = '[DropHunter]';
-const INACTIVITY_RESET_MS = 60 * 60_000;
+const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000; // 3 days
 
 interface TimingState {
   lastStreamRotationAt: number;
@@ -154,7 +154,7 @@ async function resetStateForInactivity(trigger: string, idleForMs: number) {
 }
 
 async function enforceInactivityReset(trigger: string): Promise<boolean> {
-  const reference = lastActivityAt || appState.lastSuccessfulRefreshAt || 0;
+  const reference = Math.max(lastActivityAt, appState.lastSuccessfulRefreshAt ?? 0);
   if (!reference) {
     await markActivity(`${trigger}:bootstrap`);
     return false;
