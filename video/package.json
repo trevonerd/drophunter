@@ -1,0 +1,21 @@
+{
+  "name": "drophunter-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "bunx remotion preview src/index.ts",
+    "render:cta": "bunx remotion render src/index.ts Cta out/cta.mp4",
+    "render:promo": "bunx remotion render src/index.ts Promo out/promo.mp4",
+    "still:cta": "bunx remotion still src/index.ts Cta out/cta.png --frame=80",
+    "still:promo": "bunx remotion still src/index.ts Promo out/promo-frame.png --frame=200"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@remotion/transitions": "^4.0.436"
+  }
+}
