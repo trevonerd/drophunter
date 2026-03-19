@@ -8,6 +8,7 @@
 
 body {
   margin: 0;
+  overflow: hidden;
   background: radial-gradient(circle at top right, #8f55ff 0%, #1f1f23 55%, #0e0e10 100%);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color: #fff;

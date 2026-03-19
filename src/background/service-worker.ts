@@ -658,7 +658,7 @@ async function openMonitorDashboardWindow(options?: { toggle?: boolean }) {
       url,
       type: 'popup',
       width: 360,
-      height: 220,
+      height: 250,
       focused: true,
     })
     .catch(() => null);
