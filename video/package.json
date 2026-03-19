@@ -10,12 +10,12 @@
     "still:promo": "bunx remotion still src/index.ts Promo out/promo-frame.png --frame=200"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "remotion": "^4.0.0"
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.436"
   },
   "devDependencies": {
-    "@remotion/cli": "^4.0.0",
-    "@remotion/transitions": "^4.0.436"
+    "@remotion/cli": "4.0.436",
+    "@remotion/transitions": "4.0.436"
   }
 }

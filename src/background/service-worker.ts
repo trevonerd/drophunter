@@ -16,8 +16,8 @@ import {
   didDropProgressAdvance,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
   nextNoProgressRotationAttempts,
-  shouldIncrementNoProgressRotationAttempts,
   StreamRotationReason,
+  shouldIncrementNoProgressRotationAttempts,
 } from './stream-rotation';
 import { TwitchApiClient } from './twitch-api/client';
 import { fetchTwitchIntegrityToken } from './twitch-api/gql';
@@ -1388,7 +1388,7 @@ async function waitForTabComplete(tabId: number, timeoutMs = 12_000): Promise<vo
       resolve();
     };
 
-    const onUpdated = (updatedTabId: number, info: chrome.tabs.TabChangeInfo) => {
+    const onUpdated = (updatedTabId: number, info: chrome.tabs.OnUpdatedInfo) => {
       if (updatedTabId === tabId && info.status === 'complete') {
         finish();
       }
