@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - name: Install (root)
+        run: bun install --frozen-lockfile
+
+      - name: Check (typecheck + lint + test + build)
+        run: bun run check
+
+      - name: Audit dependencies
+        run: bun run deps:audit
+
+      - name: Install (video)
+        working-directory: video
+        run: bun install --frozen-lockfile
