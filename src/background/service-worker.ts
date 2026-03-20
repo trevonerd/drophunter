@@ -28,7 +28,7 @@ const FULL_REFRESH_INTERVAL_MS = 2 * 60_000;
 const INVALID_STREAM_THRESHOLD = 8;
 const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
 const STREAM_VALIDATION_GRACE_MS = 75_000;
-const PROGRESS_STALL_THRESHOLD_MS = 10 * 60_000;
+const PROGRESS_STALL_THRESHOLD_MS = 5 * 60_000;
 const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
 const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 const MONITOR_AUTO_OPEN_DELAY_MS = 450;
@@ -582,6 +582,11 @@ async function loadState() {
       if (appState.tabId) {
         streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
       }
+      // Reset the no-progress rotation counter on every SW restart.
+      // The counter tracks failures within a continuous farming window; carrying it
+      // across Chrome-triggered restarts caused it to accumulate across sessions and
+      // prematurely fire stopFarmingSession() even on healthy, progressing streams.
+      resetNoProgressRotationAttempts();
       startMonitoring();
     }
   } catch (error) {
