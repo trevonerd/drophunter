@@ -47,6 +47,8 @@ interface TimingState {
   noProgressRotationAttempts: number;
   twitchSessionLastAttemptAt: number;
   dropClaimRetryAtById: Record<string, number>;
+  lastProgressAdvanceAt: number;
+  lastTrackedProgress: number;
 }
 
 interface StreamContext {
@@ -180,6 +182,8 @@ async function saveTimingState() {
     noProgressRotationAttempts,
     twitchSessionLastAttemptAt,
     dropClaimRetryAtById: Object.fromEntries(dropClaimRetryAtById),
+    lastProgressAdvanceAt,
+    lastTrackedProgress,
   };
   await chrome.storage.session.set({ [TIMING_STATE_KEY]: state }).catch(() => undefined);
 }
@@ -200,6 +204,8 @@ async function loadTimingState() {
         dropClaimRetryAtById.set(id, at);
       }
     }
+    lastProgressAdvanceAt = saved.lastProgressAdvanceAt ?? 0;
+    lastTrackedProgress = saved.lastTrackedProgress ?? -1;
   } catch {
     // Ignore: session storage may not be available
   }
