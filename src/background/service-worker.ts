@@ -445,10 +445,10 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
       totalDrops: allDrops.length,
       sampleGameNames,
     });
-    // When farming is active, preserve previous state to avoid flickering in monitor
-    if (appState.isRunning) {
-      return;
-    }
+    // When farming is active and no drops matched, preserve previous drop state to
+    // avoid flickering in the monitor — but still allow the function to continue so
+    // currentDrop/pendingDrops are cleared for the new game rather than showing stale data.
+    // We only skip the progress needle update below (handled by the didDropProgressAdvance guard).
   }
 
   const relevant = relaxedRelevant;
@@ -2116,6 +2116,9 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     lastTrackedProgress = -1;
     lastProgressAdvanceAt = 0;
     resetNoProgressRotationAttempts();
+    // Persist the needle reset immediately so a SW restart between here and the
+    // end-of-tick saveTimingState() doesn't restore stale timestamps for the new game.
+    await saveTimingState();
 
     await ensureWorkspaceForSelectedGame();
     await refreshDropsData({
@@ -2289,11 +2292,12 @@ async function rotateStreamerIfInvalid() {
   const sameChannel = !appState.activeStreamer || context.channelName === appState.activeStreamer.name;
   const hasDropsSignal = context.titleContainsDrops || context.hasDropsSignal;
 
-  // Check for progress stall: if progress hasn't advanced in PROGRESS_STALL_THRESHOLD_MS, rotate
+  // Check for progress stall: if progress hasn't advanced in PROGRESS_STALL_THRESHOLD_MS, rotate.
+  // Note: lastProgressAdvanceAt > 0 ensures we have a real reference time (set on first progress tick
+  // or on any rotation). Drops stuck at 0% are also detected — the progress > 0 guard was removed.
   const progressStalled =
     lastProgressAdvanceAt > 0 &&
     appState.currentDrop != null &&
-    appState.currentDrop.progress > 0 &&
     now - lastProgressAdvanceAt >= PROGRESS_STALL_THRESHOLD_MS;
 
   if (context.isLive && sameChannel && !progressStalled) {
@@ -2357,6 +2361,7 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   });
   appState.selectedGame = selectedGame;
   appState.completionNotified = false;
+  invalidStreamChecks = 0;
   lastTrackedProgress = -1;
   lastProgressAdvanceAt = 0;
   resetNoProgressRotationAttempts();
@@ -2366,20 +2371,13 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   }
   if (appState.isRunning && !appState.isPaused) {
     await ensureWorkspaceForSelectedGame();
-    await refreshDropsData({
-      includeCampaignFetch: true,
-      includeInventoryFetch: true,
-      forceInventoryFetch: true,
-      suppressNotifications: true,
-    });
-  } else {
-    await refreshDropsData({
-      includeCampaignFetch: true,
-      includeInventoryFetch: true,
-      forceInventoryFetch: true,
-      suppressNotifications: true,
-    });
   }
+  await refreshDropsData({
+    includeCampaignFetch: true,
+    includeInventoryFetch: true,
+    forceInventoryFetch: true,
+    suppressNotifications: true,
+  });
   if (appState.selectedGame) {
     const canonicalSelected = resolveGameFromState(appState.selectedGame);
     if (
@@ -2501,6 +2499,7 @@ async function handleEnsureGamesCache(payload?: { force?: boolean }) {
 async function handlePauseFarming() {
   await trackActivity('pause-farming');
   appState.isPaused = true;
+  playbackAttentionWarningSent = false;
   stopMonitoring();
   await saveState();
   await saveTimingState();
@@ -2512,6 +2511,11 @@ async function handleResumeFarming() {
   appState.isPaused = false;
   invalidStreamChecks = 0;
   resetNoProgressRotationAttempts();
+  // Re-issue grace window so the first tick after resume doesn't immediately run
+  // full rotation validation against a stream that hasn't had time to respond.
+  if (appState.tabId) {
+    streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
+  }
   startMonitoring();
   await saveState();
   await saveTimingState();
@@ -2601,7 +2605,7 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       }
       normalizeGameSelection(appState.availableGames);
       normalizeQueueSelection(appState.availableGames);
-      saveState().then(() => sendResponse({ success: true }));
+      Promise.all([saveState(), saveTimingState()]).then(() => sendResponse({ success: true }));
       return true;
 
     case 'SYNC_TWITCH_SESSION': {

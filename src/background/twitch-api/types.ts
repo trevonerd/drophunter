@@ -25,7 +25,11 @@ function stripWrappingQuotes(value: string): string {
     changed = false;
     const starts = current[0];
     const ends = current[current.length - 1];
-    if ((starts === '"' && ends === '"') || (starts === "'" && ends === "'") || (starts === '`' && ends === '`')) {
+    if (
+      (starts === '"' && ends === '"') ||
+      (starts === "'" && ends === "'") ||
+      (starts === '`' && ends === '`')
+    ) {
       current = current.slice(1, -1).trim();
       changed = true;
     }
@@ -46,11 +50,11 @@ function cleanCredential(value: string): string {
   } catch {
     // Not a JSON encoded string, keep raw value.
   }
+  // First pass: strip any wrapping quotes that were present before escape sequences.
   current = stripWrappingQuotes(current);
-  current = current
-    .replace(/\\"/g, '"')
-    .replace(/\\'/g, "'")
-    .replace(/\\`/g, '`');
+  // Unescape any backslash-escaped quote characters (e.g. \" → ").
+  current = current.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\`/g, '`');
+  // Second pass: strip quotes that were revealed after unescaping (e.g. a value like \"'foo'\" → 'foo').
   current = stripWrappingQuotes(current);
   current = current.trim();
   return current;
@@ -71,7 +75,10 @@ function normalizeOAuthToken(value: unknown): string {
   if (!raw) {
     return '';
   }
-  const stripped = raw.replace(/^oauth:/i, '').replace(/^oauth\s+/i, '').trim();
+  const stripped = raw
+    .replace(/^oauth:/i, '')
+    .replace(/^oauth\s+/i, '')
+    .trim();
   return stripped.replace(/["'\\]/g, '').trim();
 }
 

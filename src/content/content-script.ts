@@ -58,6 +58,10 @@ function extractStreamCategory(): { slug: string; label: string } {
   const links = Array.from(
     document.querySelectorAll('a[data-a-target="stream-game-link"], a[href*="/directory/category/"]'),
   ) as HTMLAnchorElement[];
+  if (links.length === 0) {
+    // Twitch may have changed their DOM structure — log so it's visible in the tab console.
+    console.debug('[DropHunter] Category selectors matched no elements; stream context will be incomplete.');
+  }
   for (const link of links) {
     const href = link.getAttribute('href') ?? '';
     const slug = extractCategorySlugFromHref(href);

@@ -97,8 +97,10 @@ export function normalizeImageUrl(value: unknown): string {
   return raw;
 }
 
+const MAX_IMAGE_SEARCH_DEPTH = 6;
+
 function getFirstImageUrl(value: unknown, depth = 0): string {
-  if (depth > 6 || value == null) {
+  if (depth > MAX_IMAGE_SEARCH_DEPTH || value == null) {
     return '';
   }
 
@@ -703,7 +705,13 @@ export class TwitchApiClient {
       ),
       this.transport
         .postAuthorized<{ currentUser?: { inventory?: Record<string, unknown> } }>(INVENTORY_QUERY)
-        .catch(() => ({ currentUser: { inventory: null } })),
+        .catch((err: unknown) => {
+          console.warn(
+            '[TwitchApiClient] Inventory fetch failed, proceeding without inventory:',
+            String(err),
+          );
+          return { currentUser: { inventory: null } };
+        }),
     ]);
 
     const campaigns = dashboardData.currentUser?.dropCampaigns ?? [];

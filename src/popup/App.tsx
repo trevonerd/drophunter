@@ -253,7 +253,7 @@ function App() {
   const fetchAvailableGames = useCallback(async (force = false) => {
     await chrome.runtime
       .sendMessage({ type: 'ENSURE_GAMES_CACHE', payload: { force } })
-      .catch(() => undefined);
+      .catch((err: unknown) => console.warn('[DropHunter] ENSURE_GAMES_CACHE failed:', err));
     const latest = await chrome.storage.local.get(['appState']);
     if (latest.appState) {
       setState({ ...createInitialState(), ...latest.appState });
@@ -314,7 +314,7 @@ function App() {
       try {
         await chrome.runtime
           .sendMessage({ type: 'SET_SELECTED_GAME', payload: { game: selected } })
-          .catch(() => undefined);
+          .catch((err: unknown) => console.warn('[DropHunter] SET_SELECTED_GAME failed:', err));
       } finally {
         setTimeout(() => setRewardsLoading(false), 350);
       }
@@ -354,11 +354,15 @@ function App() {
   };
 
   const handleRemoveFromQueue = async (game: TwitchGame) => {
-    await chrome.runtime.sendMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } }).catch(() => undefined);
+    await chrome.runtime
+      .sendMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } })
+      .catch((err: unknown) => console.warn('[DropHunter] REMOVE_FROM_QUEUE failed:', err));
   };
 
   const handleClearQueue = async () => {
-    await chrome.runtime.sendMessage({ type: 'CLEAR_QUEUE' }).catch(() => undefined);
+    await chrome.runtime
+      .sendMessage({ type: 'CLEAR_QUEUE' })
+      .catch((err: unknown) => console.warn('[DropHunter] CLEAR_QUEUE failed:', err));
     setQueueMessage('Queue cleared.');
   };
 
@@ -407,7 +411,7 @@ function App() {
   const openMiniDashboard = async () => {
     await chrome.runtime
       .sendMessage({ type: 'OPEN_MONITOR_DASHBOARD', payload: { toggle: true } })
-      .catch(() => undefined);
+      .catch((err: unknown) => console.warn('[DropHunter] OPEN_MONITOR_DASHBOARD failed:', err));
   };
 
   const handleMonitorAutoOpenToggle = async () => {
@@ -545,7 +549,8 @@ function App() {
               </p>
             </div>
             <p className="text-sm font-bold text-white">
-              DropHunter <span className="text-purple-300 font-normal">v{chrome.runtime.getManifest().version}</span>
+              DropHunter{' '}
+              <span className="text-purple-300 font-normal">v{chrome.runtime.getManifest().version}</span>
             </p>
             <p className="text-[11px] text-gray-400">
               by <span className="text-gray-200">Marco Trevisani</span> (trevonerd)

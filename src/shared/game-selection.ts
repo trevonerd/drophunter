@@ -162,12 +162,12 @@ export function findMatchingGame(target: TwitchGame, source: TwitchGame[]): Twit
     const candidateName = normalizedGameName(candidate);
     const candidateCategory = normalizedGameCategory(candidate);
     let score = 0;
-    if (targetName && candidateName && targetName === candidateName) {
+    if (targetName.length > 0 && candidateName.length > 0 && targetName === candidateName) {
       score += 100;
     }
     if (
-      targetName &&
-      candidateName &&
+      targetName.length > 0 &&
+      candidateName.length > 0 &&
       (candidateName.includes(targetName) || targetName.includes(candidateName))
     ) {
       score += 40;
