@@ -575,6 +575,13 @@ async function loadState() {
       return;
     }
     if (appState.isRunning && !appState.isPaused) {
+      // Re-issue a short grace window so the first monitoring tick after a
+      // service worker restart doesn't race against content script injection.
+      // Without this, an already-running stream gets no protection and any
+      // transient null-context response immediately accumulates invalidStreamChecks.
+      if (appState.tabId) {
+        streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
+      }
       startMonitoring();
     }
   } catch (error) {
