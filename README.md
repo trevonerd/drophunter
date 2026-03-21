@@ -4,6 +4,8 @@
 
 DropHunter is a Chrome/Brave extension for tracking and farming Twitch Drops with less manual busywork. It helps you pick a campaign, open an eligible stream, monitor progress, auto-claim rewards when possible, and move through queued campaigns with a cleaner workflow than juggling Twitch tabs by hand.
 
+It works only on **twitch.tv**, uses your existing Twitch session locally in the browser, and does not send data to any developer-owned servers.
+
 ## Features
 
 - Queue multiple campaigns and let the extension work through them in order
@@ -68,6 +70,8 @@ DropHunter includes a compact monitor popup for quick progress checks while farm
 - Some streams may require a manual click before playback is considered active by Twitch
 - Campaign availability, claimability, and watch-time behavior are ultimately controlled by Twitch
 - Browser autoplay rules and Twitch UI changes can affect playback behavior
+- The extension reads Twitch session data already present in your browser so it can make authenticated Twitch requests on your behalf
+- All persistence stays in Chrome extension storage on your machine; there is no analytics, ad tech, or remote telemetry pipeline
 
 ## Development
 
@@ -115,3 +119,7 @@ DropHunter is an independent project and is not affiliated with, endorsed by, sp
 Twitch, Twitch Drops, related names, logos, product names, interface elements, and brand assets are the property of their respective owners and are used only for descriptive or compatibility purposes.
 
 You are responsible for using this software in a way that complies with Twitch's terms, platform rules, local law, and any other policies that apply to your account or jurisdiction.
+
+## Chrome Web Store Readiness
+
+Before submitting a release, verify the privacy policy, screenshots, permission justifications, and store description all match the shipped behavior. A release checklist is available in [`docs/chrome-web-store-checklist.md`](docs/chrome-web-store-checklist.md).

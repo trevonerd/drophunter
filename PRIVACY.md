@@ -21,7 +21,12 @@ All data is used **solely** to operate the extension's core functionality:
 
 ## Data storage
 
-All operational state (campaign queue, drop progress, cached campaign lists) is stored **locally** in your browser using `chrome.storage.local`. No data is written to external servers, databases, or cloud services.
+All operational state is stored **locally** in your browser:
+
+- `chrome.storage.local` stores extension state such as your campaign queue, cached drop progress, monitor preferences, and the last known Twitch session snapshot needed for recovery.
+- `chrome.storage.session` stores short-lived runtime timing data such as backoff windows, progress polling state, and integrity fallback state for the current browser session.
+
+No data is written to external servers, databases, analytics tools, or cloud services controlled by the developer.
 
 ## Data sharing
 
@@ -32,6 +37,15 @@ DropHunter does **not**:
 - Store or log your Twitch credentials outside of your browser's existing session
 
 The only network requests made by the extension are directed to **twitch.tv** domains, using your existing Twitch session, to perform the same actions you would perform manually (watching streams and claiming drops).
+
+DropHunter does **not** include:
+
+- remote logging
+- telemetry
+- crash reporting
+- advertising SDKs
+- analytics beacons
+- third-party trackers
 
 ## Permissions
 
@@ -56,4 +70,4 @@ For questions or concerns about this privacy policy, open an issue on the [GitHu
 
 This policy may be updated to reflect changes in the extension's functionality. The latest version is always available at this URL.
 
-*Last updated: February 2026*
+*Last updated: March 21, 2026*
