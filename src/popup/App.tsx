@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { sortPendingDrops } from '../shared/drop-order.js';
+import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
+import { sortPendingDrops } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
+import { deriveRuntimeMode, formatRecoveryReason, formatRetryLabel } from '../shared/runtime-status';
 import { createInitialState, isExpiredGame } from '../shared/utils';
 import { AppState, ExpiryStatus, TwitchDrop, TwitchGame } from '../types';
 
@@ -48,6 +50,14 @@ function formatEtaMinutes(value?: number | null): string | null {
     return `${hours}h`;
   }
   return `${hours}h ${rem}m`;
+}
+
+function statusReasonLabel(reason: string | null | undefined): string | null {
+  return formatRecoveryReason(reason);
+}
+
+function retryLabel(timestamp?: number | null): string | null {
+  return formatRetryLabel(timestamp);
 }
 
 /* ── SVG Icons ── */
@@ -254,19 +264,13 @@ function App() {
     await chrome.runtime
       .sendMessage({ type: 'ENSURE_GAMES_CACHE', payload: { force } })
       .catch((err: unknown) => console.warn('[DropHunter] ENSURE_GAMES_CACHE failed:', err));
-    const latest = await chrome.storage.local.get(['appState']);
-    if (latest.appState) {
-      setState({ ...createInitialState(), ...latest.appState });
-    }
+    setState(await loadStoredAppState());
   }, []);
 
   useEffect(() => {
     const loadState = async () => {
       try {
-        const result = await chrome.storage.local.get(['appState']);
-        if (result.appState) {
-          setState({ ...createInitialState(), ...result.appState });
-        }
+        setState(await loadStoredAppState());
       } catch (error) {
         console.error('Error loading state:', error);
       } finally {
@@ -277,14 +281,10 @@ function App() {
 
     loadState();
 
-    const listener = (message: { type?: string; payload?: AppState }) => {
-      if (message.type === 'UPDATE_STATE' && message.payload) {
-        setState({ ...createInitialState(), ...message.payload });
-        setRewardsLoading(false);
-      }
-    };
-    chrome.runtime.onMessage.addListener(listener);
-    return () => chrome.runtime.onMessage.removeListener(listener);
+    return subscribeToAppState((nextState) => {
+      setState(nextState);
+      setRewardsLoading(false);
+    });
   }, [fetchAvailableGames]);
 
   const pendingDrops = useMemo(() => sortPendingDrops(state.pendingDrops), [state.pendingDrops]);
@@ -304,6 +304,7 @@ function App() {
     const fallbackById = new Map(sortedGames.map((g) => [g.id, g]));
     return state.queue.map((q) => fallbackById.get(q.id) ?? q);
   }, [state.queue, sortedGames]);
+  const runtimeMode = deriveRuntimeMode(state);
 
   const handleGameSelect = async (gameId: string) => {
     const selected = sortedGames.find((g) => g.id === gameId);
@@ -608,6 +609,21 @@ function App() {
         </div>
 
         {queueMessage && <p className="text-[11px] text-blue-300">{queueMessage}</p>}
+
+        {runtimeMode === 'recovering' && state.recoveryReason && (
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
+            <p className="text-[11px] font-semibold text-yellow-300">
+              {statusReasonLabel(state.recoveryReason)}
+              {retryLabel(state.recoveryBackoffUntil) ? ` · ${retryLabel(state.recoveryBackoffUntil)}` : ''}
+            </p>
+          </div>
+        )}
+
+        {runtimeMode === 'stopped-terminal' && state.lastStopMessage && (
+          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <p className="text-[11px] text-gray-300">{state.lastStopMessage}</p>
+          </div>
+        )}
 
         {/* Queue chips */}
         {queueGames.length > 0 && (

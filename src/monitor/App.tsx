@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { pickNearestDrop } from '../shared/drop-order.js';
+import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
+import { pickNearestDrop } from '../shared/drop-order';
+import {
+  deriveRuntimeMode,
+  formatRecoveryReason,
+  formatRetryLabel,
+  formatRotationReason,
+} from '../shared/runtime-status';
 import { createInitialState } from '../shared/utils';
 import { AppState } from '../types';
 
@@ -27,46 +34,57 @@ function updatedLabel(timestamp: number): string {
   return `${date.toLocaleTimeString()}`;
 }
 
+function rotationReasonLabel(reason: string | null | undefined): string | null {
+  return formatRotationReason(reason);
+}
+
+function recoveryLabel(reason: string | null | undefined): string | null {
+  return formatRecoveryReason(reason);
+}
+
+function retryAtLabel(timestamp?: number | null): string | null {
+  return formatRetryLabel(timestamp);
+}
+
 function App() {
   const [state, setState] = useState<AppState>(createInitialState());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
 
   useEffect(() => {
     const syncState = async () => {
-      const result = await chrome.storage.local.get(['appState']);
-      if (result.appState) {
-        setState({ ...createInitialState(), ...result.appState });
-        setLastUpdatedAt(Date.now());
-      }
+      setState(await loadStoredAppState());
+      setLastUpdatedAt(Date.now());
     };
 
     syncState().catch(() => undefined);
-    const timer = window.setInterval(() => {
-      syncState().catch(() => undefined);
-    }, 4000);
+    const unsubscribe = subscribeToAppState((nextState) => {
+      setState(nextState);
+      setLastUpdatedAt(Date.now());
+    });
 
-    const listener = (message: { type?: string; payload?: AppState }) => {
-      if (message.type === 'UPDATE_STATE' && message.payload) {
-        setState({ ...createInitialState(), ...message.payload });
-        setLastUpdatedAt(Date.now());
-      }
-    };
-    chrome.runtime.onMessage.addListener(listener);
-
-    return () => {
-      window.clearInterval(timer);
-      chrome.runtime.onMessage.removeListener(listener);
-    };
+    return unsubscribe;
   }, []);
 
   const nearestDrop = useMemo(() => pickNearestDrop(state.pendingDrops), [state.pendingDrops]);
-
-  const runStateClass = state.isRunning
-    ? state.isPaused
-      ? 'monitor-pill monitor-pill--paused'
-      : 'monitor-pill monitor-pill--running'
-    : 'monitor-pill monitor-pill--idle';
-  const runStateLabel = state.isRunning ? (state.isPaused ? 'PAUSED' : 'RUNNING') : 'IDLE';
+  const runtimeMode = deriveRuntimeMode(state);
+  const runStateClass =
+    runtimeMode === 'recovering'
+      ? 'monitor-pill monitor-pill--recovering'
+      : runtimeMode === 'paused'
+        ? 'monitor-pill monitor-pill--paused'
+        : runtimeMode === 'running'
+          ? 'monitor-pill monitor-pill--running'
+          : 'monitor-pill monitor-pill--idle';
+  const runStateLabel =
+    runtimeMode === 'recovering'
+      ? 'RECOVERING'
+      : runtimeMode === 'paused'
+        ? 'PAUSED'
+        : runtimeMode === 'running'
+          ? 'RUNNING'
+          : runtimeMode === 'stopped-terminal'
+            ? 'STOPPED'
+            : 'IDLE';
 
   return (
     <div className="monitor-shell">
@@ -96,6 +114,23 @@ function App() {
           </div>
         ) : (
           <div className="monitor-empty">No pending rewards for the selected campaign.</div>
+        )}
+
+        {(runtimeMode === 'running' || runtimeMode === 'recovering') && state.lastRotationReason && (
+          <div className="monitor-rotation-reason">
+            ↻ {rotationReasonLabel(state.lastRotationReason) ?? state.lastRotationReason}
+          </div>
+        )}
+
+        {runtimeMode === 'recovering' && state.recoveryReason && (
+          <div className="monitor-rotation-reason">
+            Recovering: {recoveryLabel(state.recoveryReason)}
+            {retryAtLabel(state.recoveryBackoffUntil) ? ` · ${retryAtLabel(state.recoveryBackoffUntil)}` : ''}
+          </div>
+        )}
+
+        {runtimeMode === 'stopped-terminal' && state.lastStopMessage && (
+          <div className="monitor-rotation-reason">Stopped: {state.lastStopMessage}</div>
         )}
 
         <div className="monitor-footer">

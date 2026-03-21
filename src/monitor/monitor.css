@@ -72,6 +72,12 @@ body {
   border-color: rgba(234, 179, 8, 0.35);
 }
 
+.monitor-pill--recovering {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fde68a;
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
 .monitor-pill--idle {
   background: rgba(148, 163, 184, 0.2);
   color: #e2e8f0;
@@ -148,6 +154,13 @@ body {
 .monitor-updated {
   font-size: 10px;
   color: #cbd5e1;
+}
+
+.monitor-rotation-reason {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #fde68a;
+  opacity: 0.8;
 }
 
 .monitor-empty {
