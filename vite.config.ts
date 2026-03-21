@@ -56,6 +56,15 @@ export default defineConfig({
           if (chunkInfo.name === 'integrity-interceptor') return 'integrity-interceptor.js';
           return 'assets/[name]-[hash].js';
         },
+        manualChunks: (id) => {
+          if (id.includes('/node_modules/react/') || id.includes('/node_modules/react-dom/')) {
+            return 'react-vendor';
+          }
+          if (id.includes('/src/shared/ErrorBoundary.tsx') || id.includes('/src/shared/drop-order.ts')) {
+            return 'ui-shared';
+          }
+          return undefined;
+        },
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
       },

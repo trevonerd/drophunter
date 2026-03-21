@@ -1,12 +1,14 @@
-function etaOrInfinity(value) {
+import type { TwitchDrop } from '../types/index';
+
+function etaOrInfinity(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : Number.POSITIVE_INFINITY;
 }
 
-function expiryOrInfinity(value) {
+function expiryOrInfinity(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 }
 
-export function comparePendingDrops(a, b) {
+export function comparePendingDrops(a: TwitchDrop, b: TwitchDrop): number {
   // Event-based (sub-only) drops always sort after time-based drops
   const aEvent = a.dropType === 'event-based' ? 1 : 0;
   const bEvent = b.dropType === 'event-based' ? 1 : 0;
@@ -29,11 +31,11 @@ export function comparePendingDrops(a, b) {
   return a.name.localeCompare(b.name);
 }
 
-export function sortPendingDrops(drops) {
+export function sortPendingDrops(drops: TwitchDrop[]): TwitchDrop[] {
   return [...drops].sort(comparePendingDrops);
 }
 
-export function pickNearestDrop(pendingDrops) {
+export function pickNearestDrop(pendingDrops: TwitchDrop[]): TwitchDrop | null {
   if (!Array.isArray(pendingDrops) || pendingDrops.length === 0) {
     return null;
   }
