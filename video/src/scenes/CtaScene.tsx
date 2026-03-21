@@ -55,14 +55,16 @@ export const CtaScene: React.FC = () => {
           <div
             style={{
               fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-              fontSize: 54,
+              fontSize: 56,
               fontWeight: 800,
               color: "white",
-              letterSpacing: -1.4,
+              letterSpacing: -1.6,
               lineHeight: 1.05,
             }}
           >
-            Stop babysitting Twitch tabs.
+            Queue it. Start it.
+            <br />
+            Come back to claimed drops.
           </div>
           <div
             style={{
@@ -72,7 +74,7 @@ export const CtaScene: React.FC = () => {
               color: "rgba(255,255,255,0.68)",
             }}
           >
-            Install the Chrome extension that queues campaigns, tracks progress, and auto-claims rewards.
+            DropHunter handles the repetitive part of Twitch Drops farming so you do not have to.
           </div>
         </div>
         <div
@@ -93,17 +95,17 @@ export const CtaScene: React.FC = () => {
               color: "white",
             }}
           >
-            Install the Chrome extension
+            Install on Chrome
           </span>
         </div>
         <div
           style={{
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            fontSize: 20,
+            fontSize: 18,
             color: "rgba(255,255,255,0.46)",
           }}
         >
-          github.com/trevonerd/drophunter
+          Free and open source • github.com/trevonerd/drophunter
         </div>
       </div>
     </AbsoluteFill>

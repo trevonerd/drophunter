@@ -57,7 +57,7 @@ export const MonitorScene: React.FC = () => {
             color: "white",
           }}
         >
-          Watch progress from 0 to 100.
+          See what is moving right now.
         </div>
         <div
           style={{
@@ -68,7 +68,7 @@ export const MonitorScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          The Chrome extension shows watch time, reward progress, and farming status without leaving Twitch.
+          Progress, ETA, active streamer, and recovery status stay visible at a glance.
         </div>
       </div>
       <div
@@ -105,7 +105,39 @@ export const MonitorScene: React.FC = () => {
             marginBottom: 10,
           }}
         >
-          Chrome extension monitor
+          Campaign Bravo
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 18,
+          }}
+        >
+          <div
+            style={{
+              padding: "7px 12px",
+              borderRadius: 999,
+              background: "rgba(34,197,94,0.14)",
+              border: "1px solid rgba(34,197,94,0.28)",
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#bbf7d0",
+            }}
+          >
+            RUNNING
+          </div>
+          <div
+            style={{
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              fontSize: 14,
+              color: "rgba(255,255,255,0.56)",
+            }}
+          >
+            /streamer_name
+          </div>
         </div>
         <div
           style={{
@@ -146,7 +178,7 @@ export const MonitorScene: React.FC = () => {
             color: "rgba(255,255,255,0.6)",
           }}
         >
-          {Math.round(progress * 100)}%
+          {Math.round(progress * 100)}% • ETA 14m
         </span>
         <div
           style={{
@@ -157,6 +189,25 @@ export const MonitorScene: React.FC = () => {
           }}
         >
           Reward progress updates live.
+        </div>
+        <div
+          style={{
+            marginTop: 18,
+            padding: "12px 14px",
+            borderRadius: 14,
+            background: "rgba(255,180,80,0.12)",
+            border: "1px solid rgba(255,180,80,0.22)",
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            fontSize: 14,
+            fontWeight: 600,
+            color: "rgba(255,236,204,0.9)",
+            opacity: interpolate(frame, [84, 120], [0, 1], {
+              extrapolateLeft: "clamp",
+              extrapolateRight: "clamp",
+            }),
+          }}
+        >
+          If recovery kicks in, you see it here too.
         </div>
       </div>
     </AbsoluteFill>

@@ -72,16 +72,16 @@ export const IntroScene: React.FC = () => {
           <div
             style={{
               fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-              fontSize: 54,
+              fontSize: 56,
               fontWeight: 800,
               color: "white",
-              letterSpacing: -1.5,
-              lineHeight: 1.05,
+              letterSpacing: -1.7,
+              lineHeight: 1.03,
             }}
           >
-            The Chrome extension
+            Farm Twitch Drops
             <br />
-            for Twitch Drops
+            without babysitting streams.
           </div>
           <div
             style={{
@@ -92,7 +92,7 @@ export const IntroScene: React.FC = () => {
               color: "rgba(255,255,255,0.68)",
             }}
           >
-            Queue campaigns, monitor progress, auto-claim rewards, and recover playback fast.
+            Queue campaigns, auto-claim rewards, and keep farming when Twitch acts up.
           </div>
         </div>
       </div>

@@ -54,7 +54,9 @@ export const RecoveryScene: React.FC = () => {
             color: "white",
           }}
         >
-          Know when Twitch needs your attention.
+          If Twitch flakes out,
+          <br />
+          DropHunter pushes back.
         </div>
         <div
           style={{
@@ -65,7 +67,7 @@ export const RecoveryScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          Get a clear warning when playback stalls, pauses, or needs a manual click.
+          It tries to recover playback first, then tells you clearly when Twitch still needs a manual click.
         </div>
       </div>
       <div
@@ -129,9 +131,9 @@ export const RecoveryScene: React.FC = () => {
           fontWeight: 600,
           color: "rgba(255,240,214,0.95)",
         }}
-      >
-        Playback needs a quick manual check.
-      </div>
+        >
+          Playback still needs a quick manual check.
+        </div>
     </AbsoluteFill>
   );
 };

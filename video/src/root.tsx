@@ -3,6 +3,7 @@ import { Composition } from "remotion";
 import { TransitionSeries, linearTiming } from "@remotion/transitions";
 import { fade } from "@remotion/transitions/fade";
 import { IntroScene } from "./scenes/IntroScene";
+import { ControlScene } from "./scenes/ControlScene";
 import { QueueScene } from "./scenes/QueueScene";
 import { MonitorScene } from "./scenes/MonitorScene";
 import { RotationScene } from "./scenes/RotationScene";
@@ -15,8 +16,15 @@ const TRANSITION = 12;
 
 const FullPromo: React.FC = () => (
   <TransitionSeries>
-    <TransitionSeries.Sequence durationInFrames={90}>
+    <TransitionSeries.Sequence durationInFrames={96}>
       <IntroScene />
+    </TransitionSeries.Sequence>
+    <TransitionSeries.Transition
+      presentation={fade()}
+      timing={linearTiming({ durationInFrames: TRANSITION })}
+    />
+    <TransitionSeries.Sequence durationInFrames={126}>
+      <ControlScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
@@ -57,14 +65,14 @@ const FullPromo: React.FC = () => (
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={120}>
+    <TransitionSeries.Sequence durationInFrames={144}>
       <CtaScene />
     </TransitionSeries.Sequence>
   </TransitionSeries>
 );
 
 const TOTAL =
-  90 + 150 + 180 + 150 + 150 + 150 + 120 - 6 * TRANSITION;
+  96 + 126 + 150 + 180 + 150 + 150 + 150 + 144 - 7 * TRANSITION;
 
 export const RemotionRoot: React.FC = () => (
   <>

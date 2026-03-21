@@ -8,9 +8,9 @@ import {
 } from "remotion";
 
 const CAMPAIGNS = [
-  { label: "Game A", color: "#9146ff" },
-  { label: "Game B", color: "#772ce8" },
-  { label: "Game C", color: "#5c1cb8" },
+  { label: "Campaign Alpha", color: "#9146ff", status: "Done" },
+  { label: "Campaign Bravo", color: "#22c55e", status: "Now farming" },
+  { label: "Campaign Charlie", color: "#5c1cb8", status: "Next up" },
 ];
 
 export const QueueScene: React.FC = () => {
@@ -66,7 +66,9 @@ export const QueueScene: React.FC = () => {
             color: "white",
           }}
         >
-          Build your farming queue in seconds.
+          Set the queue once.
+          <br />
+          Let it run.
         </div>
         <div
           style={{
@@ -77,7 +79,7 @@ export const QueueScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          Use the extension popup to pick multiple campaigns and let DropHunter move through them automatically.
+          When one campaign finishes, DropHunter moves to the next one on its own.
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
@@ -104,26 +106,43 @@ export const QueueScene: React.FC = () => {
                 display: "flex",
                 alignItems: "center",
                 gap: 16,
+                justifyContent: "space-between",
               }}
             >
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 12,
+                    background: `linear-gradient(135deg, ${c.color}, ${c.color}99)`,
+                  }}
+                />
+                <span
+                  style={{
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                    fontSize: 22,
+                    fontWeight: 600,
+                    color: "white",
+                  }}
+                >
+                  {c.label}
+                </span>
+              </div>
               <div
                 style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 12,
-                  background: `linear-gradient(135deg, ${c.color}, ${c.color}99)`,
-                }}
-              />
-              <span
-                style={{
+                  padding: "8px 12px",
+                  borderRadius: 999,
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.08)",
                   fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                  fontSize: 22,
-                  fontWeight: 600,
-                  color: "white",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "rgba(255,255,255,0.86)",
                 }}
               >
-                {c.label}
-              </span>
+                {c.status}
+              </div>
             </div>
           );
         })}
