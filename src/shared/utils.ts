@@ -35,4 +35,11 @@ export const createInitialState = (): AppState => ({
   monitorWindowId: null,
   tabId: null,
   completionNotified: false,
+  lastRotationReason: null,
+  lastRotationAt: null,
+  recoveryReason: null,
+  recoveryBackoffUntil: null,
+  recoveryAttempts: null,
+  lastStopReason: null,
+  lastStopMessage: null,
 });

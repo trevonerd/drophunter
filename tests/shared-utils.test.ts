@@ -77,6 +77,13 @@ test('createInitialState returns fresh state object', () => {
   expect(state.availableGames).toEqual([]);
   expect(state.queue).toEqual([]);
   expect(state.completionNotified).toBe(false);
+  expect(state.lastRotationReason).toBeNull();
+  expect(state.lastRotationAt).toBeNull();
+  expect(state.recoveryReason).toBeNull();
+  expect(state.recoveryBackoffUntil).toBeNull();
+  expect(state.recoveryAttempts).toBeNull();
+  expect(state.lastStopReason).toBeNull();
+  expect(state.lastStopMessage).toBeNull();
 });
 
 test('createInitialState returns independent instances', () => {

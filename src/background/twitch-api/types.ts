@@ -82,6 +82,16 @@ function normalizeOAuthToken(value: unknown): string {
   return stripped.replace(/["'\\]/g, '').trim();
 }
 
+function normalizeDeviceId(value: unknown): string {
+  return normalizeValue(value)
+    .replace(/["'\\]/g, '')
+    .trim();
+}
+
+function isValidDeviceId(deviceId: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(deviceId);
+}
+
 export function sanitizeTwitchSession(input: unknown): TwitchSession | null {
   if (!input || typeof input !== 'object') {
     return null;
@@ -89,8 +99,9 @@ export function sanitizeTwitchSession(input: unknown): TwitchSession | null {
 
   const source = input as Record<string, unknown>;
   const oauthToken = normalizeOAuthToken(source.oauthToken);
-  const userId = normalizeValue(source.userId) || normalizeValue(source.userID) || normalizeValue(source.id);
-  const deviceId = normalizeValue(source.deviceId);
+  const rawUserId =
+    normalizeValue(source.userId) || normalizeValue(source.userID) || normalizeValue(source.id);
+  const deviceId = normalizeDeviceId(source.deviceId);
   const uuid = normalizeValue(source.uuid) || crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const clientId = normalizeValue(source.clientId) || DEFAULT_TWITCH_CLIENT_ID;
   const clientIntegrity = normalizeValue(source.clientIntegrity);
@@ -98,6 +109,19 @@ export function sanitizeTwitchSession(input: unknown): TwitchSession | null {
   if (!oauthToken || !deviceId) {
     return null;
   }
+
+  // Structural integrity checks — reject tokens that are obviously malformed.
+  // Device IDs are opaque but tend to be stable ASCII identifiers sourced from Twitch storage/cookies.
+  if (oauthToken.length < 20) {
+    return null;
+  }
+  if (!isValidDeviceId(deviceId)) {
+    return null;
+  }
+
+  // Twitch user IDs are always decimal integers — strip non-numeric values rather than
+  // rejecting (userId absence is handled downstream by the auto-detect path).
+  const userId = rawUserId && !/^\d+$/.test(rawUserId) ? '' : rawUserId;
 
   return {
     oauthToken,

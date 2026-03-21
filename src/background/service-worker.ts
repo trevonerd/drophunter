@@ -10,9 +10,24 @@ import {
   isSameGame,
 } from '../shared/game-selection';
 import { normalizeToken, tokenOverlapScore } from '../shared/matching';
+import {
+  applyRecoveryStatus,
+  applyTerminalStopStatus,
+  clearRecoveryStatus,
+  clearTerminalStopStatus,
+} from '../shared/runtime-status';
 import { createInitialState, isExpiredGame, toSlug } from '../shared/utils';
 import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { logDebug, logInfo, logWarn } from './logging';
 import {
+  clearRotationMetadata,
+  normalizeTimingState,
+  shouldCloseManagedTab,
+  TimingState,
+} from './runtime-state';
+import {
+  classifyStreamHealth,
+  computeRecoveryBackoffMs,
   didDropProgressAdvance,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
   nextNoProgressRotationAttempts,
@@ -37,19 +52,8 @@ const DROPS_SNAPSHOT_CACHE_KEY = 'dropsSnapshotCache';
 const TIMING_STATE_KEY = 'timingState';
 const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
 const ALARM_NAME = 'dropCheck';
-const LOG_PREFIX = '[DropHunter]';
 const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000; // 3 days
-
-interface TimingState {
-  lastStreamRotationAt: number;
-  streamValidationGraceUntil: number;
-  invalidStreamChecks: number;
-  noProgressRotationAttempts: number;
-  twitchSessionLastAttemptAt: number;
-  dropClaimRetryAtById: Record<string, number>;
-  lastProgressAdvanceAt: number;
-  lastTrackedProgress: number;
-}
+const INTEGRITY_FALLBACK_TTL_MS = 30 * 60_000; // 30 minutes
 
 interface StreamContext {
   channelName: string;
@@ -66,20 +70,6 @@ interface PlaybackPrepResult {
   gateDismissed?: boolean;
   isPlaybackReady?: boolean;
   userInteractionRequired?: boolean;
-}
-
-const DEBUG = true;
-
-function logInfo(...args: unknown[]) {
-  console.info(LOG_PREFIX, ...args);
-}
-
-function logDebug(...args: unknown[]) {
-  if (DEBUG) console.debug(LOG_PREFIX, ...args);
-}
-
-function logWarn(...args: unknown[]) {
-  console.warn(LOG_PREFIX, ...args);
 }
 
 function sessionDebugSummary(session: TwitchSession | null) {
@@ -101,6 +91,7 @@ function sameCampaignId(left?: string | null, right?: string | null): boolean {
   return Boolean(left && right && left === right);
 }
 
+let initPromise: Promise<void> | null = null;
 let appState: AppState = createInitialState();
 let monitorTickInFlight = false;
 let invalidStreamChecks = 0;
@@ -120,6 +111,14 @@ let lastFullRefreshAt = 0;
 let dropClaimInFlight = false;
 const dropClaimRetryAtById = new Map<string, number>();
 let lastActivityAt = 0;
+let apiConsecutiveFailures = 0;
+let apiBackoffUntil = 0;
+let integrityFallbackActive = false;
+let integrityFallbackActiveUntil = 0;
+let recoveryBackoffUntil = 0;
+let lastRecoveryAttemptAt = 0;
+let stalledRecoveryAttempts = 0;
+let recoveryNotificationSent = false;
 
 async function markActivity(reason: string) {
   lastActivityAt = Date.now();
@@ -135,13 +134,21 @@ async function resetStateForInactivity(trigger: string, idleForMs: number) {
     wasPaused: appState.isPaused,
   });
   stopMonitoring();
-  appState = createInitialState();
+  appState = clearRotationMetadata(createInitialState());
   cachedDropsSnapshot = [];
   cachedCampaignChannelsMap = {};
   resetStreamTrackingState();
   lastFullRefreshAt = 0;
   lastGamesCacheRefreshAt = 0;
   dropClaimRetryAtById.clear();
+  apiConsecutiveFailures = 0;
+  apiBackoffUntil = 0;
+  integrityFallbackActive = false;
+  integrityFallbackActiveUntil = 0;
+  recoveryBackoffUntil = 0;
+  lastRecoveryAttemptAt = 0;
+  stalledRecoveryAttempts = 0;
+  recoveryNotificationSent = false;
   lastActivityAt = Date.now();
   await chrome.storage.local
     .set({
@@ -184,6 +191,14 @@ async function saveTimingState() {
     dropClaimRetryAtById: Object.fromEntries(dropClaimRetryAtById),
     lastProgressAdvanceAt,
     lastTrackedProgress,
+    apiConsecutiveFailures,
+    apiBackoffUntil,
+    integrityFallbackActive,
+    integrityFallbackActiveUntil,
+    recoveryBackoffUntil,
+    lastRecoveryAttemptAt,
+    stalledRecoveryAttempts,
+    recoveryNotificationSent,
   };
   await chrome.storage.session.set({ [TIMING_STATE_KEY]: state }).catch(() => undefined);
 }
@@ -191,40 +206,56 @@ async function saveTimingState() {
 async function loadTimingState() {
   try {
     const result = await chrome.storage.session.get([TIMING_STATE_KEY]);
-    const saved = result[TIMING_STATE_KEY] as TimingState | undefined;
-    if (!saved) return;
-    lastStreamRotationAt = saved.lastStreamRotationAt ?? 0;
-    streamValidationGraceUntil = saved.streamValidationGraceUntil ?? 0;
-    invalidStreamChecks = saved.invalidStreamChecks ?? 0;
-    noProgressRotationAttempts = saved.noProgressRotationAttempts ?? 0;
-    twitchSessionLastAttemptAt = saved.twitchSessionLastAttemptAt ?? 0;
+    const saved = normalizeTimingState(result[TIMING_STATE_KEY]);
+    lastStreamRotationAt = saved.lastStreamRotationAt;
+    streamValidationGraceUntil = saved.streamValidationGraceUntil;
+    invalidStreamChecks = saved.invalidStreamChecks;
+    noProgressRotationAttempts = saved.noProgressRotationAttempts;
+    twitchSessionLastAttemptAt = saved.twitchSessionLastAttemptAt;
     if (saved.dropClaimRetryAtById) {
       dropClaimRetryAtById.clear();
       for (const [id, at] of Object.entries(saved.dropClaimRetryAtById)) {
         dropClaimRetryAtById.set(id, at);
       }
     }
-    lastProgressAdvanceAt = saved.lastProgressAdvanceAt ?? 0;
-    lastTrackedProgress = saved.lastTrackedProgress ?? -1;
-  } catch {
-    // Ignore: session storage may not be available
+    lastProgressAdvanceAt = saved.lastProgressAdvanceAt;
+    lastTrackedProgress = saved.lastTrackedProgress;
+    apiConsecutiveFailures = saved.apiConsecutiveFailures;
+    apiBackoffUntil = saved.apiBackoffUntil;
+    integrityFallbackActive = saved.integrityFallbackActive;
+    integrityFallbackActiveUntil = saved.integrityFallbackActiveUntil;
+    recoveryBackoffUntil = saved.recoveryBackoffUntil;
+    lastRecoveryAttemptAt = saved.lastRecoveryAttemptAt;
+    stalledRecoveryAttempts = saved.stalledRecoveryAttempts;
+    recoveryNotificationSent = saved.recoveryNotificationSent;
+  } catch (error) {
+    logWarn('Failed to load timing state from session storage:', String(error));
   }
 }
 
 chrome.runtime.onStartup.addListener(async () => {
-  await loadState();
+  // State is already loading via the module-level initPromise — just await it.
+  if (initPromise) await initPromise;
 });
 
 chrome.runtime.onInstalled.addListener(async (details) => {
+  // Ensure module initialization has settled before potentially resetting state.
+  if (initPromise) await initPromise;
   if (details.reason === 'update') {
-    // Reset state on extension update to prevent stale/corrupt state from persisting
-    appState = createInitialState();
+    // Reset state on extension update to prevent stale/corrupt state from persisting.
+    appState = clearRotationMetadata(createInitialState());
     cachedDropsSnapshot = [];
     await chrome.storage.local.set({ appState });
     broadcastStateUpdate();
-    return;
   }
-  await loadState();
+  // Fresh install: loadState() already ran at module evaluation time.
+});
+
+// Initialize state immediately when the SW module is evaluated. This handles the common
+// case where a Chrome alarm wakes the SW from dormancy — neither onStartup nor onInstalled
+// fires in that scenario, so without this the appState would remain at its empty defaults.
+initPromise = loadState().catch((error) => {
+  logWarn('SW initialization failed:', String(error));
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -271,6 +302,49 @@ function resetNoProgressRotationAttempts() {
   noProgressRotationAttempts = 0;
 }
 
+function clearRecoveryState() {
+  recoveryBackoffUntil = 0;
+  lastRecoveryAttemptAt = 0;
+  stalledRecoveryAttempts = 0;
+  recoveryNotificationSent = false;
+  appState = clearRecoveryStatus(appState);
+}
+
+function clearStopState() {
+  appState = clearTerminalStopStatus(appState);
+}
+
+function applyRecoveryState(reason: StreamRotationReason, retryAt: number) {
+  appState = applyRecoveryStatus(appState, {
+    reason,
+    retryAt,
+    attempts: stalledRecoveryAttempts,
+  });
+}
+
+function applyStopState(reason: string, message: string | null) {
+  clearRecoveryState();
+  appState = applyTerminalStopStatus(appState, { reason, message });
+}
+
+async function enterPersistentRecovery(reason: StreamRotationReason, message: string) {
+  stalledRecoveryAttempts += 1;
+  const backoffMs = computeRecoveryBackoffMs(stalledRecoveryAttempts);
+  recoveryBackoffUntil = Date.now() + backoffMs;
+  lastRecoveryAttemptAt = Date.now();
+  applyRecoveryState(reason, recoveryBackoffUntil);
+  logWarn('Entering persistent recovery mode', {
+    reason,
+    stalledRecoveryAttempts,
+    backoffMs,
+    retryAt: recoveryBackoffUntil,
+  });
+  if (!recoveryNotificationSent) {
+    recoveryNotificationSent = true;
+    await notify('DropHunter is still recovering', message, 1);
+  }
+}
+
 function resetStreamTrackingState() {
   invalidStreamChecks = 0;
   lastStreamRotationAt = 0;
@@ -279,6 +353,7 @@ function resetStreamTrackingState() {
   lastProgressAdvanceAt = 0;
   resetNoProgressRotationAttempts();
   playbackAttentionWarningSent = false;
+  clearRecoveryState();
 }
 
 async function notify(title: string, message: string, priority = 2) {
@@ -291,19 +366,21 @@ async function notify(title: string, message: string, priority = 2) {
   });
 }
 
-async function stopFarmingSession(notification?: { title: string; message: string }) {
+async function stopFarmingSession(options?: {
+  notification?: { title: string; message: string };
+  stopReason?: string;
+  stopMessage?: string | null;
+}) {
   stopMonitoring();
   resetStreamTrackingState();
   dropClaimRetryAtById.clear();
   dropClaimInFlight = false;
   monitorTickInFlight = false;
 
-  if (appState.tabId) {
-    await chrome.tabs.remove(appState.tabId).catch(() => undefined);
-  }
+  await closeManagedTabIfSafe(appState.tabId);
 
   appState = {
-    ...appState,
+    ...clearRotationMetadata(appState),
     isRunning: false,
     isPaused: false,
     activeStreamer: null,
@@ -311,12 +388,70 @@ async function stopFarmingSession(notification?: { title: string; message: strin
     completionNotified: false,
   };
 
-  if (notification) {
-    await notify(notification.title, notification.message);
+  if (options?.stopReason) {
+    applyStopState(options.stopReason, options.stopMessage ?? options.notification?.message ?? null);
+  }
+
+  if (options?.notification) {
+    await notify(options.notification.title, options.notification.message);
   }
 
   await saveState();
   await saveTimingState();
+}
+
+function clearManagedTabOwnership() {
+  appState.tabId = null;
+  appState.activeStreamer = null;
+}
+
+async function closeManagedTabIfSafe(tabId: number | null): Promise<boolean> {
+  if (!tabId) {
+    return false;
+  }
+
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab?.id || typeof tab.windowId !== 'number') {
+    return false;
+  }
+
+  const windowTabs = await chrome.tabs.query({ windowId: tab.windowId }).catch(() => []);
+  if (!shouldCloseManagedTab(windowTabs.length)) {
+    logInfo('Keeping managed tab open because it is the last tab in the window', {
+      tabId,
+      windowId: tab.windowId,
+      windowTabCount: windowTabs.length,
+    });
+    return false;
+  }
+
+  await chrome.tabs.remove(tab.id).catch(() => undefined);
+  return true;
+}
+
+async function attemptPlaybackSelfHeal(tabId: number): Promise<void> {
+  playbackAttentionWarningSent = false;
+  await focusManagedTab(tabId);
+  const prepared = await prepareStreamPlayback(tabId, {
+    activateTab: true,
+    unmuteTab: true,
+    muteAfterPrep: true,
+  });
+  if (prepared?.gateDismissed) {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const retried = await prepareStreamPlayback(tabId, {
+      activateTab: true,
+      unmuteTab: true,
+      muteAfterPrep: true,
+    });
+    if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
+      await sendPlaybackAttentionWarning();
+    }
+    return;
+  }
+  if (prepared?.userInteractionRequired || !prepared?.isPlaybackReady) {
+    await sendPlaybackAttentionWarning();
+  }
 }
 
 function mergeAvailableGames(existing: TwitchGame[], incoming: TwitchGame[]): TwitchGame[] {
@@ -498,6 +633,7 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
     lastTrackedProgress = currentProgress;
     lastProgressAdvanceAt = Date.now();
     resetNoProgressRotationAttempts();
+    clearRecoveryState();
   }
 
   logDebug('Selected game rewards updated', {
@@ -753,8 +889,9 @@ async function ensureContentScriptOnTab(tabId: number) {
       target: { tabId },
       files: ['content.js'],
     });
-  } catch {
-    // Ignore: content script may already be injected or tab may not allow injection
+  } catch (error) {
+    // Content script may already be injected or the tab may not allow scripting — this is expected.
+    logDebug('Content script injection skipped', { tabId, reason: String(error) });
   }
 }
 
@@ -1252,6 +1389,18 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
     } catch (error) {
       logWarn('Failed to auto-detect userId', String(error));
     }
+    // If userId is still missing after all recovery attempts, authentication is unavailable.
+    if (!session.userId && appState.isRunning) {
+      await stopFarmingSession({
+        notification: {
+          title: 'Sign-in required',
+          message: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
+        },
+        stopReason: 'sign-in-required',
+        stopMessage: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
+      });
+      return null;
+    }
   }
 
   logDebug('Fetching drops snapshot via API', {
@@ -1259,10 +1408,16 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
     ...sessionDebugSummary(session),
   });
 
-  const sessionWithIntegrity = await ensureSessionIntegrity(session);
+  // If integrity tokens have been consistently rejected, bypass the integrity check
+  // for up to INTEGRITY_FALLBACK_TTL_MS to avoid redundant retry cascades.
+  const sessionWithIntegrity =
+    integrityFallbackActive && Date.now() < integrityFallbackActiveUntil
+      ? { ...session, clientIntegrity: undefined }
+      : await ensureSessionIntegrity(session);
   logDebug('Attempting Twitch drops snapshot request', {
     mode: sessionWithIntegrity.clientIntegrity ? 'primary-with-integrity' : 'primary-no-integrity',
     hasIntegrity: Boolean(sessionWithIntegrity.clientIntegrity),
+    integrityFallbackActive,
     oauthTokenLength: sessionWithIntegrity.oauthToken?.length ?? 0,
     deviceIdSuffix: sessionWithIntegrity.deviceId ? sessionWithIntegrity.deviceId.slice(-6) : null,
   });
@@ -1277,6 +1432,8 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
       games: snapshot.games.length,
       drops: snapshot.drops.length,
     });
+    apiConsecutiveFailures = 0;
+    apiBackoffUntil = 0;
     return snapshot;
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
@@ -1302,6 +1459,8 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
             logWarn('Drops snapshot API retry returned empty payload');
             return null;
           }
+          apiConsecutiveFailures = 0;
+          apiBackoffUntil = 0;
           return retriedSnapshot;
         } catch (retryError) {
           logWarn('Twitch API snapshot fetch failed after integrity refresh:', String(retryError));
@@ -1323,6 +1482,12 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
           logWarn('Drops snapshot API retry (no integrity) returned empty payload');
           return null;
         }
+        // Cache the no-integrity decision so future ticks skip the cascade retry.
+        integrityFallbackActive = true;
+        integrityFallbackActiveUntil = Date.now() + INTEGRITY_FALLBACK_TTL_MS;
+        logInfo('Integrity consistently rejected — switching to no-integrity mode for 30 min');
+        apiConsecutiveFailures = 0;
+        apiBackoffUntil = 0;
         return fallbackSnapshot;
       } catch (fallbackError) {
         logWarn('Twitch API snapshot fetch failed without integrity fallback:', String(fallbackError));
@@ -1335,6 +1500,13 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
       }
     }
     logWarn('Twitch API snapshot fetch failed:', String(error));
+    // Exponential backoff: slow down polling after consecutive failures (capped at 10 min).
+    apiConsecutiveFailures += 1;
+    apiBackoffUntil = Date.now() + Math.min(2 ** apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
+    logDebug('API backoff scheduled', {
+      consecutiveFailures: apiConsecutiveFailures,
+      backoffMs: apiBackoffUntil - Date.now(),
+    });
     return null;
   }
 }
@@ -1923,7 +2095,20 @@ async function refreshDropsData(options: RefreshDropsOptions = {}) {
 }
 
 async function checkDropProgress() {
+  // Ensure SW initialization has completed before processing any alarm tick.
+  // This handles the race where Chrome wakes the SW via alarm before loadState() finishes.
+  if (initPromise) {
+    await initPromise;
+    initPromise = null;
+  }
+
   if (!appState.isRunning || appState.isPaused) {
+    return;
+  }
+
+  // Skip this tick if the API is in an exponential backoff window after consecutive failures.
+  if (apiBackoffUntil > 0 && Date.now() < apiBackoffUntil) {
+    logDebug('API backoff active, skipping tick', { remainingMs: apiBackoffUntil - Date.now() });
     return;
   }
 
@@ -2141,14 +2326,16 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
   }
 
   if (appState.tabId) {
-    await chrome.tabs.remove(appState.tabId).catch(() => undefined);
+    await closeManagedTabIfSafe(appState.tabId);
   }
-  appState.tabId = null;
-  appState.activeStreamer = null;
+  clearManagedTabOwnership();
   appState.isRunning = false;
   appState.isPaused = false;
   appState.selectedGame = null;
   appState.completionNotified = false;
+  appState.lastRotationReason = null;
+  appState.lastRotationAt = null;
+  applyStopState('queue-complete', 'Queue completed. No pending rewards left.');
   stopMonitoring();
   await sendAlert('all-complete', 'Queue completed. No pending rewards left.');
   await saveState();
@@ -2169,6 +2356,10 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   appState.isRunning = true;
   appState.isPaused = false;
   appState.completionNotified = false;
+  clearStopState();
+  clearRecoveryState();
+  appState.lastRotationReason = null;
+  appState.lastRotationAt = null;
   resetStreamTrackingState();
   dropClaimRetryAtById.clear();
   dropClaimInFlight = false;
@@ -2215,13 +2406,18 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
 async function rotateStreamer(reason: StreamRotationReason) {
   noProgressRotationAttempts = nextNoProgressRotationAttempts(noProgressRotationAttempts, reason);
   if (noProgressRotationAttempts >= MAX_NO_PROGRESS_ROTATION_ATTEMPTS) {
-    await stopFarmingSession({
-      title: 'Farming stopped',
-      message: "I've tried three times but the drop percentage isn't increasing.",
-    });
+    await enterPersistentRecovery(
+      reason,
+      "DropHunter hasn't resumed progress yet, but it will keep retrying automatically.",
+    );
+    await saveState();
+    await saveTimingState();
     return false;
   }
 
+  // Record why we rotated so the monitor UI can display the reason.
+  appState.lastRotationReason = reason;
+  appState.lastRotationAt = Date.now();
   lastStreamRotationAt = Date.now();
   lastProgressAdvanceAt = Date.now();
   appState.activeStreamer = null;
@@ -2230,10 +2426,12 @@ async function rotateStreamer(reason: StreamRotationReason) {
   if (!opened && !shouldIncrementNoProgressRotationAttempts(reason)) {
     noProgressRotationAttempts = nextNoProgressRotationAttempts(noProgressRotationAttempts, 'open-failed');
     if (noProgressRotationAttempts >= MAX_NO_PROGRESS_ROTATION_ATTEMPTS) {
-      await stopFarmingSession({
-        title: 'Farming stopped',
-        message: "I've tried three times but the drop percentage isn't increasing.",
-      });
+      await enterPersistentRecovery(
+        'open-failed',
+        'DropHunter could not reopen a working stream yet, but it will keep retrying automatically.',
+      );
+      await saveState();
+      await saveTimingState();
       return false;
     }
   }
@@ -2249,6 +2447,13 @@ async function rotateStreamerIfInvalid() {
   }
 
   if (!appState.tabId) {
+    if (
+      recoveryBackoffUntil > 0 &&
+      Date.now() < recoveryBackoffUntil &&
+      appState.recoveryReason === 'open-failed'
+    ) {
+      return;
+    }
     await rotateStreamer('open-failed');
     return;
   }
@@ -2257,6 +2462,13 @@ async function rotateStreamerIfInvalid() {
   if (!tab?.id) {
     appState.tabId = null;
     appState.activeStreamer = null;
+    if (
+      recoveryBackoffUntil > 0 &&
+      Date.now() < recoveryBackoffUntil &&
+      appState.recoveryReason === 'open-failed'
+    ) {
+      return;
+    }
     await rotateStreamer('open-failed');
     return;
   }
@@ -2291,6 +2503,14 @@ async function rotateStreamerIfInvalid() {
 
   const sameChannel = !appState.activeStreamer || context.channelName === appState.activeStreamer.name;
   const hasDropsSignal = context.titleContainsDrops || context.hasDropsSignal;
+  const selectedCategorySlug = normalizeToken(await resolveCategorySlug(appState.selectedGame));
+  const contextCategorySlug = normalizeToken(context.categorySlug);
+  const sameGame =
+    selectedCategorySlug.length === 0 || contextCategorySlug.length === 0
+      ? true
+      : selectedCategorySlug === contextCategorySlug;
+  const expectsDropsSignal =
+    appState.currentDrop != null || appState.pendingDrops.some((drop) => drop.dropType !== 'event-based');
 
   // Check for progress stall: if progress hasn't advanced in PROGRESS_STALL_THRESHOLD_MS, rotate.
   // Note: lastProgressAdvanceAt > 0 ensures we have a real reference time (set on first progress tick
@@ -2300,26 +2520,49 @@ async function rotateStreamerIfInvalid() {
     appState.currentDrop != null &&
     now - lastProgressAdvanceAt >= PROGRESS_STALL_THRESHOLD_MS;
 
-  if (context.isLive && sameChannel && !progressStalled) {
-    // Stream is live and on correct channel — only rotate if progress is stalled
-    if (hasDropsSignal) {
-      invalidStreamChecks = 0;
-    }
+  const health = classifyStreamHealth({
+    isLive: context.isLive,
+    sameChannel,
+    sameGame,
+    hasDropsSignal,
+    progressStalled,
+    expectsDropsSignal,
+  });
+
+  if (health.isHealthy) {
+    invalidStreamChecks = 0;
     return;
   }
 
-  if (!context.isLive) {
-    invalidStreamChecks += 3;
-  } else if (!sameChannel) {
-    invalidStreamChecks += 2;
-  } else if (progressStalled) {
+  if (health.reason === 'stalled-progress') {
+    if (
+      recoveryBackoffUntil > 0 &&
+      now < recoveryBackoffUntil &&
+      appState.recoveryReason === 'stalled-progress'
+    ) {
+      return;
+    }
+    if (lastRecoveryAttemptAt < lastProgressAdvanceAt || stalledRecoveryAttempts === 0) {
+      stalledRecoveryAttempts = Math.max(1, stalledRecoveryAttempts + 1);
+      lastRecoveryAttemptAt = now;
+      recoveryBackoffUntil = now + computeRecoveryBackoffMs(stalledRecoveryAttempts);
+      applyRecoveryState('stalled-progress', recoveryBackoffUntil);
+      logInfo('Attempting in-place playback self-heal before rotating', {
+        stalledRecoveryAttempts,
+        recoveryBackoffUntil,
+      });
+      await attemptPlaybackSelfHeal(tab.id);
+      await saveState();
+      await saveTimingState();
+      return;
+    }
     logInfo('Drop progress stalled, triggering stream rotation', {
       progress: appState.currentDrop?.progress ?? null,
       stalledForMs: now - lastProgressAdvanceAt,
     });
     invalidStreamChecks = INVALID_STREAM_THRESHOLD; // Force immediate rotation
   } else {
-    invalidStreamChecks += 1;
+    invalidStreamChecks += health.invalidIncrement;
   }
   if (invalidStreamChecks < INVALID_STREAM_THRESHOLD) {
     return;
@@ -2330,19 +2573,15 @@ async function rotateStreamerIfInvalid() {
   }
 
   invalidStreamChecks = 0;
-  const reason: StreamRotationReason = !context.isLive
-    ? 'offline'
-    : !sameChannel
-      ? 'wrong-channel'
-      : progressStalled
-        ? 'stalled-progress'
-        : 'missing-context';
-  await rotateStreamer(reason);
+  await rotateStreamer(health.reason ?? 'missing-context');
 }
 
 async function handleStopFarming() {
   await trackActivity('stop-farming');
-  await stopFarmingSession();
+  await stopFarmingSession({
+    stopReason: 'user-stop',
+    stopMessage: 'Stopped by user.',
+  });
   return { success: true };
 }
 
@@ -2402,10 +2641,6 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
     });
   }
   if (appState.isRunning && !appState.isPaused) {
-    if (appState.tabId) {
-      await chrome.tabs.remove(appState.tabId).catch(() => undefined);
-    }
-    appState.tabId = null;
     appState.activeStreamer = null;
     await openBestStreamerForSelectedGame();
   }
@@ -2511,11 +2746,13 @@ async function handleResumeFarming() {
   appState.isPaused = false;
   invalidStreamChecks = 0;
   resetNoProgressRotationAttempts();
+  clearStopState();
   // Re-issue grace window so the first tick after resume doesn't immediately run
   // full rotation validation against a stream that hasn't had time to respond.
   if (appState.tabId) {
     streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
   }
+  clearRecoveryState();
   startMonitoring();
   await saveState();
   await saveTimingState();
@@ -2641,6 +2878,10 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
         expiration,
         hasSession: Boolean(twitchSessionCache),
       });
+      // A fresh page-intercepted token means integrity is working — reset the fallback flag
+      // so the next request re-attempts with integrity instead of staying in no-integrity mode.
+      integrityFallbackActive = false;
+      integrityFallbackActiveUntil = 0;
       if (twitchSessionCache) {
         twitchSessionCache = { ...twitchSessionCache, clientIntegrity: token };
         persistTwitchSession(twitchSessionCache).catch(() => undefined);
@@ -2679,8 +2920,7 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
 
 chrome.tabs.onRemoved.addListener((removedTabId) => {
   if (appState.tabId === removedTabId) {
-    appState.tabId = null;
-    appState.activeStreamer = null;
+    clearManagedTabOwnership();
     saveState().catch(() => undefined);
   }
 });
@@ -2694,8 +2934,7 @@ chrome.tabs.onUpdated.addListener((updatedTabId, changeInfo) => {
   if (!isStillOnTwitch) {
     logInfo('Managed tab navigated away from Twitch (onUpdated)', { url: changeInfo.url });
     // Release the tab so next rotation creates a NEW tab instead of hijacking this one
-    appState.tabId = null;
-    appState.activeStreamer = null;
+    clearManagedTabOwnership();
     invalidStreamChecks = INVALID_STREAM_THRESHOLD;
     saveState().catch(() => undefined);
   }
@@ -2708,4 +2947,4 @@ chrome.windows.onRemoved.addListener((removedWindowId) => {
   }
 });
 
-console.log('DropHunter service worker loaded');
+logDebug('DropHunter service worker loaded');

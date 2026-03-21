@@ -75,6 +75,13 @@ export interface AppState {
   tabId: number | null;
   completionNotified: boolean;
   lastSuccessfulRefreshAt?: number;
+  lastRotationReason?: string | null;
+  lastRotationAt?: number | null;
+  recoveryReason?: string | null;
+  recoveryBackoffUntil?: number | null;
+  recoveryAttempts?: number | null;
+  lastStopReason?: string | null;
+  lastStopMessage?: string | null;
 }
 
 export interface StorageData {
