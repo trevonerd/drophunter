@@ -31,13 +31,11 @@ window.fetch = function (...args: Parameters<typeof fetch>): ReturnType<typeof f
           } catch {
             // sessionStorage might be full or blocked
           }
-          window.dispatchEvent(
-            new CustomEvent(STORAGE_KEY, { detail: JSON.stringify(integrity) }),
-          );
+          window.dispatchEvent(new CustomEvent(STORAGE_KEY, { detail: JSON.stringify(integrity) }));
         }
       })
-      .catch(() => {
-        // Silently ignore errors in the interceptor
+      .catch((error: unknown) => {
+        console.debug('[DropHunter][integrity-interceptor] failed to parse response:', String(error));
       });
   }
 
