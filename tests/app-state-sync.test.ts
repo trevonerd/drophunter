@@ -16,6 +16,7 @@ describe('normalizeStoredAppState', () => {
     expect(state.isRunning).toBe(true);
     expect(state.selectedGame?.name).toBe('Game');
     expect(state.queue).toEqual([]);
+    expect(state.autoClaimChannelPointsBonus).toBe(false);
     expect(state.recoveryReason).toBeNull();
     expect(state.lastStopReason).toBeNull();
   });

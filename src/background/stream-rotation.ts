@@ -46,6 +46,7 @@ export interface StreamHealthInput {
 
 export interface StreamHealthResult {
   isHealthy: boolean;
+  forceImmediateRotation: boolean;
   invalidIncrement: number;
   reason: StreamRotationReason | null;
 }
@@ -59,28 +60,29 @@ export function classifyStreamHealth(input: StreamHealthInput): StreamHealthResu
     (!input.expectsDropsSignal || input.hasDropsSignal);
 
   if (healthyLiveStream) {
-    return { isHealthy: true, invalidIncrement: 0, reason: null };
+    return { isHealthy: true, forceImmediateRotation: false, invalidIncrement: 0, reason: null };
   }
 
   if (!input.isLive) {
-    return { isHealthy: false, invalidIncrement: 3, reason: 'offline' };
+    return { isHealthy: false, forceImmediateRotation: true, invalidIncrement: 0, reason: 'offline' };
   }
   if (!input.sameChannel) {
-    return { isHealthy: false, invalidIncrement: 2, reason: 'wrong-channel' };
+    return { isHealthy: false, forceImmediateRotation: false, invalidIncrement: 2, reason: 'wrong-channel' };
   }
   if (!input.sameGame) {
-    return { isHealthy: false, invalidIncrement: 2, reason: 'wrong-game' };
+    return { isHealthy: false, forceImmediateRotation: false, invalidIncrement: 2, reason: 'wrong-game' };
   }
   if (input.progressStalled) {
     return {
       isHealthy: false,
+      forceImmediateRotation: false,
       invalidIncrement: MAX_NO_PROGRESS_ROTATION_ATTEMPTS + 5,
       reason: 'stalled-progress',
     };
   }
   if (input.expectsDropsSignal && !input.hasDropsSignal) {
-    return { isHealthy: false, invalidIncrement: 1, reason: 'drops-inactive' };
+    return { isHealthy: false, forceImmediateRotation: false, invalidIncrement: 1, reason: 'drops-inactive' };
   }
 
-  return { isHealthy: false, invalidIncrement: 1, reason: 'missing-context' };
+  return { isHealthy: false, forceImmediateRotation: false, invalidIncrement: 1, reason: 'missing-context' };
 }

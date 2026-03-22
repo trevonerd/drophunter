@@ -18,6 +18,11 @@ import {
 } from '../shared/runtime-status';
 import { createInitialState, isExpiredGame, toSlug } from '../shared/utils';
 import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import {
+  applyAutoClaimChannelPointsBonusSetting,
+  ChannelPointsBonusClaimResponse,
+  shouldAttemptAutoClaimChannelPointsBonus,
+} from './channel-points';
 import { logDebug, logInfo, logWarn } from './logging';
 import {
   clearRotationMetadata,
@@ -2132,6 +2137,7 @@ async function checkDropProgress() {
     }
     await enforcePlaybackPolicyOnStreamTab();
     await rotateStreamerIfInvalid();
+    await attemptAutoClaimChannelPointsBonus();
 
     const isFullTick = Date.now() - lastFullRefreshAt >= FULL_REFRESH_INTERVAL_MS;
     if (isFullTick) {
@@ -2534,6 +2540,19 @@ async function rotateStreamerIfInvalid() {
     return;
   }
 
+  if (health.forceImmediateRotation && health.reason === 'offline') {
+    if (appState.recoveryReason === 'stalled-progress') {
+      clearRecoveryState();
+    }
+    invalidStreamChecks = 0;
+    logInfo('Offline stream detected, rotating immediately', {
+      channel: appState.activeStreamer?.name ?? context.channelName,
+      pageUrl: context.pageUrl,
+    });
+    await rotateStreamer('offline');
+    return;
+  }
+
   if (health.reason === 'stalled-progress') {
     if (
       recoveryBackoffUntil > 0 &&
@@ -2776,6 +2795,46 @@ async function handleSetMonitorAutoOpen(payload?: { enabled?: boolean }) {
   return { success: true, monitorAutoOpen: appState.monitorAutoOpen };
 }
 
+async function handleSetAutoClaimChannelPointsBonus(payload?: { enabled?: boolean }) {
+  await trackActivity('set-auto-claim-channel-points-bonus');
+  appState = applyAutoClaimChannelPointsBonusSetting(appState, payload?.enabled);
+  await saveState();
+  return {
+    success: true,
+    autoClaimChannelPointsBonus: appState.autoClaimChannelPointsBonus,
+  };
+}
+
+async function attemptAutoClaimChannelPointsBonus() {
+  if (!shouldAttemptAutoClaimChannelPointsBonus(appState)) {
+    return false;
+  }
+
+  const tabId = appState.tabId;
+  if (tabId == null) {
+    return false;
+  }
+
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab?.id) {
+    return false;
+  }
+
+  await ensureContentScriptOnTab(tab.id);
+  const result = (await chrome.tabs
+    .sendMessage(tab.id, {
+      type: 'CLAIM_CHANNEL_POINTS_BONUS',
+    })
+    .catch(() => null)) as ChannelPointsBonusClaimResponse | null;
+
+  if (result?.success && result.claimed) {
+    logDebug('Auto-claimed channel points bonus', { tabId: tab.id });
+    return true;
+  }
+
+  return false;
+}
+
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   switch (message.type) {
     case 'ENSURE_GAMES_CACHE':
@@ -2902,6 +2961,12 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
 
     case 'SET_MONITOR_AUTO_OPEN':
       handleSetMonitorAutoOpen(message.payload as { enabled?: boolean } | undefined)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
+    case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
+      handleSetAutoClaimChannelPointsBonus(message.payload as { enabled?: boolean } | undefined)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;

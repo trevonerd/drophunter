@@ -1,4 +1,5 @@
 import { Message } from '../types';
+import { claimChannelPointsBonus } from './channel-points.ts';
 
 const LOG_PREFIX = '[DropHunter]';
 
@@ -472,6 +473,15 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
     }
     case 'PREPARE_STREAM_PLAYBACK': {
       sendResponse({ success: true, ...prepareStreamPlayback() });
+      break;
+    }
+    case 'CLAIM_CHANNEL_POINTS_BONUS': {
+      sendResponse({
+        success: true,
+        ...claimChannelPointsBonus(document, {
+          supportedPage: extractChannelNameFromPath() !== null,
+        }),
+      });
       break;
     }
     case 'PLAY_ALERT': {

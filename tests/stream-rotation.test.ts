@@ -60,6 +60,7 @@ test('healthy live stream with matching game and drops signal does not request r
     }),
   ).toEqual({
     isHealthy: true,
+    forceImmediateRotation: false,
     invalidIncrement: 0,
     reason: null,
   });
@@ -77,6 +78,7 @@ test('wrong game requests a non-stall recovery', () => {
     }),
   ).toEqual({
     isHealthy: false,
+    forceImmediateRotation: false,
     invalidIncrement: 2,
     reason: 'wrong-game',
   });
@@ -94,6 +96,7 @@ test('missing drops signal requests a slow recovery only when drops are expected
     }),
   ).toEqual({
     isHealthy: false,
+    forceImmediateRotation: false,
     invalidIncrement: 1,
     reason: 'drops-inactive',
   });
@@ -109,6 +112,7 @@ test('missing drops signal requests a slow recovery only when drops are expected
     }),
   ).toEqual({
     isHealthy: true,
+    forceImmediateRotation: false,
     invalidIncrement: 0,
     reason: null,
   });
@@ -126,7 +130,8 @@ test('offline stream requests recovery', () => {
     }),
   ).toEqual({
     isHealthy: false,
-    invalidIncrement: 3,
+    forceImmediateRotation: true,
+    invalidIncrement: 0,
     reason: 'offline',
   });
 });
@@ -142,6 +147,7 @@ test('stalled progress requests immediate recovery', () => {
   });
 
   expect(result.isHealthy).toBe(false);
+  expect(result.forceImmediateRotation).toBe(false);
   expect(result.reason).toBe('stalled-progress');
   expect(result.invalidIncrement).toBeGreaterThan(MAX_NO_PROGRESS_ROTATION_ATTEMPTS);
 });

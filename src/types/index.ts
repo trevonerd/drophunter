@@ -64,6 +64,7 @@ export interface AppState {
   isRunning: boolean;
   isPaused: boolean;
   monitorAutoOpen: boolean;
+  autoClaimChannelPointsBonus: boolean;
   activeStreamer: TwitchStreamer | null;
   currentDrop: TwitchDrop | null;
   completedDrops: TwitchDrop[];
@@ -93,8 +94,10 @@ export type MessageType =
   | 'GET_TWITCH_SESSION'
   | 'GET_STREAM_CONTEXT'
   | 'PREPARE_STREAM_PLAYBACK'
+  | 'CLAIM_CHANNEL_POINTS_BONUS'
   | 'OPEN_MONITOR_DASHBOARD'
   | 'SET_MONITOR_AUTO_OPEN'
+  | 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'
   | 'ADD_TO_QUEUE'
   | 'REMOVE_FROM_QUEUE'
   | 'CLEAR_QUEUE'

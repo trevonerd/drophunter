@@ -25,6 +25,7 @@ export const createInitialState = (): AppState => ({
   isRunning: false,
   isPaused: false,
   monitorAutoOpen: true,
+  autoClaimChannelPointsBonus: false,
   activeStreamer: null,
   currentDrop: null,
   completedDrops: [],

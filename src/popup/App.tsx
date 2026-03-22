@@ -429,6 +429,23 @@ function App() {
     setState((prev) => ({ ...prev, monitorAutoOpen: response.monitorAutoOpen ?? next }));
   };
 
+  const handleAutoClaimChannelPointsBonusToggle = async () => {
+    const next = !state.autoClaimChannelPointsBonus;
+    setState((prev) => ({ ...prev, autoClaimChannelPointsBonus: next }));
+    const response = (await chrome.runtime.sendMessage({
+      type: 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
+      payload: { enabled: next },
+    })) as { success?: boolean; autoClaimChannelPointsBonus?: boolean } | undefined;
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, autoClaimChannelPointsBonus: !next }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      autoClaimChannelPointsBonus: response.autoClaimChannelPointsBonus ?? next,
+    }));
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12 text-gray-300">
@@ -539,6 +556,31 @@ function App() {
                   <span
                     className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
                       state.monitorAutoOpen ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-white">Auto-claim channel points bonus</p>
+                  <p className="mt-1 text-[11px] text-gray-400">
+                    Claim the free bonus points on the channel currently being farmed.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={state.autoClaimChannelPointsBonus}
+                  onClick={() => void handleAutoClaimChannelPointsBonusToggle()}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                    state.autoClaimChannelPointsBonus ? 'bg-green-500/90' : 'bg-white/15'
+                  }`}
+                >
+                  <span
+                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                      state.autoClaimChannelPointsBonus ? 'translate-x-5' : 'translate-x-0'
                     }`}
                   />
                 </button>
