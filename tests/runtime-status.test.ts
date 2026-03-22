@@ -133,6 +133,7 @@ describe('runtime status selectors', () => {
 describe('runtime status formatting', () => {
   test('formats rotation and recovery reasons for the UI', () => {
     expect(formatRotationReason('drops-inactive')).toBe('Drops signal missing');
+    expect(formatRotationReason('open-failed')).toBe('Reopened stream');
     expect(formatRecoveryReason('drops-inactive')).toBe('Recovering missing drops signal');
   });
 

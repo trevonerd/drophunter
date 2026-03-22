@@ -105,7 +105,7 @@ export function formatRotationReason(reason: string | null | undefined): string 
     case 'navigated-away':
       return 'Tab navigated away';
     case 'open-failed':
-      return 'No eligible stream found';
+      return 'Reopened stream';
     default:
       return reason ?? null;
   }

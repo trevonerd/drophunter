@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
 import { pickNearestDrop } from '../shared/drop-order';
-import {
-  deriveRuntimeMode,
-  formatRecoveryReason,
-  formatRetryLabel,
-  formatRotationReason,
-} from '../shared/runtime-status';
+import { deriveRuntimeMode, formatRecoveryReason, formatRetryLabel } from '../shared/runtime-status';
 import { createInitialState } from '../shared/utils';
 import { AppState } from '../types';
 
@@ -32,10 +27,6 @@ function etaLabel(value?: number | null): string {
 function updatedLabel(timestamp: number): string {
   const date = new Date(timestamp);
   return `${date.toLocaleTimeString()}`;
-}
-
-function rotationReasonLabel(reason: string | null | undefined): string | null {
-  return formatRotationReason(reason);
 }
 
 function recoveryLabel(reason: string | null | undefined): string | null {
@@ -114,12 +105,6 @@ function App() {
           </div>
         ) : (
           <div className="monitor-empty">No pending rewards for the selected campaign.</div>
-        )}
-
-        {(runtimeMode === 'running' || runtimeMode === 'recovering') && state.lastRotationReason && (
-          <div className="monitor-rotation-reason">
-            ↻ {rotationReasonLabel(state.lastRotationReason) ?? state.lastRotationReason}
-          </div>
         )}
 
         {runtimeMode === 'recovering' && state.recoveryReason && (
