@@ -4,7 +4,25 @@ import { sortPendingDrops } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
 import { deriveRuntimeMode, formatRecoveryReason, formatRetryLabel } from '../shared/runtime-status';
 import { createInitialState, isExpiredGame } from '../shared/utils';
-import { AppState, ExpiryStatus, TwitchDrop, TwitchGame } from '../types';
+import { AppState, ExpiryStatus, StreamerSelectionMode, TwitchDrop, TwitchGame } from '../types';
+
+const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: string }> = [
+  { value: 'low-view', label: 'Low view' },
+  { value: 'random', label: 'Random' },
+  { value: 'top-viewers', label: 'Top viewers' },
+];
+
+const STREAMER_LANGUAGE_OPTIONS = [
+  { value: '', label: 'Any' },
+  { value: 'en', label: 'EN' },
+  { value: 'it', label: 'IT' },
+  { value: 'es', label: 'ES' },
+  { value: 'fr', label: 'FR' },
+  { value: 'de', label: 'DE' },
+  { value: 'pt', label: 'PT' },
+  { value: 'ja', label: 'JA' },
+  { value: 'ko', label: 'KO' },
+];
 
 function expiryLabel(status?: ExpiryStatus) {
   switch (status) {
@@ -115,6 +133,20 @@ function SettingsIcon() {
         strokeLinejoin="round"
       />
       <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M15 6l-6 6 6 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -258,7 +290,7 @@ function App() {
   const [rewardsLoading, setRewardsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
+  const [activeView, setActiveView] = useState<'main' | 'settings'>('main');
 
   const fetchAvailableGames = useCallback(async (force = false) => {
     await chrome.runtime
@@ -446,6 +478,58 @@ function App() {
     }));
   };
 
+  const handleMuteFarmingTabToggle = async () => {
+    const next = !state.muteFarmingTab;
+    setState((prev) => ({ ...prev, muteFarmingTab: next }));
+    const response = (await chrome.runtime.sendMessage({
+      type: 'SET_MUTE_FARMING_TAB',
+      payload: { enabled: next },
+    })) as { success?: boolean; muteFarmingTab?: boolean } | undefined;
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, muteFarmingTab: !next }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      muteFarmingTab: response.muteFarmingTab ?? next,
+    }));
+  };
+
+  const handleStreamerSelectionModeChange = async (mode: StreamerSelectionMode) => {
+    const previous = state.streamerSelectionMode;
+    setState((prev) => ({ ...prev, streamerSelectionMode: mode }));
+    const response = (await chrome.runtime.sendMessage({
+      type: 'SET_STREAMER_SELECTION_MODE',
+      payload: { mode },
+    })) as { success?: boolean; streamerSelectionMode?: StreamerSelectionMode } | undefined;
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, streamerSelectionMode: previous }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      streamerSelectionMode: response.streamerSelectionMode ?? mode,
+    }));
+  };
+
+  const handlePreferredStreamerLanguageChange = async (language: string) => {
+    const next = language || null;
+    const previous = state.preferredStreamerLanguage;
+    setState((prev) => ({ ...prev, preferredStreamerLanguage: next }));
+    const response = (await chrome.runtime.sendMessage({
+      type: 'SET_PREFERRED_STREAMER_LANGUAGE',
+      payload: { language: next },
+    })) as { success?: boolean; preferredStreamerLanguage?: string | null } | undefined;
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, preferredStreamerLanguage: previous ?? null }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      preferredStreamerLanguage: response.preferredStreamerLanguage ?? next,
+    }));
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12 text-gray-300">
@@ -454,9 +538,182 @@ function App() {
     );
   }
 
-  return (
-    <div className="bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light text-white">
-      {/* ── Header ── */}
+  const settingsView = (
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveView('main')}
+            className="rounded p-1 text-[#1B1030] hover:bg-white/20"
+            title="Back"
+          >
+            <BackIcon />
+          </button>
+          <h1 className="font-extrabold text-sm tracking-tight text-[#120B22]">Settings</h1>
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#24133D]/80">
+          DropHunter
+        </span>
+      </div>
+
+      <div className="px-4 py-3 space-y-2 bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light">
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white">Auto-open monitor</p>
+              <p className="mt-1 text-[11px] text-gray-400">
+                Open the Drop Hunter Monitor shortly after farming starts.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={state.monitorAutoOpen}
+              onClick={() => void handleMonitorAutoOpenToggle()}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                state.monitorAutoOpen ? 'bg-green-500/90' : 'bg-white/15'
+              }`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  state.monitorAutoOpen ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white">Mute farming tab</p>
+              <p className="mt-1 text-[11px] text-gray-400">
+                Keep the Twitch tab used for farming muted. Disable this if you want to listen to the live
+                stream.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={state.muteFarmingTab}
+              onClick={() => void handleMuteFarmingTabToggle()}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                state.muteFarmingTab ? 'bg-green-500/90' : 'bg-white/15'
+              }`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  state.muteFarmingTab ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white">Auto-claim channel points bonus</p>
+              <p className="mt-1 text-[11px] text-gray-400">
+                Claim the free bonus points on the channel currently being farmed.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={state.autoClaimChannelPointsBonus}
+              onClick={() => void handleAutoClaimChannelPointsBonusToggle()}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                state.autoClaimChannelPointsBonus ? 'bg-green-500/90' : 'bg-white/15'
+              }`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  state.autoClaimChannelPointsBonus ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <p className="text-xs font-semibold text-white">Streamer selection</p>
+          <p className="mt-1 text-[11px] text-gray-400">
+            Prefer smaller channels, rotate randomly, or prioritize the biggest live channels.
+          </p>
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            {STREAMER_SELECTION_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => void handleStreamerSelectionModeChange(option.value)}
+                className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+                  state.streamerSelectionMode === option.value
+                    ? 'border-purple-300/70 bg-purple-400/20 text-white'
+                    : 'border-white/10 bg-black/20 text-gray-300 hover:border-white/20 hover:text-white'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white">Preferred streamer language</p>
+              <p className="mt-1 text-[11px] text-gray-400">
+                If available, prefer streamers in this language. If none are live, DropHunter falls back
+                automatically.
+              </p>
+            </div>
+            <select
+              value={state.preferredStreamerLanguage ?? ''}
+              onChange={(event) => void handlePreferredStreamerLanguageChange(event.target.value)}
+              className="min-w-[84px] rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-[11px] font-semibold text-white outline-none transition-colors hover:border-white/20"
+            >
+              {STREAMER_LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value || 'any'} value={option.value} className="bg-[#0E0E10] text-white">
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="pt-1">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-purple-300/80">About</p>
+        </div>
+        <p className="text-sm font-bold text-white">
+          DropHunter{' '}
+          <span className="text-purple-300 font-normal">v{chrome.runtime.getManifest().version}</span>
+        </p>
+        <p className="text-[11px] text-gray-400">
+          by <span className="text-gray-200">Marco Trevisani</span> (trevonerd)
+        </p>
+        <p className="text-[11px] text-purple-300 font-semibold tracking-wide">TREVISOFT</p>
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            type="button"
+            onClick={() => chrome.tabs.create({ url: 'https://github.com/trevonerd/drophunter' })}
+            className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors"
+          >
+            <GitHubIcon />
+            GitHub
+          </button>
+          <button
+            type="button"
+            onClick={() => chrome.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' })}
+            className="flex items-center gap-1.5 rounded-full bg-[#FFDD00]/90 hover:bg-[#FFDD00] px-2.5 py-1 text-[11px] font-semibold text-[#1a1a1a] transition-colors"
+          >
+            <CoffeeIcon />
+            Buy Me a Coffee
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const mainView = (
+    <div className="flex flex-col">
       <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
         <div className="flex items-center gap-2">
           <h1 className="font-extrabold text-sm tracking-tight text-[#120B22]">DropHunter</h1>
@@ -513,7 +770,7 @@ function App() {
           </button>
           <button
             type="button"
-            onClick={() => setShowSettings((v) => !v)}
+            onClick={() => setActiveView('settings')}
             className="p-1 rounded hover:bg-white/20 text-[#1B1030]"
             title="Settings"
           >
@@ -522,106 +779,6 @@ function App() {
         </div>
       </div>
 
-      {/* ── Settings Panel ── */}
-      {showSettings && (
-        <div className="about-panel relative border-b border-white/10">
-          <div className="px-4 py-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-bold text-white">Settings</p>
-              <button
-                type="button"
-                onClick={() => setShowSettings(false)}
-                className="text-gray-400 hover:text-white text-sm leading-none"
-              >
-                ×
-              </button>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold text-white">Auto-open monitor</p>
-                  <p className="mt-1 text-[11px] text-gray-400">
-                    Open the Drop Hunter Monitor shortly after farming starts.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={state.monitorAutoOpen}
-                  onClick={() => void handleMonitorAutoOpenToggle()}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                    state.monitorAutoOpen ? 'bg-green-500/90' : 'bg-white/15'
-                  }`}
-                >
-                  <span
-                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                      state.monitorAutoOpen ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold text-white">Auto-claim channel points bonus</p>
-                  <p className="mt-1 text-[11px] text-gray-400">
-                    Claim the free bonus points on the channel currently being farmed.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={state.autoClaimChannelPointsBonus}
-                  onClick={() => void handleAutoClaimChannelPointsBonusToggle()}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                    state.autoClaimChannelPointsBonus ? 'bg-green-500/90' : 'bg-white/15'
-                  }`}
-                >
-                  <span
-                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                      state.autoClaimChannelPointsBonus ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-            <div className="pt-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-purple-300/80">
-                About
-              </p>
-            </div>
-            <p className="text-sm font-bold text-white">
-              DropHunter{' '}
-              <span className="text-purple-300 font-normal">v{chrome.runtime.getManifest().version}</span>
-            </p>
-            <p className="text-[11px] text-gray-400">
-              by <span className="text-gray-200">Marco Trevisani</span> (trevonerd)
-            </p>
-            <p className="text-[11px] text-purple-300 font-semibold tracking-wide">TREVISOFT</p>
-            <div className="flex items-center gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => chrome.tabs.create({ url: 'https://github.com/trevonerd/drophunter' })}
-                className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors"
-              >
-                <GitHubIcon />
-                GitHub
-              </button>
-              <button
-                type="button"
-                onClick={() => chrome.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' })}
-                className="flex items-center gap-1.5 rounded-full bg-[#FFDD00]/90 hover:bg-[#FFDD00] px-2.5 py-1 text-[11px] font-semibold text-[#1a1a1a] transition-colors"
-              >
-                <CoffeeIcon />
-                Buy Me a Coffee
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Body ── */}
       <div className="px-3 py-2.5 space-y-2.5">
         {/* Game selector + Queue button */}
         <div className="flex items-center gap-1.5">
@@ -822,6 +979,12 @@ function App() {
           </div>
         )}
       </div>
+    </div>
+  );
+
+  return (
+    <div className="w-[400px] bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light text-white">
+      {activeView === 'settings' ? settingsView : mainView}
     </div>
   );
 }

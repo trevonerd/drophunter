@@ -30,6 +30,39 @@ export function didDropProgressAdvance(previousProgress: number, currentProgress
   return currentProgress > previousProgress;
 }
 
+export interface RecoveryProofInput {
+  previousDropKey: string | null;
+  previousProgress: number;
+  nextDropKey: string | null;
+  nextProgress: number;
+  previousCompletedKeys?: Iterable<string>;
+  nextCompletedKeys?: Iterable<string>;
+}
+
+export function detectRecoveryProof(input: RecoveryProofInput): boolean {
+  if (
+    input.previousDropKey &&
+    input.nextDropKey &&
+    input.previousDropKey === input.nextDropKey &&
+    didDropProgressAdvance(input.previousProgress, input.nextProgress)
+  ) {
+    return true;
+  }
+
+  if (!input.nextDropKey) {
+    return false;
+  }
+
+  const previousCompletedKeys = new Set(input.previousCompletedKeys ?? []);
+  for (const key of input.nextCompletedKeys ?? []) {
+    if (!previousCompletedKeys.has(key)) {
+      return input.previousDropKey !== input.nextDropKey || input.previousDropKey == null;
+    }
+  }
+
+  return false;
+}
+
 export function computeRecoveryBackoffMs(attempts: number): number {
   const safeAttempts = Math.max(1, Math.floor(attempts));
   return Math.min(RECOVERY_BACKOFF_BASE_MS * 2 ** (safeAttempts - 1), MAX_RECOVERY_BACKOFF_MS);

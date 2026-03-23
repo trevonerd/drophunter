@@ -3,10 +3,12 @@ import {
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
   computeExpiry,
+  extractBroadcasterLanguage,
   extractBenefitIds,
   extractBenefitNames,
   matchClaimedReward,
   normalizeImageUrl,
+  normalizeStreamerLanguage,
   normalizeText,
   toIsoDate,
   toNumber,
@@ -175,6 +177,45 @@ describe('normalizeImageUrl', () => {
 
   test('returns empty string for non-string', () => {
     expect(normalizeImageUrl(123)).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeStreamerLanguage / extractBroadcasterLanguage
+// ---------------------------------------------------------------------------
+
+describe('normalizeStreamerLanguage', () => {
+  test('normalizes locale strings to the primary language token', () => {
+    expect(normalizeStreamerLanguage('EN-gb')).toBe('en');
+    expect(normalizeStreamerLanguage('pt_BR')).toBe('pt');
+  });
+
+  test('returns undefined for invalid or empty values', () => {
+    expect(normalizeStreamerLanguage('')).toBeUndefined();
+    expect(normalizeStreamerLanguage('english')).toBeUndefined();
+    expect(normalizeStreamerLanguage(null)).toBeUndefined();
+  });
+});
+
+describe('extractBroadcasterLanguage', () => {
+  test('extracts language from broadcaster settings when present', () => {
+    expect(
+      extractBroadcasterLanguage({
+        broadcaster: {
+          broadcastSettings: {
+            language: 'IT-it',
+          },
+        },
+      }),
+    ).toBe('it');
+  });
+
+  test('extracts language from top-level fallback fields when present', () => {
+    expect(
+      extractBroadcasterLanguage({
+        broadcasterLanguage: 'EN_us',
+      }),
+    ).toBe('en');
   });
 });
 

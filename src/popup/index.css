@@ -10,11 +10,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: linear-gradient(135deg, #0E0E10 0%, #18181B 50%, #1F1F23 100%);
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 #root {
   width: 100%;
-  height: 100%;
 }
 
 /* Custom scrollbar */
@@ -59,22 +59,4 @@ body {
 
 .spinner {
   animation: spin 1s linear infinite;
-}
-
-/* About panel */
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.about-panel {
-  background: rgba(15, 10, 25, 0.92);
-  backdrop-filter: blur(16px);
-  animation: slideDown 0.2s ease-out forwards;
 }

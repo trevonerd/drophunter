@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import {
   classifyStreamHealth,
   computeRecoveryBackoffMs,
+  detectRecoveryProof,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
   MAX_RECOVERY_BACKOFF_MS,
   RECOVERY_BACKOFF_BASE_MS,
@@ -14,6 +15,45 @@ test('progress advance is detected only when the percentage increases', () => {
   expect(didDropProgressAdvance(10, 11)).toBe(true);
   expect(didDropProgressAdvance(10, 10)).toBe(false);
   expect(didDropProgressAdvance(10, 9)).toBe(false);
+});
+
+test('recovery proof is detected when the same drop resumes progress', () => {
+  expect(
+    detectRecoveryProof({
+      previousDropKey: 'drop-a',
+      previousProgress: 34,
+      nextDropKey: 'drop-a',
+      nextProgress: 35,
+      previousCompletedKeys: [],
+      nextCompletedKeys: [],
+    }),
+  ).toBe(true);
+});
+
+test('recovery proof is detected when a completed drop hands off to the next active drop', () => {
+  expect(
+    detectRecoveryProof({
+      previousDropKey: 'drop-a',
+      previousProgress: 100,
+      nextDropKey: 'drop-b',
+      nextProgress: 0,
+      previousCompletedKeys: [],
+      nextCompletedKeys: ['drop-a'],
+    }),
+  ).toBe(true);
+});
+
+test('recovery proof is not detected when the active drop changed without new completion or progress', () => {
+  expect(
+    detectRecoveryProof({
+      previousDropKey: 'drop-a',
+      previousProgress: 42,
+      nextDropKey: 'drop-b',
+      nextProgress: 42,
+      previousCompletedKeys: [],
+      nextCompletedKeys: [],
+    }),
+  ).toBe(false);
 });
 
 test('only stalled rotations and open failures increment retry attempts', () => {

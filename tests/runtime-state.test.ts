@@ -51,6 +51,7 @@ describe('normalizeTimingState', () => {
         lastRecoveryAttemptAt: 9_500,
         stalledRecoveryAttempts: 3,
         recoveryNotificationSent: true,
+        lastTrackedDropKey: 'drop::campaign::game::name::image',
       },
       now,
     );
@@ -59,6 +60,7 @@ describe('normalizeTimingState', () => {
     expect(state.lastRecoveryAttemptAt).toBe(9_500);
     expect(state.stalledRecoveryAttempts).toBe(3);
     expect(state.recoveryNotificationSent).toBe(true);
+    expect(state.lastTrackedDropKey).toBe('drop::campaign::game::name::image');
   });
 
   test('expires recovery backoff state when the retry window is already over', () => {

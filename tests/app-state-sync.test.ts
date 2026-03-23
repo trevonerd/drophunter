@@ -16,7 +16,10 @@ describe('normalizeStoredAppState', () => {
     expect(state.isRunning).toBe(true);
     expect(state.selectedGame?.name).toBe('Game');
     expect(state.queue).toEqual([]);
+    expect(state.muteFarmingTab).toBe(true);
     expect(state.autoClaimChannelPointsBonus).toBe(false);
+    expect(state.streamerSelectionMode).toBe('low-view');
+    expect(state.preferredStreamerLanguage).toBeNull();
     expect(state.recoveryReason).toBeNull();
     expect(state.lastStopReason).toBeNull();
   });

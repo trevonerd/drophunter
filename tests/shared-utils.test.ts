@@ -68,6 +68,7 @@ test('createInitialState returns fresh state object', () => {
   expect(state.isRunning).toBe(false);
   expect(state.isPaused).toBe(false);
   expect(state.monitorAutoOpen).toBe(true);
+  expect(state.muteFarmingTab).toBe(true);
   expect(state.autoClaimChannelPointsBonus).toBe(false);
   expect(state.selectedGame).toBe(null);
   expect(state.activeStreamer).toBe(null);

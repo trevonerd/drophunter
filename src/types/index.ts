@@ -43,11 +43,13 @@ export interface TwitchStreamer {
   displayName: string;
   isLive: boolean;
   viewerCount?: number;
+  broadcasterLanguage?: string;
   thumbnailUrl?: string;
 }
 
 export type ExpiryStatus = 'safe' | 'warning' | 'urgent' | 'unknown';
 export type DropType = 'time-based' | 'event-based';
+export type StreamerSelectionMode = 'low-view' | 'random' | 'top-viewers';
 
 export type DropStatus = 'active' | 'pending' | 'completed';
 export type DropProgressSource = 'campaign' | 'inventory';
@@ -64,7 +66,10 @@ export interface AppState {
   isRunning: boolean;
   isPaused: boolean;
   monitorAutoOpen: boolean;
+  muteFarmingTab: boolean;
   autoClaimChannelPointsBonus: boolean;
+  streamerSelectionMode: StreamerSelectionMode;
+  preferredStreamerLanguage: string | null;
   activeStreamer: TwitchStreamer | null;
   currentDrop: TwitchDrop | null;
   completedDrops: TwitchDrop[];
@@ -97,7 +102,10 @@ export type MessageType =
   | 'CLAIM_CHANNEL_POINTS_BONUS'
   | 'OPEN_MONITOR_DASHBOARD'
   | 'SET_MONITOR_AUTO_OPEN'
+  | 'SET_MUTE_FARMING_TAB'
   | 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'
+  | 'SET_STREAMER_SELECTION_MODE'
+  | 'SET_PREFERRED_STREAMER_LANGUAGE'
   | 'ADD_TO_QUEUE'
   | 'REMOVE_FROM_QUEUE'
   | 'CLEAR_QUEUE'

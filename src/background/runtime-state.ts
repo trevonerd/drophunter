@@ -9,6 +9,7 @@ export interface TimingState {
   dropClaimRetryAtById: Record<string, number>;
   lastProgressAdvanceAt: number;
   lastTrackedProgress: number;
+  lastTrackedDropKey: string | null;
   apiConsecutiveFailures: number;
   apiBackoffUntil: number;
   integrityFallbackActive: boolean;
@@ -29,6 +30,7 @@ export function createInitialTimingState(): TimingState {
     dropClaimRetryAtById: {},
     lastProgressAdvanceAt: 0,
     lastTrackedProgress: -1,
+    lastTrackedDropKey: null,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
     integrityFallbackActive: false,
@@ -95,6 +97,10 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
       typeof source.lastTrackedProgress === 'number' && Number.isFinite(source.lastTrackedProgress)
         ? source.lastTrackedProgress
         : initial.lastTrackedProgress,
+    lastTrackedDropKey:
+      typeof source.lastTrackedDropKey === 'string' && source.lastTrackedDropKey.length > 0
+        ? source.lastTrackedDropKey
+        : initial.lastTrackedDropKey,
     apiConsecutiveFailures:
       typeof source.apiConsecutiveFailures === 'number' && Number.isFinite(source.apiConsecutiveFailures)
         ? source.apiConsecutiveFailures

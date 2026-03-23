@@ -33,12 +33,18 @@ import {
 import {
   classifyStreamHealth,
   computeRecoveryBackoffMs,
-  didDropProgressAdvance,
+  detectRecoveryProof,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
   nextNoProgressRotationAttempts,
   StreamRotationReason,
   shouldIncrementNoProgressRotationAttempts,
 } from './stream-rotation';
+import {
+  applyPreferredStreamerLanguageSetting,
+  applyStreamerSelectionModeSetting,
+  normalizePreferredStreamerLanguage,
+  pickStreamerForPreferences,
+} from './streamer-selection';
 import { TwitchApiClient } from './twitch-api/client';
 import { fetchTwitchIntegrityToken } from './twitch-api/gql';
 import { isLikelyAuthError, sanitizeTwitchSession, TwitchSession } from './twitch-api/types';
@@ -103,6 +109,7 @@ let invalidStreamChecks = 0;
 let lastStreamRotationAt = 0;
 let streamValidationGraceUntil = 0;
 let lastTrackedProgress = -1;
+let lastTrackedDropKey: string | null = null;
 let lastProgressAdvanceAt = 0;
 let noProgressRotationAttempts = 0;
 let playbackAttentionWarningSent = false;
@@ -196,6 +203,7 @@ async function saveTimingState() {
     dropClaimRetryAtById: Object.fromEntries(dropClaimRetryAtById),
     lastProgressAdvanceAt,
     lastTrackedProgress,
+    lastTrackedDropKey,
     apiConsecutiveFailures,
     apiBackoffUntil,
     integrityFallbackActive,
@@ -225,6 +233,7 @@ async function loadTimingState() {
     }
     lastProgressAdvanceAt = saved.lastProgressAdvanceAt;
     lastTrackedProgress = saved.lastTrackedProgress;
+    lastTrackedDropKey = saved.lastTrackedDropKey;
     apiConsecutiveFailures = saved.apiConsecutiveFailures;
     apiBackoffUntil = saved.apiBackoffUntil;
     integrityFallbackActive = saved.integrityFallbackActive;
@@ -355,6 +364,7 @@ function resetStreamTrackingState() {
   lastStreamRotationAt = 0;
   streamValidationGraceUntil = 0;
   lastTrackedProgress = -1;
+  lastTrackedDropKey = null;
   lastProgressAdvanceAt = 0;
   resetNoProgressRotationAttempts();
   playbackAttentionWarningSent = false;
@@ -440,14 +450,14 @@ async function attemptPlaybackSelfHeal(tabId: number): Promise<void> {
   const prepared = await prepareStreamPlayback(tabId, {
     activateTab: true,
     unmuteTab: true,
-    muteAfterPrep: true,
+    muteAfterPrep: shouldMuteManagedFarmingTab(),
   });
   if (prepared?.gateDismissed) {
     await new Promise((resolve) => setTimeout(resolve, 700));
     const retried = await prepareStreamPlayback(tabId, {
       activateTab: true,
       unmuteTab: true,
-      muteAfterPrep: true,
+      muteAfterPrep: shouldMuteManagedFarmingTab(),
     });
     if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
       await sendPlaybackAttentionWarning();
@@ -495,6 +505,10 @@ function dropStateKey(drop: TwitchDrop): string {
   return `${drop.id}::${drop.campaignId ?? ''}::${normalizeToken(drop.gameName)}::${normalizeToken(drop.name)}::${normalizeToken(drop.imageUrl)}`;
 }
 
+function completedDropKeys(drops: TwitchDrop[]): Set<string> {
+  return new Set(drops.map((drop) => dropStateKey(drop)));
+}
+
 function isDropCampaignExpired(drop: TwitchDrop): boolean {
   if (!drop.endsAt) return false;
   const endsAtMs = new Date(drop.endsAt).getTime();
@@ -512,8 +526,12 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
     appState.pendingDrops = [];
     appState.completedDrops = [];
     appState.currentDrop = null;
+    lastTrackedDropKey = null;
+    lastTrackedProgress = -1;
     return;
   }
+
+  const previousCompletedKeys = completedDropKeys(appState.completedDrops);
 
   logInfo('splitDropsForSelectedGame called', {
     allDropsCount: allDrops.length,
@@ -626,16 +644,28 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
   const activeDrop =
     (activeCandidates.length > 0 ? activeCandidates : farmablePending).slice().sort(compareDropPriority)[0] ??
     null;
+  const nextDropKey = activeDrop ? dropStateKey(activeDrop) : null;
+  const nextProgress = activeDrop?.progress ?? -1;
+  const nextCompletedKeys = completedDropKeys(completed);
+  const recoveryProof = detectRecoveryProof({
+    previousDropKey: lastTrackedDropKey,
+    previousProgress: lastTrackedProgress,
+    nextDropKey,
+    nextProgress,
+    previousCompletedKeys,
+    nextCompletedKeys,
+  });
 
   appState.allDrops = relevantForState;
   appState.completedDrops = completed;
   appState.pendingDrops = normalizedPending;
   appState.currentDrop = activeDrop ? { ...activeDrop, status: 'active' } : null;
 
-  // Track progress advances for stall detection
-  const currentProgress = appState.currentDrop?.progress ?? -1;
-  if (didDropProgressAdvance(lastTrackedProgress, currentProgress)) {
-    lastTrackedProgress = currentProgress;
+  lastTrackedDropKey = nextDropKey;
+  lastTrackedProgress = nextProgress;
+
+  // Track proof of recovery from fresh drop data for stall detection.
+  if (recoveryProof) {
     lastProgressAdvanceAt = Date.now();
     resetNoProgressRotationAttempts();
     clearRecoveryState();
@@ -1762,6 +1792,17 @@ async function prepareStreamPlayback(
   return (prepared ?? {}) as PlaybackPrepResult;
 }
 
+function shouldMuteManagedFarmingTab(): boolean {
+  return appState.muteFarmingTab !== false;
+}
+
+async function syncManagedTabMuteState() {
+  if (!appState.tabId) {
+    return;
+  }
+  await chrome.tabs.update(appState.tabId, { muted: shouldMuteManagedFarmingTab() }).catch(() => undefined);
+}
+
 async function openForegroundChannel(streamer: TwitchStreamer) {
   const channelName = streamer.name.toLowerCase();
   const displayName = streamer.displayName || channelName;
@@ -1778,11 +1819,13 @@ async function openForegroundChannel(streamer: TwitchStreamer) {
     const prepared = await prepareStreamPlayback(managedTabId, {
       activateTab: true,
       unmuteTab: true,
-      muteAfterPrep: true,
+      muteAfterPrep: shouldMuteManagedFarmingTab(),
     });
     if (prepared?.gateDismissed) {
       await new Promise((resolve) => setTimeout(resolve, 700));
-      const retried = await prepareStreamPlayback(managedTabId, { muteAfterPrep: true });
+      const retried = await prepareStreamPlayback(managedTabId, {
+        muteAfterPrep: shouldMuteManagedFarmingTab(),
+      });
       if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
         await sendPlaybackAttentionWarning();
       }
@@ -1819,10 +1862,14 @@ async function enforcePlaybackPolicyOnStreamTab() {
   if (!tab?.id) {
     return;
   }
-  const prepared = await prepareStreamPlayback(tab.id, { muteAfterPrep: true });
+  const prepared = await prepareStreamPlayback(tab.id, {
+    muteAfterPrep: shouldMuteManagedFarmingTab(),
+  });
   if (prepared?.gateDismissed) {
     await new Promise((resolve) => setTimeout(resolve, 700));
-    const retried = await prepareStreamPlayback(tab.id, { muteAfterPrep: true });
+    const retried = await prepareStreamPlayback(tab.id, {
+      muteAfterPrep: shouldMuteManagedFarmingTab(),
+    });
     if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
       await sendPlaybackAttentionWarning();
     }
@@ -2239,14 +2286,22 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
       rejected: streamers.filter((s) => !allowed!.includes(s.name.toLowerCase())).map((s) => s.name),
     });
   }
-  const streamer =
-    candidates.find((item) => item.viewerCount !== undefined && item.viewerCount < Number.MAX_SAFE_INTEGER) ??
-    candidates[0];
+  const selection = pickStreamerForPreferences(candidates, {
+    mode: appState.streamerSelectionMode,
+    preferredLanguage: appState.preferredStreamerLanguage,
+  });
+  const streamer = selection.streamer;
   if (streamer) {
     logInfo('Opening selected streamer', {
       game: getGameDisplayLabel(appState.selectedGame),
+      selectionMode: appState.streamerSelectionMode,
+      preferredLanguage: normalizePreferredStreamerLanguage(appState.preferredStreamerLanguage),
+      preferredLanguageApplied: selection.preferredLanguageApplied,
+      preferredLanguageMatches: selection.preferredLanguageMatches,
+      activePoolSize: selection.activePoolSize,
       streamer: streamer.name,
       viewers: streamer.viewerCount ?? null,
+      broadcasterLanguage: streamer.broadcasterLanguage ?? null,
       candidates: candidates.length,
     });
     await openForegroundChannel(streamer);
@@ -2305,6 +2360,7 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     appState.completionNotified = false;
     invalidStreamChecks = 0;
     lastTrackedProgress = -1;
+    lastTrackedDropKey = null;
     lastProgressAdvanceAt = 0;
     resetNoProgressRotationAttempts();
     // Persist the needle reset immediately so a SW restart between here and the
@@ -2621,6 +2677,7 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   appState.completionNotified = false;
   invalidStreamChecks = 0;
   lastTrackedProgress = -1;
+  lastTrackedDropKey = null;
   lastProgressAdvanceAt = 0;
   resetNoProgressRotationAttempts();
   if (appState.isRunning && !appState.isPaused) {
@@ -2795,6 +2852,13 @@ async function handleSetMonitorAutoOpen(payload?: { enabled?: boolean }) {
   return { success: true, monitorAutoOpen: appState.monitorAutoOpen };
 }
 
+async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
+  await trackActivity('set-mute-farming-tab');
+  appState.muteFarmingTab = payload?.enabled !== false;
+  await Promise.all([saveState(), syncManagedTabMuteState()]);
+  return { success: true, muteFarmingTab: appState.muteFarmingTab };
+}
+
 async function handleSetAutoClaimChannelPointsBonus(payload?: { enabled?: boolean }) {
   await trackActivity('set-auto-claim-channel-points-bonus');
   appState = applyAutoClaimChannelPointsBonusSetting(appState, payload?.enabled);
@@ -2802,6 +2866,26 @@ async function handleSetAutoClaimChannelPointsBonus(payload?: { enabled?: boolea
   return {
     success: true,
     autoClaimChannelPointsBonus: appState.autoClaimChannelPointsBonus,
+  };
+}
+
+async function handleSetStreamerSelectionMode(payload?: { mode?: 'low-view' | 'random' | 'top-viewers' }) {
+  await trackActivity('set-streamer-selection-mode');
+  appState = applyStreamerSelectionModeSetting(appState, payload?.mode);
+  await saveState();
+  return {
+    success: true,
+    streamerSelectionMode: appState.streamerSelectionMode,
+  };
+}
+
+async function handleSetPreferredStreamerLanguage(payload?: { language?: string | null }) {
+  await trackActivity('set-preferred-streamer-language');
+  appState = applyPreferredStreamerLanguageSetting(appState, payload?.language);
+  await saveState();
+  return {
+    success: true,
+    preferredStreamerLanguage: appState.preferredStreamerLanguage,
   };
 }
 
@@ -2965,8 +3049,28 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
+    case 'SET_MUTE_FARMING_TAB':
+      handleSetMuteFarmingTab(message.payload as { enabled?: boolean } | undefined)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
     case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
       handleSetAutoClaimChannelPointsBonus(message.payload as { enabled?: boolean } | undefined)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
+    case 'SET_STREAMER_SELECTION_MODE':
+      handleSetStreamerSelectionMode(
+        message.payload as { mode?: 'low-view' | 'random' | 'top-viewers' } | undefined,
+      )
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
+    case 'SET_PREFERRED_STREAMER_LANGUAGE':
+      handleSetPreferredStreamerLanguage(message.payload as { language?: string | null } | undefined)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;

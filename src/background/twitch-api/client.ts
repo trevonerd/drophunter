@@ -414,6 +414,15 @@ function parseViewerCount(node: Record<string, unknown>): number {
   return Math.max(0, Math.round(raw));
 }
 
+export function normalizeStreamerLanguage(value: unknown): string | undefined {
+  const normalized = normalizeText(value).toLowerCase().replace(/_/g, '-');
+  if (!normalized) {
+    return undefined;
+  }
+  const [primary] = normalized.split('-');
+  return /^[a-z]{2,3}$/.test(primary) ? primary : undefined;
+}
+
 function extractBroadcaster(node: Record<string, unknown>): { login: string; displayName: string } | null {
   const broadcaster = node.broadcaster;
   if (!broadcaster || typeof broadcaster !== 'object') {
@@ -426,6 +435,29 @@ function extractBroadcaster(node: Record<string, unknown>): { login: string; dis
     return null;
   }
   return { login, displayName };
+}
+
+export function extractBroadcasterLanguage(node: Record<string, unknown>): string | undefined {
+  const broadcaster =
+    node.broadcaster && typeof node.broadcaster === 'object'
+      ? (node.broadcaster as Record<string, unknown>)
+      : null;
+  const broadcasterSettings =
+    broadcaster?.broadcastSettings && typeof broadcaster.broadcastSettings === 'object'
+      ? (broadcaster.broadcastSettings as Record<string, unknown>)
+      : null;
+
+  return normalizeStreamerLanguage(
+    broadcasterSettings?.language ??
+      broadcasterSettings?.broadcastLanguage ??
+      broadcaster?.broadcastLanguage ??
+      broadcaster?.primaryBroadcastLanguage ??
+      broadcaster?.language ??
+      node.broadcasterLanguage ??
+      node.broadcastLanguage ??
+      node.language ??
+      node.lang,
+  );
 }
 
 export class TwitchApiClient {
@@ -707,6 +739,7 @@ export class TwitchApiClient {
         displayName: broadcaster.displayName || broadcaster.login,
         isLive: true,
         viewerCount: parseViewerCount(node),
+        broadcasterLanguage: extractBroadcasterLanguage(node),
         thumbnailUrl: normalizeImageUrl((node as Record<string, unknown>).previewImageURL),
       };
 
@@ -719,9 +752,7 @@ export class TwitchApiClient {
       }
     });
 
-    return Array.from(byChannel.values())
-      .sort((a, b) => (a.viewerCount ?? Number.MAX_SAFE_INTEGER) - (b.viewerCount ?? Number.MAX_SAFE_INTEGER))
-      .slice(0, 25);
+    return Array.from(byChannel.values());
   }
 
   async fetchDirectoryStreamers(gameName: string, categorySlug: string): Promise<TwitchStreamer[]> {
