@@ -854,19 +854,34 @@ function App() {
         )}
 
         {/* Start button (only when not running) */}
-        {!state.isRunning && (
-          <button
-            onClick={handleStart}
-            disabled={(!state.selectedGame && queueGames.length === 0) || actionLoading}
-            className="w-full rounded-lg bg-green-600 py-2 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50 hover:bg-green-500 transition-colors"
-          >
-            {actionLoading
-              ? 'Starting...'
-              : queueGames.length > 0
-                ? `Start Queue (${queueGames.length})`
-                : 'Start Farming'}
-          </button>
-        )}
+        {!state.isRunning &&
+          (() => {
+            const selectedGameCompleted =
+              (state.selectedGame?.allDropsCompleted ?? false) && queueGames.length === 0;
+            const allQueuedCompleted =
+              queueGames.length > 0 && queueGames.every((g) => g.allDropsCompleted ?? false);
+            const allDropsClaimed = selectedGameCompleted || allQueuedCompleted;
+            return (
+              <>
+                <button
+                  onClick={handleStart}
+                  disabled={
+                    (!state.selectedGame && queueGames.length === 0) || actionLoading || allDropsClaimed
+                  }
+                  className="w-full rounded-lg bg-green-600 py-2 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50 hover:bg-green-500 transition-colors"
+                >
+                  {actionLoading
+                    ? 'Starting...'
+                    : queueGames.length > 0
+                      ? `Start Queue (${queueGames.length})`
+                      : 'Start Farming'}
+                </button>
+                {allDropsClaimed && (
+                  <p className="text-center text-[11px] text-gray-400 mt-1">All rewards already claimed</p>
+                )}
+              </>
+            );
+          })()}
 
         {/* Status line (only when running) */}
         {state.isRunning && (
