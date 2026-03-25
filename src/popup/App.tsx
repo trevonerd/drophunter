@@ -825,41 +825,68 @@ function App() {
         )}
 
         {/* Queue chips */}
-        {queueGames.length > 0 && (
-          <div className="flex flex-wrap gap-1 items-center">
-            <span className="text-[11px] text-gray-500">Queue:</span>
-            {queueGames.map((game) => (
-              <span
-                key={game.campaignId ? `campaign:${game.campaignId}` : `id:${game.id}`}
-                className="inline-flex items-center gap-0.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-200"
-              >
-                {game.allDropsCompleted ? '\u2705 ' : ''}
-                {getGameDisplayLabel(game)}
-                {!state.isRunning && (
-                  <button
-                    onClick={() => void handleRemoveFromQueue(game)}
-                    className="ml-0.5 text-gray-400 hover:text-white"
-                  >
-                    ×
-                  </button>
-                )}
-              </span>
-            ))}
-            {!state.isRunning && (
-              <button onClick={handleClearQueue} className="text-[11px] text-red-400 hover:text-red-300">
-                Clear
-              </button>
-            )}
-          </div>
-        )}
+        {(() => {
+          const selectedNotInQueue =
+            !state.isRunning &&
+            !!state.selectedGame &&
+            queueGames.length > 0 &&
+            !queueGames.some(
+              (g) => g.id === state.selectedGame!.id && g.campaignId === state.selectedGame!.campaignId,
+            );
+          if (queueGames.length === 0 && !selectedNotInQueue) return null;
+          return (
+            <div className="flex flex-wrap gap-1 items-center">
+              <span className="text-[11px] text-gray-500">Queue:</span>
+              {selectedNotInQueue && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-green-700/60 border border-green-500/40 px-2 py-0.5 text-[11px] text-green-200">
+                  {state.selectedGame!.allDropsCompleted ? '✅ ' : ''}
+                  {getGameDisplayLabel(state.selectedGame!)}
+                  <span className="ml-1 text-green-400/80">↑ first</span>
+                </span>
+              )}
+              {queueGames.map((game) => (
+                <span
+                  key={game.campaignId ? `campaign:${game.campaignId}` : `id:${game.id}`}
+                  className="inline-flex items-center gap-0.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-200"
+                >
+                  {game.allDropsCompleted ? '✅ ' : ''}
+                  {getGameDisplayLabel(game)}
+                  {!state.isRunning && (
+                    <button
+                      onClick={() => void handleRemoveFromQueue(game)}
+                      className="ml-0.5 text-gray-400 hover:text-white"
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              ))}
+              {!state.isRunning && (
+                <button onClick={handleClearQueue} className="text-[11px] text-red-400 hover:text-red-300">
+                  Clear
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Start button (only when not running) */}
         {!state.isRunning &&
           (() => {
+            const selectedNotInQueue =
+              !!state.selectedGame &&
+              queueGames.length > 0 &&
+              !queueGames.some(
+                (g) => g.id === state.selectedGame!.id && g.campaignId === state.selectedGame!.campaignId,
+              );
+            const effectiveCount = selectedNotInQueue ? queueGames.length + 1 : queueGames.length;
+
             const selectedGameCompleted =
               (state.selectedGame?.allDropsCompleted ?? false) && queueGames.length === 0;
             const allQueuedCompleted =
-              queueGames.length > 0 && queueGames.every((g) => g.allDropsCompleted ?? false);
+              effectiveCount > 0 &&
+              (selectedNotInQueue ? (state.selectedGame!.allDropsCompleted ?? false) : true) &&
+              queueGames.every((g) => g.allDropsCompleted ?? false);
             const allDropsClaimed = selectedGameCompleted || allQueuedCompleted;
             return (
               <>
@@ -872,8 +899,8 @@ function App() {
                 >
                   {actionLoading
                     ? 'Starting...'
-                    : queueGames.length > 0
-                      ? `Start Queue (${queueGames.length})`
+                    : effectiveCount > 0
+                      ? `Start Queue (${effectiveCount})`
                       : 'Start Farming'}
                 </button>
                 {allDropsClaimed && (
