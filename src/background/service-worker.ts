@@ -35,6 +35,7 @@ import {
   computeRecoveryBackoffMs,
   detectRecoveryProof,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
+  MAX_PERSISTENT_RECOVERY_CYCLES,
   nextNoProgressRotationAttempts,
   StreamRotationReason,
   shouldIncrementNoProgressRotationAttempts,
@@ -343,6 +344,12 @@ function applyStopState(reason: string, message: string | null) {
 
 async function enterPersistentRecovery(reason: StreamRotationReason, message: string) {
   stalledRecoveryAttempts += 1;
+
+  if (stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
+    await skipCurrentGameDueToStall();
+    return;
+  }
+
   const backoffMs = computeRecoveryBackoffMs(stalledRecoveryAttempts);
   recoveryBackoffUntil = Date.now() + backoffMs;
   lastRecoveryAttemptAt = Date.now();
@@ -2402,6 +2409,66 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
   await sendAlert('all-complete', 'Queue completed. No pending rewards left.');
   await saveState();
   return false;
+}
+
+async function skipCurrentGameDueToStall() {
+  const skippedGame = appState.selectedGame;
+  const gameName = skippedGame ? getGameDisplayLabel(skippedGame) : 'current game';
+
+  logWarn('Giving up on game after persistent recovery exhaustion', {
+    game: gameName,
+    stalledRecoveryAttempts,
+  });
+
+  if (skippedGame) {
+    removeGameFromQueue(skippedGame);
+  }
+
+  resetStreamTrackingState();
+
+  while (appState.queue.length > 0) {
+    const nextGame = resolveGameFromState(appState.queue[0]);
+    appState.selectedGame = nextGame;
+    appState.completionNotified = false;
+    invalidStreamChecks = 0;
+    lastTrackedProgress = -1;
+    lastTrackedDropKey = null;
+    lastProgressAdvanceAt = 0;
+    resetNoProgressRotationAttempts();
+    await saveTimingState();
+
+    await ensureWorkspaceForSelectedGame();
+    await refreshDropsData({
+      includeCampaignFetch: true,
+      includeInventoryFetch: true,
+      suppressNotifications: true,
+    });
+
+    const hasFarmablePendingNext = appState.pendingDrops.some((d) => d.dropType !== 'event-based');
+    const knownCompletedNext =
+      appState.allDrops.length > 0 && !hasFarmablePendingNext && appState.currentDrop === null;
+    if (knownCompletedNext) {
+      removeGameFromQueue(nextGame);
+      continue;
+    }
+
+    await openBestStreamerForSelectedGame();
+    await notify(
+      'Game skipped',
+      `Skipped ${gameName} — no progress after repeated attempts. Now farming ${getGameDisplayLabel(nextGame)}.`,
+    );
+    await saveState();
+    return;
+  }
+
+  await stopFarmingSession({
+    stopReason: 'stall-skipped',
+    stopMessage: `Farming stopped — ${gameName} made no progress and no other games are queued.`,
+    notification: {
+      title: 'Farming stopped',
+      message: `${gameName} made no progress after repeated recovery attempts.`,
+    },
+  });
 }
 
 async function handleStartFarming(payload: { game?: TwitchGame }) {
