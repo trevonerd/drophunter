@@ -4,6 +4,7 @@ import {
   computeRecoveryBackoffMs,
   detectRecoveryProof,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
+  MAX_PERSISTENT_RECOVERY_CYCLES,
   MAX_RECOVERY_BACKOFF_MS,
   RECOVERY_BACKOFF_BASE_MS,
   didDropProgressAdvance,
@@ -190,4 +191,8 @@ test('stalled progress requests immediate recovery', () => {
   expect(result.forceImmediateRotation).toBe(false);
   expect(result.reason).toBe('stalled-progress');
   expect(result.invalidIncrement).toBeGreaterThan(MAX_NO_PROGRESS_ROTATION_ATTEMPTS);
+});
+
+test('persistent recovery cycle cap exceeds the rotation attempt cap', () => {
+  expect(MAX_PERSISTENT_RECOVERY_CYCLES).toBeGreaterThan(MAX_NO_PROGRESS_ROTATION_ATTEMPTS);
 });
