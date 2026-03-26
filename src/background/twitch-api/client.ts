@@ -425,7 +425,7 @@ export function normalizeStreamerLanguage(value: unknown): string | undefined {
   return /^[a-z]{2,3}$/.test(primary) ? primary : undefined;
 }
 
-function normalizeLanguageForApi(storedLanguage: string): string {
+export function normalizeLanguageForApi(storedLanguage: string): string {
   return storedLanguage.toUpperCase();
 }
 
@@ -708,12 +708,7 @@ export class TwitchApiClient {
     );
   }
 
-  private buildDirectoryPayload(
-    game: string,
-    slug: string,
-    tags?: string[],
-    broadcasterLanguages?: string[],
-  ) {
+  buildDirectoryPayload(game: string, slug: string, tags?: string[], broadcasterLanguages?: string[]) {
     return {
       operationName: 'DirectoryPage_Game',
       variables: {
