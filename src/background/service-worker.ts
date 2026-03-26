@@ -110,6 +110,7 @@ let invalidStreamChecks = 0;
 let lastStreamRotationAt = 0;
 let streamValidationGraceUntil = 0;
 let lastTrackedProgress = -1;
+let lastTrackedMinutes = -1;
 let lastTrackedDropKey: string | null = null;
 let lastProgressAdvanceAt = 0;
 let noProgressRotationAttempts = 0;
@@ -204,6 +205,7 @@ async function saveTimingState() {
     dropClaimRetryAtById: Object.fromEntries(dropClaimRetryAtById),
     lastProgressAdvanceAt,
     lastTrackedProgress,
+    lastTrackedMinutes,
     lastTrackedDropKey,
     apiConsecutiveFailures,
     apiBackoffUntil,
@@ -234,6 +236,7 @@ async function loadTimingState() {
     }
     lastProgressAdvanceAt = saved.lastProgressAdvanceAt;
     lastTrackedProgress = saved.lastTrackedProgress;
+    lastTrackedMinutes = saved.lastTrackedMinutes;
     lastTrackedDropKey = saved.lastTrackedDropKey;
     apiConsecutiveFailures = saved.apiConsecutiveFailures;
     apiBackoffUntil = saved.apiBackoffUntil;
@@ -371,6 +374,7 @@ function resetStreamTrackingState() {
   lastStreamRotationAt = 0;
   streamValidationGraceUntil = 0;
   lastTrackedProgress = -1;
+  lastTrackedMinutes = -1;
   lastTrackedDropKey = null;
   lastProgressAdvanceAt = 0;
   resetNoProgressRotationAttempts();
@@ -535,6 +539,7 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
     appState.currentDrop = null;
     lastTrackedDropKey = null;
     lastTrackedProgress = -1;
+    lastTrackedMinutes = -1;
     return;
   }
 
@@ -2370,6 +2375,7 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     appState.completionNotified = false;
     invalidStreamChecks = 0;
     lastTrackedProgress = -1;
+    lastTrackedMinutes = -1;
     lastTrackedDropKey = null;
     lastProgressAdvanceAt = 0;
     resetNoProgressRotationAttempts();
@@ -2435,6 +2441,7 @@ async function skipCurrentGameDueToStall() {
     appState.completionNotified = false;
     invalidStreamChecks = 0;
     lastTrackedProgress = -1;
+    lastTrackedMinutes = -1;
     lastTrackedDropKey = null;
     lastProgressAdvanceAt = 0;
     resetNoProgressRotationAttempts();
@@ -2754,6 +2761,7 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
   appState.completionNotified = false;
   invalidStreamChecks = 0;
   lastTrackedProgress = -1;
+  lastTrackedMinutes = -1;
   lastTrackedDropKey = null;
   lastProgressAdvanceAt = 0;
   resetNoProgressRotationAttempts();
