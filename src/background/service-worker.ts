@@ -453,16 +453,16 @@ async function closeManagedTabIfSafe(tabId: number | null): Promise<boolean> {
 
 async function attemptPlaybackSelfHeal(tabId: number): Promise<void> {
   playbackAttentionWarningSent = false;
-  await focusManagedTab(tabId);
+  // Do NOT focus/activate the tab here — self-heal targets the same already-open streamer.
+  // Forcing focus would steal window focus from the user even though no streamer change is
+  // happening. Focus is only appropriate when opening a new streamer (openForegroundChannel).
   const prepared = await prepareStreamPlayback(tabId, {
-    activateTab: true,
     unmuteTab: true,
     muteAfterPrep: shouldMuteManagedFarmingTab(),
   });
   if (prepared?.gateDismissed) {
     await new Promise((resolve) => setTimeout(resolve, 700));
     const retried = await prepareStreamPlayback(tabId, {
-      activateTab: true,
       unmuteTab: true,
       muteAfterPrep: shouldMuteManagedFarmingTab(),
     });
@@ -1814,17 +1814,20 @@ async function openForegroundChannel(streamer: TwitchStreamer) {
   const channelName = streamer.name.toLowerCase();
   const displayName = streamer.displayName || channelName;
   const targetUrl = streamerWatchUrl(channelName);
-  const managedTabId = await ensureManagedTab(appState.tabId, targetUrl, true);
+  const isStreamerChange = !appState.activeStreamer || appState.activeStreamer.name !== channelName;
+  const managedTabId = await ensureManagedTab(appState.tabId, targetUrl, isStreamerChange);
   if (!managedTabId) {
     return;
   }
 
   const prepareVisiblePlayback = async () => {
     playbackAttentionWarningSent = false;
-    await focusManagedTab(managedTabId);
+    if (isStreamerChange) {
+      await focusManagedTab(managedTabId);
+    }
     await waitForTabComplete(managedTabId, 15_000).catch(() => undefined);
     const prepared = await prepareStreamPlayback(managedTabId, {
-      activateTab: true,
+      activateTab: isStreamerChange,
       unmuteTab: true,
       muteAfterPrep: shouldMuteManagedFarmingTab(),
     });
@@ -2704,6 +2707,13 @@ async function rotateStreamerIfInvalid() {
     });
     invalidStreamChecks = INVALID_STREAM_THRESHOLD; // Force immediate rotation
   } else {
+    const progressIsLive =
+      lastProgressAdvanceAt > 0 && now - lastProgressAdvanceAt < PROGRESS_STALL_THRESHOLD_MS;
+    const isWeakSignal = health.reason === 'drops-inactive' || health.reason === 'missing-context';
+    if (progressIsLive && isWeakSignal) {
+      invalidStreamChecks = 0;
+      return;
+    }
     invalidStreamChecks += health.invalidIncrement;
   }
   if (invalidStreamChecks < INVALID_STREAM_THRESHOLD) {
