@@ -32,8 +32,10 @@ import {
 } from './runtime-state';
 import {
   classifyStreamHealth,
+  computeEffectiveStallThreshold,
   computeRecoveryBackoffMs,
   detectRecoveryProof,
+  didDropMinutesAdvance,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
   MAX_PERSISTENT_RECOVERY_CYCLES,
   nextNoProgressRotationAttempts,
@@ -676,8 +678,20 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
   lastTrackedDropKey = nextDropKey;
   lastTrackedProgress = nextProgress;
 
+  const nextCurrentMinutes = activeDrop?.currentMinutes ?? -1;
+  const prevTrackedMinutes = lastTrackedMinutes;
+  lastTrackedMinutes = Math.max(lastTrackedMinutes, nextCurrentMinutes);
+
   // Track proof of recovery from fresh drop data for stall detection.
   if (recoveryProof) {
+    lastProgressAdvanceAt = Date.now();
+    resetNoProgressRotationAttempts();
+    clearRecoveryState();
+  }
+
+  const minuteAdvance =
+    !recoveryProof && nextDropKey !== null && didDropMinutesAdvance(prevTrackedMinutes, nextCurrentMinutes);
+  if (minuteAdvance) {
     lastProgressAdvanceAt = Date.now();
     resetNoProgressRotationAttempts();
     clearRecoveryState();
@@ -2651,13 +2665,13 @@ async function rotateStreamerIfInvalid() {
   const expectsDropsSignal =
     appState.currentDrop != null || appState.pendingDrops.some((drop) => drop.dropType !== 'event-based');
 
-  // Check for progress stall: if progress hasn't advanced in PROGRESS_STALL_THRESHOLD_MS, rotate.
   // Note: lastProgressAdvanceAt > 0 ensures we have a real reference time (set on first progress tick
   // or on any rotation). Drops stuck at 0% are also detected — the progress > 0 guard was removed.
+  const effectiveThreshold = computeEffectiveStallThreshold(appState.currentDrop?.requiredMinutes);
   const progressStalled =
     lastProgressAdvanceAt > 0 &&
     appState.currentDrop != null &&
-    now - lastProgressAdvanceAt >= PROGRESS_STALL_THRESHOLD_MS;
+    now - lastProgressAdvanceAt >= effectiveThreshold;
 
   const health = classifyStreamHealth({
     isLive: context.isLive,
@@ -2710,6 +2724,9 @@ async function rotateStreamerIfInvalid() {
     }
     logInfo('Drop progress stalled, triggering stream rotation', {
       progress: appState.currentDrop?.progress ?? null,
+      currentMinutes: appState.currentDrop?.currentMinutes ?? null,
+      requiredMinutes: appState.currentDrop?.requiredMinutes ?? null,
+      effectiveThresholdMs: effectiveThreshold,
       stalledForMs: now - lastProgressAdvanceAt,
     });
     invalidStreamChecks = INVALID_STREAM_THRESHOLD; // Force immediate rotation
