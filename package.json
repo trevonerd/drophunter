@@ -1,7 +1,7 @@
 {
   "name": "drophunter",
   "private": true,
-  "version": "2.2.3",
+  "version": "2.2.5",
   "type": "module",
   "repository": {
     "type": "git",
