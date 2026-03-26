@@ -1575,7 +1575,8 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
 async function fetchDirectoryStreamersFromApi(
   game: TwitchGame,
   forceSessionRefresh = false,
-): Promise<TwitchStreamer[]> {
+  language = '',
+): Promise<TwitchStreamer[] & { languageFilterApplied: boolean }> {
   const session = await ensureTwitchSession(forceSessionRefresh);
   if (!session) {
     logWarn('Directory streamers fetch: session missing, using public client');
@@ -1591,23 +1592,24 @@ async function fetchDirectoryStreamersFromApi(
   );
   try {
     const slug = game.categorySlug ?? toSlug(game.name);
-    logDebug('Directory streamers fetching', { game: game.name, slug });
-    const streamers = await client.fetchDirectoryStreamers(game.name, slug);
+    logDebug('Directory streamers fetching', { game: game.name, slug, language });
+    const streamers = await client.fetchDirectoryStreamers(game.name, slug, language);
     logDebug('Directory streamers fetched', {
       game: game.name,
       slug,
       count: streamers.length,
+      languageFilterApplied: streamers.languageFilterApplied,
     });
     return streamers;
   } catch (error) {
     if (session && isLikelyAuthError(error)) {
       clearTwitchSessionCache();
       if (!forceSessionRefresh) {
-        return fetchDirectoryStreamersFromApi(game, true);
+        return fetchDirectoryStreamersFromApi(game, true, language);
       }
     }
     logWarn('Twitch API directory fetch failed:', String(error));
-    return [];
+    return Object.assign([], { languageFilterApplied: false });
   }
 }
 
@@ -2269,7 +2271,21 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
     categorySlug: resolvedSlug,
   };
 
-  const streamers = await fetchDirectoryStreamersFromApi(appState.selectedGame);
+  const streamers = await fetchDirectoryStreamersFromApi(
+    appState.selectedGame,
+    false,
+    appState.preferredStreamerLanguage ?? '',
+  );
+  logDebug('Language filter applied to directory query', {
+    language: appState.preferredStreamerLanguage ?? '',
+    resultCount: streamers.length,
+    filterApplied: streamers.languageFilterApplied,
+  });
+  if (!streamers.languageFilterApplied && appState.preferredStreamerLanguage) {
+    logDebug('Language filter fallback: server-side filter returned 0 results, using unfiltered', {
+      language: appState.preferredStreamerLanguage,
+    });
+  }
 
   // Fix 2c: Per-campaign channel filtering — only use allowedChannels from PENDING campaigns
   const pendingDropsForGame = dropsForGame.filter((d) => !isDropCompleted(d));
@@ -2315,10 +2331,15 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
       rejected: streamers.filter((s) => !allowed!.includes(s.name.toLowerCase())).map((s) => s.name),
     });
   }
-  const selection = pickStreamerForPreferences(candidates, {
-    mode: appState.streamerSelectionMode,
-    preferredLanguage: appState.preferredStreamerLanguage,
-  });
+  const selection = pickStreamerForPreferences(
+    candidates,
+    {
+      mode: appState.streamerSelectionMode,
+      preferredLanguage: appState.preferredStreamerLanguage,
+    },
+    Math.random,
+    streamers.languageFilterApplied,
+  );
   const streamer = selection.streamer;
   if (streamer) {
     logInfo('Opening selected streamer', {
@@ -2328,6 +2349,7 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
       preferredLanguageApplied: selection.preferredLanguageApplied,
       preferredLanguageMatches: selection.preferredLanguageMatches,
       activePoolSize: selection.activePoolSize,
+      serverLanguageFilterApplied: streamers.languageFilterApplied,
       streamer: streamer.name,
       viewers: streamer.viewerCount ?? null,
       broadcasterLanguage: streamer.broadcasterLanguage ?? null,
