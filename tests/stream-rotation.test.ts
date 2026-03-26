@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import {
   classifyStreamHealth,
   computeRecoveryBackoffMs,
@@ -8,6 +8,8 @@ import {
   MAX_RECOVERY_BACKOFF_MS,
   RECOVERY_BACKOFF_BASE_MS,
   didDropProgressAdvance,
+  didDropMinutesAdvance,
+  computeEffectiveStallThreshold,
   nextNoProgressRotationAttempts,
   shouldIncrementNoProgressRotationAttempts,
 } from '../src/background/stream-rotation.ts';
@@ -195,4 +197,101 @@ test('stalled progress requests immediate recovery', () => {
 
 test('persistent recovery cycle cap exceeds the rotation attempt cap', () => {
   expect(MAX_PERSISTENT_RECOVERY_CYCLES).toBeGreaterThan(MAX_NO_PROGRESS_ROTATION_ATTEMPTS);
+});
+
+// ---------------------------------------------------------------------------
+// didDropMinutesAdvance
+// ---------------------------------------------------------------------------
+
+describe('didDropMinutesAdvance', () => {
+  test('returns true when currentMinutes is greater than previousMinutes', () => {
+    expect(didDropMinutesAdvance(10, 11)).toBe(true);
+  });
+
+  test('returns false when currentMinutes equals previousMinutes', () => {
+    expect(didDropMinutesAdvance(10, 10)).toBe(false);
+  });
+
+  test('returns false when currentMinutes is less than previousMinutes (API clock skew)', () => {
+    expect(didDropMinutesAdvance(10, 9)).toBe(false);
+  });
+
+  test('returns true on first tracking when previousMinutes is -1 and currentMinutes is 0', () => {
+    expect(didDropMinutesAdvance(-1, 0)).toBe(true);
+  });
+
+  test('returns false when both are -1 (uninitialized state)', () => {
+    expect(didDropMinutesAdvance(-1, -1)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeEffectiveStallThreshold
+// ---------------------------------------------------------------------------
+
+describe('computeEffectiveStallThreshold', () => {
+  test('returns 5-minute floor for short drops where formula < 5min (requiredMinutes = 60)', () => {
+    // formula: (60/100)*2+1 = 2.2 min → floor applies
+    expect(computeEffectiveStallThreshold(60)).toBe(5 * 60_000);
+  });
+
+  test('returns formula result for medium drops (requiredMinutes = 300)', () => {
+    // formula: (300/100)*2+1 = 7 min
+    expect(computeEffectiveStallThreshold(300)).toBe(7 * 60_000);
+  });
+
+  test('returns formula result for long drops (requiredMinutes = 500)', () => {
+    // formula: (500/100)*2+1 = 11 min
+    expect(computeEffectiveStallThreshold(500)).toBe(11 * 60_000);
+  });
+
+  test('returns formula result for very long drops (requiredMinutes = 720)', () => {
+    // formula: (720/100)*2+1 = 15.4 min
+    expect(computeEffectiveStallThreshold(720)).toBe(15.4 * 60_000);
+  });
+
+  test('returns 5-minute floor when requiredMinutes is null', () => {
+    expect(computeEffectiveStallThreshold(null)).toBe(5 * 60_000);
+  });
+
+  test('returns 5-minute floor when requiredMinutes is undefined', () => {
+    expect(computeEffectiveStallThreshold(undefined)).toBe(5 * 60_000);
+  });
+
+  test('returns 5-minute floor when requiredMinutes is 0', () => {
+    expect(computeEffectiveStallThreshold(0)).toBe(5 * 60_000);
+  });
+
+  test('returns 5-minute floor for minimal drops (requiredMinutes = 1)', () => {
+    // formula: (1/100)*2+1 = 1.02 min < 5 min → floor applies
+    expect(computeEffectiveStallThreshold(1)).toBe(5 * 60_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Boundary scenarios: stall detection integration
+// ---------------------------------------------------------------------------
+
+test('long drop: minutes advancing while integer % stays same does not indicate stall', () => {
+  // requiredMinutes = 480, minutes go from 147 to 148: both floor to 30%
+  const requiredMinutes = 480;
+  const prevMinutes = 147;
+  const nextMinutes = 148;
+  const prevProgress = Math.floor((prevMinutes / requiredMinutes) * 100); // 30
+  const nextProgress = Math.floor((nextMinutes / requiredMinutes) * 100); // 30
+  expect(didDropProgressAdvance(prevProgress, nextProgress)).toBe(false); // integer unchanged
+  expect(didDropMinutesAdvance(prevMinutes, nextMinutes)).toBe(true); // minutes advanced
+  // A stall should NOT be declared when minutes advance, even if integer % doesn't
+});
+
+test('short drop: neither minutes nor progress advance indicates stall correctly', () => {
+  expect(didDropProgressAdvance(30, 30)).toBe(false);
+  expect(didDropMinutesAdvance(18, 18)).toBe(false);
+  // Both false → stall can be declared
+});
+
+test('exact boundary: requiredMinutes=500 gives 11-minute threshold, not 5-minute', () => {
+  const threshold = computeEffectiveStallThreshold(500);
+  expect(threshold).toBe(11 * 60_000);
+  expect(threshold).toBeGreaterThan(5 * 60_000);
 });

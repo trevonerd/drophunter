@@ -117,3 +117,52 @@ describe('pickStreamerForPreferences', () => {
     expect(result.streamer?.name).toBe('b');
   });
 });
+
+describe('pickStreamerForPreferences with serverLanguageFilterApplied', () => {
+  test('skips client-side language filter when serverLanguageFilterApplied is true', () => {
+    const streamers = [
+      makeStreamer('a', 10, 'en'),
+      makeStreamer('b', 20, 'it'),
+      makeStreamer('c', 30, 'fr'),
+    ];
+    const result = pickStreamerForPreferences(
+      streamers,
+      { mode: 'top-viewers', preferredLanguage: 'it' },
+      () => 0,
+      true,
+    );
+    expect(result.streamer?.name).toBe('c');
+    expect(result.preferredLanguageApplied).toBe(false);
+  });
+
+  test('applies client-side language filter when serverLanguageFilterApplied is false', () => {
+    const streamers = [
+      makeStreamer('a', 10, 'en'),
+      makeStreamer('b', 20, 'it'),
+      makeStreamer('c', 30, 'it'),
+    ];
+    const result = pickStreamerForPreferences(
+      streamers,
+      { mode: 'top-viewers', preferredLanguage: 'it' },
+      () => 0,
+      false,
+    );
+    expect(result.preferredLanguageApplied).toBe(true);
+    expect(result.streamer?.name).toBe('c');
+  });
+
+  test('applies client-side language filter when serverLanguageFilterApplied is undefined (backward compat)', () => {
+    const streamers = [
+      makeStreamer('a', 10, 'en'),
+      makeStreamer('b', 30, 'it'),
+    ];
+    const result = pickStreamerForPreferences(
+      streamers,
+      { mode: 'top-viewers', preferredLanguage: 'it' },
+      () => 0,
+      undefined,
+    );
+    expect(result.preferredLanguageApplied).toBe(true);
+    expect(result.streamer?.name).toBe('b');
+  });
+});
