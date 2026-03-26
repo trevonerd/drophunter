@@ -128,8 +128,22 @@ export function pickStreamerForPreferences(
   candidates: TwitchStreamer[],
   preferences: StreamerSelectionPreferences,
   randomFn: () => number = Math.random,
+  serverLanguageFilterApplied?: boolean,
 ): PickStreamerResult {
-  const languagePool = activePoolForLanguage(candidates, preferences.preferredLanguage);
+  let languagePool: Omit<PickStreamerResult, 'streamer'> & { pool: TwitchStreamer[] };
+
+  if (!serverLanguageFilterApplied && preferences.preferredLanguage) {
+    languagePool = activePoolForLanguage(candidates, preferences.preferredLanguage);
+  } else {
+    // Server already filtered or no language preference, skip client-side filtering
+    languagePool = {
+      pool: candidates,
+      preferredLanguageApplied: false,
+      preferredLanguageMatches: 0,
+      activePoolSize: candidates.length,
+    };
+  }
+
   return {
     preferredLanguageApplied: languagePool.preferredLanguageApplied,
     preferredLanguageMatches: languagePool.preferredLanguageMatches,
