@@ -38,3 +38,8 @@ Thumbs.db
 *.crx
 *.pem
 *.zip
+
+# AI tool directories
+.claude/
+.sisyphus/
+.opencode/
