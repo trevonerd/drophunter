@@ -1,6 +1,6 @@
 import { toSlug } from '../../shared/utils';
 import { DropStatus, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../../types';
-import { logVerboseInfo, logVerboseWarn, logWarn } from '../logging';
+import { logDebug, logVerboseInfo, logVerboseWarn, logWarn } from '../logging';
 import {
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
@@ -425,6 +425,19 @@ export function normalizeStreamerLanguage(value: unknown): string | undefined {
   return /^[a-z]{2,3}$/.test(primary) ? primary : undefined;
 }
 
+function normalizeLanguageForApi(storedLanguage: string): string {
+  return storedLanguage.toUpperCase();
+}
+
+type DirectoryStreamersResult = TwitchStreamer[] & { languageFilterApplied: boolean };
+
+function withLanguageFilterApplied(
+  streamers: TwitchStreamer[],
+  languageFilterApplied: boolean,
+): DirectoryStreamersResult {
+  return Object.assign(streamers, { languageFilterApplied });
+}
+
 function extractBroadcaster(node: Record<string, unknown>): { login: string; displayName: string } | null {
   const broadcaster = node.broadcaster;
   if (!broadcaster || typeof broadcaster !== 'object') {
@@ -695,7 +708,12 @@ export class TwitchApiClient {
     );
   }
 
-  private buildDirectoryPayload(game: string, slug: string, tags?: string[]) {
+  private buildDirectoryPayload(
+    game: string,
+    slug: string,
+    tags?: string[],
+    broadcasterLanguages?: string[],
+  ) {
     return {
       operationName: 'DirectoryPage_Game',
       variables: {
@@ -707,6 +725,7 @@ export class TwitchApiClient {
           recommendationsContext: { platform: 'web' },
           requestID: 'JIRA-VXP-2397',
           ...(tags ? { tags } : {}),
+          ...(broadcasterLanguages && broadcasterLanguages.length > 0 ? { broadcasterLanguages } : {}),
         },
         sortTypeIsRecency: false,
         includeCostreaming: true,
@@ -757,21 +776,46 @@ export class TwitchApiClient {
     return Array.from(byChannel.values());
   }
 
-  async fetchDirectoryStreamers(gameName: string, categorySlug: string): Promise<TwitchStreamer[]> {
+  private async fetchDirectoryEdges(
+    game: string,
+    slug: string,
+    tags?: string[],
+    broadcasterLanguages?: string[],
+  ): Promise<Array<{ node?: Record<string, unknown> }>> {
+    const payload = this.buildDirectoryPayload(game, slug, tags, broadcasterLanguages);
+    const data = await this.transport.post<{
+      game?: { streams?: { edges?: Array<{ node?: Record<string, unknown> }> } };
+    }>(payload);
+    return data.game?.streams?.edges ?? [];
+  }
+
+  async fetchDirectoryStreamers(
+    gameName: string,
+    categorySlug: string,
+    language?: string,
+  ): Promise<DirectoryStreamersResult> {
     const slug = normalizeText(categorySlug) || toSlug(gameName);
     const game = normalizeText(gameName) || slug;
 
-    // First try with drops tag filter
-    const taggedPayload = this.buildDirectoryPayload(game, slug, [DROPS_TAG_ID]);
-    const taggedData = await this.transport.post<{
-      game?: { streams?: { edges?: Array<{ node?: Record<string, unknown> }> } };
-    }>(taggedPayload);
-    const taggedEdges = taggedData.game?.streams?.edges ?? [];
+    if (language) {
+      const normalizedLanguage = normalizeLanguageForApi(language);
+      const filteredEdges = await this.fetchDirectoryEdges(game, slug, [DROPS_TAG_ID], [normalizedLanguage]);
+      const filteredStreamers = this.parseDirectoryEdges(filteredEdges);
+
+      if (filteredStreamers.length > 0) {
+        return withLanguageFilterApplied(filteredStreamers, true);
+      }
+
+      logDebug('Language filter returned 0 results, falling back to unfiltered', { language });
+    }
+
+    const taggedEdges = await this.fetchDirectoryEdges(game, slug, [DROPS_TAG_ID]);
     const taggedStreamers = this.parseDirectoryEdges(taggedEdges);
 
     if (taggedStreamers.length === 0) {
       logWarn(`[TwitchApiClient] No drops-tagged streams found for "${game}" (slug: ${slug})`);
     }
-    return taggedStreamers;
+
+    return withLanguageFilterApplied(taggedStreamers, false);
   }
 }
