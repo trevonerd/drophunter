@@ -24,6 +24,7 @@ export interface TwitchDrop {
   imageUrl: string;
   categorySlug?: string;
   progress: number; // 0-100
+  currentMinutes: number; // raw watched minutes from API
   claimed: boolean;
   claimable?: boolean;
   benefitName?: string;
