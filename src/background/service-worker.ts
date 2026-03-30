@@ -254,19 +254,27 @@ async function loadTimingState() {
 }
 
 chrome.runtime.onStartup.addListener(async () => {
-  // State is already loading via the module-level initPromise — just await it.
-  if (initPromise) await initPromise;
+  try {
+    // State is already loading via the module-level initPromise — just await it.
+    if (initPromise) await initPromise;
+  } catch (error) {
+    logWarn('onStartup error:', String(error));
+  }
 });
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  // Ensure module initialization has settled before potentially resetting state.
-  if (initPromise) await initPromise;
-  if (details.reason === 'update') {
-    // Reset state on extension update to prevent stale/corrupt state from persisting.
-    appState = clearRotationMetadata(createInitialState());
-    cachedDropsSnapshot = [];
-    await chrome.storage.local.set({ appState });
-    broadcastStateUpdate();
+  try {
+    // Ensure module initialization has settled before potentially resetting state.
+    if (initPromise) await initPromise;
+    if (details.reason === 'update') {
+      // Reset state on extension update to prevent stale/corrupt state from persisting.
+      appState = clearRotationMetadata(createInitialState());
+      cachedDropsSnapshot = [];
+      await chrome.storage.local.set({ appState });
+      broadcastStateUpdate();
+    }
+  } catch (error) {
+    logWarn('onInstalled error:', String(error));
   }
   // Fresh install: loadState() already ran at module evaluation time.
 });
