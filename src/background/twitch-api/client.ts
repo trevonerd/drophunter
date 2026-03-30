@@ -123,7 +123,13 @@ function buildInventoryDropMaps(inventoryRaw: unknown): InventoryDropMaps {
     return { byCampaignDrop, byDropId };
   }
 
+  // Guard: ensure inventoryRaw is a valid object before casting
   const inventory = inventoryRaw as Record<string, unknown>;
+  if (!('dropCampaignsInProgress' in inventory)) {
+    logVerboseWarn('[DropHunter] Expected dropCampaignsInProgress field in inventory response');
+    return { byCampaignDrop, byDropId };
+  }
+
   const campaigns = Array.isArray(inventory.dropCampaignsInProgress)
     ? (inventory.dropCampaignsInProgress as Array<Record<string, unknown>>)
     : [];
@@ -267,12 +273,20 @@ function parseCampaignDrops(
 ): TwitchDrop[] {
   const campaignId = normalizeText(campaign.id) || game.campaignId || '';
   const campaignEndsAt = toIsoDate(campaign.endAt);
+
+  // Guard: validate timeBasedDrops exists and is array
+  if (!('timeBasedDrops' in campaign)) {
+    logVerboseWarn('[DropHunter] Expected timeBasedDrops field in campaign response');
+    return [];
+  }
+
   const timeBasedDrops = Array.isArray(campaign.timeBasedDrops)
     ? (campaign.timeBasedDrops as Array<Record<string, unknown>>)
     : [];
   const gameClaimedRewards = claimedRewards.get(game.name.toLowerCase());
 
   const parsedDrops = timeBasedDrops.map((drop, index) => {
+    // Guard: validate drop object structure before casting
     const self = (drop.self && typeof drop.self === 'object' ? drop.self : {}) as Record<string, unknown>;
     const parsedDropId = normalizeText(drop.id);
     const inventoryState =
@@ -544,43 +558,47 @@ export class TwitchApiClient {
 
     const campaigns = dashboardData.currentUser?.dropCampaigns ?? [];
     const inventoryRaw = inventoryData.currentUser?.inventory;
-    // Debug: log raw inventory structure
+    // Guard: validate inventory response structure before casting
     if (inventoryRaw && typeof inventoryRaw === 'object') {
       const inv = inventoryRaw as Record<string, unknown>;
-      const keys = Object.keys(inv);
-      const gameEventDropsRaw = inv.gameEventDrops;
-      const gameEventDropsCount = Array.isArray(gameEventDropsRaw) ? gameEventDropsRaw.length : 'NOT_ARRAY';
-      const campaignsInProgress = Array.isArray(inv.dropCampaignsInProgress)
-        ? (inv.dropCampaignsInProgress as Array<Record<string, unknown>>)
-        : [];
-      logVerboseInfo(`[TwitchApiClient] Raw inventory keys: [${keys.join(', ')}]`);
-      logVerboseInfo(
-        `[TwitchApiClient] gameEventDrops: count=${gameEventDropsCount}, type=${typeof gameEventDropsRaw}, isNull=${gameEventDropsRaw === null}`,
-      );
-      // Log each in-progress campaign with claimed drops
-      campaignsInProgress.forEach((c) => {
-        if (!c || typeof c !== 'object') return;
-        const cId = normalizeText(c.id);
-        const cGame =
-          c.game && typeof c.game === 'object'
-            ? normalizeText((c.game as Record<string, unknown>).displayName) ||
-              normalizeText((c.game as Record<string, unknown>).name)
-            : '?';
-        const timeBasedDrops = Array.isArray(c.timeBasedDrops)
-          ? (c.timeBasedDrops as Array<Record<string, unknown>>)
+      if (!('dropCampaignsInProgress' in inv)) {
+        logVerboseWarn('[DropHunter] Expected dropCampaignsInProgress field in inventory response');
+      } else {
+        const keys = Object.keys(inv);
+        const gameEventDropsRaw = inv.gameEventDrops;
+        const gameEventDropsCount = Array.isArray(gameEventDropsRaw) ? gameEventDropsRaw.length : 'NOT_ARRAY';
+        const campaignsInProgress = Array.isArray(inv.dropCampaignsInProgress)
+          ? (inv.dropCampaignsInProgress as Array<Record<string, unknown>>)
           : [];
-        timeBasedDrops.forEach((d) => {
-          if (!d || typeof d !== 'object') return;
-          const dId = normalizeText(d.id);
-          const self = (d.self && typeof d.self === 'object' ? d.self : {}) as Record<string, unknown>;
-          const isClaimed = Boolean(self.isClaimed ?? d.isClaimed);
-          const currentMin = toNumber(self.currentMinutesWatched ?? d.currentMinutesWatched) ?? 0;
-          const reqMin = toNumber(d.requiredMinutesWatched ?? d.requiredMinutes);
-          logVerboseInfo(
-            `[TwitchApiClient] InProgress campaign="${cId}" game="${cGame}" drop="${dId}" claimed=${isClaimed} progress=${currentMin}/${reqMin}`,
-          );
+        logVerboseInfo(`[TwitchApiClient] Raw inventory keys: [${keys.join(', ')}]`);
+        logVerboseInfo(
+          `[TwitchApiClient] gameEventDrops: count=${gameEventDropsCount}, type=${typeof gameEventDropsRaw}, isNull=${gameEventDropsRaw === null}`,
+        );
+        // Log each in-progress campaign with claimed drops
+        campaignsInProgress.forEach((c) => {
+          if (!c || typeof c !== 'object') return;
+          const cId = normalizeText(c.id);
+          const cGame =
+            c.game && typeof c.game === 'object'
+              ? normalizeText((c.game as Record<string, unknown>).displayName) ||
+                normalizeText((c.game as Record<string, unknown>).name)
+              : '?';
+          const timeBasedDrops = Array.isArray(c.timeBasedDrops)
+            ? (c.timeBasedDrops as Array<Record<string, unknown>>)
+            : [];
+          timeBasedDrops.forEach((d) => {
+            if (!d || typeof d !== 'object') return;
+            const dId = normalizeText(d.id);
+            const self = (d.self && typeof d.self === 'object' ? d.self : {}) as Record<string, unknown>;
+            const isClaimed = Boolean(self.isClaimed ?? d.isClaimed);
+            const currentMin = toNumber(self.currentMinutesWatched ?? d.currentMinutesWatched) ?? 0;
+            const reqMin = toNumber(d.requiredMinutesWatched ?? d.requiredMinutes);
+            logVerboseInfo(
+              `[TwitchApiClient] InProgress campaign="${cId}" game="${cGame}" drop="${dId}" claimed=${isClaimed} progress=${currentMin}/${reqMin}`,
+            );
+          });
         });
-      });
+      }
     } else {
       logVerboseWarn(
         `[TwitchApiClient] inventoryRaw is ${inventoryRaw === null ? 'null' : typeof inventoryRaw}`,
