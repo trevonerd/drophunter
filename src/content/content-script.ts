@@ -205,7 +205,9 @@ function prepareStreamPlayback() {
     (document.querySelector('[data-a-target="video-player"]') as HTMLElement | null) ||
     (document.querySelector('[data-a-player-state]') as HTMLElement | null) ||
     (document.querySelector('div[data-test-selector*="video-player"]') as HTMLElement | null);
-  clickElement(playerSurface);
+  if (playerSurface) {
+    clickElement(playerSurface);
+  }
 
   const playPauseButton = document.querySelector(
     '[data-a-target="player-play-pause-button"]',
