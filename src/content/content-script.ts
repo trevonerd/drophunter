@@ -533,10 +533,12 @@ function syncIntegrityToBackground(source: string) {
   }
 }
 
-// Listen for real-time integrity updates from the MAIN world interceptor
-window.addEventListener(INTEGRITY_STORAGE_KEY, ((event: CustomEvent) => {
+// Handle real-time integrity updates from the MAIN world interceptor
+function handleIntegrityEvent(event: Event): void {
   try {
-    const detail = typeof event.detail === 'string' ? JSON.parse(event.detail) : event.detail;
+    const customEvent = event as CustomEvent;
+    const detail =
+      typeof customEvent.detail === 'string' ? JSON.parse(customEvent.detail) : customEvent.detail;
     if (detail && typeof detail.token === 'string' && detail.token.length > 0) {
       console.info(LOG_PREFIX, 'Intercepted Twitch integrity token (live)', {
         tokenLength: detail.token.length,
@@ -552,7 +554,18 @@ window.addEventListener(INTEGRITY_STORAGE_KEY, ((event: CustomEvent) => {
   } catch {
     // Ignore parse errors
   }
-}) as EventListener);
+}
+
+// Listen for real-time integrity updates from the MAIN world interceptor
+window.addEventListener(INTEGRITY_STORAGE_KEY, handleIntegrityEvent);
+
+// Clean up when extension context is invalidated (MV3 content script teardown)
+const cleanupInterval = window.setInterval(() => {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
+    window.removeEventListener(INTEGRITY_STORAGE_KEY, handleIntegrityEvent);
+    window.clearInterval(cleanupInterval);
+  }
+}, 5000);
 
 // Read any integrity token that was already captured before this script loaded
 syncIntegrityToBackground('sessionStorage');
