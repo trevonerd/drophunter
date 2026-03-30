@@ -18,6 +18,10 @@ window.fetch = function (...args: Parameters<typeof fetch>): ReturnType<typeof f
         return clone.json();
       })
       .then((data: unknown) => {
+        if (typeof data !== 'object') {
+          console.debug('[DropHunter][integrity-interceptor] unexpected response shape:', typeof data);
+          return;
+        }
         const payload = data as Record<string, unknown> | null;
         if (payload && typeof payload.token === 'string' && payload.token.length > 0) {
           const integrity = {
