@@ -423,15 +423,18 @@ function App() {
     setQueueMessage('Queue cleared.');
   };
 
-  const withAction = async (action: () => Promise<void>) => {
-    if (actionLoading) return;
-    setActionLoading(true);
-    try {
-      await action();
-    } finally {
-      setTimeout(() => setActionLoading(false), 250);
-    }
-  };
+  const withAction = useCallback(
+    async (action: () => Promise<void>) => {
+      if (actionLoading) return;
+      setActionLoading(true);
+      try {
+        await action();
+      } finally {
+        setTimeout(() => setActionLoading(false), 250);
+      }
+    },
+    [actionLoading],
+  );
 
   const handleStart = () =>
     withAction(async () => {
@@ -446,20 +449,29 @@ function App() {
       }
     });
 
-  const handlePause = () =>
-    withAction(async () => {
-      await chrome.runtime.sendMessage({ type: 'PAUSE_FARMING' });
-    });
+  const handlePause = useCallback(
+    () =>
+      withAction(async () => {
+        await chrome.runtime.sendMessage({ type: 'PAUSE_FARMING' });
+      }),
+    [withAction],
+  );
 
-  const handleResume = () =>
-    withAction(async () => {
-      await chrome.runtime.sendMessage({ type: 'RESUME_FARMING' });
-    });
+  const handleResume = useCallback(
+    () =>
+      withAction(async () => {
+        await chrome.runtime.sendMessage({ type: 'RESUME_FARMING' });
+      }),
+    [withAction],
+  );
 
-  const handleStop = () =>
-    withAction(async () => {
-      await chrome.runtime.sendMessage({ type: 'STOP_FARMING' });
-    });
+  const handleStop = useCallback(
+    () =>
+      withAction(async () => {
+        await chrome.runtime.sendMessage({ type: 'STOP_FARMING' });
+      }),
+    [withAction],
+  );
 
   const openDropsPage = () => {
     chrome.tabs.create({ url: 'https://www.twitch.tv/drops/campaigns' });
