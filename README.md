@@ -13,8 +13,13 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Open and validate an eligible Twitch stream for the selected campaign
 - Rotate to a new streamer only when the current stream becomes invalid or progress stalls
 - Auto-claim rewards when Twitch marks them claimable
+- Pause and resume farming without losing your place in the queue
+- Choose how DropHunter picks streamers: lowest viewers, random, or most viewers
+- Filter streamers by preferred language (30+ languages supported)
+- Automatically claim free channel points bonuses on farmed streams
 - Show a separate live monitor window for at-a-glance progress
 - Let you choose whether the monitor opens automatically when farming starts
+- Control whether farming tabs are muted from Settings
 - Warn you when Twitch playback likely needs manual attention
 - Handle duplicate game campaigns more clearly by surfacing campaign-specific choices
 
