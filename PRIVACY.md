@@ -69,5 +69,3 @@ For questions or concerns about this privacy policy, open an issue on the [GitHu
 ## Changes
 
 This policy may be updated to reflect changes in the extension's functionality. The latest version is always available at this URL.
-
-*Last updated: March 21, 2026*
