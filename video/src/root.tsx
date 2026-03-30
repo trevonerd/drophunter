@@ -8,6 +8,8 @@ import { QueueScene } from "./scenes/QueueScene";
 import { MonitorScene } from "./scenes/MonitorScene";
 import { RotationScene } from "./scenes/RotationScene";
 import { ClaimScene } from "./scenes/ClaimScene";
+import { SettingsScene } from "./scenes/SettingsScene";
+import { ChannelPointsScene } from "./scenes/ChannelPointsScene";
 import { RecoveryScene } from "./scenes/RecoveryScene";
 import { CtaScene } from "./scenes/CtaScene";
 
@@ -16,7 +18,7 @@ const TRANSITION = 12;
 const MUSIC_VOLUME = 0.32;
 const MUSIC_FADE_OUT_FRAMES = FPS * 2;
 const TOTAL =
-  96 + 126 + 150 + 180 + 150 + 150 + 150 + 144 - 7 * TRANSITION;
+  96 + 126 + 150 + 180 + 150 + 150 + 150 + 150 + 150 + 144 - 9 * TRANSITION;
 
 const FullPromo: React.FC = () => (
   <>
@@ -50,6 +52,13 @@ const FullPromo: React.FC = () => (
         timing={linearTiming({ durationInFrames: TRANSITION })}
       />
       <TransitionSeries.Sequence durationInFrames={150}>
+        <SettingsScene />
+      </TransitionSeries.Sequence>
+      <TransitionSeries.Transition
+        presentation={fade()}
+        timing={linearTiming({ durationInFrames: TRANSITION })}
+      />
+      <TransitionSeries.Sequence durationInFrames={150}>
         <QueueScene />
       </TransitionSeries.Sequence>
       <TransitionSeries.Transition
@@ -72,6 +81,13 @@ const FullPromo: React.FC = () => (
       />
       <TransitionSeries.Sequence durationInFrames={150}>
         <ClaimScene />
+      </TransitionSeries.Sequence>
+      <TransitionSeries.Transition
+        presentation={fade()}
+        timing={linearTiming({ durationInFrames: TRANSITION })}
+      />
+      <TransitionSeries.Sequence durationInFrames={150}>
+        <ChannelPointsScene />
       </TransitionSeries.Sequence>
       <TransitionSeries.Transition
         presentation={fade()}
