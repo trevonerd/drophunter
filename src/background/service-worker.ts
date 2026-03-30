@@ -2190,7 +2190,6 @@ async function checkDropProgress() {
   // This handles the race where Chrome wakes the SW via alarm before loadState() finishes.
   if (initPromise) {
     await initPromise;
-    initPromise = null;
   }
 
   if (!appState.isRunning || appState.isPaused) {
