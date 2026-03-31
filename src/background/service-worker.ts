@@ -1688,9 +1688,10 @@ async function refreshGamesCacheFromHiddenFetch(): Promise<TwitchGame[]> {
     }
 
     const mergedGames = mergeAvailableGames(appState.availableGames, fetchedGames);
-    appState.availableGames = mergedGames;
-    normalizeGameSelection(mergedGames);
-    normalizeQueueSelection(mergedGames);
+    const annotatedGames = annotateGameCompletion(mergedGames, cachedDropsSnapshot);
+    appState.availableGames = annotatedGames;
+    normalizeGameSelection(annotatedGames);
+    normalizeQueueSelection(annotatedGames);
     // If we have a selected game and fresh drops, update the drop split
     if (appState.selectedGame && cachedDropsSnapshot.length > 0) {
       splitDropsForSelectedGame(cachedDropsSnapshot);
@@ -3111,6 +3112,7 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
         appState.availableGames,
         (message.payload ?? []) as TwitchGame[],
       );
+      appState.availableGames = annotateGameCompletion(appState.availableGames, cachedDropsSnapshot);
       if (appState.availableGames.length > 0) {
         appState.lastSuccessfulRefreshAt = Date.now();
       }
