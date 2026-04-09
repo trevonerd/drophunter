@@ -38,3 +38,21 @@ export function mergeDropProgressMonotonic(nextDrop: TwitchDrop, previousDrop: T
 export function isDropCompleted(drop: TwitchDrop): boolean {
   return drop.claimed || (drop.progress >= 100 && !drop.claimable);
 }
+
+export function haveAllDropsExpiredOrVanished(
+  allDrops: TwitchDrop[],
+  previousAllDropsCount: number,
+): boolean {
+  if (allDrops.length === 0) {
+    return previousAllDropsCount > 0;
+  }
+
+  const nonCompleted = allDrops.filter((drop) => !isDropCompleted(drop));
+  if (nonCompleted.length === 0) return false;
+
+  return nonCompleted.every((drop) => {
+    if (!drop.endsAt) return false;
+    const endsAtMs = new Date(drop.endsAt).getTime();
+    return Number.isFinite(endsAtMs) && endsAtMs <= Date.now();
+  });
+}
