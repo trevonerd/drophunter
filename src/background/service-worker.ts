@@ -1,4 +1,4 @@
-import { isDropCompleted, mergeDropProgressMonotonic } from '../shared/drops';
+import { haveAllDropsExpiredOrVanished, isDropCompleted, mergeDropProgressMonotonic } from '../shared/drops';
 import {
   applyGameDisplayNames,
   compareGamesForDisplayOrder,
@@ -68,6 +68,8 @@ const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
 const ALARM_NAME = 'dropCheck';
 const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000; // 3 days
 const INTEGRITY_FALLBACK_TTL_MS = 30 * 60_000; // 30 minutes
+const TICK_WATCHDOG_TIMEOUT_MS = 60_000;
+const STREAM_CONTEXT_TIMEOUT_MS = 12_000;
 
 interface StreamContext {
   channelName: string;
@@ -122,6 +124,7 @@ let twitchSessionCache: TwitchSession | null = null;
 let twitchSessionFetchInFlight: Promise<TwitchSession | null> | null = null;
 let twitchSessionLastAttemptAt = 0;
 let cachedDropsSnapshot: TwitchDrop[] = [];
+let previousAllDropsCount = 0;
 let cachedCampaignChannelsMap: Record<string, string[] | null> = {};
 let lastFullRefreshAt = 0;
 let dropClaimInFlight = false;
@@ -543,6 +546,7 @@ function dropMatchesSelectedGame(drop: TwitchDrop, selected: TwitchGame): boolea
 function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
   const selected = appState.selectedGame;
   if (!selected) {
+    previousAllDropsCount = 0;
     appState.allDrops = [];
     appState.pendingDrops = [];
     appState.completedDrops = [];
@@ -678,6 +682,7 @@ function splitDropsForSelectedGame(allDrops: TwitchDrop[]) {
     nextCompletedKeys,
   });
 
+  previousAllDropsCount = appState.allDrops.length;
   appState.allDrops = relevantForState;
   appState.completedDrops = completed;
   appState.pendingDrops = normalizedPending;
@@ -1623,12 +1628,17 @@ async function fetchDirectoryStreamersFromApi(
 
 async function fetchStreamContext(tabId: number): Promise<StreamContext | null> {
   const send = async () => chrome.tabs.sendMessage(tabId, { type: 'GET_STREAM_CONTEXT' });
+  const withTimeout = <T>(p: Promise<T>): Promise<T | null> =>
+    Promise.race([
+      p,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), STREAM_CONTEXT_TIMEOUT_MS)),
+    ]);
   let response: { success?: boolean; context?: StreamContext } | null = null;
   try {
-    response = await send();
+    response = await withTimeout(send());
   } catch {
     await ensureContentScriptOnTab(tabId);
-    response = await send().catch(() => null);
+    response = await withTimeout(send()).catch(() => null);
   }
   if (!response?.success || !response.context) {
     return null;
@@ -2213,6 +2223,15 @@ async function checkDropProgress() {
   }
   monitorTickInFlight = true;
 
+  const tickWatchdogTimer = setTimeout(() => {
+    if (monitorTickInFlight) {
+      logWarn('Monitoring tick watchdog fired — resetting stuck monitorTickInFlight flag', {
+        timeoutMs: TICK_WATCHDOG_TIMEOUT_MS,
+      });
+      monitorTickInFlight = false;
+    }
+  }, TICK_WATCHDOG_TIMEOUT_MS);
+
   try {
     if (appState.tabId) {
       const streamTab = await chrome.tabs.get(appState.tabId).catch(() => null);
@@ -2244,6 +2263,7 @@ async function checkDropProgress() {
     }
     await advanceQueueIfCompleted();
   } finally {
+    clearTimeout(tickWatchdogTimer);
     monitorTickInFlight = false;
     await saveTimingState();
   }
@@ -2405,8 +2425,17 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
   const hasFarmablePending = appState.pendingDrops.some((d) => d.dropType !== 'event-based');
   const knownCompletedCurrent =
     appState.allDrops.length > 0 && !hasFarmablePending && appState.currentDrop === null;
-  if (!knownCompletedCurrent) {
+  const campaignExpiredOrVanished = haveAllDropsExpiredOrVanished(appState.allDrops, previousAllDropsCount);
+  if (!knownCompletedCurrent && !campaignExpiredOrVanished) {
     return true;
+  }
+  if (campaignExpiredOrVanished && !knownCompletedCurrent) {
+    logInfo('Campaign expired or vanished mid-farming — advancing queue', {
+      selectedGame: appState.selectedGame ? getGameDisplayLabel(appState.selectedGame) : null,
+      allDropsCount: appState.allDrops.length,
+      previousAllDropsCount,
+      queueLength: appState.queue.length,
+    });
   }
 
   if (appState.selectedGame) {
@@ -2422,6 +2451,7 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     lastTrackedMinutes = -1;
     lastTrackedDropKey = null;
     lastProgressAdvanceAt = 0;
+    previousAllDropsCount = 0;
     resetNoProgressRotationAttempts();
     // Persist the needle reset immediately so a SW restart between here and the
     // end-of-tick saveTimingState() doesn't restore stale timestamps for the new game.
@@ -2437,7 +2467,9 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
     const hasFarmablePendingNext = appState.pendingDrops.some((d) => d.dropType !== 'event-based');
     const knownCompletedNext =
       appState.allDrops.length > 0 && !hasFarmablePendingNext && appState.currentDrop === null;
-    if (knownCompletedNext) {
+    const campaignExpiredNext = haveAllDropsExpiredOrVanished(appState.allDrops, previousAllDropsCount);
+    if (knownCompletedNext || campaignExpiredNext) {
+      previousAllDropsCount = 0;
       removeGameFromQueue(nextGame);
       continue;
     }
@@ -2692,8 +2724,11 @@ async function rotateStreamerIfInvalid() {
     selectedCategorySlug.length === 0 || contextCategorySlug.length === 0
       ? true
       : selectedCategorySlug === contextCategorySlug;
+  const campaignGone = haveAllDropsExpiredOrVanished(appState.allDrops, previousAllDropsCount);
   const expectsDropsSignal =
-    appState.currentDrop != null || appState.pendingDrops.some((drop) => drop.dropType !== 'event-based');
+    appState.currentDrop != null ||
+    appState.pendingDrops.some((drop) => drop.dropType !== 'event-based') ||
+    campaignGone;
 
   // Note: lastProgressAdvanceAt > 0 ensures we have a real reference time (set on first progress tick
   // or on any rotation). Drops stuck at 0% are also detected — the progress > 0 guard was removed.
