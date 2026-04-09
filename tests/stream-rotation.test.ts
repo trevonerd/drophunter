@@ -295,3 +295,47 @@ test('exact boundary: requiredMinutes=500 gives 11-minute threshold, not 5-minut
   expect(threshold).toBe(11 * 60_000);
   expect(threshold).toBeGreaterThan(5 * 60_000);
 });
+
+// ---------------------------------------------------------------------------
+// expectsDropsSignal=false scenarios (campaign expired / no drops available)
+// ---------------------------------------------------------------------------
+// These tests document the current behavior when a campaign has expired or
+// has no available drops. The upstream fix (in service-worker.ts Task 4)
+// ensures expectsDropsSignal=true when drops are expected, preventing the
+// bug scenario where an expired campaign causes incorrect "healthy" classification.
+
+test('stream is classified healthy when no drops are expected and no drops signal present (campaign-vanished scenario)', () => {
+  expect(
+    classifyStreamHealth({
+      isLive: true,
+      sameChannel: true,
+      sameGame: true,
+      hasDropsSignal: false,
+      progressStalled: false,
+      expectsDropsSignal: false,
+    }),
+  ).toEqual({
+    isHealthy: true,
+    forceImmediateRotation: false,
+    invalidIncrement: 0,
+    reason: null,
+  });
+});
+
+test('stream with drops expected but no drops signal is unhealthy with drops-inactive', () => {
+  expect(
+    classifyStreamHealth({
+      isLive: true,
+      sameChannel: true,
+      sameGame: true,
+      hasDropsSignal: false,
+      progressStalled: false,
+      expectsDropsSignal: true,
+    }),
+  ).toEqual({
+    isHealthy: false,
+    forceImmediateRotation: false,
+    invalidIncrement: 1,
+    reason: 'drops-inactive',
+  });
+});
