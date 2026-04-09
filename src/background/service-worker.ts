@@ -2745,6 +2745,7 @@ async function rotateStreamerIfInvalid() {
 
   logDebug('Stream health inputs', {
     expectsDropsSignal,
+    hasDropsSignal,
     campaignGone,
     currentDrop: !!appState.currentDrop,
     farmablePending: appState.pendingDrops.some((d) => d.dropType !== 'event-based'),
