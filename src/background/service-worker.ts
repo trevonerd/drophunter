@@ -2218,7 +2218,15 @@ async function checkDropProgress() {
     return;
   }
 
+  logDebug('Tick entry', {
+    isRunning: appState.isRunning,
+    isPaused: appState.isPaused,
+    monitorTickInFlight,
+    apiBackoffActive: apiBackoffUntil > Date.now(),
+  });
+
   if (monitorTickInFlight) {
+    logDebug('Tick skipped — monitorTickInFlight already true');
     return;
   }
   monitorTickInFlight = true;
@@ -2426,6 +2434,11 @@ async function advanceQueueIfCompleted(): Promise<boolean> {
   const knownCompletedCurrent =
     appState.allDrops.length > 0 && !hasFarmablePending && appState.currentDrop === null;
   const campaignExpiredOrVanished = haveAllDropsExpiredOrVanished(appState.allDrops, previousAllDropsCount);
+  logDebug('advanceQueueIfCompleted result', {
+    knownCompletedCurrent,
+    campaignExpiredOrVanished,
+    shouldAdvance: knownCompletedCurrent || campaignExpiredOrVanished,
+  });
   if (!knownCompletedCurrent && !campaignExpiredOrVanished) {
     return true;
   }
@@ -2729,6 +2742,13 @@ async function rotateStreamerIfInvalid() {
     appState.currentDrop != null ||
     appState.pendingDrops.some((drop) => drop.dropType !== 'event-based') ||
     campaignGone;
+
+  logDebug('Stream health inputs', {
+    expectsDropsSignal,
+    campaignGone,
+    currentDrop: !!appState.currentDrop,
+    farmablePending: appState.pendingDrops.some((d) => d.dropType !== 'event-based'),
+  });
 
   // Note: lastProgressAdvanceAt > 0 ensures we have a real reference time (set on first progress tick
   // or on any rotation). Drops stuck at 0% are also detected — the progress > 0 guard was removed.
