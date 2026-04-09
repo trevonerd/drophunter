@@ -2913,6 +2913,14 @@ async function handleRemoveFromQueue(payload: { game?: TwitchGame; gameId?: stri
   }
 
   const removed = Math.max(0, before - appState.queue.length);
+
+  // If the removed game was the selected game and farming is stopped, advance
+  // selectedGame to the next queued game (or null) to prevent stale state that
+  // would cause a crash on the next start-farming attempt.
+  if (appState.selectedGame && !appState.isRunning && !queueContainsGame(appState.selectedGame)) {
+    appState.selectedGame = appState.queue[0] ?? null;
+  }
+
   await saveState();
   return { success: true, removed, queueLength: appState.queue.length };
 }
@@ -2931,6 +2939,12 @@ async function handleEnsureGamesCache(payload?: { force?: boolean }) {
   const shouldRefresh = shouldRefreshGamesCache(force);
   if (shouldRefresh) {
     await refreshGamesCacheFromHiddenFetch();
+  } else if (cachedDropsSnapshot.length > 0) {
+    // Cache is fresh — no API call needed. But the games persisted in storage may
+    // pre-date the annotation logic (e.g. after an extension update or SW restart).
+    // Re-annotate in-memory and persist so the popup reads correct allDropsCompleted flags.
+    appState.availableGames = annotateGameCompletion(appState.availableGames, cachedDropsSnapshot);
+    await saveState();
   }
   return {
     success: true,
