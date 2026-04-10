@@ -8,6 +8,7 @@ import {
   gameKey,
   getGameDisplayLabel,
   isSameGame,
+  replaceAvailableGames,
 } from '../shared/game-selection';
 import { normalizeToken, tokenOverlapScore } from '../shared/matching';
 import {
@@ -1697,7 +1698,8 @@ async function refreshGamesCacheFromHiddenFetch(): Promise<TwitchGame[]> {
       }
     }
 
-    const mergedGames = mergeAvailableGames(appState.availableGames, fetchedGames);
+    const mergedGames =
+      fetchedGames.length > 0 ? replaceAvailableGames(fetchedGames) : appState.availableGames;
     const annotatedGames = annotateGameCompletion(mergedGames, cachedDropsSnapshot);
     appState.availableGames = annotatedGames;
     normalizeGameSelection(annotatedGames);
@@ -2136,7 +2138,8 @@ async function refreshDropsData(options: RefreshDropsOptions = {}) {
   if (includeCampaignFetch || includeInventoryFetch) {
     const apiSnapshot = await fetchDropsSnapshotFromApi();
     if (apiSnapshot) {
-      games = mergeAvailableGames(appState.availableGames, apiSnapshot.games);
+      games =
+        apiSnapshot.games.length > 0 ? replaceAvailableGames(apiSnapshot.games) : appState.availableGames;
       drops = apiSnapshot.drops;
       if (apiSnapshot.drops.length > 0) {
         cachedDropsSnapshot = apiSnapshot.drops;
