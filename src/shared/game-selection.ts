@@ -1,6 +1,6 @@
 import { TwitchDrop, TwitchGame } from '../types/index.ts';
 import { normalizeToken, tokenOverlapScore } from './matching.ts';
-import { toSlug } from './utils.ts';
+import { isExpiredGame, toSlug } from './utils.ts';
 
 function normalizedGameName(game: TwitchGame): string {
   return normalizeToken(game.name);
@@ -205,4 +205,27 @@ export function dropMatchesGame(drop: TwitchDrop, selected: TwitchGame): boolean
     selectedCategory.length > 0 && dropCategory.length > 0 && selectedCategory === dropCategory;
 
   return byId || byName || byCategory;
+}
+
+export function replaceAvailableGames(incoming: TwitchGame[]): TwitchGame[] {
+  const orderedGames = incoming
+    .filter((game) => !isExpiredGame(game))
+    .sort((left, right) => {
+      const byName = left.name.localeCompare(right.name);
+      if (byName !== 0) {
+        return byName;
+      }
+      return compareGamesForDisplayOrder(left, right);
+    });
+
+  const explicitDisplayNames = new Map(
+    orderedGames
+      .filter((game) => typeof game.displayName === 'string' && game.displayName.trim().length > 0)
+      .map((game) => [gameKey(game), game.displayName!.trim()]),
+  );
+
+  return applyGameDisplayNames(orderedGames).map((game) => ({
+    ...game,
+    displayName: explicitDisplayNames.get(gameKey(game)) ?? game.displayName ?? game.name,
+  }));
 }
