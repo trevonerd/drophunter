@@ -3,8 +3,7 @@ export const MAX_PERSISTENT_RECOVERY_CYCLES = 5;
 export const RECOVERY_BACKOFF_BASE_MS = 60_000;
 export const MAX_RECOVERY_BACKOFF_MS = 15 * 60_000;
 
-// Mirror of PROGRESS_STALL_THRESHOLD_MS in service-worker.ts — duplicated to avoid circular imports
-const DEFAULT_STALL_THRESHOLD_MS = 5 * 60_000;
+export const PROGRESS_STALL_THRESHOLD_MS = 5 * 60_000;
 
 export type StreamRotationReason =
   | 'missing-context'
@@ -39,8 +38,8 @@ export function didDropMinutesAdvance(previousMinutes: number, currentMinutes: n
 }
 
 export function computeEffectiveStallThreshold(requiredMinutes: number | null | undefined): number {
-  if (requiredMinutes == null || requiredMinutes <= 0) return DEFAULT_STALL_THRESHOLD_MS;
-  return Math.max(DEFAULT_STALL_THRESHOLD_MS, ((requiredMinutes / 100) * 2 + 1) * 60_000);
+  if (requiredMinutes == null || requiredMinutes <= 0) return PROGRESS_STALL_THRESHOLD_MS;
+  return Math.max(PROGRESS_STALL_THRESHOLD_MS, ((requiredMinutes / 100) * 2 + 1) * 60_000);
 }
 
 export interface RecoveryProofInput {
