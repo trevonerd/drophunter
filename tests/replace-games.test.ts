@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { replaceAvailableGames } from '../src/shared/game-selection.ts';
+import { replaceAvailableGames, applyGameDisplayNames } from '../src/shared/game-selection.ts';
 import type { TwitchGame } from '../src/types/index.ts';
 
 function createGame(overrides: Partial<TwitchGame> = {}): TwitchGame {
@@ -100,12 +100,115 @@ describe('replaceAvailableGames', () => {
       createGame({ id: 'new-game-2', name: 'NewGame2' }),
     ];
 
-     const result = replaceAvailableGames(incoming);
+    const result = replaceAvailableGames(incoming);
 
-     expect(result).toHaveLength(2);
-     expect(result.find((g) => g.id === 'old-game-1')).toBeUndefined();
-     expect(result.find((g) => g.id === 'old-game-2')).toBeUndefined();
-     expect(result.find((g) => g.id === 'new-game-1')).toBeDefined();
-     expect(result.find((g) => g.id === 'new-game-2')).toBeDefined();
+    expect(result).toHaveLength(2);
+    expect(result.find((g) => g.id === 'old-game-1')).toBeUndefined();
+    expect(result.find((g) => g.id === 'old-game-2')).toBeUndefined();
+    expect(result.find((g) => g.id === 'new-game-1')).toBeDefined();
+    expect(result.find((g) => g.id === 'new-game-2')).toBeDefined();
+  });
+});
+
+describe('applyGameDisplayNames', () => {
+  test('RED: two campaigns for same game, one with empty campaignName should use "Unknown campaign" fallback', () => {
+    // Bug: When one campaign has empty campaignName, current code produces "Game · Campaign 1"
+    // Expected: "Gray Zone Warfare · Unknown campaign"
+    const games = [
+      createGame({
+        name: 'Gray Zone Warfare',
+        campaignId: 'campaign-1',
+        campaignName: '',
+      }),
+      createGame({
+        name: 'Gray Zone Warfare',
+        campaignId: 'campaign-2',
+        campaignName: 'Season 1',
+      }),
+    ];
+
+    const result = applyGameDisplayNames(games);
+
+    expect(result).toHaveLength(2);
+    const first = result.find((g) => g.campaignId === 'campaign-1');
+    const second = result.find((g) => g.campaignId === 'campaign-2');
+
+    expect(first?.displayName).toBe('Gray Zone Warfare · Unknown campaign');
+    expect(second?.displayName).toBe('Gray Zone Warfare · Season 1');
+  });
+
+  test('RED: two campaigns for same game with proper names should generate campaign-specific labels', () => {
+    // Currently may fail if campaign name logic has issues
+    // Expected: distinct labels with campaign names
+    const games = [
+      createGame({
+        name: 'Valorant',
+        campaignId: 'valorant-ep1',
+        campaignName: 'Episode 1',
+      }),
+      createGame({
+        name: 'Valorant',
+        campaignId: 'valorant-ep2',
+        campaignName: 'Episode 2',
+      }),
+    ];
+
+    const result = applyGameDisplayNames(games);
+
+    expect(result).toHaveLength(2);
+    const ep1 = result.find((g) => g.campaignId === 'valorant-ep1');
+    const ep2 = result.find((g) => g.campaignId === 'valorant-ep2');
+
+    expect(ep1?.displayName).toBe('Valorant · Episode 1');
+    expect(ep2?.displayName).toBe('Valorant · Episode 2');
+  });
+
+  test('RED: replaceAvailableGames should not override computed labels with plain game names', () => {
+    // Bug: replaceAvailableGames at line 227-229 applies applyGameDisplayNames,
+    // then overwrites with stale displayName from incoming if it's non-empty.
+    // If incoming has displayName: "Overwatch" (plain game name), it should not override
+    // the freshly computed "Overwatch · Campaign 1" label.
+    const incoming = [
+      createGame({
+        id: 'ow-c1',
+        name: 'Overwatch',
+        campaignId: 'ow-camp-1',
+        campaignName: 'Season 10',
+        displayName: 'Overwatch',
+      }),
+      createGame({
+        id: 'ow-c2',
+        name: 'Overwatch',
+        campaignId: 'ow-camp-2',
+        campaignName: 'Season 11',
+        displayName: 'Overwatch',
+      }),
+    ];
+
+    const result = replaceAvailableGames(incoming);
+
+    expect(result).toHaveLength(2);
+    const s10 = result.find((g) => g.campaignId === 'ow-camp-1');
+    const s11 = result.find((g) => g.campaignId === 'ow-camp-2');
+
+    // The computed labels should include campaign names, not be overwritten with plain name
+    expect(s10?.displayName).toBe('Overwatch · Season 10');
+    expect(s11?.displayName).toBe('Overwatch · Season 11');
+  });
+
+  test('RED: single campaign game should display just game name without campaign suffix', () => {
+    // Single game should not get subtitle, even if campaignName exists
+    const games = [
+      createGame({
+        name: 'Fortnite',
+        campaignId: 'fortnite-main',
+        campaignName: 'Chapter 1',
+      }),
+    ];
+
+    const result = applyGameDisplayNames(games);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].displayName).toBe('Fortnite');
   });
 });
