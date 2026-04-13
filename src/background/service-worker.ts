@@ -2,7 +2,6 @@ import { haveAllDropsExpiredOrVanished, isDropCompleted, mergeDropProgressMonoto
 import {
   applyGameDisplayNames,
   compareGamesForDisplayOrder,
-  dedupeGamesByIdentity,
   dropMatchesGame,
   findMatchingGame,
   gameKey,
@@ -296,17 +295,19 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-function normalizeGameSelection(games: TwitchGame[]) {
+function normalizeGameSelection(games: TwitchGame[], dropVanished = false) {
   if (!appState.selectedGame) {
     return;
   }
   const selected = findMatchingGame(appState.selectedGame, games);
   if (selected) {
     appState.selectedGame = selected;
+  } else if (dropVanished && appState.selectedGame.campaignId) {
+    appState.selectedGame = null;
   }
 }
 
-function normalizeQueueSelection(games: TwitchGame[]) {
+function normalizeQueueSelection(games: TwitchGame[], dropVanished = false) {
   if (!Array.isArray(appState.queue) || appState.queue.length === 0) {
     appState.queue = [];
     return;
@@ -315,16 +316,20 @@ function normalizeQueueSelection(games: TwitchGame[]) {
   const normalized: TwitchGame[] = [];
   const seen = new Set<string>();
   appState.queue.forEach((queuedGame) => {
-    const resolved = findMatchingGame(queuedGame, games) ?? queuedGame;
-    if (isExpiredGame(resolved)) {
+    const resolved = findMatchingGame(queuedGame, games);
+    if (!resolved && dropVanished && queuedGame.campaignId) {
       return;
     }
-    const key = gameKey(resolved);
+    const game = resolved ?? queuedGame;
+    if (isExpiredGame(game)) {
+      return;
+    }
+    const key = gameKey(game);
     if (seen.has(key)) {
       return;
     }
     seen.add(key);
-    normalized.push(resolved);
+    normalized.push(game);
   });
 
   appState.queue = normalized;
@@ -492,20 +497,6 @@ async function attemptPlaybackSelfHeal(tabId: number): Promise<void> {
   if (prepared?.userInteractionRequired || !prepared?.isPlaybackReady) {
     await sendPlaybackAttentionWarning();
   }
-}
-
-function mergeAvailableGames(existing: TwitchGame[], incoming: TwitchGame[]): TwitchGame[] {
-  return applyGameDisplayNames(
-    dedupeGamesByIdentity([...existing, ...incoming])
-      .filter((game) => !isExpiredGame(game))
-      .sort((left, right) => {
-        const byName = left.name.localeCompare(right.name);
-        if (byName !== 0) {
-          return byName;
-        }
-        return compareGamesForDisplayOrder(left, right);
-      }),
-  );
 }
 
 function dropRemainingMinutes(drop: TwitchDrop): number {
@@ -3181,16 +3172,13 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       return true;
 
     case 'UPDATE_GAMES':
-      appState.availableGames = mergeAvailableGames(
-        appState.availableGames,
-        (message.payload ?? []) as TwitchGame[],
-      );
+      appState.availableGames = replaceAvailableGames((message.payload ?? []) as TwitchGame[]);
       appState.availableGames = annotateGameCompletion(appState.availableGames, cachedDropsSnapshot);
       if (appState.availableGames.length > 0) {
         appState.lastSuccessfulRefreshAt = Date.now();
       }
-      normalizeGameSelection(appState.availableGames);
-      normalizeQueueSelection(appState.availableGames);
+      normalizeGameSelection(appState.availableGames, true);
+      normalizeQueueSelection(appState.availableGames, true);
       Promise.all([saveState(), saveTimingState()]).then(() => sendResponse({ success: true }));
       return true;
 
