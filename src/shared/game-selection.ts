@@ -79,8 +79,13 @@ export function applyGameDisplayNames(games: TwitchGame[]): TwitchGame[] {
     }
 
     const ordered = group.slice().sort(compareGamesForDisplayOrder);
+    // Check if any game in this group has a real campaign title
+    const hasRealCampaignTitle = ordered.some((g) => Boolean(normalizedCampaignTitle(g)));
+
     ordered.forEach((game, index) => {
-      const subtitle = normalizedCampaignTitle(game) || `Campaign ${index + 1}`;
+      const normalizedTitle = normalizedCampaignTitle(game);
+      const subtitle =
+        normalizedTitle || (hasRealCampaignTitle ? 'Unknown campaign' : `Campaign ${index + 1}`);
       labels.set(gameKey(game), `${game.name} · ${subtitle}`);
     });
   });
@@ -220,7 +225,12 @@ export function replaceAvailableGames(incoming: TwitchGame[]): TwitchGame[] {
 
   const explicitDisplayNames = new Map(
     orderedGames
-      .filter((game) => typeof game.displayName === 'string' && game.displayName.trim().length > 0)
+      .filter(
+        (game) =>
+          typeof game.displayName === 'string' &&
+          game.displayName.trim().length > 0 &&
+          game.displayName.trim() !== game.name,
+      )
       .map((game) => [gameKey(game), game.displayName!.trim()]),
   );
 
