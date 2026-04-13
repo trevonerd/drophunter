@@ -171,16 +171,9 @@ test('merge both drops have requiredMinutes: null → merged requiredMinutes sta
 
 // --- dropStateKey stable identity (RED phase: exposes stale reappend bug) ---
 
-// Helper to replicate the current dropStateKey logic inline (since it's not exported yet)
+// Helper to replicate the stable dropStateKey logic inline (since it's not exported yet)
 function testDropStateKey(drop: any): string {
-  function normalizeToken(token?: string): string {
-    if (!token) return '';
-    return token
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '')
-      .trim();
-  }
-  return `${drop.id}::${drop.campaignId ?? ''}::${normalizeToken(drop.gameName)}::${normalizeToken(drop.name)}::${normalizeToken(drop.imageUrl)}`;
+  return `${drop.id}::${drop.campaignId ?? ''}`;
 }
 
 test('dropStateKey: same id+campaignId with different imageUrl produces DIFFERENT key (bug evidence)', () => {

@@ -527,7 +527,7 @@ function compareDropPriority(a: TwitchDrop, b: TwitchDrop): number {
 }
 
 function dropStateKey(drop: TwitchDrop): string {
-  return `${drop.id}::${drop.campaignId ?? ''}::${normalizeToken(drop.gameName)}::${normalizeToken(drop.name)}::${normalizeToken(drop.imageUrl)}`;
+  return `${drop.id}::${drop.campaignId ?? ''}`;
 }
 
 function completedDropKeys(drops: TwitchDrop[]): Set<string> {
