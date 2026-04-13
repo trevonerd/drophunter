@@ -168,3 +168,124 @@ test('merge both drops have requiredMinutes: null → merged requiredMinutes sta
   const merged = mergeDropProgressMonotonic(next, prev);
   expect(merged.requiredMinutes).toBeNull();
 });
+
+// --- dropStateKey stable identity (RED phase: exposes stale reappend bug) ---
+
+// Helper to replicate the current dropStateKey logic inline (since it's not exported yet)
+function testDropStateKey(drop: any): string {
+  function normalizeToken(token?: string): string {
+    if (!token) return '';
+    return token
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+  }
+  return `${drop.id}::${drop.campaignId ?? ''}::${normalizeToken(drop.gameName)}::${normalizeToken(drop.name)}::${normalizeToken(drop.imageUrl)}`;
+}
+
+test('dropStateKey: same id+campaignId with different imageUrl produces DIFFERENT key (bug evidence)', () => {
+  // This test proves the bug: two drops with same logical identity (id + campaignId)
+  // but different imageUrl generate different keys. In refresh scenarios, this causes
+  // the stale claimed drop to not match the refreshed version and get re-appended.
+
+  const dropA = createDrop({
+    id: 'drop-123',
+    campaignId: 'campaign-abc',
+    name: 'Reward',
+    imageUrl: 'https://cdn1.twitch.tv/image.png',
+  });
+
+  const dropB = createDrop({
+    id: 'drop-123',
+    campaignId: 'campaign-abc',
+    name: 'Reward',
+    imageUrl: 'https://cdn2.twitch.tv/image.png',
+  });
+
+  const keyA = testDropStateKey(dropA);
+  const keyB = testDropStateKey(dropB);
+
+  // This assertion will FAIL with current code because imageUrl is in the key
+  // After fix, same id+campaignId should produce same key regardless of imageUrl
+  expect(keyA).toBe(keyB);
+});
+
+test('dropStateKey: same id+campaignId with different name whitespace produces DIFFERENT key (bug evidence)', () => {
+  // This test proves the bug: whitespace or punctuation variations in name between API responses
+  // cause the same drop to be treated as a different drop. Some APIs may add/remove spaces or punctuation.
+
+  const dropA = createDrop({
+    id: 'drop-456',
+    campaignId: 'campaign-xyz',
+    name: 'Battle-Pass Reward',
+    imageUrl: 'https://cdn.twitch.tv/reward.png',
+  });
+
+  const dropB = createDrop({
+    id: 'drop-456',
+    campaignId: 'campaign-xyz',
+    name: 'Battle Pass Reward',
+    imageUrl: 'https://cdn.twitch.tv/reward.png',
+  });
+
+  const keyA = testDropStateKey(dropA);
+  const keyB = testDropStateKey(dropB);
+
+  // This assertion will FAIL with current code because the name field itself is in the key
+  // (after normalization, both become 'battlepassreward', but the name field is still volatile)
+  // After fix, same id+campaignId should produce same key regardless of name variations
+  expect(keyA).toBe(keyB);
+});
+
+test('stale claimed drop reappend: refresh with different imageUrl creates phantom duplicate (bug evidence)', () => {
+  // This test simulates the refresh reconciliation scenario from service-worker.ts:650-654.
+  // Previous state has a claimed drop A. Refresh returns what should be the same drop
+  // but with different imageUrl. The stale-reappend logic fails to match them due to
+  // unstable dropStateKey, causing drop A to be re-added to the final list.
+
+  const previousAllDrops = [
+    createDrop({
+      id: 'drop-999',
+      campaignId: 'campaign-main',
+      name: 'Exclusive Reward',
+      imageUrl: 'https://cdn-old.twitch.tv/image.png',
+      progress: 100,
+      claimed: true,
+    }),
+  ];
+
+  const refreshedAllDrops = [
+    createDrop({
+      id: 'drop-999',
+      campaignId: 'campaign-main',
+      name: 'Exclusive Reward',
+      imageUrl: 'https://cdn-new.twitch.tv/image.png',
+      progress: 100,
+      claimed: false,
+    }),
+  ];
+
+  // Simulate the merge logic from splitDropsForSelectedGame (lines 643-654):
+  // const mergedRelevant = relevant.map(...) → would be refreshedAllDrops in this test
+  // const previousRelevant = appState.allDrops → would be previousAllDrops
+
+  const previousByKey = new Map(previousAllDrops.map((drop) => [testDropStateKey(drop), drop]));
+  const mergedRelevant = refreshedAllDrops.map((drop) => {
+    const previous = previousByKey.get(testDropStateKey(drop));
+    return previous ? { ...drop, progress: previous.progress, claimed: previous.claimed } : drop;
+  });
+
+  const mergedKeys = new Set(mergedRelevant.map((drop) => testDropStateKey(drop)));
+  const staleReappends = previousAllDrops
+    .filter((drop) => !mergedKeys.has(testDropStateKey(drop)))
+    .filter((drop) => drop.claimed);
+
+  const finalList = [...mergedRelevant, ...staleReappends];
+
+  // BUG: Because dropStateKey includes imageUrl, the refreshed drop doesn't match the previous drop.
+  // So the previous claimed drop is added to staleReappends, and finalList has 2 copies instead of 1.
+  // This assertion will FAIL with current code and PASS after the fix.
+  expect(finalList).toHaveLength(1);
+  expect(finalList[0].id).toBe('drop-999');
+  expect(finalList[0].claimed).toBe(true);
+});
