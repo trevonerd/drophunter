@@ -69,6 +69,8 @@ export interface AppState {
   monitorAutoOpen: boolean;
   muteFarmingTab: boolean;
   autoClaimChannelPointsBonus: boolean;
+  autoClaimDrops: boolean;
+  totalDropsClaimed: number;
   streamerSelectionMode: StreamerSelectionMode;
   preferredStreamerLanguage: string | null;
   activeStreamer: TwitchStreamer | null;
@@ -105,6 +107,7 @@ export type MessageType =
   | 'SET_MONITOR_AUTO_OPEN'
   | 'SET_MUTE_FARMING_TAB'
   | 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'
+  | 'SET_AUTO_CLAIM_DROPS'
   | 'SET_STREAMER_SELECTION_MODE'
   | 'SET_PREFERRED_STREAMER_LANGUAGE'
   | 'ADD_TO_QUEUE'
