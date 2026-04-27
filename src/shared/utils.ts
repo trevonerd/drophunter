@@ -27,6 +27,8 @@ export const createInitialState = (): AppState => ({
   monitorAutoOpen: true,
   muteFarmingTab: true,
   autoClaimChannelPointsBonus: false,
+  autoClaimDrops: true,
+  totalDropsClaimed: 0,
   streamerSelectionMode: 'low-view',
   preferredStreamerLanguage: null,
   activeStreamer: null,
