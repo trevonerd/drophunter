@@ -514,6 +514,23 @@ function App() {
     }));
   };
 
+  const handleAutoClaimDropsToggle = async () => {
+    const next = !state.autoClaimDrops;
+    setState((prev) => ({ ...prev, autoClaimDrops: next }));
+    try {
+      const response = await chrome.runtime.sendMessage<
+        unknown,
+        { success?: boolean; autoClaimDrops?: boolean }
+      >({
+        type: 'SET_AUTO_CLAIM_DROPS',
+        payload: { enabled: next },
+      });
+      setState((prev) => ({ ...prev, autoClaimDrops: response?.autoClaimDrops ?? next }));
+    } catch {
+      setState((prev) => ({ ...prev, autoClaimDrops: !next }));
+    }
+  };
+
   const handleMuteFarmingTabToggle = async () => {
     const next = !state.muteFarmingTab;
     setState((prev) => ({ ...prev, muteFarmingTab: next }));
@@ -665,6 +682,36 @@ function App() {
               <span
                 className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
                   state.autoClaimChannelPointsBonus ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white">Auto-claim drops</p>
+              <p className="mt-1 text-[11px] text-gray-400">
+                Automatically claim completed drops across all campaigns.
+              </p>
+              {state.totalDropsClaimed > 0 && (
+                <p className="mt-0.5 text-[11px] text-green-400/80">
+                  {state.totalDropsClaimed} drop{state.totalDropsClaimed !== 1 ? 's' : ''} claimed
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={state.autoClaimDrops}
+              onClick={() => void handleAutoClaimDropsToggle()}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                state.autoClaimDrops ? 'bg-green-500/90' : 'bg-white/15'
+              }`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  state.autoClaimDrops ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>
