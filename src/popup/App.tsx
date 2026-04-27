@@ -517,18 +517,18 @@ function App() {
   const handleAutoClaimDropsToggle = async () => {
     const next = !state.autoClaimDrops;
     setState((prev) => ({ ...prev, autoClaimDrops: next }));
-    try {
-      const response = await chrome.runtime.sendMessage<
-        unknown,
-        { success?: boolean; autoClaimDrops?: boolean }
-      >({
-        type: 'SET_AUTO_CLAIM_DROPS',
-        payload: { enabled: next },
-      });
-      setState((prev) => ({ ...prev, autoClaimDrops: response?.autoClaimDrops ?? next }));
-    } catch {
+    const response = (await chrome.runtime.sendMessage({
+      type: 'SET_AUTO_CLAIM_DROPS',
+      payload: { enabled: next },
+    })) as { success?: boolean; autoClaimDrops?: boolean } | undefined;
+    if (!response?.success) {
       setState((prev) => ({ ...prev, autoClaimDrops: !next }));
+      return;
     }
+    setState((prev) => ({
+      ...prev,
+      autoClaimDrops: response.autoClaimDrops ?? next,
+    }));
   };
 
   const handleMuteFarmingTabToggle = async () => {
