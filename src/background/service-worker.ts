@@ -18,6 +18,7 @@ import {
 } from '../shared/runtime-status';
 import { createInitialState, isExpiredGame, toSlug } from '../shared/utils';
 import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { applyAutoClaimDropsSetting, shouldAttemptAutoClaimDrops } from './auto-claim-drops.ts';
 import {
   applyAutoClaimChannelPointsBonusSetting,
   ChannelPointsBonusClaimResponse,
@@ -1994,6 +1995,24 @@ function markDropClaimedLocally(claimId: string, fallbackDropId?: string): boole
   return changed;
 }
 
+function markDropClaimedInSnapshot(claimId: string, fallbackDropId?: string): void {
+  for (let i = 0; i < cachedDropsSnapshot.length; i++) {
+    const drop = cachedDropsSnapshot[i];
+    const isMatch = drop.claimId === claimId || (fallbackDropId ? drop.id === fallbackDropId : false);
+    if (isMatch) {
+      cachedDropsSnapshot[i] = {
+        ...drop,
+        claimed: true,
+        claimable: false,
+        progress: 100,
+        remainingMinutes: 0,
+        status: 'completed',
+      };
+      return;
+    }
+  }
+}
+
 async function claimDropViaApi(drop: TwitchDrop): Promise<boolean> {
   const claimId = (drop.claimId ?? '').trim();
   if (!claimId) {
@@ -2051,6 +2070,10 @@ async function claimDropViaApi(drop: TwitchDrop): Promise<boolean> {
 }
 
 async function autoClaimClaimableDrops(): Promise<boolean> {
+  if (!shouldAttemptAutoClaimDrops(appState)) {
+    return false;
+  }
+
   if (dropClaimInFlight) {
     return false;
   }
@@ -2063,9 +2086,10 @@ async function autoClaimClaimableDrops(): Promise<boolean> {
     }
   }
 
-  const claimTargets = appState.pendingDrops
+  const claimTargets = cachedDropsSnapshot
     .filter((drop) => Boolean(drop.claimable) && !drop.claimed)
-    .filter((drop) => Boolean((drop.claimId ?? '').trim()));
+    .filter((drop) => Boolean((drop.claimId ?? '').trim()))
+    .filter((drop) => drop.dropType !== 'event-based');
 
   if (claimTargets.length === 0) {
     return false;
@@ -2079,11 +2103,11 @@ async function autoClaimClaimableDrops(): Promise<boolean> {
       if (!claimed || !drop.claimId) {
         continue;
       }
-      const changed = markDropClaimedLocally(drop.claimId, drop.id);
-      if (changed) {
-        claimedAny = true;
-        await sendAlert('drop-complete', `Claimed: ${drop.name} (${drop.gameName})`);
-      }
+      markDropClaimedLocally(drop.claimId, drop.id);
+      markDropClaimedInSnapshot(drop.claimId, drop.id);
+      appState.totalDropsClaimed += 1;
+      claimedAny = true;
+      await sendAlert('drop-complete', `Claimed: ${drop.name} (${drop.gameName})`);
     }
 
     if (claimedAny) {
@@ -3065,6 +3089,16 @@ async function handleSetAutoClaimChannelPointsBonus(payload?: { enabled?: boolea
   };
 }
 
+async function handleSetAutoClaimDrops(payload?: { enabled?: boolean }) {
+  await trackActivity('set-auto-claim-drops');
+  appState = applyAutoClaimDropsSetting(appState, payload?.enabled);
+  await saveState();
+  return {
+    success: true,
+    autoClaimDrops: appState.autoClaimDrops,
+  };
+}
+
 async function handleSetStreamerSelectionMode(payload?: { mode?: 'low-view' | 'random' | 'top-viewers' }) {
   await trackActivity('set-streamer-selection-mode');
   appState = applyStreamerSelectionModeSetting(appState, payload?.mode);
@@ -3251,6 +3285,12 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
 
     case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
       handleSetAutoClaimChannelPointsBonus(message.payload as { enabled?: boolean } | undefined)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
+    case 'SET_AUTO_CLAIM_DROPS':
+      handleSetAutoClaimDrops(message.payload as { enabled?: boolean } | undefined)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
