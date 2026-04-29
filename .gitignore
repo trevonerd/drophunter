@@ -43,3 +43,6 @@ Thumbs.db
 .claude/
 .sisyphus/
 .opencode/
+
+# TypeScript build info
+*.tsbuildinfo
