@@ -92,7 +92,7 @@ export const ChannelPointsScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          Free channel points — claimed while you watch.
+           DropHunter catches bonus channel points while farming so none go unclaimed.
         </div>
       </div>
 

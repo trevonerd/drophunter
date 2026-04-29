@@ -101,11 +101,12 @@ export const CtaScene: React.FC = () => {
         <div
           style={{
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            fontSize: 18,
-            color: "rgba(255,255,255,0.46)",
+            fontSize: 14,
+            color: "rgba(255,255,255,0.40)",
+            textAlign: "center",
           }}
         >
-          Free and open source • github.com/trevonerd/drophunter
+          © 2026 TREVISOFT · Not affiliated with Twitch Interactive, Inc. · github.com/trevonerd/drophunter
         </div>
       </div>
     </AbsoluteFill>

@@ -68,7 +68,7 @@ export const MonitorScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          Progress, ETA, active streamer, and recovery status stay visible at a glance.
+           Progress, ETA, current streamer, and recovery status — visible at a glance.
         </div>
       </div>
       <div
@@ -207,7 +207,7 @@ export const MonitorScene: React.FC = () => {
             }),
           }}
         >
-          If recovery kicks in, you see it here too.
+           Recovery and stream switches show up here too.
         </div>
       </div>
     </AbsoluteFill>

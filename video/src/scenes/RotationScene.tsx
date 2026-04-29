@@ -101,7 +101,7 @@ export const RotationScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          DropHunter recovers by finding another eligible stream when progress stalls or the stream goes bad.
+           When a stream becomes invalid or progress stalls, DropHunter picks the next eligible streamer and keeps going.
         </div>
       </div>
       <div

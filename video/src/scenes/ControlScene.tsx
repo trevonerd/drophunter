@@ -85,7 +85,7 @@ export const ControlScene: React.FC = () => {
             color: "rgba(255,255,255,0.72)",
           }}
         >
-          Queue campaigns, pause when you want, and pop open the live monitor from the same Chrome popup.
+           Queue campaigns, pause anytime, and open the live monitor — all from the same popup.
         </div>
       </div>
 
@@ -274,7 +274,7 @@ export const ControlScene: React.FC = () => {
                 color: "rgba(255,255,255,0.58)",
               }}
             >
-              Keep progress visible while Twitch keeps running.
+               Watch your progress without juggling tabs.
             </div>
           </div>
           <div
