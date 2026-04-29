@@ -8,7 +8,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 
 ## Features
 
-- Queue multiple campaigns and let the extension work through them in order
+- Queue multiple campaigns and let the extension work through them in order; expired or vanished campaigns are automatically removed from the queue mid-farming, advancing to the next entry transparently
 - Track current reward progress directly from the popup and extension badge
 - Open and validate an eligible Twitch stream for the selected campaign
 - Rotate to a new streamer only when the current stream becomes invalid or progress stalls
@@ -21,7 +21,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Let you choose whether the monitor opens automatically when farming starts
 - Control whether farming tabs are muted from Settings
 - Warn you when Twitch playback likely needs manual attention
-- Handle duplicate game campaigns more clearly by surfacing campaign-specific choices
+- Handle duplicate game campaigns more clearly by labeling campaigns with suffixes like "Game · Campaign A" and "Game · Campaign B" at refresh time, making it easy to distinguish and select identical-game variants from the dropdown and queue
 
 ## Installation
 
@@ -58,6 +58,8 @@ From there, DropHunter will:
 - claim rewards when they become available
 - switch streams only when recovery is needed
 - continue through the queue when a campaign is completed
+
+DropHunter refreshes the campaign list and drop statuses every 2 minutes in the background to catch new campaigns, status changes, and expirations.
 
 If Twitch blocks playback or needs a manual interaction, DropHunter can notify you so you can click the player and resume progress.
 
@@ -113,17 +115,17 @@ bun run update:interactive
 - `tests/` - unit tests
 - `video/` - promotional video scene/source assets
 
-## License and Copyright
+## Copyright and Disclaimer
 
-Copyright (c) DropHunter contributors and the project author.
+© 2026 TREVISOFT. Developed by trevonerd.
 
-This repository is provided for personal, educational, and evaluation purposes unless a separate written license says otherwise. No trademark rights are granted through this repository.
+DropHunter is provided as-is for personal, educational, and evaluation use. No trademark rights are granted.
 
-DropHunter is an independent project and is not affiliated with, endorsed by, sponsored by, or officially connected to Twitch Interactive, Inc., Amazon, Google, or Brave Software.
+DropHunter is not affiliated with, endorsed by, or sponsored by Twitch Interactive, Inc. Twitch, Twitch Drops, and related marks are property of Twitch Interactive, Inc. and are used for descriptive purposes only.
 
-Twitch, Twitch Drops, related names, logos, product names, interface elements, and brand assets are the property of their respective owners and are used only for descriptive or compatibility purposes.
+Third-party names and logos are the property of their respective owners.
 
-You are responsible for using this software in a way that complies with Twitch's terms, platform rules, local law, and any other policies that apply to your account or jurisdiction.
+You are responsible for using this software in compliance with Twitch's terms, platform rules, and applicable laws.
 
 ## Chrome Web Store Readiness
 
