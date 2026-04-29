@@ -898,13 +898,13 @@ async function createManagedTab(url: string, active = false): Promise<chrome.tab
     const currentActiveTab =
       (await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []))[0] ?? null;
     if (currentActiveTab?.id) {
-      const currentUrl = currentActiveTab.url ?? '';
+      const currentUrl = currentActiveTab.url;
       const canReuseCurrent =
-        !currentUrl ||
-        currentUrl === 'about:blank' ||
-        currentUrl.startsWith('chrome://newtab') ||
-        currentUrl.startsWith('edge://newtab') ||
-        /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(currentUrl);
+        typeof currentUrl === 'string' &&
+        (currentUrl === 'about:blank' ||
+          currentUrl.startsWith('chrome://newtab') ||
+          currentUrl.startsWith('edge://newtab') ||
+          /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(currentUrl));
       if (canReuseCurrent) {
         const updated = await chrome.tabs
           .update(currentActiveTab.id, { url, active: true })
@@ -1025,6 +1025,10 @@ function findSessionCandidateDeep(value: unknown, depth = 0): TwitchSession | nu
 }
 
 async function getTwitchCookieValue(name: string): Promise<string> {
+  if (!chrome.cookies?.get) {
+    return '';
+  }
+
   const attempts = ['https://www.twitch.tv', 'https://twitch.tv', 'https://player.twitch.tv'];
   for (const url of attempts) {
     const cookie = await chrome.cookies.get({ url, name }).catch(() => null);
