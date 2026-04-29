@@ -73,7 +73,7 @@ export const ClaimScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          No refreshing the inventory page. No manual clicking every few minutes.
+           No refreshing your inventory. No clicking every few minutes. Drops land in your account automatically.
         </div>
       </div>
       <div

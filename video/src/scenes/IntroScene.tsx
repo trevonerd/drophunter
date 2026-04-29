@@ -78,11 +78,11 @@ export const IntroScene: React.FC = () => {
               letterSpacing: -1.7,
               lineHeight: 1.03,
             }}
-          >
-            Farm Twitch Drops
-            <br />
-            without babysitting streams.
-          </div>
+           >
+             Farm Twitch Drops
+             <br />
+             without the manual grind.
+           </div>
           <div
             style={{
               marginTop: 12,
@@ -92,7 +92,7 @@ export const IntroScene: React.FC = () => {
               color: "rgba(255,255,255,0.68)",
             }}
           >
-            Queue campaigns, auto-claim rewards, and keep farming when Twitch acts up.
+             Queue campaigns, track progress, auto-claim rewards — and keep farming when Twitch acts up.
           </div>
         </div>
       </div>
