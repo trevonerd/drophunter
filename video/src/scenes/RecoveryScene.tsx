@@ -67,7 +67,7 @@ export const RecoveryScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          It tries to recover playback first, then tells you clearly when Twitch still needs a manual click.
+           DropHunter tries to recover playback automatically. If it still needs a click, it tells you clearly — after a short grace period to avoid false alarms.
         </div>
       </div>
       <div
@@ -132,7 +132,7 @@ export const RecoveryScene: React.FC = () => {
           color: "rgba(255,240,214,0.95)",
         }}
         >
-          Playback still needs a quick manual check.
+           Playback may need a quick manual check.
         </div>
     </AbsoluteFill>
   );

@@ -85,7 +85,7 @@ export const SettingsScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          Configure how DropHunter selects streamers for your active campaigns.
+           Pick your preferred streamer style and filter by language — DropHunter handles the rest.
         </div>
       </div>
 
