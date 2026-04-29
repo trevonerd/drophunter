@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+
+bun run check
+bun run deps:audit
