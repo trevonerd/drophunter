@@ -1,4 +1,4 @@
-import { AppState } from '../types';
+import { AppState, TwitchDrop } from '../types';
 import {
   DROPS_SNAPSHOT_CACHE_KEY,
   GAMES_CACHE_TTL_MS,
@@ -8,7 +8,7 @@ import {
 import { logDebug, logWarn } from './logging';
 import { normalizeTimingState, TimingState } from './runtime-state';
 import type { ServiceWorkerState } from './service-worker';
-import { TwitchSession } from './twitch-api/types';
+import type { TwitchSession } from './twitch-api/types';
 
 export function sessionDebugSummary(session: TwitchSession | null) {
   if (!session) {
@@ -126,10 +126,10 @@ export interface LoadStateCallbacks {
 }
 
 export interface LoadStateDeps {
-  sanitizeTwitchSession: (raw: unknown) => any | null;
-  sessionDebugSummary: (session: any | null) => any;
-  createInitialState: () => any;
-  clearRotationMetadata: (state: any) => any;
+  sanitizeTwitchSession: (raw: unknown) => TwitchSession | null;
+  sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
+  createInitialState: () => AppState;
+  clearRotationMetadata: (state: AppState) => AppState;
   TWITCH_SESSION_STORAGE_KEY: string;
   DROPS_SNAPSHOT_CACHE_KEY: string;
   LAST_ACTIVITY_AT_KEY: string;
@@ -157,7 +157,7 @@ export async function loadState(
     }
     state.twitchSessionCache = deps.sanitizeTwitchSession(result[deps.TWITCH_SESSION_STORAGE_KEY] as unknown);
     state.cachedDropsSnapshot = Array.isArray(result[deps.DROPS_SNAPSHOT_CACHE_KEY])
-      ? (result[deps.DROPS_SNAPSHOT_CACHE_KEY] as any[])
+      ? (result[deps.DROPS_SNAPSHOT_CACHE_KEY] as TwitchDrop[])
       : [];
     state.lastActivityAt =
       typeof result[deps.LAST_ACTIVITY_AT_KEY] === 'number'
@@ -182,10 +182,10 @@ export async function loadState(
 
 export interface ResetStateForInactivityCallbacks {
   onStopMonitoring: () => void;
-  onClearRotationMetadata: (state: any) => any;
+  onClearRotationMetadata: (state: AppState) => AppState;
   onResetStreamTrackingState: (state: ServiceWorkerState) => void;
   onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
-  onBroadcastStateUpdate: (appState: any) => void;
+  onBroadcastStateUpdate: (appState: AppState) => void;
 }
 
 export async function resetStateForInactivity(
@@ -194,7 +194,7 @@ export async function resetStateForInactivity(
   _idleForMs: number,
   callbacks: ResetStateForInactivityCallbacks,
   deps: {
-    createInitialState: () => any;
+    createInitialState: () => AppState;
     DROPS_SNAPSHOT_CACHE_KEY: string;
     LAST_ACTIVITY_AT_KEY: string;
     TIMING_STATE_KEY: string;
