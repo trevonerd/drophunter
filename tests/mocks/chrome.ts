@@ -78,6 +78,10 @@ function createStorageMock() {
       for (const [k, v] of Object.entries(items)) store.set(k, v);
       return Promise.resolve();
     },
+    remove(key: string): Promise<void> {
+      store.delete(key);
+      return Promise.resolve();
+    },
     clear(): Promise<void> {
       store.clear();
       return Promise.resolve();
@@ -88,7 +92,7 @@ function createStorageMock() {
 type StorageMock = ReturnType<typeof createStorageMock>;
 
 export interface ChromeMocks {
-  storage: { local: StorageMock; session: StorageMock };
+  storage: { local: StorageMock; session: StorageMock; sync: StorageMock };
   runtime: {
     onMessage: MessageListenerMock;
     sendMessage: (message: unknown) => Promise<unknown>;
@@ -109,6 +113,10 @@ export interface ChromeMocks {
     setBadgeBackgroundColor: (details: BadgeColorDetails) => void;
     getBadgeState: () => { text: string; color: string };
   };
+  notifications: {
+    create: (options: unknown) => Promise<string>;
+    _notifications: unknown[];
+  };
   teardown: () => void;
 }
 
@@ -117,15 +125,17 @@ export function setupChromeMocks(): ChromeMocks {
 
   const localStore = createStorageMock();
   const sessionStore = createStorageMock();
+  const syncStore = createStorageMock();
   const onMessage = createMessageListenerMock();
   const onAlarm = createListenerMock<Alarm>();
   const createdAlarms: Array<{ name: string; info: AlarmInfo }> = [];
   const badgeState = { text: '', color: '' };
+  const notifications: unknown[] = [];
   let tabsQueryResult: Tab[] = [];
   let tabsGetResult: Tab | null = null;
 
   const mockChrome = {
-    storage: { local: localStore, session: sessionStore },
+    storage: { local: localStore, session: sessionStore, sync: syncStore },
     runtime: {
       onMessage,
       sendMessage(_msg: unknown): Promise<unknown> {
@@ -149,12 +159,18 @@ export function setupChromeMocks(): ChromeMocks {
         badgeState.color = String(details.color ?? '');
       },
     },
+    notifications: {
+      async create(options: unknown) {
+        notifications.push(options);
+        return 'notification-id';
+      },
+    },
   };
 
   (globalThis as Record<string, unknown>).chrome = mockChrome;
 
   return {
-    storage: { local: localStore, session: sessionStore },
+    storage: { local: localStore, session: sessionStore, sync: syncStore },
     runtime: { onMessage, sendMessage: mockChrome.runtime.sendMessage },
     alarms: {
       create: mockChrome.alarms.create.bind(mockChrome.alarms),
@@ -171,6 +187,10 @@ export function setupChromeMocks(): ChromeMocks {
       setBadgeText: mockChrome.action.setBadgeText.bind(mockChrome.action),
       setBadgeBackgroundColor: mockChrome.action.setBadgeBackgroundColor.bind(mockChrome.action),
       getBadgeState() { return { ...badgeState }; },
+    },
+    notifications: {
+      create: mockChrome.notifications.create.bind(mockChrome.notifications),
+      _notifications: notifications,
     },
     teardown() {
       (globalThis as Record<string, unknown>).chrome = originalChrome;
