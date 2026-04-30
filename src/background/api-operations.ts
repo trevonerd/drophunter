@@ -95,31 +95,35 @@ export async function fetchDirectoryStreamersFromApi(
 }
 
 export interface FetchDropsSnapshotFromApiCallbacks {
-  onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<any | null>;
-  onEnsureSessionIntegrity: (state: any, session: any, forceRefresh?: boolean) => Promise<any>;
-  onPersistTwitchSession: (session: any) => Promise<void>;
+  onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<TwitchSession | null>;
+  onEnsureSessionIntegrity: (
+    state: ServiceWorkerState,
+    session: TwitchSession,
+    forceRefresh?: boolean,
+  ) => Promise<TwitchSession>;
+  onPersistTwitchSession: (session: TwitchSession | null) => Promise<void>;
   onStopFarmingSession?: (options: {
     notification?: { title: string; message: string };
     stopReason?: string;
     stopMessage?: string | null;
   }) => Promise<void>;
   onIsLikelyAuthError: (error: unknown) => boolean;
-  onClearTwitchSessionCache: (state: any) => void;
+  onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
 }
 
 export async function fetchDropsSnapshotFromApiWrapper(
-  state: any,
+  state: ServiceWorkerState,
   forceSessionRefresh: boolean,
   callbacks: FetchDropsSnapshotFromApiCallbacks,
   deps: {
-    TwitchApiClient: any;
-    sessionDebugSummary: (session: any) => any;
+    TwitchApiClient: typeof TwitchApiClient;
+    sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
     PROGRESS_POLL_MS: number;
-    logDebug: (msg: string, ctx?: any) => void;
-    logWarn: (msg: string, ctx?: any) => void;
-    logInfo: (msg: string, ctx?: any) => void;
+    logDebug: (msg: string, ctx?: unknown) => void;
+    logWarn: (msg: string, ctx?: unknown) => void;
+    logInfo: (msg: string, ctx?: unknown) => void;
   },
-): Promise<any | null> {
+): Promise<DropsSnapshot | null> {
   let session = await callbacks.onEnsureTwitchSession(forceSessionRefresh);
   if (!session) {
     deps.logWarn('Drops snapshot API skipped: Twitch session missing');
@@ -184,21 +188,21 @@ export async function fetchDropsSnapshotFromApiWrapper(
 }
 
 export interface FetchDirectoryStreamersFromApiCallbacks {
-  onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<any | null>;
+  onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<TwitchSession | null>;
   onIsLikelyAuthError: (error: unknown) => boolean;
-  onClearTwitchSessionCache: (state: any) => void;
+  onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
 }
 
 export async function fetchDirectoryStreamersFromApiWrapper(
-  state: any,
-  game: any,
+  state: ServiceWorkerState,
+  game: TwitchGame,
   forceSessionRefresh: boolean,
   language: string,
   callbacks: FetchDirectoryStreamersFromApiCallbacks,
   deps: {
-    logWarn: (msg: string, ctx?: any) => void;
+    logWarn: (msg: string, ctx?: unknown) => void;
   },
-): Promise<any & { languageFilterApplied: boolean }> {
+): Promise<TwitchStreamer[] & { languageFilterApplied: boolean }> {
   const session = await callbacks.onEnsureTwitchSession(forceSessionRefresh);
   if (!session) {
     deps.logWarn('Directory streamers fetch: session missing, using public client');
