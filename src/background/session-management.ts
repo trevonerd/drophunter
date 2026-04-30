@@ -68,6 +68,10 @@ export function findSessionCandidateDeep(value: unknown, depth = 0): TwitchSessi
 }
 
 export async function getTwitchCookieValue(name: string): Promise<string> {
+  if (!chrome.cookies?.get) {
+    return '';
+  }
+
   const attempts = ['https://www.twitch.tv', 'https://twitch.tv', 'https://player.twitch.tv'];
   for (const url of attempts) {
     const cookie = await chrome.cookies.get({ url, name }).catch(() => null);

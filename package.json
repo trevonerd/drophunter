@@ -1,7 +1,7 @@
 {
   "name": "drophunter",
   "private": true,
-  "version": "2.6.0",
+"version": "2.6.0",
   "type": "module",
   "repository": {
     "type": "git",
@@ -42,7 +42,7 @@
     "autoprefixer": "10.4.27",
     "husky": "9.1.7",
     "lint-staged": "16.4.0",
-    "postcss": "8.5.8",
+    "postcss": "8.5.10",
     "tailwindcss": "4.2.2",
     "typescript": "6.0.2",
     "vite": "8.0.8"
@@ -53,6 +53,7 @@
     ]
   },
   "overrides": {
+    "postcss": "8.5.10",
     "yaml": ">=2.8.3",
     "picomatch": ">=4.0.4"
   }
