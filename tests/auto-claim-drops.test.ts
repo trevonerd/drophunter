@@ -31,9 +31,7 @@ vi.mock('../src/background/session-management.ts', () => ({
   clearTwitchSessionCache: vi.fn(),
 }));
 
-vi.mock('../src/background/drop-processing.ts', () => ({
-  splitDropsForSelectedGame: vi.fn(),
-}));
+
 
 function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
@@ -203,7 +201,11 @@ describe('markDropClaimedLocally', () => {
   test('marks drop as claimed in allDrops by claimId', () => {
     const drop = makeDrop({ claimId: 'claim-abc', id: 'drop-1', claimed: false, claimable: true });
     const state = createMinimalState({
-      appState: { ...createInitialState(), allDrops: [drop] },
+      appState: {
+        ...createInitialState(),
+        selectedGame: { id: 'game-1', name: 'Test Game', imageUrl: '' },
+        allDrops: [drop],
+      },
       cachedDropsSnapshot: [],
     });
 
@@ -220,7 +222,11 @@ describe('markDropClaimedLocally', () => {
   test('falls back to matching drop id when claimId does not match', () => {
     const drop = makeDrop({ claimId: undefined, id: 'drop-fallback', claimed: false, claimable: true });
     const state = createMinimalState({
-      appState: { ...createInitialState(), allDrops: [drop] },
+      appState: {
+        ...createInitialState(),
+        selectedGame: { id: 'game-1', name: 'Test Game', imageUrl: '' },
+        allDrops: [drop],
+      },
       cachedDropsSnapshot: [],
     });
 

@@ -14,7 +14,7 @@ import {
   clearTerminalStopStatus,
 } from '../shared/runtime-status';
 import { isExpiredGame } from '../shared/utils';
-import { TwitchGame } from '../types';
+import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { logDebug, logInfo, logWarn } from './logging';
 import type { ServiceWorkerState } from './service-worker';
 import { saveTimingState as saveTimingStateExt } from './state-persistence';
@@ -29,6 +29,7 @@ import {
   StreamRotationReason,
   shouldIncrementNoProgressRotationAttempts,
 } from './stream-rotation';
+import { PickStreamerResult, StreamerSelectionPreferences } from './streamer-selection';
 
 // Constants needed from service-worker
 const INVALID_STREAM_THRESHOLD = 8;
@@ -997,24 +998,28 @@ export async function checkDropProgress(
 }
 
 export interface OpenBestStreamerCallbacks {
-  onFetchDirectoryStreamersFromApi: (game: any, forceRefresh?: boolean, language?: string) => Promise<any>;
-  onOpenForegroundChannel: (streamer: any) => Promise<void>;
+  onFetchDirectoryStreamersFromApi: (
+    game: TwitchGame,
+    forceRefresh?: boolean,
+    language?: string,
+  ) => Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>;
+  onOpenForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;
 }
 
 export async function openBestStreamerForSelectedGame(
   state: ServiceWorkerState,
   callbacks: OpenBestStreamerCallbacks,
   deps: {
-    dropMatchesSelectedGame: (drop: any, selected: any) => boolean;
-    isDropCompleted: (drop: any) => boolean;
-    getGameDisplayLabel: (game: any) => string;
-    resolveCategorySlug: (game: any) => Promise<string>;
+    dropMatchesSelectedGame: (drop: TwitchDrop, selected: TwitchGame) => boolean;
+    isDropCompleted: (drop: TwitchDrop) => boolean;
+    getGameDisplayLabel: (game: TwitchGame) => string;
+    resolveCategorySlug: (game: TwitchGame) => Promise<string>;
     pickStreamerForPreferences: (
-      candidates: any,
-      prefs: any,
+      candidates: TwitchStreamer[],
+      prefs: StreamerSelectionPreferences,
       randomFn: () => number,
       filterApplied: boolean,
-    ) => any;
+    ) => PickStreamerResult;
     normalizePreferredStreamerLanguage: (lang?: string | null) => string | null | undefined;
   },
 ): Promise<boolean> {
@@ -1059,7 +1064,7 @@ export async function openBestStreamerForSelectedGame(
   // Per-campaign channel filtering — only use allowedChannels from PENDING campaigns
   const pendingDropsForGame = dropsForGame.filter((d) => !deps.isDropCompleted(d));
   const pendingCampaignIds = new Set(
-    pendingDropsForGame.map((d) => (d as any).campaignId).filter((id): id is string => Boolean(id)),
+    pendingDropsForGame.map((d) => d.campaignId).filter((id): id is string => Boolean(id)),
   );
   let allowed: string[] | null = null;
   let hasUnrestrictedCampaign = false;
@@ -1084,22 +1089,20 @@ export async function openBestStreamerForSelectedGame(
     game: deps.getGameDisplayLabel(state.appState.selectedGame),
     pendingCampaignIds: Array.from(pendingCampaignIds),
     allowedChannels: allowed ?? 'null (any channel)',
-    directoryStreamers: streamers.map((s: any) => s.name),
+    directoryStreamers: streamers.map((s) => s.name),
     directoryCount: streamers.length,
   });
   const candidates =
     allowed != null && allowed.length > 0
-      ? streamers.filter((s: any) => allowed!.includes(s.name.toLowerCase()))
+      ? streamers.filter((s) => allowed!.includes(s.name.toLowerCase()))
       : streamers;
   if (allowed != null && allowed.length > 0) {
     logDebug('Filtered streamers by allowedChannels', {
       game: deps.getGameDisplayLabel(state.appState.selectedGame),
       beforeFilter: streamers.length,
       afterFilter: candidates.length,
-      candidateNames: candidates.map((s: any) => s.name),
-      rejected: streamers
-        .filter((s: any) => !allowed!.includes(s.name.toLowerCase()))
-        .map((s: any) => s.name),
+      candidateNames: candidates.map((s) => s.name),
+      rejected: streamers.filter((s) => !allowed!.includes(s.name.toLowerCase())).map((s) => s.name),
     });
   }
   const selection = deps.pickStreamerForPreferences(
@@ -1140,16 +1143,16 @@ export async function openBestStreamerForSelectedGame(
 }
 
 export interface RefreshDropsDataCallbacks {
-  onFetchDropsSnapshotFromApi: (force?: boolean) => Promise<any>;
+  onFetchDropsSnapshotFromApi: (force?: boolean) => Promise<DropsSnapshot | null>;
   onEvaluateDropTransitions: (previousCompletedIds: Set<string>) => Promise<void>;
   onSaveState: (state: ServiceWorkerState) => Promise<void>;
 }
 
 export interface RefreshDropsDataDeps {
-  replaceAvailableGames: (games: any[]) => any[];
-  getGameDisplayLabel: (game: any) => string;
-  updateStateFromSnapshot: (state: ServiceWorkerState, snapshot: any) => void;
-  normalizeQueueSelection: (state: ServiceWorkerState, games: any[], dropVanished?: boolean) => void;
+  replaceAvailableGames: (games: TwitchGame[]) => TwitchGame[];
+  getGameDisplayLabel: (game: TwitchGame) => string;
+  updateStateFromSnapshot: (state: ServiceWorkerState, snapshot: DropsSnapshot) => void;
+  normalizeQueueSelection: (state: ServiceWorkerState, games: TwitchGame[], dropVanished?: boolean) => void;
 }
 
 export async function refreshDropsData(
@@ -1239,17 +1242,17 @@ export interface HandleSetSelectedGameCallbacks {
 }
 
 export interface HandleSetSelectedGameDeps {
-  resolveGameFromState: (state: ServiceWorkerState, game: any) => any;
-  removeGameFromQueue: (state: ServiceWorkerState, game: any) => void;
-  splitDropsForSelectedGame: (state: ServiceWorkerState, allDrops: any[]) => void;
-  getGameDisplayLabel: (game: any) => string;
-  logDebug: (message: string, context?: any) => void;
-  logWarn: (message: string, context?: any) => void;
+  resolveGameFromState: (state: ServiceWorkerState, game: TwitchGame) => TwitchGame;
+  removeGameFromQueue: (state: ServiceWorkerState, game: TwitchGame) => void;
+  splitDropsForSelectedGame: (state: ServiceWorkerState, allDrops: TwitchDrop[]) => void;
+  getGameDisplayLabel: (game: TwitchGame) => string;
+  logDebug: (message: string, context?: unknown) => void;
+  logWarn: (message: string, context?: unknown) => void;
 }
 
 export async function handleSetSelectedGame(
   state: ServiceWorkerState,
-  payload: { game: any },
+  payload: { game: TwitchGame },
   callbacks: HandleSetSelectedGameCallbacks,
   deps: HandleSetSelectedGameDeps,
 ): Promise<{ success: boolean }> {
@@ -1324,14 +1327,17 @@ export async function handleSetSelectedGame(
 }
 
 export interface HandleAddToQueueDeps {
-  resolveGameFromState: (state: ServiceWorkerState, game: any) => any;
-  evaluateDropsForGame: (game: any, drops: any[]) => { allDrops: any[]; hasFarmableDrops: boolean };
-  getGameDisplayLabel: (game: any) => string;
+  resolveGameFromState: (state: ServiceWorkerState, game: TwitchGame) => TwitchGame;
+  evaluateDropsForGame: (
+    game: TwitchGame,
+    drops: TwitchDrop[],
+  ) => { allDrops: TwitchDrop[]; hasFarmableDrops: boolean };
+  getGameDisplayLabel: (game: TwitchGame) => string;
 }
 
 export async function handleAddToQueue(
   state: ServiceWorkerState,
-  payload: { game?: any },
+  payload: { game?: TwitchGame },
   callbacks: {
     onTrackActivity: (reason: string) => Promise<void>;
     onSaveState: (state: ServiceWorkerState) => Promise<void>;
@@ -1341,7 +1347,7 @@ export async function handleAddToQueue(
   success: boolean;
   added?: boolean;
   reason?: string;
-  game?: any;
+  game?: TwitchGame;
   queueLength?: number;
   error?: string;
 }> {
@@ -1368,13 +1374,13 @@ export async function handleAddToQueue(
 
 export async function handleRemoveFromQueue(
   state: ServiceWorkerState,
-  payload: { game?: any; gameId?: string; campaignId?: string },
+  payload: { game?: TwitchGame; gameId?: string; campaignId?: string },
   callbacks: {
     onTrackActivity: (reason: string) => Promise<void>;
     onSaveState: (state: ServiceWorkerState) => Promise<void>;
   },
   deps: {
-    removeGameFromQueue: (state: ServiceWorkerState, game: any) => void;
+    removeGameFromQueue: (state: ServiceWorkerState, game: TwitchGame) => void;
     sameCampaignId: (left?: string | null, right?: string | null) => boolean;
   },
 ): Promise<{ success: boolean; removed: number; queueLength: number }> {
