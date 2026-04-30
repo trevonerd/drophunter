@@ -17,19 +17,44 @@ import type { TwitchSession } from '../src/background/twitch-api/types.ts';
 import { DROP_CLAIM_RETRY_COOLDOWN_MS } from '../src/background/constants.ts';
 
 const mockClaimDropReward = vi.fn<[string], Promise<boolean>>();
+const originalFetch = globalThis.fetch;
 
-vi.mock('../src/background/twitch-api/client.ts', () => {
-  return {
-    TwitchApiClient: vi.fn().mockImplementation(() => ({
-      claimDropReward: mockClaimDropReward,
-    })),
+function setupFetchMock() {
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+
+    if (url.includes('/integrity')) {
+      return new Response(JSON.stringify({ token: 'mock-integrity-token' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (body?.operationName === 'DropsPage_ClaimDropRewards') {
+      const claimId = body?.variables?.input?.dropInstanceID;
+      if (typeof claimId === 'string') {
+        const success = await mockClaimDropReward(claimId);
+        return new Response(
+          JSON.stringify({
+            data: {
+              claimDropRewards: {
+                status: success ? 'SUCCESS' : 'FAILED',
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
+    return originalFetch(input, init);
   };
-});
+}
 
-vi.mock('../src/background/session-management.ts', () => ({
-  ensureSessionIntegrity: vi.fn().mockImplementation((_state, session) => Promise.resolve(session)),
-  clearTwitchSessionCache: vi.fn(),
-}));
+function restoreFetchMock() {
+  globalThis.fetch = originalFetch;
+}
 
 
 
@@ -287,10 +312,12 @@ describe('claimDropViaApi', () => {
     mocks = setupChromeMocks();
     mockClaimDropReward.mockReset();
     mockClaimDropReward.mockImplementation(() => Promise.resolve(true));
+    setupFetchMock();
   });
 
   afterEach(() => {
     mocks.teardown();
+    restoreFetchMock();
   });
 
   test('returns false when drop has no claimId', async () => {
@@ -366,10 +393,12 @@ describe('autoClaimClaimableDrops', () => {
     mocks = setupChromeMocks();
     mockClaimDropReward.mockReset();
     mockClaimDropReward.mockResolvedValue(true);
+    setupFetchMock();
   });
 
   afterEach(() => {
     mocks.teardown();
+    restoreFetchMock();
   });
 
   test('returns false when auto-claim is disabled', async () => {
