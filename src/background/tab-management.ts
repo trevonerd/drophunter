@@ -23,13 +23,13 @@ export async function createManagedTab(url: string, active = false): Promise<chr
     const currentActiveTab =
       (await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []))[0] ?? null;
     if (currentActiveTab?.id) {
-      const currentUrl = currentActiveTab.url ?? '';
+      const currentUrl = currentActiveTab.url;
       const canReuseCurrent =
-        !currentUrl ||
-        currentUrl === 'about:blank' ||
-        currentUrl.startsWith('chrome://newtab') ||
-        currentUrl.startsWith('edge://newtab') ||
-        /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(currentUrl);
+        typeof currentUrl === 'string' &&
+        (currentUrl === 'about:blank' ||
+          currentUrl.startsWith('chrome://newtab') ||
+          currentUrl.startsWith('edge://newtab') ||
+          /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(currentUrl));
       if (canReuseCurrent) {
         const updated = await chrome.tabs
           .update(currentActiveTab.id, { url, active: true })

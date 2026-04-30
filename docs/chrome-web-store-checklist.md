@@ -12,11 +12,12 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 ## Permission justifications
 
 - `storage`: saves queue state, cached progress, and preferences locally.
-- `tabs`: opens, focuses, mutes, and closes Twitch stream tabs.
+- No `tabs` permission: tab creation, updates, mute state, and close operations use Chrome tab APIs without requesting access to sensitive tab URLs/titles across all sites.
 - `scripting`: injects Twitch-only content scripts needed for stream context and playback handling.
 - `notifications`: alerts the user about claims, sign-in issues, and playback attention.
 - `alarms`: keeps the monitoring loop alive in MV3.
-- Twitch-only `host_permissions`: required to read Twitch page state and call Twitch endpoints.
+- Twitch-only `host_permissions`: required to read Twitch page state, inject Twitch-only scripts, and call Twitch endpoints.
+- No `cookies` permission: session recovery uses Twitch page storage/content-script extraction instead of direct browser cookie access.
 
 ## Privacy disclosures
 
