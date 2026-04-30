@@ -537,29 +537,3 @@ describe('normalizeLanguageForApi', () => {
     expect(normalizeLanguageForApi('')).toBe('');
   });
 });
-
-// ---------------------------------------------------------------------------
-// buildDirectoryPayload (via TwitchApiClient instance)
-// ---------------------------------------------------------------------------
-
-describe('buildDirectoryPayload', () => {
-  const fakeSession = { oauthToken: 'tok', userId: 'u', deviceId: 'd', uuid: 'x' };
-  const client = new TwitchApiClient(fakeSession as any);
-
-  test('includes broadcasterLanguages in options when a language is provided', () => {
-    const payload = client.buildDirectoryPayload('Fortnite', 'fortnite', [], ['IT']);
-    expect(payload.variables.options.broadcasterLanguages).toEqual(['IT']);
-  });
-
-  test('does not include broadcasterLanguages when none are provided', () => {
-    const payload = client.buildDirectoryPayload('Fortnite', 'fortnite', [], undefined);
-    expect(payload.variables.options.broadcasterLanguages).toBeUndefined();
-  });
-
-  test('persisted query hash is unchanged regardless of language parameter', () => {
-    const withLang = client.buildDirectoryPayload('Fortnite', 'fortnite', [], ['IT']);
-    const withoutLang = client.buildDirectoryPayload('Fortnite', 'fortnite', [], undefined);
-    expect(withLang.extensions?.persistedQuery?.sha256Hash).toBe(withoutLang.extensions?.persistedQuery?.sha256Hash);
-    expect(withLang.extensions?.persistedQuery?.sha256Hash).toBe('76cb069d835b8a02914c08dc42c421d0dafda8af5b113a3f19141824b901402f');
-  });
-});

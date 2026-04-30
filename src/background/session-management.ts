@@ -348,7 +348,7 @@ export async function readTwitchSessionViaExecuteScript(tabId: number): Promise<
 }
 
 export interface EnsureTwitchSessionCallbacks {
-  onFindTwitchSessionInOpenTabs: () => Promise<any | null>;
+  onFindTwitchSessionInOpenTabs: () => Promise<TwitchSession | null>;
   onStopFarmingSession?: (options: {
     notification?: { title: string; message: string };
     stopReason?: string;
@@ -357,18 +357,18 @@ export interface EnsureTwitchSessionCallbacks {
 }
 
 export interface EnsureTwitchSessionDeps {
-  sanitizeTwitchSession: (raw: unknown) => any | null;
-  sessionDebugSummary: (session: any | null) => any;
-  persistTwitchSession: (session: any | null) => Promise<void>;
-  clearTwitchSessionCache: (state: any) => void;
+  sanitizeTwitchSession: (raw: unknown) => TwitchSession | null;
+  sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
+  persistTwitchSession: (session: TwitchSession | null) => Promise<void>;
+  clearTwitchSessionCache: (state: ServiceWorkerState) => void;
 }
 
 export async function ensureTwitchSession(
-  state: any,
+  state: ServiceWorkerState,
   forceRefresh = false,
   callbacks: EnsureTwitchSessionCallbacks,
   deps: EnsureTwitchSessionDeps,
-): Promise<any | null> {
+): Promise<TwitchSession | null> {
   const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
 
   if (!forceRefresh && state.twitchSessionCache) {
