@@ -254,7 +254,18 @@ function prepareStreamPlayback() {
       video.volume = 0.35;
     }
     if (video.paused) {
-      video.play().catch(() => undefined);
+      if (!navigator.userActivation?.hasBeenActive) {
+        console.warn(LOG_PREFIX, 'Playback skipped: user interaction required for autoplay', {
+          hasBeenActive: false,
+        });
+      } else {
+        video.play().catch((err) => {
+          console.warn(LOG_PREFIX, 'Playback failed:', err.message, {
+            errorName: err.name,
+            hasBeenActive: navigator.userActivation?.hasBeenActive,
+          });
+        });
+      }
       played = true;
     }
   }
