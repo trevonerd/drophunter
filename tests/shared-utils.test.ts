@@ -79,6 +79,8 @@ test('createInitialState returns fresh state object', () => {
   expect(state.availableGames).toEqual([]);
   expect(state.queue).toEqual([]);
   expect(state.completionNotified).toBe(false);
+  expect(state.totalDropsClaimed).toBe(0);
+  expect(state.totalChannelPointsClaimed).toBe(0);
   expect(state.lastRotationReason).toBeNull();
   expect(state.lastRotationAt).toBeNull();
   expect(state.recoveryReason).toBeNull();

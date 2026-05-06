@@ -1355,7 +1355,7 @@ async function attemptAutoClaimChannelPointsBonus() {
 
   if (result?.success && result.claimed) {
     logDebug('Auto-claimed channel points bonus', { tabId: tab.id });
-    appState.totalChannelPointsClaimed = (appState.totalChannelPointsClaimed ?? 0) + 1;
+    appState.totalChannelPointsClaimed = appState.totalChannelPointsClaimed + 1;
     await saveStateExt(state);
     return true;
   }
