@@ -697,6 +697,7 @@ export async function rotateStreamerIfInvalid(
       message: string,
       opts?: { onSkipCurrentGame?: () => Promise<void> },
     ) => Promise<void>;
+    onSkipCurrentGame?: () => Promise<void>;
   },
 ) {
   if (!state.appState.selectedGame) {
@@ -825,6 +826,32 @@ export async function rotateStreamerIfInvalid(
   if (health.forceImmediateRotation && health.reason === 'offline') {
     if (state.appState.recoveryReason === 'stalled-progress') {
       clearRecoveryState(state);
+    }
+    // Respect backoff when already in offline/open-failed recovery — prevents a
+    // fast rotation loop when no replacement streamer is available (e.g. event-only
+    // drops with no live channels).
+    if (
+      state.recoveryBackoffUntil > 0 &&
+      now < state.recoveryBackoffUntil &&
+      (state.appState.recoveryReason === 'offline' || state.appState.recoveryReason === 'open-failed')
+    ) {
+      logDebug('Offline detected but in recovery backoff, skipping rotation', {
+        recoveryReason: state.appState.recoveryReason,
+        backoffRemainingMs: state.recoveryBackoffUntil - now,
+      });
+      return;
+    }
+    // If persistent recovery cycles are exhausted, skip the game rather than
+    // looping forever — handles the case where no replacement streamer exists.
+    if (state.stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
+      logWarn('Offline recovery exhausted — skipping game', {
+        stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+        channel: state.appState.activeStreamer?.name ?? context.channelName,
+      });
+      if (opts?.onSkipCurrentGame) {
+        await opts.onSkipCurrentGame();
+      }
+      return;
     }
     state.invalidStreamChecks = 0;
     logInfo('Offline stream detected, rotating immediately', {
