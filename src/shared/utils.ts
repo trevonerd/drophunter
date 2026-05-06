@@ -29,6 +29,7 @@ export const createInitialState = (): AppState => ({
   autoClaimChannelPointsBonus: true,
   autoClaimDrops: true,
   totalDropsClaimed: 0,
+  totalChannelPointsClaimed: 0,
   streamerSelectionMode: 'low-view',
   preferredStreamerLanguage: null,
   activeStreamer: null,

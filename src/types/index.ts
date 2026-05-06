@@ -71,6 +71,7 @@ export interface AppState {
   autoClaimChannelPointsBonus: boolean;
   autoClaimDrops: boolean;
   totalDropsClaimed: number;
+  totalChannelPointsClaimed: number;
   streamerSelectionMode: StreamerSelectionMode;
   preferredStreamerLanguage: string | null;
   activeStreamer: TwitchStreamer | null;
