@@ -255,9 +255,9 @@ function prepareStreamPlayback() {
     }
     if (video.paused) {
       if (!navigator.userActivation?.hasBeenActive) {
-        console.warn(LOG_PREFIX, 'Playback skipped: user interaction required for autoplay', {
-          hasBeenActive: false,
-        });
+        if (import.meta.env.DEV) {
+          console.debug(LOG_PREFIX, 'Playback skipped: user interaction required for autoplay');
+        }
       } else {
         video.play().catch((err) => {
           console.warn(LOG_PREFIX, 'Playback failed:', err.message, {
