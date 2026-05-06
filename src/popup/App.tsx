@@ -612,6 +612,19 @@ function App() {
 
       <div className="px-4 py-3 space-y-2 bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light">
         <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <p className="text-xs font-semibold text-white mb-2">Statistics</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-md bg-black/20 px-2.5 py-2">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Drops claimed</p>
+              <p className="mt-0.5 text-lg font-bold text-white leading-none">{state.totalDropsClaimed}</p>
+            </div>
+            <div className="rounded-md bg-black/20 px-2.5 py-2">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Channel points claimed</p>
+              <p className="mt-0.5 text-lg font-bold text-white leading-none">{state.totalChannelPointsClaimed ?? 0}</p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold text-white">Auto-open monitor</p>
@@ -694,11 +707,6 @@ function App() {
               <p className="mt-1 text-[11px] text-gray-400">
                 Automatically claim completed drops across all campaigns.
               </p>
-              {state.totalDropsClaimed > 0 && (
-                <p className="mt-0.5 text-[11px] text-green-400/80">
-                  {state.totalDropsClaimed} drop{state.totalDropsClaimed !== 1 ? 's' : ''} claimed
-                </p>
-              )}
             </div>
             <button
               type="button"
@@ -775,7 +783,7 @@ function App() {
             href="https://www.marcotrevisani.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-200 cursor-default no-underline hover:text-gray-200"
+            className="text-gray-200 cursor-pointer no-underline hover:text-white transition-colors"
           >
             Marco Trevisani
           </a>{' '}
@@ -784,7 +792,7 @@ function App() {
             href="https://github.com/trevonerd"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-200 cursor-default no-underline hover:text-gray-200"
+            className="text-gray-200 cursor-pointer no-underline hover:text-white transition-colors"
           >
             trevonerd
           </a>
@@ -794,7 +802,7 @@ function App() {
           href="https://trevisoft.dev"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[11px] text-purple-300 font-semibold tracking-wide cursor-default no-underline hover:text-purple-300"
+          className="text-[11px] text-purple-300 font-semibold tracking-wide cursor-pointer no-underline hover:text-purple-100 transition-colors"
         >
           TREVISOFT
         </a>
@@ -802,7 +810,7 @@ function App() {
           <button
             type="button"
             onClick={() => chrome.tabs.create({ url: 'https://github.com/trevonerd/drophunter' })}
-            className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors cursor-pointer"
           >
             <GitHubIcon />
             GitHub
