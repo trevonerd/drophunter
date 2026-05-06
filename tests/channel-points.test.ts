@@ -112,6 +112,25 @@ describe('background channel-points settings', () => {
       }),
     ).toBe(true);
   });
+
+  test('totalChannelPointsClaimed starts at 0 in initial state', () => {
+    expect(createInitialState().totalChannelPointsClaimed).toBe(0);
+  });
+
+  test('totalChannelPointsClaimed increments correctly', () => {
+    const state = createInitialState();
+    state.totalChannelPointsClaimed += 1;
+    expect(state.totalChannelPointsClaimed).toBe(1);
+    state.totalChannelPointsClaimed += 1;
+    expect(state.totalChannelPointsClaimed).toBe(2);
+  });
+
+  test('totalChannelPointsClaimed is independent from totalDropsClaimed', () => {
+    const state = { ...createInitialState(), totalDropsClaimed: 5 };
+    state.totalChannelPointsClaimed += 1;
+    expect(state.totalChannelPointsClaimed).toBe(1);
+    expect(state.totalDropsClaimed).toBe(5);
+  });
 });
 
 describe('content channel-points bonus detection', () => {
