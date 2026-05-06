@@ -52,6 +52,7 @@ import {
   resolveGameFromState as resolveGameFromStateExt,
   rotateStreamer as rotateStreamerExt,
   rotateStreamerIfInvalid as rotateStreamerIfInvalidExt,
+  skipCurrentGameDueToStall as skipCurrentGameDueToStallExt,
   stopFarmingSession as stopFarmingSessionExt,
 } from './queue-management.ts';
 import {
@@ -1135,6 +1136,17 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   return { success: true };
 }
 
+async function skipCurrentGameDueToOfflineRecovery() {
+  await skipCurrentGameDueToStallExt(state, {
+    onEnsureWorkspace: ensureWorkspaceForSelectedGame,
+    onRefreshDropsData: refreshDropsData,
+    onOpenStreamer: openBestStreamerForSelectedGame,
+    onSaveState: () => saveStateExt(state),
+    onSaveTimingState: saveTimingStateExt,
+    onStopFarmingSession: stopFarmingSession,
+  });
+}
+
 async function rotateStreamerIfInvalid() {
   await rotateStreamerIfInvalidExt(state, {
     onFetchStreamContext: fetchStreamContext,
@@ -1145,6 +1157,7 @@ async function rotateStreamerIfInvalid() {
     onRotateStreamer: rotateStreamerExt,
     onOpenStreamer: openBestStreamerForSelectedGame,
     onEnterPersistentRecovery: enterPersistentRecoveryExt,
+    onSkipCurrentGame: skipCurrentGameDueToOfflineRecovery,
   });
 }
 

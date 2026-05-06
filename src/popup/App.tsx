@@ -770,9 +770,34 @@ function App() {
           <span className="text-purple-300 font-normal">v{chrome.runtime.getManifest().version}</span>
         </p>
         <p className="text-[11px] text-gray-400">
-          by <span className="text-gray-200">Marco Trevisani</span> (trevonerd)
+          by{' '}
+          <a
+            href="https://www.marcotrevisani.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-gray-200 cursor-default no-underline hover:text-gray-200"
+          >
+            Marco Trevisani
+          </a>{' '}
+          (
+          <a
+            href="https://github.com/trevonerd"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-gray-200 cursor-default no-underline hover:text-gray-200"
+          >
+            trevonerd
+          </a>
+          )
         </p>
-        <p className="text-[11px] text-purple-300 font-semibold tracking-wide">TREVISOFT</p>
+        <a
+          href="https://trevisoft.dev"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[11px] text-purple-300 font-semibold tracking-wide cursor-default no-underline hover:text-purple-300"
+        >
+          TREVISOFT
+        </a>
         <div className="flex items-center gap-3 pt-1">
           <button
             type="button"
