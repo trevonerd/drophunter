@@ -474,7 +474,7 @@ function App() {
   );
 
   const openDropsPage = () => {
-    chrome.tabs.create({ url: 'https://www.twitch.tv/drops/campaigns' });
+    void chrome.tabs.create({ url: 'https://www.twitch.tv/drops/campaigns' }).catch(() => {});
   };
 
   const openMiniDashboard = async () => {
@@ -620,7 +620,7 @@ function App() {
             </div>
             <div className="rounded-md bg-black/20 px-2.5 py-2">
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Channel points claimed</p>
-              <p className="mt-0.5 text-lg font-bold text-white leading-none">{state.totalChannelPointsClaimed ?? 0}</p>
+              <p className="mt-0.5 text-lg font-bold text-white leading-none">{state.totalChannelPointsClaimed}</p>
             </div>
           </div>
         </div>
@@ -809,7 +809,7 @@ function App() {
         <div className="flex items-center gap-3 pt-1">
           <button
             type="button"
-            onClick={() => chrome.tabs.create({ url: 'https://github.com/trevonerd/drophunter' })}
+            onClick={() => void chrome.tabs.create({ url: 'https://github.com/trevonerd/drophunter' }).catch(() => {})}
             className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors cursor-pointer"
           >
             <GitHubIcon />
@@ -817,7 +817,7 @@ function App() {
           </button>
           <button
             type="button"
-            onClick={() => chrome.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' })}
+            onClick={() => void chrome.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' }).catch(() => {})}
             className="flex items-center gap-1.5 rounded-full bg-[#FFDD00]/90 hover:bg-[#FFDD00] px-2.5 py-1 text-[11px] font-semibold text-[#1a1a1a] transition-colors"
           >
             <CoffeeIcon />
