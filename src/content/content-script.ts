@@ -1,3 +1,4 @@
+import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync.ts';
 import { Message } from '../types';
 import { claimChannelPointsBonus } from './channel-points.ts';
 
@@ -587,3 +588,43 @@ window.setTimeout(() => {
   // and content script initialization
   syncIntegrityToBackground('delayed-check');
 }, 900);
+
+let autoClaimEnabled = false;
+let pollIntervalId: ReturnType<typeof setInterval> | null = null;
+
+function tryClaimBonus(): void {
+  if (extractChannelNameFromPath() === null) {
+    return;
+  }
+  const result = claimChannelPointsBonus(document, { supportedPage: true });
+  if (result.claimed === true) {
+    console.debug('[DropHunter] Auto-claimed channel points bonus');
+    chrome.runtime.sendMessage({ type: 'CHANNEL_POINTS_BONUS_CLAIMED' }).catch(() => {});
+  }
+}
+
+function startChannelPointsPolling(): void {
+  if (pollIntervalId !== null) {
+    return;
+  }
+  pollIntervalId = setInterval(tryClaimBonus, 30_000);
+  tryClaimBonus();
+}
+
+function stopChannelPointsPolling(): void {
+  if (pollIntervalId === null) {
+    return;
+  }
+  clearInterval(pollIntervalId);
+  pollIntervalId = null;
+}
+
+loadStoredAppState().then((state) => {
+  autoClaimEnabled = state.autoClaimChannelPointsBonus;
+  if (autoClaimEnabled) startChannelPointsPolling();
+});
+subscribeToAppState((state) => {
+  autoClaimEnabled = state.autoClaimChannelPointsBonus;
+  if (autoClaimEnabled) startChannelPointsPolling();
+  else stopChannelPointsPolling();
+});

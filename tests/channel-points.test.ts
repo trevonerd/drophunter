@@ -211,3 +211,35 @@ describe('content channel-points bonus detection', () => {
     });
   });
 });
+
+describe('content channel-points autonomous claiming', () => {
+  test('returns not-supported-page when supportedPage is false', () => {
+    const root = createFakeRoot({
+      'button[aria-label]': [
+        createFakeElement({
+          attributes: { 'aria-label': 'Claim bonus' },
+        }),
+      ],
+    });
+
+    expect(claimChannelPointsBonus(root, { supportedPage: false })).toEqual({
+      claimed: false,
+      reason: 'not-supported-page',
+    });
+  });
+
+  test('claims a bonus button when supportedPage is true', () => {
+    const button = createFakeElement({
+      attributes: { 'aria-label': 'Claim bonus' },
+    });
+    const root = createFakeRoot({
+      'button[aria-label]': [button],
+    });
+
+    expect(claimChannelPointsBonus(root, { supportedPage: true })).toEqual({
+      claimed: true,
+      reason: 'claimed',
+    });
+    expect(button.clickCount).toBe(1);
+  });
+});
