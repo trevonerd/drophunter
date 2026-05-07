@@ -1363,7 +1363,7 @@ async function attemptAutoClaimChannelPointsBonus() {
   return false;
 }
 
-chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
   switch (message.type) {
     case 'ENSURE_GAMES_CACHE':
       handleEnsureGamesCache(message.payload as { force?: boolean } | undefined)
@@ -1503,6 +1503,14 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       handleSetAutoClaimChannelPointsBonus(message.payload as { enabled?: boolean } | undefined)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
+    case 'CHANNEL_POINTS_BONUS_CLAIMED':
+      logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });
+      appState.totalChannelPointsClaimed = appState.totalChannelPointsClaimed + 1;
+      saveStateExt(state);
+      broadcastStateUpdateExt(appState);
+      sendResponse({ success: true });
       return true;
 
     case 'SET_AUTO_CLAIM_DROPS':
