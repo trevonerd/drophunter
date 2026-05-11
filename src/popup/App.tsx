@@ -5,6 +5,7 @@ import { getGameDisplayLabel } from '../shared/game-selection';
 import { deriveRuntimeMode, formatRecoveryReason, formatRetryLabel } from '../shared/runtime-status';
 import { createInitialState, isExpiredGame } from '../shared/utils';
 import { AppState, ExpiryStatus, StreamerSelectionMode, TwitchDrop, TwitchGame } from '../types';
+import { getGameToStartFromQueue } from './queue-start';
 
 const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: string }> = [
   { value: 'low-view', label: 'Low view' },
@@ -438,7 +439,7 @@ function App() {
 
   const handleStart = () =>
     withAction(async () => {
-      const gameToStart = state.selectedGame ?? queueGames[0];
+      const gameToStart = getGameToStartFromQueue(state.selectedGame, queueGames);
       if (!gameToStart) {
         setQueueMessage('Select a game to start farming.');
         return;
