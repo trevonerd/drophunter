@@ -14,6 +14,11 @@ import type { TwitchSession } from './twitch-api/types';
 let timingSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let timingSaveResolvers: Array<() => void> = [];
 const timingSaveDebounceMs = Math.max(0, TIMING_SAVE_DEBOUNCE_MS - 100);
+let timingSaveDebounceMsForTests: number | null = null;
+
+export function setTimingSaveDebounceMsForTests(delayMs: number | null) {
+  timingSaveDebounceMsForTests = delayMs === null ? null : Math.max(0, delayMs);
+}
 
 export function sessionDebugSummary(session: TwitchSession | null) {
   if (!session) {
@@ -71,7 +76,7 @@ export async function saveTimingState(state: ServiceWorkerState) {
       const resolvers = timingSaveResolvers;
       timingSaveResolvers = [];
       for (const pendingResolve of resolvers) pendingResolve();
-    }, timingSaveDebounceMs);
+    }, timingSaveDebounceMsForTests ?? timingSaveDebounceMs);
   });
 }
 
