@@ -401,14 +401,14 @@ async function waitForAppState(check: (state: AppState) => boolean, message: str
   throw new Error(message);
 }
 
-async function dispatchMessage(message: Message): Promise<unknown> {
+async function dispatchMessage(message: Message, sender: Record<string, unknown> = {}): Promise<unknown> {
   const handler = chromeMocks.runtime.onMessage._handlers[0];
   if (!handler) {
     throw new Error('service worker onMessage handler not registered');
   }
 
   return new Promise((resolve) => {
-    handler(message, {}, (response?: unknown) => resolve(response));
+    handler(message, sender, (response?: unknown) => resolve(response));
   });
 }
 
@@ -473,6 +473,18 @@ describe('service worker message handlers', () => {
     expect(getAppStateFromStorage().isRunning).toBe(false);
   });
 
+  test('CHANNEL_POINTS_BONUS_CLAIMED increments and persists channel point stats', async () => {
+    const baseline = getAppStateFromStorage().totalChannelPointsClaimed;
+
+    const response = await dispatchMessage(
+      { type: 'CHANNEL_POINTS_BONUS_CLAIMED' },
+      { tab: { id: 123 } },
+    );
+
+    expect(response).toEqual({ success: true });
+    expect(getAppStateFromStorage().totalChannelPointsClaimed).toBe(baseline + 1);
+  });
+
   test('START_FARMING exits cleanly when no farmable drops are available', async () => {
     const response = await dispatchMessage({
       type: 'START_FARMING',
@@ -485,6 +497,171 @@ describe('service worker message handlers', () => {
     expect(state.isRunning).toBe(false);
     expect(state.isPaused).toBe(false);
     expect(state.selectedGame).toBeNull();
+  });
+
+  test('OPEN_DROPS_PAGE_AND_REFRESH opens Twitch, extracts session, and refreshes campaigns', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    let createCalls = 0;
+    let executeScriptCalls = 0;
+    chromeMocks.tabs.setTabsQueryResult([]);
+    chromeAny.tabs.create = async ({ url }: { url?: string }) => {
+      createCalls += 1;
+      return { id: 321, windowId: 1, url, status: 'complete' };
+    };
+    chromeAny.tabs.get = async (tabId: number) => ({
+      id: tabId,
+      windowId: 1,
+      url: 'https://www.twitch.tv/drops/campaigns',
+      status: 'complete',
+    });
+    chromeAny.scripting.executeScript = async () => {
+      executeScriptCalls += 1;
+      return [];
+    };
+    chromeAny.tabs.sendMessage = async (_tabId: number, message: { type?: string }) => {
+      if (message.type === 'GET_TWITCH_SESSION') {
+        return {
+          success: true,
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        };
+      }
+      return { success: false };
+    };
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-open-page', currentMinutes: 0 }]);
+
+    const response = (await dispatchMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' })) as {
+      success?: boolean;
+      gamesCount?: number;
+      opened?: boolean;
+    };
+
+    expect(response.success).toBe(true);
+    expect(response.opened).toBe(true);
+    expect(response.gamesCount).toBe(1);
+    expect(createCalls).toBe(1);
+    expect(executeScriptCalls).toBe(1);
+    const state = getAppStateFromStorage();
+    expect(state.availableGames).toHaveLength(1);
+    expect(state.availableGames[0].campaignId).toBe(demoGame.campaignId);
+  });
+
+  test('OPEN_DROPS_PAGE_AND_REFRESH reuses an existing Twitch Drops tab', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    let createCalls = 0;
+    let updateCalls = 0;
+    chromeMocks.tabs.setTabsQueryResult([
+      { id: 654, url: 'https://www.twitch.tv/drops/campaigns', status: 'complete', windowId: 1 },
+    ]);
+    chromeAny.tabs.create = async () => {
+      createCalls += 1;
+      return { id: 999, windowId: 1, status: 'complete' };
+    };
+    chromeAny.tabs.update = async (tabId: number, updateProperties?: { active?: boolean }) => {
+      updateCalls += 1;
+      return { id: tabId, windowId: 1, active: Boolean(updateProperties?.active), status: 'complete' };
+    };
+    chromeAny.tabs.get = async (tabId: number) => ({
+      id: tabId,
+      windowId: 1,
+      url: 'https://www.twitch.tv/drops/campaigns',
+      status: 'complete',
+    });
+    chromeAny.tabs.sendMessage = async (_tabId: number, message: { type?: string }) => {
+      if (message.type === 'GET_TWITCH_SESSION') {
+        return {
+          success: true,
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        };
+      }
+      return { success: false };
+    };
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-existing-tab', currentMinutes: 0 }]);
+
+    const response = (await dispatchMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' })) as {
+      success?: boolean;
+      opened?: boolean;
+    };
+
+    expect(response.success).toBe(true);
+    expect(response.opened).toBe(false);
+    expect(createCalls).toBe(0);
+    expect(updateCalls).toBe(1);
+    expect(getAppStateFromStorage().availableGames).toHaveLength(1);
+  });
+
+  test('OPEN_DROPS_PAGE_AND_REFRESH shares concurrent refresh work', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    let createCalls = 0;
+    chromeMocks.tabs.setTabsQueryResult([]);
+    chromeAny.tabs.create = async ({ url }: { url?: string }) => {
+      createCalls += 1;
+      await sleepTick();
+      return { id: 777, windowId: 1, url, status: 'complete' };
+    };
+    chromeAny.tabs.get = async (tabId: number) => ({
+      id: tabId,
+      windowId: 1,
+      url: 'https://www.twitch.tv/drops/campaigns',
+      status: 'complete',
+    });
+    chromeAny.tabs.sendMessage = async (_tabId: number, message: { type?: string }) => {
+      if (message.type === 'GET_TWITCH_SESSION') {
+        return {
+          success: true,
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        };
+      }
+      return { success: false };
+    };
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-concurrent-open', currentMinutes: 0 }]);
+
+    const [first, second] = (await Promise.all([
+      dispatchMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' }),
+      dispatchMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' }),
+    ])) as Array<{ success?: boolean; gamesCount?: number }>;
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(first.gamesCount).toBe(1);
+    expect(second.gamesCount).toBe(1);
+    expect(createCalls).toBe(1);
+  });
+
+  test('SYNC_TWITCH_SESSION from a Twitch tab refreshes empty campaign state', async () => {
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-session-sync', currentMinutes: 0 }]);
+
+    const response = await dispatchMessage(
+      {
+        type: 'SYNC_TWITCH_SESSION',
+        payload: {
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        },
+      },
+      { tab: { id: 42, url: 'https://www.twitch.tv/drops/campaigns' } },
+    );
+
+    expect(response).toEqual({ success: true });
+    expect(getAppStateFromStorage().availableGames).toHaveLength(1);
   });
 
   test('PAUSE_FARMING sets isPaused via chrome.runtime.onMessage.trigger', async () => {

@@ -19,6 +19,7 @@ export interface TimingState {
   lastRecoveryAttemptAt: number;
   stalledRecoveryAttempts: number;
   recoveryNotificationSent: boolean;
+  lastHeartbeatAt: number;
 }
 
 export function createInitialTimingState(): TimingState {
@@ -41,6 +42,7 @@ export function createInitialTimingState(): TimingState {
     lastRecoveryAttemptAt: 0,
     stalledRecoveryAttempts: 0,
     recoveryNotificationSent: false,
+    lastHeartbeatAt: 0,
   };
 }
 
@@ -127,6 +129,10 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
         ? source.stalledRecoveryAttempts
         : initial.stalledRecoveryAttempts,
     recoveryNotificationSent: Boolean(source.recoveryNotificationSent) && recoveryBackoffUntil > now,
+    lastHeartbeatAt:
+      typeof source.lastHeartbeatAt === 'number' && Number.isFinite(source.lastHeartbeatAt)
+        ? source.lastHeartbeatAt
+        : initial.lastHeartbeatAt,
   };
 }
 

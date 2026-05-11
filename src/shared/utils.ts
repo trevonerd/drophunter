@@ -47,6 +47,7 @@ export const createInitialState = (): AppState => ({
   recoveryReason: null,
   recoveryBackoffUntil: null,
   recoveryAttempts: null,
+  resumedFromCrash: null,
   lastStopReason: null,
   lastStopMessage: null,
 });

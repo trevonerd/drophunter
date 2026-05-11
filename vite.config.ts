@@ -3,7 +3,9 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 import { defineConfig } from 'vite';
 
-export default defineConfig({
+const isWatchBuild = process.argv.includes('--watch');
+
+export default defineConfig(() => ({
   plugins: [
     react(),
     {
@@ -72,5 +74,12 @@ export default defineConfig({
     target: 'chrome120',
     outDir: 'dist',
     emptyOutDir: true,
+    watch: isWatchBuild
+      ? {
+          buildDelay: 300,
+          include: ['src/**', 'popup.html', 'monitor.html', 'manifest.json'],
+          exclude: ['node_modules/**', 'dist/**', 'tests/**', 'video/**'],
+        }
+      : undefined,
   },
-});
+}));

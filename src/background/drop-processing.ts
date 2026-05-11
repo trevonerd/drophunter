@@ -77,11 +77,6 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
   const previousCompletedKeys = completedDropKeys(state.appState.completedDrops);
 
   const strictRelevant = allDrops.filter((drop) => dropMatchesSelectedGame(drop, selected));
-
-  if (strictRelevant.length === 0 && allDrops.length > 0) {
-    void allDrops[0];
-    void selected.name;
-  }
   const selectedName = normalizeToken(selected.name);
   const shouldAllowRelaxedFallback = !selected.campaignId;
   const relaxedRelevant =
@@ -96,14 +91,6 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
               tokenOverlapScore(dropName, selectedName) > 0.5)
           );
         });
-
-  if (strictRelevant.length === 0 && relaxedRelevant.length > 0) {
-    // relaxed fallback activated — matched via token overlap
-  }
-
-  if (strictRelevant.length === 0 && relaxedRelevant.length === 0 && allDrops.length > 0) {
-    // No drops matched selected game — preserve previous drop state to avoid flickering
-  }
 
   const relevant = relaxedRelevant;
   const previousRelevant = state.appState.allDrops.filter((drop) => dropMatchesSelectedGame(drop, selected));
@@ -143,14 +130,11 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
   const nextDropKey = activeDrop ? dropStateKey(activeDrop) : null;
   const nextProgress = activeDrop?.progress ?? -1;
   const nextCompletedKeys = completedDropKeys(completed);
-  const recoveryProof = detectRecoveryProof({
-    previousDropKey: state.lastTrackedDropKey,
-    previousProgress: state.lastTrackedProgress,
-    nextDropKey,
-    nextProgress,
-    previousCompletedKeys,
-    nextCompletedKeys,
-  });
+  const prevTrackedDropKey = state.lastTrackedDropKey;
+  const prevTrackedProgress = state.lastTrackedProgress;
+  const prevTrackedMinutes = state.lastTrackedMinutes;
+  const freshTimingState =
+    prevTrackedProgress === -1 && prevTrackedMinutes === -1 && prevTrackedDropKey === null;
 
   state.previousAllDropsCount = state.appState.allDrops.length;
   state.appState.allDrops = relevantForState;
@@ -162,8 +146,21 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
   state.lastTrackedProgress = nextProgress;
 
   const nextCurrentMinutes = activeDrop?.currentMinutes ?? -1;
-  const prevTrackedMinutes = state.lastTrackedMinutes;
   state.lastTrackedMinutes = Math.max(state.lastTrackedMinutes, nextCurrentMinutes);
+
+  if (freshTimingState) {
+    state.lastProgressAdvanceAt = Date.now();
+    return;
+  }
+
+  const recoveryProof = detectRecoveryProof({
+    previousDropKey: prevTrackedDropKey,
+    previousProgress: prevTrackedProgress,
+    nextDropKey,
+    nextProgress,
+    previousCompletedKeys,
+    nextCompletedKeys,
+  });
 
   // Track proof of recovery from fresh drop data for stall detection.
   if (recoveryProof) {
