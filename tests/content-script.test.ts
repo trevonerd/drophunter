@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
+import { needsPlaybackAttention } from '../src/background/playback.ts';
+import { canAttemptPageUnmute } from '../src/content/playback.ts';
+
 function normalizeText(value: string | null | undefined): string {
   if (typeof value !== 'string') {
     return '';
@@ -226,5 +229,24 @@ describe('extractStreamTitle with FakeElement', () => {
 
     const result = extractStreamTitleFromDoc(doc, 'Streamer Name - Twitch');
     expect(result).toBe('Streamer Name');
+  });
+});
+
+describe('playback prep policy', () => {
+  test('does not attempt page unmute without real user activation', () => {
+    expect(canAttemptPageUnmute(false)).toBe(false);
+  });
+
+  test('allows page unmute after real user activation', () => {
+    expect(canAttemptPageUnmute(true)).toBe(true);
+  });
+
+  test('treats muted-but-playing playback as ready enough for farming', () => {
+    expect(needsPlaybackAttention({ isPlaybackReady: true, userInteractionRequired: true })).toBe(false);
+  });
+
+  test('still requests attention when playback is paused or unavailable', () => {
+    expect(needsPlaybackAttention({ isPlaybackReady: false, userInteractionRequired: true })).toBe(true);
+    expect(needsPlaybackAttention(null)).toBe(true);
   });
 });

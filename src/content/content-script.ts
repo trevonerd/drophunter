@@ -1,8 +1,48 @@
-import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync.ts';
 import { Message } from '../types';
 import { claimChannelPointsBonus } from './channel-points.ts';
+import { canAttemptPageUnmute } from './playback.ts';
 
 const LOG_PREFIX = '[DropHunter]';
+
+function normalizeStoredAppState(value: unknown) {
+  if (!value || typeof value !== 'object') {
+    return { autoClaimChannelPointsBonus: true };
+  }
+  return {
+    autoClaimChannelPointsBonus: true,
+    ...(value as { autoClaimChannelPointsBonus?: boolean }),
+  };
+}
+
+async function loadStoredAppState() {
+  const result = await chrome.storage.local.get(['appState']);
+  return normalizeStoredAppState(result.appState);
+}
+
+function subscribeToAppState(
+  onState: (state: { autoClaimChannelPointsBonus?: boolean }) => void,
+): () => void {
+  const runtimeListener = (message: Message) => {
+    if (message.type === 'UPDATE_STATE' && message.payload) {
+      onState(normalizeStoredAppState(message.payload));
+    }
+  };
+
+  const storageListener: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, areaName) => {
+    if (areaName !== 'local' || !changes.appState) {
+      return;
+    }
+    onState(normalizeStoredAppState(changes.appState.newValue));
+  };
+
+  chrome.runtime.onMessage.addListener(runtimeListener);
+  chrome.storage.onChanged.addListener(storageListener);
+
+  return () => {
+    chrome.runtime.onMessage.removeListener(runtimeListener);
+    chrome.storage.onChanged.removeListener(storageListener);
+  };
+}
 
 function normalizeText(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -154,6 +194,7 @@ function extractStreamContext() {
 
 function prepareStreamPlayback() {
   const channelName = extractChannelNameFromPath();
+  const hasUserActivation = navigator.userActivation?.hasBeenActive === true;
   if (!channelName) {
     return {
       played: false,
@@ -228,7 +269,7 @@ function prepareStreamPlayback() {
   ) as HTMLButtonElement | null;
   if (muteButton) {
     const label = normalizeForCompare(muteButton.getAttribute('aria-label') ?? muteButton.textContent ?? '');
-    if (label.includes('unmute')) {
+    if (label.includes('unmute') && canAttemptPageUnmute(hasUserActivation)) {
       muteButton.click();
     }
   }
@@ -240,7 +281,7 @@ function prepareStreamPlayback() {
     const label = normalizeForCompare(
       overlayUnmuteButton.getAttribute('aria-label') ?? overlayUnmuteButton.textContent ?? '',
     );
-    if (label.includes('unmute')) {
+    if (label.includes('unmute') && canAttemptPageUnmute(hasUserActivation)) {
       overlayUnmuteButton.click();
     }
   }
@@ -248,14 +289,14 @@ function prepareStreamPlayback() {
   const video = document.querySelector('video') as HTMLVideoElement | null;
   if (video) {
     clickElement(video);
-    if (video.muted && navigator.userActivation?.hasBeenActive) {
+    if (video.muted && canAttemptPageUnmute(hasUserActivation)) {
       video.muted = false;
     }
     if (video.volume <= 0.01) {
       video.volume = 0.35;
     }
     if (video.paused) {
-      if (!navigator.userActivation?.hasBeenActive) {
+      if (!hasUserActivation) {
         if (import.meta.env.DEV) {
           console.debug(LOG_PREFIX, 'Playback skipped: user interaction required for autoplay');
         }
@@ -263,7 +304,7 @@ function prepareStreamPlayback() {
         video.play().catch((err) => {
           console.warn(LOG_PREFIX, 'Playback failed:', err.message, {
             errorName: err.name,
-            hasBeenActive: navigator.userActivation?.hasBeenActive,
+            hasBeenActive: hasUserActivation,
           });
         });
       }
@@ -571,18 +612,41 @@ function handleIntegrityEvent(event: Event): void {
 // Listen for real-time integrity updates from the MAIN world interceptor
 window.addEventListener(INTEGRITY_STORAGE_KEY, handleIntegrityEvent);
 
+let appStateUnsubscribe: (() => void) | null = null;
+let cleanedUp = false;
+
+function hasActiveExtensionContext(): boolean {
+  try {
+    return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id);
+  } catch {
+    return false;
+  }
+}
+
+function cleanupContentScript(): void {
+  if (cleanedUp) {
+    return;
+  }
+  cleanedUp = true;
+  window.removeEventListener(INTEGRITY_STORAGE_KEY, handleIntegrityEvent);
+  window.clearInterval(cleanupInterval);
+  window.clearTimeout(delayedSyncTimeout);
+  stopChannelPointsPolling();
+  appStateUnsubscribe?.();
+  appStateUnsubscribe = null;
+}
+
 // Clean up when extension context is invalidated (MV3 content script teardown)
 const cleanupInterval = window.setInterval(() => {
-  if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
-    window.removeEventListener(INTEGRITY_STORAGE_KEY, handleIntegrityEvent);
-    window.clearInterval(cleanupInterval);
+  if (!hasActiveExtensionContext()) {
+    cleanupContentScript();
   }
 }, 5000);
 
 // Read any integrity token that was already captured before this script loaded
 syncIntegrityToBackground('sessionStorage');
 
-window.setTimeout(() => {
+const delayedSyncTimeout = window.setTimeout(() => {
   syncTwitchSessionToBackground();
   // Re-check sessionStorage in case integrity was fetched between page load
   // and content script initialization
@@ -619,12 +683,14 @@ function stopChannelPointsPolling(): void {
   pollIntervalId = null;
 }
 
-loadStoredAppState().then((state) => {
-  autoClaimEnabled = state.autoClaimChannelPointsBonus;
-  if (autoClaimEnabled) startChannelPointsPolling();
-});
-subscribeToAppState((state) => {
-  autoClaimEnabled = state.autoClaimChannelPointsBonus;
+loadStoredAppState()
+  .then((state) => {
+    autoClaimEnabled = state.autoClaimChannelPointsBonus !== false;
+    if (autoClaimEnabled) startChannelPointsPolling();
+  })
+  .catch(() => undefined);
+appStateUnsubscribe = subscribeToAppState((state) => {
+  autoClaimEnabled = state.autoClaimChannelPointsBonus !== false;
   if (autoClaimEnabled) startChannelPointsPolling();
   else stopChannelPointsPolling();
 });

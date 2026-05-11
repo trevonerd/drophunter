@@ -90,6 +90,7 @@ export interface AppState {
   recoveryReason?: string | null;
   recoveryBackoffUntil?: number | null;
   recoveryAttempts?: number | null;
+  resumedFromCrash?: number | null;
   lastStopReason?: string | null;
   lastStopMessage?: string | null;
 }
@@ -122,6 +123,7 @@ export type MessageType =
   | 'STOP_FARMING'
   | 'UPDATE_STATE'
   | 'ENSURE_GAMES_CACHE'
+  | 'OPEN_DROPS_PAGE_AND_REFRESH'
   | 'REFRESH_DROPS'
   | 'UPDATE_GAMES'
   | 'SYNC_TWITCH_SESSION'
@@ -132,4 +134,10 @@ export type MessageType =
 export interface Message {
   type: MessageType;
   payload?: unknown;
+}
+
+export interface PlaybackPrepResult {
+  gateDismissed?: boolean;
+  isPlaybackReady?: boolean;
+  userInteractionRequired?: boolean;
 }

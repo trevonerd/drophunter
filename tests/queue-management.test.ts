@@ -1119,6 +1119,21 @@ describe('rotateStreamer', () => {
     expect(enterRecoveryCalled).toBe(true);
   });
 
+  test('forwards skip callback when stalled-progress enters persistent recovery', async () => {
+    const state = createMinimalState({ noProgressRotationAttempts: 3 });
+    const skipCurrentGame = async () => {};
+
+    let forwardedSkip: (() => Promise<void>) | undefined;
+    await rotateStreamer(state, 'stalled-progress', {
+      onEnterPersistentRecovery: async (_state, _reason, _message, recoveryOpts) => {
+        forwardedSkip = recoveryOpts?.onSkipCurrentGame;
+      },
+      onSkipCurrentGame: skipCurrentGame,
+    });
+
+    expect(forwardedSkip).toBe(skipCurrentGame);
+  });
+
   test('returns false when entering persistent recovery', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 3 });
 
@@ -1211,6 +1226,22 @@ describe('rotateStreamer', () => {
     });
 
     expect(enterRecoveryCalled).toBe(true);
+  });
+
+  test('forwards skip callback when open failure enters persistent recovery', async () => {
+    const state = createMinimalState({ noProgressRotationAttempts: 3 });
+    const skipCurrentGame = async () => {};
+
+    let forwardedSkip: (() => Promise<void>) | undefined;
+    await rotateStreamer(state, 'offline', {
+      onOpenStreamer: async () => false,
+      onEnterPersistentRecovery: async (_state, _reason, _message, recoveryOpts) => {
+        forwardedSkip = recoveryOpts?.onSkipCurrentGame;
+      },
+      onSkipCurrentGame: skipCurrentGame,
+    });
+
+    expect(forwardedSkip).toBe(skipCurrentGame);
   });
 
   test('calls onSaveState', async () => {
@@ -1540,6 +1571,44 @@ describe('rotateStreamerIfInvalid', () => {
     });
 
     expect(rotateReason).toBe('stalled-progress');
+  });
+
+  test('skips current game when stalled recovery cycles are exhausted', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 60 });
+    state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
+    state.stalledRecoveryAttempts = 6;
+    state.lastStreamRotationAt = 0;
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let skipCalled = false;
+    let rotateCalled = false;
+    await rotateStreamerIfInvalid(state, {
+      onFetchStreamContext: async () => ({
+        channelName: 'streamer',
+        categorySlug: 'test-game',
+        categoryLabel: 'Test Game',
+        streamTitle: 'Stream Title',
+        titleContainsDrops: true,
+        hasDropsSignal: true,
+        isLive: true,
+        pageUrl: 'https://twitch.tv/streamer',
+      }),
+      onResolveCategorySlug: async () => 'test-game',
+      onSkipCurrentGame: async () => {
+        skipCalled = true;
+      },
+      onRotateStreamer: async () => {
+        rotateCalled = true;
+        return true;
+      },
+    });
+
+    expect(skipCalled).toBe(true);
+    expect(rotateCalled).toBe(false);
   });
 
   test('does not increment checks when progress is live with weak signal', async () => {
