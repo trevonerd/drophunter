@@ -10,6 +10,7 @@ import {
   broadcastStateUpdate,
   saveState,
   resetStateForInactivity,
+  setTimingSaveDebounceMsForTests,
 } from '../src/background/state-persistence.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
@@ -102,6 +103,7 @@ describe('markActivity', () => {
 
   beforeEach(() => {
     mocks = setupChromeMocks();
+    setTimingSaveDebounceMsForTests(0);
   });
 
   afterEach(() => {
