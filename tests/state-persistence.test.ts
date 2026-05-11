@@ -9,6 +9,7 @@ import {
   shouldRefreshGamesCache,
   broadcastStateUpdate,
   saveState,
+  resetStateForInactivity,
 } from '../src/background/state-persistence.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
@@ -130,7 +131,7 @@ describe('loadTimingState / saveTimingState', () => {
     mocks.teardown();
   });
 
-  test('saveTimingState persists timing to session storage', async () => {
+    test('saveTimingState persists timing to local storage', async () => {
     const state = createMinimalState({
       lastStreamRotationAt: 1000,
       streamValidationGraceUntil: 2000,
@@ -154,7 +155,7 @@ describe('loadTimingState / saveTimingState', () => {
 
     await saveTimingState(state);
 
-    const saved = mocks.storage.session._store.get('timingState') as Record<string, unknown>;
+    const saved = mocks.storage.local._store.get('timingState') as Record<string, unknown>;
     expect(saved.lastStreamRotationAt).toBe(1000);
     expect(saved.streamValidationGraceUntil).toBe(2000);
     expect(saved.invalidStreamChecks).toBe(3);
@@ -175,10 +176,10 @@ describe('loadTimingState / saveTimingState', () => {
     expect((saved.dropClaimRetryAtById as Record<string, number>)).toEqual({ drop1: 999 });
   });
 
-  test('loadTimingState restores timing from session storage', async () => {
+  test('loadTimingState restores timing from local storage', async () => {
     const state = createMinimalState();
     const futureTime = Date.now() + 999999;
-    mocks.storage.session._store.set('timingState', {
+    mocks.storage.local._store.set('timingState', {
       lastStreamRotationAt: 1111,
       streamValidationGraceUntil: 2222,
       invalidStreamChecks: 7,
@@ -226,7 +227,7 @@ describe('loadTimingState / saveTimingState', () => {
     const state = createMinimalState({
       dropClaimRetryAtById: new Map([['existing', 111]]),
     });
-    mocks.storage.session._store.set('timingState', {
+    mocks.storage.local._store.set('timingState', {
       dropClaimRetryAtById: { new1: 222, new2: 333 },
     });
 
@@ -405,5 +406,58 @@ describe('saveState', () => {
     });
     await saveState(state);
     expect(badgeText).toBe('');
+  });
+});
+
+describe('resetStateForInactivity', () => {
+  let mocks: ChromeMocks;
+
+  beforeEach(() => {
+    mocks = setupChromeMocks();
+  });
+
+  afterEach(() => {
+    mocks.teardown();
+  });
+
+  test('preserves lifetime statistics while clearing volatile farming state', async () => {
+    const state = createMinimalState({
+      appState: createAppState({
+        isRunning: true,
+        selectedGame: { id: 'game-1', name: 'Game', imageUrl: '' },
+        totalDropsClaimed: 12,
+        totalChannelPointsClaimed: 34,
+      }),
+      cachedDropsSnapshot: [{ id: 'drop1' } as any],
+      dropClaimRetryAtById: new Map([['claim-1', Date.now() + 1000]]),
+    });
+
+    await resetStateForInactivity(
+      state,
+      'test',
+      999,
+      {
+        onStopMonitoring: () => undefined,
+        onClearRotationMetadata: (appState) => appState,
+        onResetStreamTrackingState: () => undefined,
+        onSaveTimingState: async () => undefined,
+        onBroadcastStateUpdate: () => undefined,
+      },
+      {
+        createInitialState,
+        DROPS_SNAPSHOT_CACHE_KEY: 'dropsSnapshotCache',
+        LAST_ACTIVITY_AT_KEY: 'lastActivityAt',
+        TIMING_STATE_KEY: 'timingState',
+      },
+    );
+
+    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.totalDropsClaimed).toBe(12);
+    expect(state.appState.totalChannelPointsClaimed).toBe(34);
+    expect(mocks.storage.local._store.get('appState')).toMatchObject({
+      totalDropsClaimed: 12,
+      totalChannelPointsClaimed: 34,
+    });
   });
 });

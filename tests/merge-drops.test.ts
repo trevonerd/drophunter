@@ -169,17 +169,15 @@ test('merge both drops have requiredMinutes: null → merged requiredMinutes sta
   expect(merged.requiredMinutes).toBeNull();
 });
 
-// --- dropStateKey stable identity (RED phase: exposes stale reappend bug) ---
+// --- dropStateKey stable identity ---
 
 // Helper to replicate the stable dropStateKey logic inline (since it's not exported yet)
 function testDropStateKey(drop: any): string {
   return `${drop.id}::${drop.campaignId ?? ''}`;
 }
 
-test('dropStateKey: same id+campaignId with different imageUrl produces DIFFERENT key (bug evidence)', () => {
-  // This test proves the bug: two drops with same logical identity (id + campaignId)
-  // but different imageUrl generate different keys. In refresh scenarios, this causes
-  // the stale claimed drop to not match the refreshed version and get re-appended.
+test('dropStateKey: same id+campaignId stays stable when imageUrl changes', () => {
+  // Two drops with the same logical identity should not diverge when Twitch changes CDN URLs.
 
   const dropA = createDrop({
     id: 'drop-123',
@@ -198,14 +196,11 @@ test('dropStateKey: same id+campaignId with different imageUrl produces DIFFEREN
   const keyA = testDropStateKey(dropA);
   const keyB = testDropStateKey(dropB);
 
-  // This assertion will FAIL with current code because imageUrl is in the key
-  // After fix, same id+campaignId should produce same key regardless of imageUrl
   expect(keyA).toBe(keyB);
 });
 
-test('dropStateKey: same id+campaignId with different name whitespace produces DIFFERENT key (bug evidence)', () => {
-  // This test proves the bug: whitespace or punctuation variations in name between API responses
-  // cause the same drop to be treated as a different drop. Some APIs may add/remove spaces or punctuation.
+test('dropStateKey: same id+campaignId stays stable when display name changes', () => {
+  // Whitespace or punctuation variations in names should not create a new drop identity.
 
   const dropA = createDrop({
     id: 'drop-456',
@@ -224,17 +219,14 @@ test('dropStateKey: same id+campaignId with different name whitespace produces D
   const keyA = testDropStateKey(dropA);
   const keyB = testDropStateKey(dropB);
 
-  // This assertion will FAIL with current code because the name field itself is in the key
-  // (after normalization, both become 'battlepassreward', but the name field is still volatile)
-  // After fix, same id+campaignId should produce same key regardless of name variations
   expect(keyA).toBe(keyB);
 });
 
-test('stale claimed drop reappend: refresh with different imageUrl creates phantom duplicate (bug evidence)', () => {
+test('stale claimed drop reappend: refresh with different imageUrl does not create a phantom duplicate', () => {
   // This test simulates the refresh reconciliation scenario from service-worker.ts:650-654.
   // Previous state has a claimed drop A. Refresh returns what should be the same drop
-  // but with different imageUrl. The stale-reappend logic fails to match them due to
-  // unstable dropStateKey, causing drop A to be re-added to the final list.
+  // but with different imageUrl. Stable keys should merge them instead of re-adding
+  // the previous claimed copy.
 
   const previousAllDrops = [
     createDrop({
@@ -275,9 +267,6 @@ test('stale claimed drop reappend: refresh with different imageUrl creates phant
 
   const finalList = [...mergedRelevant, ...staleReappends];
 
-  // BUG: Because dropStateKey includes imageUrl, the refreshed drop doesn't match the previous drop.
-  // So the previous claimed drop is added to staleReappends, and finalList has 2 copies instead of 1.
-  // This assertion will FAIL with current code and PASS after the fix.
   expect(finalList).toHaveLength(1);
   expect(finalList[0].id).toBe('drop-999');
   expect(finalList[0].claimed).toBe(true);

@@ -3,12 +3,17 @@ import {
   DROPS_SNAPSHOT_CACHE_KEY,
   GAMES_CACHE_TTL_MS,
   LAST_ACTIVITY_AT_KEY,
+  TIMING_SAVE_DEBOUNCE_MS,
   TIMING_STATE_KEY,
 } from './constants';
 import { logDebug, logWarn } from './logging';
 import { normalizeTimingState, TimingState } from './runtime-state';
 import type { ServiceWorkerState } from './service-worker';
 import type { TwitchSession } from './twitch-api/types';
+
+let timingSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let timingSaveResolvers: Array<() => void> = [];
+const timingSaveDebounceMs = Math.max(0, TIMING_SAVE_DEBOUNCE_MS - 100);
 
 export function sessionDebugSummary(session: TwitchSession | null) {
   if (!session) {
@@ -32,32 +37,47 @@ export async function markActivity(state: ServiceWorkerState, reason: string) {
 }
 
 export async function saveTimingState(state: ServiceWorkerState) {
-  const timing: TimingState = {
-    lastStreamRotationAt: state.lastStreamRotationAt,
-    streamValidationGraceUntil: state.streamValidationGraceUntil,
-    invalidStreamChecks: state.invalidStreamChecks,
-    noProgressRotationAttempts: state.noProgressRotationAttempts,
-    twitchSessionLastAttemptAt: state.twitchSessionLastAttemptAt,
-    dropClaimRetryAtById: Object.fromEntries(state.dropClaimRetryAtById),
-    lastProgressAdvanceAt: state.lastProgressAdvanceAt,
-    lastTrackedProgress: state.lastTrackedProgress,
-    lastTrackedMinutes: state.lastTrackedMinutes,
-    lastTrackedDropKey: state.lastTrackedDropKey,
-    apiConsecutiveFailures: state.apiConsecutiveFailures,
-    apiBackoffUntil: state.apiBackoffUntil,
-    integrityFallbackActive: state.integrityFallbackActive,
-    integrityFallbackActiveUntil: state.integrityFallbackActiveUntil,
-    recoveryBackoffUntil: state.recoveryBackoffUntil,
-    lastRecoveryAttemptAt: state.lastRecoveryAttemptAt,
-    stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-    recoveryNotificationSent: state.recoveryNotificationSent,
-  };
-  await chrome.storage.session.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
+  return new Promise<void>((resolve) => {
+    timingSaveResolvers.push(resolve);
+
+    if (timingSaveDebounceTimer !== null) {
+      clearTimeout(timingSaveDebounceTimer);
+    }
+
+    timingSaveDebounceTimer = setTimeout(async () => {
+      timingSaveDebounceTimer = null;
+      const timing: TimingState = {
+        lastStreamRotationAt: state.lastStreamRotationAt,
+        streamValidationGraceUntil: state.streamValidationGraceUntil,
+        invalidStreamChecks: state.invalidStreamChecks,
+        noProgressRotationAttempts: state.noProgressRotationAttempts,
+        twitchSessionLastAttemptAt: state.twitchSessionLastAttemptAt,
+        dropClaimRetryAtById: Object.fromEntries(state.dropClaimRetryAtById),
+        lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+        lastTrackedProgress: state.lastTrackedProgress,
+        lastTrackedMinutes: state.lastTrackedMinutes,
+        lastTrackedDropKey: state.lastTrackedDropKey,
+        apiConsecutiveFailures: state.apiConsecutiveFailures,
+        apiBackoffUntil: state.apiBackoffUntil,
+        integrityFallbackActive: state.integrityFallbackActive,
+        integrityFallbackActiveUntil: state.integrityFallbackActiveUntil,
+        recoveryBackoffUntil: state.recoveryBackoffUntil,
+        lastRecoveryAttemptAt: state.lastRecoveryAttemptAt,
+        stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+        recoveryNotificationSent: state.recoveryNotificationSent,
+        lastHeartbeatAt: state.lastHeartbeatAt,
+      };
+      await chrome.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
+      const resolvers = timingSaveResolvers;
+      timingSaveResolvers = [];
+      for (const pendingResolve of resolvers) pendingResolve();
+    }, timingSaveDebounceMs);
+  });
 }
 
 export async function loadTimingState(state: ServiceWorkerState) {
   try {
-    const result = await chrome.storage.session.get([TIMING_STATE_KEY]);
+    const result = await chrome.storage.local.get([TIMING_STATE_KEY]);
     const saved = normalizeTimingState(result[TIMING_STATE_KEY]);
     state.lastStreamRotationAt = saved.lastStreamRotationAt;
     state.streamValidationGraceUntil = saved.streamValidationGraceUntil;
@@ -82,8 +102,9 @@ export async function loadTimingState(state: ServiceWorkerState) {
     state.lastRecoveryAttemptAt = saved.lastRecoveryAttemptAt;
     state.stalledRecoveryAttempts = saved.stalledRecoveryAttempts;
     state.recoveryNotificationSent = saved.recoveryNotificationSent;
+    state.lastHeartbeatAt = saved.lastHeartbeatAt ?? 0;
   } catch (error) {
-    logWarn('Failed to load timing state from session storage:', String(error));
+    logWarn('Failed to load timing state from local storage:', String(error));
   }
 }
 
@@ -200,8 +221,15 @@ export async function resetStateForInactivity(
     TIMING_STATE_KEY: string;
   },
 ): Promise<void> {
+  const lifetimeStats = {
+    totalDropsClaimed: state.appState.totalDropsClaimed,
+    totalChannelPointsClaimed: state.appState.totalChannelPointsClaimed,
+  };
   callbacks.onStopMonitoring();
-  state.appState = callbacks.onClearRotationMetadata(deps.createInitialState());
+  state.appState = callbacks.onClearRotationMetadata({
+    ...deps.createInitialState(),
+    ...lifetimeStats,
+  });
   state.cachedDropsSnapshot = [];
   state.cachedCampaignChannelsMap = {};
   callbacks.onResetStreamTrackingState(state);

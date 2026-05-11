@@ -2,6 +2,7 @@ import { isDropCompleted } from '../shared/drops';
 import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
 import { createInitialState, toSlug } from '../shared/utils';
+import type { PlaybackPrepResult } from '../types';
 import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import {
   applyAutoClaimDropsSetting,
@@ -13,6 +14,7 @@ import {
   shouldAttemptAutoClaimChannelPointsBonus,
 } from './channel-points';
 import { logDebug, logInfo, logWarn } from './logging';
+import { needsPlaybackAttention } from './playback.ts';
 import { clearRotationMetadata } from './runtime-state';
 import {
   applyBestEffortAlwaysOnTop as applyBestEffortAlwaysOnTopExt,
@@ -27,7 +29,12 @@ import {
 } from './tab-management.ts';
 import './stream-rotation';
 import { fetchDirectoryStreamersFromApiWrapper, fetchDropsSnapshotFromApiWrapper } from './api-operations.ts';
-import { PROGRESS_POLL_MS } from './constants.ts';
+import {
+  CRASH_DETECTION_THRESHOLD_MS,
+  CRASH_RECOVERY_GRACE_MS,
+  PROGRESS_POLL_MS,
+  STREAM_VALIDATION_GRACE_MS,
+} from './constants.ts';
 import {
   annotateGameCompletion as annotateGameCompletionExt,
   dropMatchesSelectedGame as dropMatchesSelectedGameExt,
@@ -113,13 +120,13 @@ export interface ServiceWorkerState {
   lastRecoveryAttemptAt: number;
   stalledRecoveryAttempts: number;
   recoveryNotificationSent: boolean;
+  lastHeartbeatAt: number;
   lastGamesCacheRefreshAt: number;
 }
 
 export const FULL_REFRESH_INTERVAL_MS = 2 * 60_000;
 export const INVALID_STREAM_THRESHOLD = 8;
 export const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
-export const STREAM_VALIDATION_GRACE_MS = 75_000;
 export const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
 export const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 export const MONITOR_AUTO_OPEN_DELAY_MS = 450;
@@ -142,12 +149,6 @@ export interface StreamContext {
   hasDropsSignal: boolean;
   isLive: boolean;
   pageUrl: string;
-}
-
-export interface PlaybackPrepResult {
-  gateDismissed?: boolean;
-  isPlaybackReady?: boolean;
-  userInteractionRequired?: boolean;
 }
 
 function sameCampaignId(left?: string | null, right?: string | null): boolean {
@@ -185,6 +186,7 @@ let recoveryBackoffUntil = 0;
 let lastRecoveryAttemptAt = 0;
 let stalledRecoveryAttempts = 0;
 let recoveryNotificationSent = false;
+let lastHeartbeatAt = 0;
 let lastGamesCacheRefreshAt = 0;
 
 // State wrapper for extracted module functions (state-persistence.ts).
@@ -374,6 +376,12 @@ const state: ServiceWorkerState = {
   set recoveryNotificationSent(v) {
     recoveryNotificationSent = v;
   },
+  get lastHeartbeatAt() {
+    return lastHeartbeatAt;
+  },
+  set lastHeartbeatAt(v) {
+    lastHeartbeatAt = v;
+  },
   get lastGamesCacheRefreshAt() {
     return lastGamesCacheRefreshAt;
   },
@@ -381,6 +389,16 @@ const state: ServiceWorkerState = {
     lastGamesCacheRefreshAt = v;
   },
 };
+
+const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
+const GAMES_STALE_THRESHOLD_MS = 60 * 60_000;
+let dropsPageRefreshInFlight: Promise<{
+  success: boolean;
+  opened: boolean;
+  refreshed: boolean;
+  gamesCount: number;
+  error?: string;
+}> | null = null;
 
 async function resetStateForInactivity(trigger: string, idleForMs: number) {
   logInfo('Resetting state after inactivity', {
@@ -442,10 +460,19 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     // Ensure module initialization has settled before potentially resetting state.
     if (initPromise) await initPromise;
     if (details.reason === 'update') {
-      // Reset state on extension update to prevent stale/corrupt state from persisting.
-      appState = clearRotationMetadata(createInitialState());
+      // Reset volatile farming state on update while preserving lifetime statistics.
+      const lifetimeStats = {
+        totalDropsClaimed: appState.totalDropsClaimed,
+        totalChannelPointsClaimed: appState.totalChannelPointsClaimed,
+      };
+      appState = clearRotationMetadata({
+        ...createInitialState(),
+        ...lifetimeStats,
+      });
       cachedDropsSnapshot = [];
-      await chrome.storage.local.set({ appState });
+      await chrome.storage.local.remove([DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, 'twitchIntegrity']);
+      await chrome.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
+      await chrome.storage.local.set({ appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
       broadcastStateUpdateExt(appState);
     }
   } catch (error) {
@@ -525,12 +552,12 @@ async function attemptPlaybackSelfHeal(tabId: number): Promise<void> {
       unmuteTab: true,
       muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
     });
-    if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
+    if (needsPlaybackAttention(retried)) {
       await sendPlaybackAttentionWarning();
     }
     return;
   }
-  if (prepared?.userInteractionRequired || !prepared?.isPlaybackReady) {
+  if (needsPlaybackAttention(prepared)) {
     await sendPlaybackAttentionWarning();
   }
 }
@@ -555,6 +582,39 @@ async function loadState() {
       STREAM_VALIDATION_GRACE_MS,
     },
   );
+
+  const isCrashRecovery =
+    state.appState.isRunning &&
+    !state.appState.isPaused &&
+    state.lastHeartbeatAt > 0 &&
+    Date.now() - state.lastHeartbeatAt > CRASH_DETECTION_THRESHOLD_MS;
+
+  if (isCrashRecovery) {
+    logInfo('Crash recovery detected', {
+      secondsAgo: Math.round((Date.now() - state.lastHeartbeatAt) / 1000),
+    });
+    state.appState.resumedFromCrash = Date.now();
+    state.appState.tabId = null;
+    state.appState.activeStreamer = null;
+    state.lastProgressAdvanceAt = Date.now();
+    state.noProgressRotationAttempts = 0;
+    state.recoveryBackoffUntil = 0;
+    state.stalledRecoveryAttempts = 0;
+    state.recoveryNotificationSent = false;
+    state.appState = clearRecoveryStatus(state.appState);
+    state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
+    await saveStateExt(state);
+    await saveTimingStateExt(state);
+    if (state.appState.selectedGame) {
+      await openBestStreamerForSelectedGame();
+    }
+    setTimeout(() => {
+      if (state.appState.resumedFromCrash != null) {
+        state.appState.resumedFromCrash = null;
+        saveStateExt(state).catch(() => undefined);
+      }
+    }, CRASH_RECOVERY_GRACE_MS);
+  }
 }
 
 export const GAMES_CACHE_TTL_MS = 5 * 60_000;
@@ -699,6 +759,25 @@ async function ensureTwitchSession(forceRefresh = false): Promise<TwitchSession 
   );
 }
 
+async function persistSessionFromDropsPage(tabId: number): Promise<TwitchSession | null> {
+  await ensureContentScriptOnTab(tabId);
+  const session = await readTwitchSessionFromTab(tabId).catch(() => null);
+  if (!session) {
+    return null;
+  }
+  twitchSessionCache = session;
+  twitchSessionLastAttemptAt = 0;
+  await persistTwitchSessionExt(session);
+  return session;
+}
+
+function shouldRefreshCampaignsAfterSessionSync(): boolean {
+  return (
+    appState.availableGames.length === 0 ||
+    Date.now() - (appState.lastSuccessfulRefreshAt ?? 0) > GAMES_STALE_THRESHOLD_MS
+  );
+}
+
 async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<DropsSnapshot | null> {
   return fetchDropsSnapshotFromApiWrapper(
     state,
@@ -761,14 +840,16 @@ async function fetchStreamContext(tabId: number): Promise<StreamContext | null> 
   return response.context as StreamContext;
 }
 
-async function refreshGamesCacheFromHiddenFetch(): Promise<TwitchGame[]> {
+async function refreshGamesCacheFromHiddenFetch(
+  options: { forceSessionRefresh?: boolean } = {},
+): Promise<TwitchGame[]> {
   if (gamesCacheRefreshInFlight) {
     return gamesCacheRefreshInFlight;
   }
 
   gamesCacheRefreshInFlight = (async () => {
     let fetchedGames: TwitchGame[] = [];
-    const apiSnapshot = await fetchDropsSnapshotFromApi();
+    const apiSnapshot = await fetchDropsSnapshotFromApi(Boolean(options.forceSessionRefresh));
     if (apiSnapshot?.games?.length) {
       fetchedGames = apiSnapshot.games;
       appState.lastSuccessfulRefreshAt = Date.now();
@@ -798,6 +879,66 @@ async function refreshGamesCacheFromHiddenFetch(): Promise<TwitchGame[]> {
   });
 
   return gamesCacheRefreshInFlight;
+}
+
+async function findOrOpenDropsPageTab(): Promise<{ tabId: number | null; opened: boolean }> {
+  const existingTabs = await chrome.tabs
+    .query({ url: ['https://www.twitch.tv/drops/campaigns*', 'https://twitch.tv/drops/campaigns*'] })
+    .catch(() => []);
+  const existing = existingTabs.find((tab) => typeof tab.id === 'number');
+  if (existing?.id) {
+    await chrome.tabs.update(existing.id, { active: true }).catch(() => undefined);
+    return { tabId: existing.id, opened: false };
+  }
+
+  const created = await chrome.tabs.create({ url: TWITCH_DROPS_PAGE_URL, active: true }).catch(() => null);
+  return { tabId: created?.id ?? null, opened: true };
+}
+
+async function openDropsPageAndRefresh() {
+  if (dropsPageRefreshInFlight) {
+    return dropsPageRefreshInFlight;
+  }
+
+  dropsPageRefreshInFlight = (async () => {
+    await trackActivity('open-drops-page-and-refresh');
+    await ensureStateHydratedForCache();
+
+    const { tabId, opened } = await findOrOpenDropsPageTab();
+    if (!tabId) {
+      return {
+        success: false,
+        opened: false,
+        refreshed: false,
+        gamesCount: appState.availableGames.length,
+        error: 'Unable to open the Twitch Drops page.',
+      };
+    }
+
+    await waitForTabCompleteExt(tabId);
+    const sessionFromTab = await persistSessionFromDropsPage(tabId);
+    await refreshGamesCacheFromHiddenFetch({ forceSessionRefresh: !sessionFromTab });
+    await saveStateExt(state);
+    broadcastStateUpdateExt(appState);
+
+    const gamesCount = appState.availableGames.length;
+    return {
+      success: gamesCount > 0,
+      opened,
+      refreshed: true,
+      gamesCount,
+      error:
+        gamesCount > 0
+          ? undefined
+          : sessionFromTab
+            ? 'No active Twitch Drops campaigns were detected.'
+            : 'Open Twitch and sign in so DropHunter can detect your session.',
+    };
+  })().finally(() => {
+    dropsPageRefreshInFlight = null;
+  });
+
+  return dropsPageRefreshInFlight;
 }
 
 function evaluateDropsForGame(
@@ -902,12 +1043,12 @@ async function openForegroundChannel(streamer: TwitchStreamer) {
       const retried = await prepareStreamPlayback(managedTabId, {
         muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
       });
-      if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
+      if (needsPlaybackAttention(retried)) {
         await sendPlaybackAttentionWarning();
       }
       return;
     }
-    if (prepared?.userInteractionRequired || !prepared?.isPlaybackReady) {
+    if (needsPlaybackAttention(prepared)) {
       await sendPlaybackAttentionWarning();
     }
   };
@@ -946,12 +1087,12 @@ async function enforcePlaybackPolicyOnStreamTab() {
     const retried = await prepareStreamPlayback(tab.id, {
       muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
     });
-    if (retried?.userInteractionRequired || !retried?.isPlaybackReady) {
+    if (needsPlaybackAttention(retried)) {
       await sendPlaybackAttentionWarning();
     }
     return;
   }
-  if (prepared?.userInteractionRequired || !prepared?.isPlaybackReady) {
+  if (needsPlaybackAttention(prepared)) {
     await sendPlaybackAttentionWarning();
   }
 }
@@ -977,6 +1118,11 @@ async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string
 async function evaluateDropTransitions(previousCompletedIds: Set<string>) {
   const nowCompleted = new Set(appState.completedDrops.map((drop) => drop.id));
   const newlyCompleted = appState.completedDrops.filter((drop) => !previousCompletedIds.has(drop.id));
+  const newlyClaimed = newlyCompleted.filter((drop) => drop.claimed);
+
+  if (newlyClaimed.length > 0) {
+    appState.totalDropsClaimed += newlyClaimed.length;
+  }
 
   for (const drop of newlyCompleted) {
     await sendAlert('drop-complete', `Reward unlocked: ${drop.name}`);
@@ -1355,18 +1501,35 @@ async function attemptAutoClaimChannelPointsBonus() {
 
   if (result?.success && result.claimed) {
     logDebug('Auto-claimed channel points bonus', { tabId: tab.id });
-    appState.totalChannelPointsClaimed = appState.totalChannelPointsClaimed + 1;
-    await saveStateExt(state);
+    await recordChannelPointsBonusClaimed();
     return true;
   }
 
   return false;
 }
 
+async function ensureInitializedForStatsUpdate() {
+  if (initPromise) {
+    await initPromise;
+  }
+}
+
+async function recordChannelPointsBonusClaimed() {
+  await ensureInitializedForStatsUpdate();
+  appState.totalChannelPointsClaimed = appState.totalChannelPointsClaimed + 1;
+  await saveStateExt(state);
+}
+
 chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
   switch (message.type) {
     case 'ENSURE_GAMES_CACHE':
       handleEnsureGamesCache(message.payload as { force?: boolean } | undefined)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
+    case 'OPEN_DROPS_PAGE_AND_REFRESH':
+      openDropsPageAndRefresh()
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
@@ -1427,9 +1590,10 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       }
       normalizeGameSelectionExt(state, appState.availableGames, true);
       normalizeQueueSelectionExt(state, appState.availableGames, true);
-      Promise.all([saveStateExt(state), saveTimingStateExt(state)]).then(() =>
-        sendResponse({ success: true }),
-      );
+      saveStateExt(state)
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      saveTimingStateExt(state).catch(() => undefined);
       return true;
 
     case 'SYNC_TWITCH_SESSION': {
@@ -1441,9 +1605,17 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
         return true;
       }
       twitchSessionCache = incoming;
+      twitchSessionLastAttemptAt = 0;
       persistTwitchSessionExt(incoming)
-        .then(() => {
+        .then(async () => {
           logDebug('Twitch session synced from content script', sessionDebugSummaryExt(incoming));
+          if (sender.tab?.id && shouldRefreshCampaignsAfterSessionSync()) {
+            await refreshGamesCacheFromHiddenFetch();
+            await saveStateExt(state);
+            broadcastStateUpdateExt(appState);
+          }
+        })
+        .then(() => {
           sendResponse({ success: true });
         })
         .catch((error) => sendResponse({ success: false, error: String(error) }));
@@ -1507,10 +1679,9 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
 
     case 'CHANNEL_POINTS_BONUS_CLAIMED':
       logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });
-      appState.totalChannelPointsClaimed = appState.totalChannelPointsClaimed + 1;
-      saveStateExt(state);
-      broadcastStateUpdateExt(appState);
-      sendResponse({ success: true });
+      recordChannelPointsBonusClaimed()
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'SET_AUTO_CLAIM_DROPS':

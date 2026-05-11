@@ -24,7 +24,7 @@ All data is used **solely** to operate the extension's core functionality:
 All operational state is stored **locally** in your browser:
 
 - `chrome.storage.local` stores extension state such as your campaign queue, cached drop progress, monitor preferences, and the last known Twitch session snapshot needed for recovery.
-- `chrome.storage.session` stores short-lived runtime timing data such as backoff windows, progress polling state, and integrity fallback state for the current browser session.
+- `chrome.storage.local` also stores runtime recovery metadata such as backoff windows, progress polling state, and integrity fallback state so the extension can recover after Chrome suspends or restarts its service worker.
 
 No data is written to external servers, databases, analytics tools, or cloud services controlled by the developer.
 
@@ -52,11 +52,12 @@ DropHunter does **not** include:
 | Permission | Purpose |
 |---|---|
 | `storage` | Persist extension state (queue, progress) across browser sessions |
-| `tabs` | Open, query, mute, and close Twitch stream tabs |
 | `scripting` | Inject content scripts into Twitch pages to control video playback |
 | `notifications` | Notify you when drops are claimed or issues arise |
 | `alarms` | Keep the background farming loop running reliably |
 | `host_permissions` (twitch.tv) | Access Twitch pages and API endpoints |
+
+DropHunter does not request the `tabs` or `cookies` permissions.
 
 ## Open source
 

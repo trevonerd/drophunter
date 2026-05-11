@@ -351,4 +351,53 @@ describe('splitDropsForSelectedGame', () => {
 
     expect(state.appState.allDrops.length).toBeGreaterThan(0);
   });
+
+  test('clears recovery state when tracked drop progress advances', () => {
+    const game = { id: 'g1', name: 'Destiny 2', imageUrl: '', campaignId: 'c1' };
+    const previousDrop = {
+      id: 'd1',
+      name: 'Drop A',
+      gameId: 'g1',
+      gameName: 'Destiny 2',
+      imageUrl: '',
+      progress: 20,
+      currentMinutes: 20,
+      claimed: false,
+      campaignId: 'c1',
+      dropType: 'time-based',
+    } as TwitchDrop;
+    const nextDrop = {
+      ...previousDrop,
+      progress: 25,
+      currentMinutes: 25,
+    };
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+        recoveryReason: 'stalled-progress',
+        recoveryBackoffUntil: Date.now() + 60_000,
+        recoveryAttempts: 2,
+        allDrops: [previousDrop],
+      },
+      lastTrackedDropKey: 'd1::c1',
+      lastTrackedProgress: 20,
+      lastTrackedMinutes: 20,
+      lastProgressAdvanceAt: Date.now() - 10 * 60_000,
+      noProgressRotationAttempts: 3,
+      recoveryBackoffUntil: Date.now() + 60_000,
+      lastRecoveryAttemptAt: Date.now() - 60_000,
+      stalledRecoveryAttempts: 2,
+      recoveryNotificationSent: true,
+    });
+
+    splitDropsForSelectedGame(state, [nextDrop]);
+
+    expect(state.lastTrackedProgress).toBe(25);
+    expect(state.noProgressRotationAttempts).toBe(0);
+    expect(state.stalledRecoveryAttempts).toBe(0);
+    expect(state.recoveryBackoffUntil).toBe(0);
+    expect(state.recoveryNotificationSent).toBe(false);
+    expect(state.appState.recoveryReason).toBeNull();
+  });
 });

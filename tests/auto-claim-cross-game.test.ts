@@ -559,6 +559,7 @@ describe('auto-claim cross-game alarm integration', () => {
 
   test('Toggle OFF → trigger alarm → totalDropsClaimed stays 0', async () => {
     await startRunningFarm();
+    const baselineClaims = getAppStateFromStorage().totalDropsClaimed;
 
     const disabled = await dispatchMessage({
       type: 'SET_AUTO_CLAIM_DROPS',
@@ -593,12 +594,13 @@ describe('auto-claim cross-game alarm integration', () => {
     ]);
     await sleepTicks(5);
 
-    expect(getAppStateFromStorage().totalDropsClaimed).toBe(0);
+    expect(getAppStateFromStorage().totalDropsClaimed).toBe(baselineClaims);
     expect(claimRequests).toHaveLength(0);
   });
 
   test('Toggle ON → trigger alarm with 1 claimable time-based drop → totalDropsClaimed becomes 1', async () => {
     await startRunningFarm();
+    const baselineClaims = getAppStateFromStorage().totalDropsClaimed;
 
     await refreshToScenario([
       createSeedDrop(),
@@ -639,12 +641,16 @@ describe('auto-claim cross-game alarm integration', () => {
 
     await triggerMonitorAlarmForScenario(claimableScenario, claimedScenario);
 
-    await waitForAppState((state) => state.totalDropsClaimed === 1, 'claim counter did not increment to 1');
+    await waitForAppState(
+      (state) => state.totalDropsClaimed === baselineClaims + 1,
+      'claim counter did not increment by 1',
+    );
     expect(claimRequests).toEqual(['claim-time-drop']);
   });
 
   test('Toggle ON → trigger alarm with 3 claimable drops from 3 games → totalDropsClaimed becomes 3', async () => {
     await startRunningFarm();
+    const baselineClaims = getAppStateFromStorage().totalDropsClaimed;
 
     await refreshToScenario([
       createSeedDrop(),
@@ -739,12 +745,16 @@ describe('auto-claim cross-game alarm integration', () => {
 
     await triggerMonitorAlarmForScenario(claimableScenario, claimedScenario);
 
-    await waitForAppState((state) => state.totalDropsClaimed === 3, 'claim counter did not increment to 3');
+    await waitForAppState(
+      (state) => state.totalDropsClaimed === baselineClaims + 3,
+      'claim counter did not increment by 3',
+    );
     expect(claimRequests).toEqual(['claim-cross-one', 'claim-cross-two', 'claim-cross-three']);
   });
 
   test('Toggle ON → trigger alarm with 1 event-based claimable drop → totalDropsClaimed stays 0', async () => {
     await startRunningFarm();
+    const baselineClaims = getAppStateFromStorage().totalDropsClaimed;
 
     await refreshToScenario([
       createSeedDrop(),
@@ -773,12 +783,13 @@ describe('auto-claim cross-game alarm integration', () => {
     ]);
     await sleepTicks(5);
 
-    expect(getAppStateFromStorage().totalDropsClaimed).toBe(0);
+    expect(getAppStateFromStorage().totalDropsClaimed).toBe(baselineClaims);
     expect(claimRequests).toHaveLength(0);
   });
 
   test('Toggle ON → trigger alarm with 1 already-claimed drop → totalDropsClaimed stays 0', async () => {
     await startRunningFarm();
+    const baselineClaims = getAppStateFromStorage().totalDropsClaimed;
 
     await refreshToScenario([
       createSeedDrop(),
@@ -807,12 +818,13 @@ describe('auto-claim cross-game alarm integration', () => {
     ]);
     await sleepTicks(5);
 
-    expect(getAppStateFromStorage().totalDropsClaimed).toBe(0);
+    expect(getAppStateFromStorage().totalDropsClaimed).toBe(baselineClaims);
     expect(claimRequests).toHaveLength(0);
   });
 
   test('Toggle ON → trigger alarm with empty snapshot → no errors and totalDropsClaimed stays 0', async () => {
     await startRunningFarm();
+    const baselineClaims = getAppStateFromStorage().totalDropsClaimed;
 
     await refreshToScenario([]);
 
@@ -821,7 +833,7 @@ describe('auto-claim cross-game alarm integration', () => {
 
     const state = getAppStateFromStorage();
     expect(state.isRunning).toBe(true);
-    expect(state.totalDropsClaimed).toBe(0);
+    expect(state.totalDropsClaimed).toBe(baselineClaims);
     expect(claimRequests).toHaveLength(0);
   });
 });

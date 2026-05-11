@@ -15,6 +15,7 @@ import {
 } from '../shared/runtime-status';
 import { isExpiredGame } from '../shared/utils';
 import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { CRASH_RECOVERY_GRACE_MS, STREAM_VALIDATION_GRACE_MS } from './constants';
 import { logDebug, logInfo, logWarn } from './logging';
 import type { ServiceWorkerState } from './service-worker';
 import { saveTimingState as saveTimingStateExt } from './state-persistence';
@@ -275,7 +276,7 @@ export async function stopFarmingSession(
   if (opts?.onSaveTimingState) {
     await opts.onSaveTimingState(state);
   } else {
-    await saveTimingStateExt(state);
+    saveTimingStateExt(state).catch(() => undefined);
   }
 }
 
@@ -345,7 +346,7 @@ export async function advanceQueueIfCompleted(
     if (opts?.onSaveTimingState) {
       await opts.onSaveTimingState(state);
     } else {
-      await saveTimingStateExt(state);
+      saveTimingStateExt(state).catch(() => undefined);
     }
 
     if (opts?.onEnsureWorkspace) {
@@ -455,7 +456,7 @@ export async function skipCurrentGameDueToStall(
     if (opts?.onSaveTimingState) {
       await opts.onSaveTimingState(state);
     } else {
-      await saveTimingStateExt(state);
+      saveTimingStateExt(state).catch(() => undefined);
     }
 
     if (opts?.onEnsureWorkspace) {
@@ -596,6 +597,7 @@ export async function rotateStreamer(
       message: string,
       opts?: { onSkipCurrentGame?: () => Promise<void> },
     ) => Promise<void>;
+    onSkipCurrentGame?: () => Promise<void>;
   },
 ): Promise<boolean> {
   state.noProgressRotationAttempts = nextNoProgressRotationAttempts(state.noProgressRotationAttempts, reason);
@@ -605,6 +607,7 @@ export async function rotateStreamer(
         state,
         reason,
         "DropHunter hasn't resumed progress yet, but it will keep retrying automatically.",
+        { onSkipCurrentGame: opts.onSkipCurrentGame },
       );
     }
     if (opts?.onSaveState) {
@@ -637,6 +640,7 @@ export async function rotateStreamer(
           state,
           'open-failed',
           'DropHunter could not reopen a working stream yet, but it will keep retrying automatically.',
+          { onSkipCurrentGame: opts.onSkipCurrentGame },
         );
       }
       if (opts?.onSaveState) {
@@ -688,6 +692,7 @@ export async function rotateStreamerIfInvalid(
           message: string,
           opts?: { onSkipCurrentGame?: () => Promise<void> },
         ) => Promise<void>;
+        onSkipCurrentGame?: () => Promise<void>;
       },
     ) => Promise<boolean>;
     onOpenStreamer?: () => Promise<boolean>;
@@ -718,6 +723,7 @@ export async function rotateStreamerIfInvalid(
         onSaveState: opts?.onSaveState,
         onSaveTimingState: opts?.onSaveTimingState,
         onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
+        onSkipCurrentGame: opts?.onSkipCurrentGame,
       });
     }
     return;
@@ -740,6 +746,7 @@ export async function rotateStreamerIfInvalid(
         onSaveState: opts?.onSaveState,
         onSaveTimingState: opts?.onSaveTimingState,
         onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
+        onSkipCurrentGame: opts?.onSkipCurrentGame,
       });
     }
     return;
@@ -772,6 +779,7 @@ export async function rotateStreamerIfInvalid(
           onSaveState: opts?.onSaveState,
           onSaveTimingState: opts?.onSaveTimingState,
           onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
+          onSkipCurrentGame: opts?.onSkipCurrentGame,
         });
       }
     }
@@ -864,12 +872,24 @@ export async function rotateStreamerIfInvalid(
         onSaveState: opts?.onSaveState,
         onSaveTimingState: opts?.onSaveTimingState,
         onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
+        onSkipCurrentGame: opts?.onSkipCurrentGame,
       });
     }
     return;
   }
 
   if (health.reason === 'stalled-progress') {
+    if (state.stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
+      logWarn('Stalled progress recovery exhausted — skipping game', {
+        stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+        progress: state.appState.currentDrop?.progress ?? null,
+        currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
+      });
+      if (opts?.onSkipCurrentGame) {
+        await opts.onSkipCurrentGame();
+      }
+      return;
+    }
     if (
       state.recoveryBackoffUntil > 0 &&
       now < state.recoveryBackoffUntil &&
@@ -930,6 +950,7 @@ export async function rotateStreamerIfInvalid(
       onSaveState: opts?.onSaveState,
       onSaveTimingState: opts?.onSaveTimingState,
       onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
+      onSkipCurrentGame: opts?.onSkipCurrentGame,
     });
   }
 }
@@ -959,11 +980,12 @@ export async function checkDropProgress(
     return;
   }
 
-  // Skip this tick if the API is in an exponential backoff window after consecutive failures.
   if (state.apiBackoffUntil > 0 && Date.now() < state.apiBackoffUntil) {
     logDebug('API backoff active, skipping tick', { remainingMs: state.apiBackoffUntil - Date.now() });
     return;
   }
+
+  state.lastHeartbeatAt = Date.now();
 
   logDebug('Tick entry', {
     isRunning: state.appState.isRunning,
@@ -996,7 +1018,14 @@ export async function checkDropProgress(
       }
     }
     await callbacks.onEnforcePlaybackPolicy();
-    await callbacks.onRotateStreamerIfInvalid();
+    const inCrashGrace =
+      state.appState.resumedFromCrash != null &&
+      Date.now() - state.appState.resumedFromCrash < CRASH_RECOVERY_GRACE_MS;
+    if (inCrashGrace) {
+      state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
+    } else {
+      await callbacks.onRotateStreamerIfInvalid();
+    }
     await callbacks.onAttemptAutoClaimChannelPointsBonus();
 
     const isFullTick = Date.now() - state.lastFullRefreshAt >= FULL_REFRESH_INTERVAL_MS;

@@ -439,7 +439,10 @@ function App() {
   const handleStart = () =>
     withAction(async () => {
       const gameToStart = state.selectedGame ?? queueGames[0];
-      if (!gameToStart) return;
+      if (!gameToStart) {
+        setQueueMessage('Select a game to start farming.');
+        return;
+      }
       const response = (await chrome.runtime.sendMessage({
         type: 'START_FARMING',
         payload: { game: gameToStart },
@@ -473,9 +476,24 @@ function App() {
     [withAction],
   );
 
-  const openDropsPage = () => {
-    void chrome.tabs.create({ url: 'https://www.twitch.tv/drops/campaigns' }).catch(() => {});
-  };
+  const openDropsPage = () =>
+    withAction(async () => {
+      const response = (await chrome.runtime
+        .sendMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' })
+        .catch((error: unknown) => ({ success: false, error: String(error) }))) as
+        | { success?: boolean; error?: string; gamesCount?: number }
+        | undefined;
+      setState(await loadStoredAppState());
+      if (response && response.success === false) {
+        setQueueMessage(response.error ?? 'Opened Twitch. Waiting for DropHunter to detect your session.');
+        return;
+      }
+      if ((response?.gamesCount ?? 0) === 0) {
+        setQueueMessage('Opened Twitch. Campaigns will appear as soon as Twitch session data is available.');
+      } else {
+        setQueueMessage(null);
+      }
+    });
 
   const openMiniDashboard = async () => {
     await chrome.runtime
@@ -598,7 +616,8 @@ function App() {
           <button
             type="button"
             onClick={() => setActiveView('main')}
-            className="rounded p-1 text-[#1B1030] hover:bg-white/20"
+            className="rounded p-1 text-[#1B1030] hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            aria-label="Back to main view"
             title="Back"
           >
             <BackIcon />
@@ -620,7 +639,9 @@ function App() {
             </div>
             <div className="rounded-md bg-black/20 px-2.5 py-2">
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Channel points claimed</p>
-              <p className="mt-0.5 text-lg font-bold text-white leading-none">{state.totalChannelPointsClaimed}</p>
+              <p className="mt-0.5 text-lg font-bold text-white leading-none">
+                {state.totalChannelPointsClaimed}
+              </p>
             </div>
           </div>
         </div>
@@ -636,8 +657,9 @@ function App() {
               type="button"
               role="switch"
               aria-checked={state.monitorAutoOpen}
+              aria-label="Auto-open monitor"
               onClick={() => void handleMonitorAutoOpenToggle()}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
                 state.monitorAutoOpen ? 'bg-green-500/90' : 'bg-white/15'
               }`}
             >
@@ -662,8 +684,9 @@ function App() {
               type="button"
               role="switch"
               aria-checked={state.muteFarmingTab}
+              aria-label="Mute farming tab"
               onClick={() => void handleMuteFarmingTabToggle()}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
                 state.muteFarmingTab ? 'bg-green-500/90' : 'bg-white/15'
               }`}
             >
@@ -687,8 +710,9 @@ function App() {
               type="button"
               role="switch"
               aria-checked={state.autoClaimChannelPointsBonus}
+              aria-label="Auto-claim channel points bonus"
               onClick={() => void handleAutoClaimChannelPointsBonusToggle()}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
                 state.autoClaimChannelPointsBonus ? 'bg-green-500/90' : 'bg-white/15'
               }`}
             >
@@ -712,8 +736,9 @@ function App() {
               type="button"
               role="switch"
               aria-checked={state.autoClaimDrops}
+              aria-label="Auto-claim drops"
               onClick={() => void handleAutoClaimDropsToggle()}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
                 state.autoClaimDrops ? 'bg-green-500/90' : 'bg-white/15'
               }`}
             >
@@ -735,8 +760,9 @@ function App() {
               <button
                 key={option.value}
                 type="button"
+                aria-pressed={state.streamerSelectionMode === option.value}
                 onClick={() => void handleStreamerSelectionModeChange(option.value)}
-                className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
+                className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
                   state.streamerSelectionMode === option.value
                     ? 'border-purple-300/70 bg-purple-400/20 text-white'
                     : 'border-white/10 bg-black/20 text-gray-300 hover:border-white/20 hover:text-white'
@@ -757,9 +783,10 @@ function App() {
               </p>
             </div>
             <select
+              aria-label="Preferred streamer language"
               value={state.preferredStreamerLanguage ?? ''}
               onChange={(event) => void handlePreferredStreamerLanguageChange(event.target.value)}
-              className="min-w-[84px] rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-[11px] font-semibold text-white outline-none transition-colors hover:border-white/20"
+              className="min-w-[84px] rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-[11px] font-semibold text-white outline-none transition-colors hover:border-white/20 focus-visible:ring-2 focus-visible:ring-purple-300"
             >
               {STREAMER_LANGUAGE_OPTIONS.map((option) => (
                 <option key={option.value || 'any'} value={option.value} className="bg-[#0E0E10] text-white">
@@ -809,16 +836,22 @@ function App() {
         <div className="flex items-center gap-3 pt-1">
           <button
             type="button"
-            onClick={() => void chrome.tabs.create({ url: 'https://github.com/trevonerd/drophunter' }).catch(() => {})}
-            className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors cursor-pointer"
+            onClick={() =>
+              void chrome.tabs.create({ url: 'https://github.com/trevonerd/drophunter' }).catch(() => {})
+            }
+            className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 rounded"
+            aria-label="Open DropHunter GitHub repository"
           >
             <GitHubIcon />
             GitHub
           </button>
           <button
             type="button"
-            onClick={() => void chrome.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' }).catch(() => {})}
-            className="flex items-center gap-1.5 rounded-full bg-[#FFDD00]/90 hover:bg-[#FFDD00] px-2.5 py-1 text-[11px] font-semibold text-[#1a1a1a] transition-colors"
+            onClick={() =>
+              void chrome.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' }).catch(() => {})
+            }
+            className="flex items-center gap-1.5 rounded-full bg-[#FFDD00]/90 hover:bg-[#FFDD00] px-2.5 py-1 text-[11px] font-semibold text-[#1a1a1a] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+            aria-label="Open Buy Me a Coffee"
           >
             <CoffeeIcon />
             Buy Me a Coffee
@@ -852,7 +885,8 @@ function App() {
                 type="button"
                 onClick={state.isPaused ? handleResume : handlePause}
                 disabled={actionLoading}
-                className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50"
+                className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+                aria-label={state.isPaused ? 'Resume farming' : 'Pause farming'}
                 title={state.isPaused ? 'Resume' : 'Pause'}
               >
                 {state.isPaused ? <PlayIcon /> : <PauseIcon />}
@@ -861,7 +895,8 @@ function App() {
                 type="button"
                 onClick={handleStop}
                 disabled={actionLoading}
-                className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50"
+                className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+                aria-label="Stop farming"
                 title="Stop"
               >
                 <StopIcon />
@@ -871,7 +906,8 @@ function App() {
           <button
             type="button"
             onClick={openDropsPage}
-            className="p-1 rounded hover:bg-white/20 text-[#1B1030]"
+            className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            aria-label="Open Twitch Drops"
             title="Twitch Drops"
           >
             <DropsIcon />
@@ -879,7 +915,8 @@ function App() {
           <button
             type="button"
             onClick={openMiniDashboard}
-            className="p-1 rounded hover:bg-white/20 text-[#1B1030]"
+            className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            aria-label="Open live monitor"
             title="Live Monitor"
           >
             <MonitorIcon />
@@ -887,7 +924,8 @@ function App() {
           <button
             type="button"
             onClick={() => setActiveView('settings')}
-            className="p-1 rounded hover:bg-white/20 text-[#1B1030]"
+            className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            aria-label="Open settings"
             title="Settings"
           >
             <SettingsIcon />
@@ -895,13 +933,21 @@ function App() {
         </div>
       </div>
 
+      {state.resumedFromCrash != null && (
+        <div className="px-3 py-1.5 bg-yellow-500/20 border-b border-yellow-500/30 text-yellow-200 text-[11px] font-medium flex items-center gap-1.5">
+          <span>⚡</span>
+          <span>Resumed after unexpected shutdown — re-syncing…</span>
+        </div>
+      )}
+
       <div className="px-3 py-2.5 space-y-2.5">
         {/* Game selector + Queue button */}
         <div className="flex items-center gap-1.5">
           <select
+            aria-label="Campaign"
             value={state.selectedGame?.id ?? ''}
             onChange={(e) => void handleGameSelect(e.target.value)}
-            className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-1 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white"
+            className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-2 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white"
             disabled={state.isRunning}
           >
             <option value="">Select a campaign...</option>
@@ -914,9 +960,11 @@ function App() {
           </select>
           {!state.isRunning && (
             <button
+              type="button"
               onClick={handleAddToQueue}
               disabled={!state.selectedGame || actionLoading}
-              className="shrink-0 rounded-lg bg-blue-600 px-2 py-1.5 text-[11px] font-semibold disabled:opacity-50 disabled:bg-gray-700"
+              className="shrink-0 rounded-lg bg-blue-600 px-2 py-1.5 text-[11px] font-semibold disabled:opacity-50 disabled:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+              aria-label="Add selected campaign to queue"
             >
               +Queue
             </button>
@@ -969,8 +1017,10 @@ function App() {
                   {getGameDisplayLabel(game)}
                   {!state.isRunning && (
                     <button
+                      type="button"
                       onClick={() => void handleRemoveFromQueue(game)}
-                      className="ml-0.5 text-gray-400 hover:text-white"
+                      className="ml-0.5 rounded text-gray-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+                      aria-label={`Remove ${getGameDisplayLabel(game)} from queue`}
                     >
                       ×
                     </button>
@@ -978,7 +1028,12 @@ function App() {
                 </span>
               ))}
               {!state.isRunning && (
-                <button onClick={handleClearQueue} className="text-[11px] text-red-400 hover:text-red-300">
+                <button
+                  type="button"
+                  onClick={handleClearQueue}
+                  className="rounded text-[11px] text-red-400 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+                  aria-label="Clear queue"
+                >
                   Clear
                 </button>
               )}
@@ -1007,11 +1062,12 @@ function App() {
             return (
               <>
                 <button
+                  type="button"
                   onClick={handleStart}
                   disabled={
                     (!state.selectedGame && queueGames.length === 0) || actionLoading || allDropsClaimed
                   }
-                  className="w-full rounded-lg bg-green-600 py-2 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50 hover:bg-green-500 transition-colors"
+                  className="w-full rounded-lg bg-green-600 py-2 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50 hover:bg-green-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
                 >
                   {actionLoading
                     ? 'Starting...'
@@ -1101,7 +1157,7 @@ function App() {
               <button
                 type="button"
                 onClick={openDropsPage}
-                className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+                className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
               >
                 <DropsIcon size={14} />
                 Open Twitch Drops Page
@@ -1127,7 +1183,7 @@ function App() {
                 <button
                   type="button"
                   onClick={openDropsPage}
-                  className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+                  className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
                 >
                   <DropsIcon size={14} />
                   Open Twitch Drops Page
