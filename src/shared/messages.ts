@@ -112,7 +112,13 @@ export type RuntimeResponseByType = {
   RESUME_FARMING: { success: boolean; error?: string };
   STOP_FARMING: { success: boolean; error?: string };
   UPDATE_STATE: { success: boolean; error?: string };
-  ENSURE_GAMES_CACHE: { success: boolean; gamesCount?: number; error?: string };
+  ENSURE_GAMES_CACHE: {
+    success: boolean;
+    refreshed?: boolean;
+    gamesCount?: number;
+    games?: TwitchGame[];
+    error?: string;
+  };
   OPEN_DROPS_PAGE_AND_REFRESH: { success: boolean; gamesCount?: number; error?: string };
   REFRESH_DROPS: { success: boolean; error?: string };
   UPDATE_GAMES: { success: boolean; error?: string };

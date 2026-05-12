@@ -5,6 +5,13 @@ import { join, relative, resolve } from 'node:path';
 const repoRoot = resolve(import.meta.dir, '..');
 const sourceFiles = [
   'src/background/logging.ts',
+  'src/background/drops-page-refresh.ts',
+  'src/background/extension-lifecycle.ts',
+  'src/background/message-router.ts',
+  'src/background/monitor-dashboard.ts',
+  'src/background/notifications.ts',
+  'src/background/playback-orchestrator.ts',
+  'src/background/session-orchestrator.ts',
   'src/content/logging.ts',
   'src/popup/logging.ts',
   'src/shared/ErrorBoundary.tsx',
