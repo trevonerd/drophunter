@@ -38,4 +38,14 @@ describe('manifest permissions', () => {
       expect(script.matches).toEqual(expected);
     }
   });
+
+  test('content script keeps runtime code self-contained for classic injection', () => {
+    const source = readFileSync(
+      resolve(import.meta.dir, '../src/content/content-script.ts'),
+      'utf-8',
+    );
+
+    expect(source).not.toContain("from '../shared/");
+    expect(source).not.toContain('from "../shared/');
+  });
 });

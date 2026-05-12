@@ -1,9 +1,24 @@
-import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
-import { Message } from '../types';
+import type { Message } from '../types';
 import { claimChannelPointsBonus } from './channel-points.ts';
 import { canAttemptPageUnmute } from './playback.ts';
 
 const LOG_PREFIX = '[DropHunter]';
+const RESERVED_TWITCH_PATH_SEGMENTS = new Set([
+  'directory',
+  'drops',
+  'settings',
+  'subscriptions',
+  'wallet',
+  'privacy',
+  'inventory',
+  'search',
+  'videos',
+  'downloads',
+  'turbo',
+  'jobs',
+  'p',
+  'store',
+]);
 
 function normalizeStoredAppState(value: unknown) {
   if (!value || typeof value !== 'object') {
@@ -67,7 +82,27 @@ function normalizeForCompare(value: string): string {
 }
 
 function extractChannelNameFromPath(): string | null {
-  return getFarmableTwitchChannelNameFromUrl(window.location.href);
+  try {
+    const parsed = new URL(window.location.href);
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (hostname === 'player.twitch.tv') {
+      return parsed.searchParams.get('channel')?.trim().toLowerCase() || null;
+    }
+
+    if (!/(\.|^)twitch\.tv$/i.test(hostname)) {
+      return null;
+    }
+
+    const segment = parsed.pathname.split('/').filter(Boolean)[0]?.trim().toLowerCase() ?? '';
+    if (!segment || RESERVED_TWITCH_PATH_SEGMENTS.has(segment)) {
+      return null;
+    }
+
+    return segment;
+  } catch {
+    return null;
+  }
 }
 
 function extractStreamCategory(): { slug: string; label: string } {
