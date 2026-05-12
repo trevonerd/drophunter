@@ -1,8 +1,12 @@
-import type { Message } from '../types';
 import { claimChannelPointsBonus } from './channel-points.ts';
+import { logContentDebug, logContentInfo, logContentWarn } from './logging.ts';
 import { canAttemptPageUnmute } from './playback.ts';
 
-const LOG_PREFIX = '[DropHunter]';
+type ContentRuntimeMessage = {
+  type?: string;
+  payload?: unknown;
+};
+
 const RESERVED_TWITCH_PATH_SEGMENTS = new Set([
   'directory',
   'drops',
@@ -38,9 +42,13 @@ async function loadStoredAppState() {
 function subscribeToAppState(
   onState: (state: { autoClaimChannelPointsBonus?: boolean }) => void,
 ): () => void {
-  const runtimeListener = (message: Message) => {
-    if (message.type === 'UPDATE_STATE' && message.payload) {
-      onState(normalizeStoredAppState(message.payload));
+  const runtimeListener = (message: unknown) => {
+    if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'UPDATE_STATE') {
+      return;
+    }
+    const updateMessage = message as ContentRuntimeMessage;
+    if (updateMessage.payload) {
+      onState(normalizeStoredAppState(updateMessage.payload));
     }
   };
 
@@ -110,8 +118,8 @@ function extractStreamCategory(): { slug: string; label: string } {
     document.querySelectorAll('a[data-a-target="stream-game-link"], a[href*="/directory/category/"]'),
   ) as HTMLAnchorElement[];
   if (links.length === 0) {
-    // Twitch may have changed their DOM structure — log so it's visible in the tab console.
-    console.debug('[DropHunter] Category selectors matched no elements; stream context will be incomplete.');
+    // Twitch may have changed their DOM structure — log so it's visible in local debug builds.
+    logContentDebug('Category selectors matched no elements; stream context will be incomplete.');
   }
   for (const link of links) {
     const href = link.getAttribute('href') ?? '';
@@ -306,12 +314,12 @@ function prepareStreamPlayback() {
     }
     if (video.paused) {
       if (!hasUserActivation) {
-        if (import.meta.env.DEV) {
-          console.debug(LOG_PREFIX, 'Playback skipped: user interaction required for autoplay');
+        if (__DROPHUNTER_DEBUG_LOGS__) {
+          logContentDebug('Playback skipped: user interaction required for autoplay');
         }
       } else {
         video.play().catch((err) => {
-          console.warn(LOG_PREFIX, 'Playback failed:', err.message, {
+          logContentWarn('Playback failed:', err.message, {
             errorName: err.name,
             hasBeenActive: hasUserActivation,
           });
@@ -403,7 +411,7 @@ function extractTwitchSession() {
     normalizeText(window.localStorage.getItem('clientIntegrity'));
 
   if (!oauthToken || !deviceId) {
-    console.warn(LOG_PREFIX, 'Content session extraction failed', {
+    logContentWarn('Content session extraction failed', {
       hasOAuthToken: Boolean(oauthToken),
       hasUserId: Boolean(userId),
       hasDeviceId: Boolean(deviceId),
@@ -416,12 +424,12 @@ function extractTwitchSession() {
     return null;
   }
 
-  console.info(LOG_PREFIX, 'Content session extracted', {
-    userId,
-    oauthTokenLength: oauthToken.length,
+  logContentInfo('Content session extracted', {
+    hasUserId: Boolean(userId),
+    hasOAuthToken: Boolean(oauthToken),
     hasClientIntegrity: Boolean(clientIntegrity),
-    deviceIdSuffix: deviceId.slice(-6),
-    uuid,
+    hasDeviceId: Boolean(deviceId),
+    hasUuid: Boolean(uuid),
   });
 
   return {
@@ -524,7 +532,7 @@ function playBeep(kind: 'drop-complete' | 'all-complete') {
   }
 }
 
-chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: ContentRuntimeMessage, _sender, sendResponse) => {
   switch (message.type) {
     case 'GET_TWITCH_SESSION': {
       const session = extractTwitchSession();
@@ -579,8 +587,8 @@ function syncIntegrityToBackground(source: string) {
     }
     const detail = JSON.parse(raw) as { token?: string; expiration?: number; request_id?: string };
     if (detail && typeof detail.token === 'string' && detail.token.length > 0) {
-      console.info(LOG_PREFIX, `Integrity token from page (${source})`, {
-        tokenLength: detail.token.length,
+      logContentInfo(`Integrity token from page (${source})`, {
+        hasToken: true,
         expiration: detail.expiration,
       });
       chrome.runtime
@@ -602,8 +610,8 @@ function handleIntegrityEvent(event: Event): void {
     const detail =
       typeof customEvent.detail === 'string' ? JSON.parse(customEvent.detail) : customEvent.detail;
     if (detail && typeof detail.token === 'string' && detail.token.length > 0) {
-      console.info(LOG_PREFIX, 'Intercepted Twitch integrity token (live)', {
-        tokenLength: detail.token.length,
+      logContentInfo('Intercepted Twitch integrity token (live)', {
+        hasToken: true,
         expiration: detail.expiration,
       });
       chrome.runtime
@@ -685,7 +693,7 @@ function tryClaimBonus(): void {
   if (result.claimed === true) {
     lastClaimAttemptAt = now;
     const channelName = extractChannelNameFromPath();
-    console.debug('[DropHunter] Auto-claimed channel points bonus');
+    logContentDebug('Auto-claimed channel points bonus');
     chrome.runtime
       .sendMessage({ type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName } })
       .catch(() => {});
