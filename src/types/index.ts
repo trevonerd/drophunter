@@ -69,6 +69,7 @@ export interface AppState {
   monitorAutoOpen: boolean;
   autoResumeOnStartup: boolean;
   muteFarmingTab: boolean;
+  notificationsEnabled: boolean;
   autoClaimChannelPointsBonus: boolean;
   autoClaimDrops: boolean;
   totalDropsClaimed: number;
@@ -111,6 +112,7 @@ export type MessageType =
   | 'SET_MONITOR_AUTO_OPEN'
   | 'SET_AUTO_RESUME_ON_STARTUP'
   | 'SET_MUTE_FARMING_TAB'
+  | 'SET_NOTIFICATIONS_ENABLED'
   | 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'
   | 'SET_AUTO_CLAIM_DROPS'
   | 'SET_STREAMER_SELECTION_MODE'
