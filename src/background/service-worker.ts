@@ -1,10 +1,11 @@
 import { isDropCompleted } from '../shared/drops';
 import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection';
+import { assertNever, isRuntimeRequest } from '../shared/messages.ts';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { createInitialState, toSlug } from '../shared/utils';
 import type { PlaybackPrepResult } from '../types';
-import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import {
   applyAutoClaimDropsSetting,
   autoClaimClaimableDrops as autoClaimClaimableDropsExt,
@@ -136,6 +137,7 @@ export const DROPS_SNAPSHOT_CACHE_KEY = 'dropsSnapshotCache';
 export const TIMING_STATE_KEY = 'timingState';
 export const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
 export const ALARM_NAME = 'dropCheck';
+const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = { permissions: ['notifications'] };
 export const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000; // 3 days
 export const INTEGRITY_FALLBACK_TTL_MS = 30 * 60_000; // 30 minutes
 export const TICK_WATCHDOG_TIMEOUT_MS = 60_000;
@@ -488,6 +490,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 initPromise = loadState().catch((error) => {
   logWarn('SW initialization failed:', String(error));
 });
+initPromise = initPromise.then(async () => {
+  await syncNotificationPermissionState();
+});
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
@@ -511,6 +516,11 @@ async function notify(title: string, message: string, priority = 2) {
   if (!appState.notificationsEnabled) {
     return;
   }
+  if (!(await hasNotificationPermission())) {
+    appState.notificationsEnabled = false;
+    await saveStateExt(state);
+    return;
+  }
   await chrome.notifications.create({
     type: 'basic',
     iconUrl: 'icons/icon128.png',
@@ -518,6 +528,25 @@ async function notify(title: string, message: string, priority = 2) {
     message,
     priority,
   });
+}
+
+async function hasNotificationPermission(): Promise<boolean> {
+  try {
+    return await chrome.permissions.contains(NOTIFICATION_PERMISSION);
+  } catch {
+    return false;
+  }
+}
+
+async function syncNotificationPermissionState() {
+  if (!appState.notificationsEnabled) {
+    return;
+  }
+  if (await hasNotificationPermission()) {
+    return;
+  }
+  appState.notificationsEnabled = false;
+  await saveStateExt(state);
 }
 
 async function stopFarmingSession(options?: {
@@ -1484,7 +1513,24 @@ async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
 
 async function handleSetNotificationsEnabled(payload?: { enabled?: boolean }) {
   await trackActivity('set-notifications-enabled');
-  appState.notificationsEnabled = payload?.enabled !== false;
+  const enabled = payload?.enabled !== false;
+  if (!enabled) {
+    appState.notificationsEnabled = false;
+    await saveStateExt(state);
+    return { success: true, notificationsEnabled: appState.notificationsEnabled };
+  }
+
+  if (!(await hasNotificationPermission())) {
+    appState.notificationsEnabled = false;
+    await saveStateExt(state);
+    return {
+      success: false,
+      notificationsEnabled: appState.notificationsEnabled,
+      error: 'Notification permission was not granted',
+    };
+  }
+
+  appState.notificationsEnabled = true;
   await saveStateExt(state);
   return { success: true, notificationsEnabled: appState.notificationsEnabled };
 }
@@ -1579,10 +1625,25 @@ async function recordChannelPointsBonusClaimed(channelName?: string | null) {
   await notify('Channel points claimed', `Claimed${fromChannel}.`, 0);
 }
 
-chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (!isRuntimeRequest(message)) {
+    sendResponse({ success: false, error: 'Unknown message type' });
+    return true;
+  }
+
   switch (message.type) {
+    case 'GET_TWITCH_SESSION':
+    case 'GET_STREAM_CONTEXT':
+    case 'PREPARE_STREAM_PLAYBACK':
+    case 'CLAIM_CHANNEL_POINTS_BONUS':
+    case 'PLAY_ALERT':
+    case 'UPDATE_STATE':
+    case 'OPEN_STREAMER':
+      sendResponse({ success: false, error: 'Unsupported message target' });
+      return true;
+
     case 'ENSURE_GAMES_CACHE':
-      handleEnsureGamesCache(message.payload as { force?: boolean } | undefined)
+      handleEnsureGamesCache(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
@@ -1594,13 +1655,13 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       return true;
 
     case 'ADD_TO_QUEUE':
-      handleAddToQueue(message.payload as { game?: TwitchGame })
+      handleAddToQueue(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'REMOVE_FROM_QUEUE':
-      handleRemoveFromQueue(message.payload as { game?: TwitchGame; gameId?: string; campaignId?: string })
+      handleRemoveFromQueue(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
@@ -1612,13 +1673,13 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       return true;
 
     case 'START_FARMING':
-      handleStartFarming(message.payload as { game?: TwitchGame })
+      handleStartFarming(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'SET_SELECTED_GAME':
-      handleSetSelectedGame(message.payload as { game: TwitchGame })
+      handleSetSelectedGame(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
@@ -1630,7 +1691,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       return true;
 
     case 'SET_AUTO_RESUME_ON_STARTUP':
-      handleSetAutoResumeOnStartup(message.payload as { enabled?: boolean } | undefined)
+      handleSetAutoResumeOnStartup(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
@@ -1648,7 +1709,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       return true;
 
     case 'UPDATE_GAMES':
-      appState.availableGames = replaceAvailableGames((message.payload ?? []) as TwitchGame[]);
+      appState.availableGames = replaceAvailableGames(message.payload ?? []);
       appState.availableGames = annotateGameCompletionExt(appState.availableGames, cachedDropsSnapshot);
       if (appState.availableGames.length > 0) {
         appState.lastSuccessfulRefreshAt = Date.now();
@@ -1688,9 +1749,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
     }
 
     case 'SYNC_TWITCH_INTEGRITY': {
-      const payload = message.payload as
-        | { token?: string; expiration?: number; request_id?: string }
-        | undefined;
+      const payload = message.payload;
       const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
       if (!token) {
         sendResponse({ success: false, error: 'Empty integrity token' });
@@ -1698,7 +1757,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       }
       const expiration = typeof payload?.expiration === 'number' ? payload.expiration : 0;
       logDebug('Integrity token synced from content script', {
-        tokenLength: token.length,
+        hasToken: true,
         expiration,
         hasSession: Boolean(twitchSessionCache),
       });
@@ -1725,68 +1784,62 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       return true;
 
     case 'SET_MONITOR_AUTO_OPEN':
-      handleSetMonitorAutoOpen(message.payload as { enabled?: boolean } | undefined)
+      handleSetMonitorAutoOpen(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'SET_MUTE_FARMING_TAB':
-      handleSetMuteFarmingTab(message.payload as { enabled?: boolean } | undefined)
+      handleSetMuteFarmingTab(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'SET_NOTIFICATIONS_ENABLED':
-      handleSetNotificationsEnabled(message.payload as { enabled?: boolean } | undefined)
+      handleSetNotificationsEnabled(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
-      handleSetAutoClaimChannelPointsBonus(message.payload as { enabled?: boolean } | undefined)
+      handleSetAutoClaimChannelPointsBonus(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'CHANNEL_POINTS_BONUS_CLAIMED':
       logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });
-      recordChannelPointsBonusClaimed(
-        (message.payload as { channelName?: string } | undefined)?.channelName ??
-          getChannelNameFromTab(sender.tab?.url),
-      )
+      recordChannelPointsBonusClaimed(message.payload?.channelName ?? getChannelNameFromTab(sender.tab?.url))
         .then(() => sendResponse({ success: true }))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'SET_AUTO_CLAIM_DROPS':
-      handleSetAutoClaimDrops(message.payload as { enabled?: boolean } | undefined)
+      handleSetAutoClaimDrops(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'SET_STREAMER_SELECTION_MODE':
-      handleSetStreamerSelectionMode(
-        message.payload as { mode?: 'low-view' | 'random' | 'top-viewers' } | undefined,
-      )
+      handleSetStreamerSelectionMode(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'SET_PREFERRED_STREAMER_LANGUAGE':
-      handleSetPreferredStreamerLanguage(message.payload as { language?: string | null } | undefined)
+      handleSetPreferredStreamerLanguage(message.payload)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     case 'OPEN_MONITOR_DASHBOARD':
-      openMonitorDashboardWindow((message.payload ?? {}) as { toggle?: boolean } | undefined)
+      openMonitorDashboardWindow(message.payload ?? {})
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
     default:
-      sendResponse({ success: false, error: 'Unknown message type' });
-      return true;
+      assertNever(message);
   }
 });
 
