@@ -27,6 +27,7 @@ export const createInitialState = (): AppState => ({
   monitorAutoOpen: true,
   autoResumeOnStartup: false,
   muteFarmingTab: true,
+  notificationsEnabled: true,
   autoClaimChannelPointsBonus: true,
   autoClaimDrops: true,
   totalDropsClaimed: 0,

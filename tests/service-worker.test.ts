@@ -479,14 +479,26 @@ describe('service worker message handlers', () => {
 
   test('CHANNEL_POINTS_BONUS_CLAIMED increments and persists channel point stats', async () => {
     const baseline = getAppStateFromStorage().totalChannelPointsClaimed;
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    const notifications: unknown[] = [];
+    chromeAny.notifications.create = async (options: unknown) => {
+      notifications.push(options);
+      return 'notification-id';
+    };
 
     const response = await dispatchMessage(
-      { type: 'CHANNEL_POINTS_BONUS_CLAIMED' },
+      { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'trevonerd' } },
       { tab: { id: 123 } },
     );
 
     expect(response).toEqual({ success: true });
     expect(getAppStateFromStorage().totalChannelPointsClaimed).toBe(baseline + 1);
+    expect(notifications).toContainEqual(
+      expect.objectContaining({
+        title: 'Channel points claimed',
+        message: 'Claimed from trevonerd.',
+      }),
+    );
   });
 
   test('START_FARMING exits cleanly when no farmable drops are available', async () => {
@@ -700,6 +712,39 @@ describe('service worker message handlers', () => {
 
     expect(disabled).toEqual({ success: true, autoResumeOnStartup: false });
     expect(getAppStateFromStorage().autoResumeOnStartup).toBe(false);
+  });
+
+  test('SET_NOTIFICATIONS_ENABLED persists the notification preference and suppresses alerts', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    const notifications: unknown[] = [];
+    chromeAny.notifications.create = async (options: unknown) => {
+      notifications.push(options);
+      return 'notification-id';
+    };
+
+    const disabled = await dispatchMessage({
+      type: 'SET_NOTIFICATIONS_ENABLED',
+      payload: { enabled: false },
+    });
+
+    expect(disabled).toEqual({ success: true, notificationsEnabled: false });
+    expect(getAppStateFromStorage().notificationsEnabled).toBe(false);
+
+    const response = await dispatchMessage(
+      { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'quiet-channel' } },
+      { tab: { id: 123 } },
+    );
+
+    expect(response).toEqual({ success: true });
+    expect(notifications).toEqual([]);
+
+    const enabled = await dispatchMessage({
+      type: 'SET_NOTIFICATIONS_ENABLED',
+      payload: { enabled: true },
+    });
+
+    expect(enabled).toEqual({ success: true, notificationsEnabled: true });
+    expect(getAppStateFromStorage().notificationsEnabled).toBe(true);
   });
 
   test('STOP_FARMING clears running flags and stores terminal stop metadata', async () => {

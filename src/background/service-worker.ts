@@ -1,6 +1,7 @@
 import { isDropCompleted } from '../shared/drops';
 import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
+import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { createInitialState, toSlug } from '../shared/utils';
 import type { PlaybackPrepResult } from '../types';
 import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
@@ -507,6 +508,9 @@ function clearStopState() {
 }
 
 async function notify(title: string, message: string, priority = 2) {
+  if (!appState.notificationsEnabled) {
+    return;
+  }
   await chrome.notifications.create({
     type: 'basic',
     iconUrl: 'icons/icon128.png',
@@ -582,25 +586,43 @@ async function loadState() {
     },
   );
 
+  const handledStartupPolicy = await handleStartupResumePolicy();
+  if (!handledStartupPolicy && state.appState.isRunning && !state.appState.isPaused) {
+    startMonitoring();
+  }
+}
+
+async function canResumeWithExistingManagedTab(): Promise<boolean> {
+  if (!state.appState.tabId) {
+    return false;
+  }
+  const tab = await chrome.tabs.get(state.appState.tabId).catch(() => null);
+  return Boolean(tab?.id && getFarmableTwitchChannelNameFromUrl(tab.url));
+}
+
+async function handleStartupResumePolicy() {
   const now = Date.now();
   const startupResumePolicy = applyStartupResumePolicy(state, now, CRASH_DETECTION_THRESHOLD_MS);
 
   if (startupResumePolicy === 'paused-on-startup') {
-    logInfo('Startup resume policy paused stale farming session', {
+    logInfo('Long browser restart detected; leaving farming paused', {
       secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
     });
+    stopMonitoring();
     await saveStateExt(state);
     await saveTimingStateExt(state);
-    return;
+    return true;
   }
 
   if (startupResumePolicy === 'auto-resume') {
-    logInfo('Crash recovery detected', {
-      secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
-    });
+    const keptExistingTab = await canResumeWithExistingManagedTab();
+    logInfo(
+      keptExistingTab
+        ? 'Long browser restart detected; resuming with existing Twitch tab'
+        : 'Long browser restart detected; reopening streamer',
+      { secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000) },
+    );
     state.appState.resumedFromCrash = now;
-    state.appState.tabId = null;
-    state.appState.activeStreamer = null;
     state.lastProgressAdvanceAt = now;
     state.noProgressRotationAttempts = 0;
     state.recoveryBackoffUntil = 0;
@@ -608,9 +630,13 @@ async function loadState() {
     state.recoveryNotificationSent = false;
     state.appState = clearRecoveryStatus(state.appState);
     state.streamValidationGraceUntil = now + STREAM_VALIDATION_GRACE_MS;
+    if (!keptExistingTab) {
+      state.appState.tabId = null;
+      state.appState.activeStreamer = null;
+    }
     await saveStateExt(state);
     await saveTimingStateExt(state);
-    if (state.appState.selectedGame) {
+    if (!keptExistingTab && state.appState.selectedGame) {
       await openBestStreamerForSelectedGame();
     }
     setTimeout(() => {
@@ -619,11 +645,11 @@ async function loadState() {
         saveStateExt(state).catch(() => undefined);
       }
     }, CRASH_RECOVERY_GRACE_MS);
+    startMonitoring();
+    return true;
   }
 
-  if (state.appState.isRunning && !state.appState.isPaused) {
-    startMonitoring();
-  }
+  return false;
 }
 
 export const GAMES_CACHE_TTL_MS = 5 * 60_000;
@@ -1440,6 +1466,9 @@ async function handleSetMonitorAutoOpen(payload?: { enabled?: boolean }) {
 }
 
 async function handleSetAutoResumeOnStartup(payload?: { enabled?: boolean }) {
+  if (initPromise) {
+    await initPromise;
+  }
   await trackActivity('set-auto-resume-on-startup');
   appState.autoResumeOnStartup = payload?.enabled === true;
   await saveStateExt(state);
@@ -1451,6 +1480,13 @@ async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
   appState.muteFarmingTab = payload?.enabled !== false;
   await Promise.all([saveStateExt(state), syncManagedTabMuteStateExt(state)]);
   return { success: true, muteFarmingTab: appState.muteFarmingTab };
+}
+
+async function handleSetNotificationsEnabled(payload?: { enabled?: boolean }) {
+  await trackActivity('set-notifications-enabled');
+  appState.notificationsEnabled = payload?.enabled !== false;
+  await saveStateExt(state);
+  return { success: true, notificationsEnabled: appState.notificationsEnabled };
 }
 
 async function handleSetAutoClaimChannelPointsBonus(payload?: { enabled?: boolean }) {
@@ -1516,8 +1552,9 @@ async function attemptAutoClaimChannelPointsBonus() {
     .catch(() => null)) as ChannelPointsBonusClaimResponse | null;
 
   if (result?.success && result.claimed) {
-    logDebug('Auto-claimed channel points bonus', { tabId: tab.id });
-    await recordChannelPointsBonusClaimed();
+    const channelName = getChannelNameFromTab(tab.url) ?? appState.activeStreamer?.displayName ?? null;
+    logDebug('Auto-claimed channel points bonus', { tabId: tab.id, channelName });
+    await recordChannelPointsBonusClaimed(channelName);
     return true;
   }
 
@@ -1530,10 +1567,16 @@ async function ensureInitializedForStatsUpdate() {
   }
 }
 
-async function recordChannelPointsBonusClaimed() {
+function getChannelNameFromTab(url: string | undefined): string | null {
+  return getFarmableTwitchChannelNameFromUrl(url);
+}
+
+async function recordChannelPointsBonusClaimed(channelName?: string | null) {
   await ensureInitializedForStatsUpdate();
   appState.totalChannelPointsClaimed = appState.totalChannelPointsClaimed + 1;
   await saveStateExt(state);
+  const fromChannel = channelName ? ` from ${channelName}` : '';
+  await notify('Channel points claimed', `Claimed${fromChannel}.`, 0);
 }
 
 chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
@@ -1693,6 +1736,12 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;
 
+    case 'SET_NOTIFICATIONS_ENABLED':
+      handleSetNotificationsEnabled(message.payload as { enabled?: boolean } | undefined)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
     case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
       handleSetAutoClaimChannelPointsBonus(message.payload as { enabled?: boolean } | undefined)
         .then((result) => sendResponse(result))
@@ -1701,7 +1750,10 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
 
     case 'CHANNEL_POINTS_BONUS_CLAIMED':
       logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });
-      recordChannelPointsBonusClaimed()
+      recordChannelPointsBonusClaimed(
+        (message.payload as { channelName?: string } | undefined)?.channelName ??
+          getChannelNameFromTab(sender.tab?.url),
+      )
         .then(() => sendResponse({ success: true }))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;

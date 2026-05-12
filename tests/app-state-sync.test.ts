@@ -18,6 +18,7 @@ describe('normalizeStoredAppState', () => {
     expect(state.queue).toEqual([]);
     expect(state.autoResumeOnStartup).toBe(false);
     expect(state.muteFarmingTab).toBe(true);
+    expect(state.notificationsEnabled).toBe(true);
     expect(state.autoClaimChannelPointsBonus).toBe(true);
     expect(state.streamerSelectionMode).toBe('low-view');
     expect(state.preferredStreamerLanguage).toBeNull();

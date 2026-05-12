@@ -162,6 +162,22 @@ function SettingsIcon() {
   );
 }
 
+function BellIcon({ muted = false }: { muted?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M10.3 21a2 2 0 0 0 3.4 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      {muted && <path d="M4 4l16 16" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />}
+    </svg>
+  );
+}
+
 function BackIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -581,6 +597,23 @@ function App() {
     }));
   };
 
+  const handleNotificationsEnabledToggle = async () => {
+    const next = !state.notificationsEnabled;
+    setState((prev) => ({ ...prev, notificationsEnabled: next }));
+    const response = (await chrome.runtime.sendMessage({
+      type: 'SET_NOTIFICATIONS_ENABLED',
+      payload: { enabled: next },
+    })) as { success?: boolean; notificationsEnabled?: boolean } | undefined;
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, notificationsEnabled: !next }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      notificationsEnabled: response.notificationsEnabled ?? next,
+    }));
+  };
+
   const handleStreamerSelectionModeChange = async (mode: StreamerSelectionMode) => {
     const previous = state.streamerSelectionMode;
     setState((prev) => ({ ...prev, streamerSelectionMode: mode }));
@@ -716,16 +749,42 @@ function App() {
         <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold text-white">Auto-resume on startup</p>
+              <p className="text-xs font-semibold text-white">Notifications</p>
               <p className="mt-1 text-[11px] text-gray-400">
-                Resume farming automatically after the browser restarts.
+                Show desktop alerts for channel points and farming events.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={state.notificationsEnabled}
+              aria-label="Notifications"
+              onClick={() => void handleNotificationsEnabledToggle()}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
+                state.notificationsEnabled ? 'bg-green-500/90' : 'bg-white/15'
+              }`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  state.notificationsEnabled ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white">Auto-resume after restart</p>
+              <p className="mt-1 text-[11px] text-gray-400">
+                After 30 seconds away, resume farming automatically instead of returning paused.
               </p>
             </div>
             <button
               type="button"
               role="switch"
               aria-checked={state.autoResumeOnStartup}
-              aria-label="Auto-resume on startup"
+              aria-label="Auto-resume after restart"
               onClick={() => void handleAutoResumeOnStartupToggle()}
               className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
                 state.autoResumeOnStartup ? 'bg-green-500/90' : 'bg-white/15'
@@ -744,7 +803,7 @@ function App() {
             <div>
               <p className="text-xs font-semibold text-white">Auto-claim channel points bonus</p>
               <p className="mt-1 text-[11px] text-gray-400">
-                Claim the free bonus points on the channel currently being farmed.
+                Claim free bonus points on every open Twitch channel tab.
               </p>
             </div>
             <button
@@ -970,6 +1029,17 @@ function App() {
             title="Settings"
           >
             <SettingsIcon />
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleNotificationsEnabledToggle()}
+            className={`p-1 rounded hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
+              state.notificationsEnabled ? 'text-[#1B1030]' : 'text-[#1B1030]/55'
+            }`}
+            aria-label={state.notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
+            title={state.notificationsEnabled ? 'Notifications on' : 'Notifications off'}
+          >
+            <BellIcon muted={!state.notificationsEnabled} />
           </button>
         </div>
       </div>

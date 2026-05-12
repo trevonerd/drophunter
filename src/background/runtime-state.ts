@@ -160,13 +160,13 @@ export function applyStartupResumePolicy(
   now: number,
   staleThresholdMs: number,
 ): StartupResumePolicyResult {
-  const isStaleStartup =
+  const shouldApplyStartupPolicy =
     state.appState.isRunning &&
     !state.appState.isPaused &&
     state.lastHeartbeatAt > 0 &&
     now - state.lastHeartbeatAt > staleThresholdMs;
 
-  if (!isStaleStartup) {
+  if (!shouldApplyStartupPolicy) {
     return 'not-stale';
   }
 
