@@ -119,7 +119,7 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
   const pending = relevantForState.filter((drop) => !isDropCompleted(drop));
   const normalizedPending = pending.map((drop) => ({
     ...drop,
-    status: drop.progress > 0 || Boolean(drop.claimable) ? ('active' as const) : ('pending' as const),
+    status: drop.progress > 0 || drop.claimable === true ? ('active' as const) : ('pending' as const),
   }));
   // Exclude event-based (sub-only) drops from farming selection — they stay in pendingDrops for UI display
   const farmablePending = normalizedPending.filter((drop) => drop.dropType !== 'event-based');
