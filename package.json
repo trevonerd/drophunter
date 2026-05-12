@@ -1,7 +1,7 @@
 {
   "name": "drophunter",
   "private": true,
-  "version": "2.9.2",
+  "version": "3.0.0",
   "type": "module",
   "repository": {
     "type": "git",
@@ -9,10 +9,10 @@
   },
   "scripts": {
     "clean": "rm -rf dist video/out",
-    "dev": "vite",
-    "dev:build": "vite build --watch --mode development",
-    "build": "vite build",
+    "dev": "vite build --watch --mode development",
+    "build": "vite build --mode production",
     "check": "bun run test:ts && bun run lint && bun run test && bun run build",
+    "release:check": "bun scripts/release-check.mjs",
     "video:install": "cd video && bun install",
     "video:preview": "cd video && bun run preview",
     "video:render:cta": "cd video && bun run render:cta",
@@ -23,39 +23,35 @@
     "test": "bun test tests/",
     "lint": "biome lint .",
     "format": "biome format --write .",
-    "deps:outdated": "bun outdated",
+    "deps:outdated": "bun outdated && cd video && bun outdated",
     "deps:audit": "bun audit",
-    "update": "bun update --latest && cd video && bun update --latest",
-    "update:interactive": "bun update -i --latest && cd video && bun update -i --latest",
+    "deps:audit:all": "bun audit && cd video && bun audit",
+    "update": "bun update --latest && bun install && cd video && bun update --latest && bun install",
+    "update:interactive": "bun update --interactive --latest && bun install && cd video && bun update --interactive --latest && bun install",
     "prepare": "husky"
   },
   "dependencies": {
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.9",
-    "@tailwindcss/postcss": "4.2.2",
-    "@types/chrome": "0.1.38",
+    "@biomejs/biome": "2.4.15",
+    "@tailwindcss/postcss": "4.3.0",
+    "@types/chrome": "0.1.42",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.1",
-    "autoprefixer": "10.4.27",
+    "autoprefixer": "10.5.0",
     "husky": "9.1.7",
-    "lint-staged": "16.4.0",
-    "postcss": "8.5.10",
-    "tailwindcss": "4.2.2",
-    "typescript": "6.0.2",
-    "vite": "8.0.8"
+    "lint-staged": "17.0.4",
+    "postcss": "8.5.14",
+    "tailwindcss": "4.3.0",
+    "typescript": "6.0.3",
+    "vite": "8.0.12"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,css}": [
       "biome check --write --no-errors-on-unmatched"
     ]
-  },
-  "overrides": {
-    "postcss": "8.5.10",
-    "yaml": ">=2.8.3",
-    "picomatch": ">=4.0.4"
   }
 }

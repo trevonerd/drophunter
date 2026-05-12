@@ -4,8 +4,22 @@ import { resolve } from 'path';
 import { defineConfig } from 'vite';
 
 const isWatchBuild = process.argv.includes('--watch');
+const classicScriptModuleSyntax =
+  /\bimport\s*(?:\(|["'{*])|\bexport\s+(?:\{|default|const|function|class|let|var)/;
 
-export default defineConfig(() => ({
+function assertClassicContentScript(fileName: string, code: string) {
+  if (classicScriptModuleSyntax.test(code)) {
+    throw new Error(
+      `${fileName} contains ESM syntax but is injected as a classic Chrome content script. ` +
+        'Keep content script entry dependencies self-contained.',
+    );
+  }
+}
+
+export default defineConfig(({ mode }) => ({
+  define: {
+    __DROPHUNTER_DEBUG_LOGS__: JSON.stringify(mode !== 'production'),
+  },
   plugins: [
     react(),
     {
@@ -35,6 +49,7 @@ export default defineConfig(() => ({
         for (const [fileName, chunk] of Object.entries(bundle)) {
           const guard = guards[fileName];
           if (guard && chunk.type === 'chunk') {
+            assertClassicContentScript(fileName, chunk.code);
             chunk.code = `(function(){if(window["${guard}"])return;window["${guard}"]=true;${chunk.code}})();\n`;
           }
         }
