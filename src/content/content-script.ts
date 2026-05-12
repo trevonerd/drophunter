@@ -1,3 +1,4 @@
+import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { Message } from '../types';
 import { claimChannelPointsBonus } from './channel-points.ts';
 import { canAttemptPageUnmute } from './playback.ts';
@@ -66,34 +67,7 @@ function normalizeForCompare(value: string): string {
 }
 
 function extractChannelNameFromPath(): string | null {
-  if (window.location.hostname === 'player.twitch.tv') {
-    const fromQuery = normalizeText(new URL(window.location.href).searchParams.get('channel'));
-    if (fromQuery) {
-      return fromQuery.toLowerCase();
-    }
-  }
-
-  const segment = window.location.pathname.split('/').filter(Boolean)[0] ?? '';
-  const reserved = new Set([
-    'directory',
-    'drops',
-    'settings',
-    'subscriptions',
-    'wallet',
-    'privacy',
-    'inventory',
-    'search',
-    'videos',
-    'downloads',
-    'turbo',
-    'jobs',
-    'p',
-    'store',
-  ]);
-  if (!segment || reserved.has(segment.toLowerCase())) {
-    return null;
-  }
-  return segment.toLowerCase();
+  return getFarmableTwitchChannelNameFromUrl(window.location.href);
 }
 
 function extractStreamCategory(): { slug: string; label: string } {
@@ -631,7 +605,7 @@ function cleanupContentScript(): void {
   window.removeEventListener(INTEGRITY_STORAGE_KEY, handleIntegrityEvent);
   window.clearInterval(cleanupInterval);
   window.clearTimeout(delayedSyncTimeout);
-  stopChannelPointsPolling();
+  stopChannelPointsAutoClaim();
   appStateUnsubscribe?.();
   appStateUnsubscribe = null;
 }
@@ -655,42 +629,57 @@ const delayedSyncTimeout = window.setTimeout(() => {
 
 let autoClaimEnabled = false;
 let pollIntervalId: ReturnType<typeof setInterval> | null = null;
+let lastClaimAttemptAt = 0;
+
+const CHANNEL_POINTS_POLL_MS = 1_000;
+const CHANNEL_POINTS_CLAIM_COOLDOWN_MS = 5_000;
+
+function isSupportedChannelPointsPage(): boolean {
+  return extractChannelNameFromPath() !== null;
+}
 
 function tryClaimBonus(): void {
-  if (extractChannelNameFromPath() === null) {
+  if (!autoClaimEnabled || !isSupportedChannelPointsPage()) {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastClaimAttemptAt < CHANNEL_POINTS_CLAIM_COOLDOWN_MS) {
     return;
   }
   const result = claimChannelPointsBonus(document, { supportedPage: true });
   if (result.claimed === true) {
+    lastClaimAttemptAt = now;
+    const channelName = extractChannelNameFromPath();
     console.debug('[DropHunter] Auto-claimed channel points bonus');
-    chrome.runtime.sendMessage({ type: 'CHANNEL_POINTS_BONUS_CLAIMED' }).catch(() => {});
+    chrome.runtime
+      .sendMessage({ type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName } })
+      .catch(() => {});
   }
 }
 
-function startChannelPointsPolling(): void {
+function startChannelPointsAutoClaim(): void {
   if (pollIntervalId !== null) {
     return;
   }
-  pollIntervalId = setInterval(tryClaimBonus, 30_000);
+  pollIntervalId = setInterval(tryClaimBonus, CHANNEL_POINTS_POLL_MS);
   tryClaimBonus();
 }
 
-function stopChannelPointsPolling(): void {
-  if (pollIntervalId === null) {
-    return;
+function stopChannelPointsAutoClaim(): void {
+  if (pollIntervalId !== null) {
+    clearInterval(pollIntervalId);
+    pollIntervalId = null;
   }
-  clearInterval(pollIntervalId);
-  pollIntervalId = null;
 }
 
 loadStoredAppState()
   .then((state) => {
     autoClaimEnabled = state.autoClaimChannelPointsBonus !== false;
-    if (autoClaimEnabled) startChannelPointsPolling();
+    if (autoClaimEnabled) startChannelPointsAutoClaim();
   })
   .catch(() => undefined);
 appStateUnsubscribe = subscribeToAppState((state) => {
   autoClaimEnabled = state.autoClaimChannelPointsBonus !== false;
-  if (autoClaimEnabled) startChannelPointsPolling();
-  else stopChannelPointsPolling();
+  if (autoClaimEnabled) startChannelPointsAutoClaim();
+  else stopChannelPointsAutoClaim();
 });
