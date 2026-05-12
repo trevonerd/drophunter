@@ -12,11 +12,13 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Track current reward progress directly from the popup and extension badge
 - Open and validate an eligible Twitch stream for the selected campaign
 - Rotate to a new streamer only when the current stream becomes invalid or progress stalls
-- Auto-claim rewards when Twitch marks them claimable
+- Auto-claim completed drops across all campaigns when Twitch marks them claimable
 - Pause and resume farming without losing your place in the queue
+- Optionally auto-resume farming after a browser restart instead of coming back paused
 - Choose how DropHunter picks streamers: lowest viewers, random, or most viewers
 - Filter streamers by preferred language (30+ languages supported)
 - Automatically claim free channel points bonuses on farmed streams
+- Show desktop alerts for important farming events and claimed channel points, with a Settings toggle to mute them
 - Show a separate live monitor window for at-a-glance progress
 - Let you choose whether the monitor opens automatically when farming starts
 - Control whether farming tabs are muted from Settings
@@ -55,13 +57,14 @@ From there, DropHunter will:
 - open a Twitch stream for the selected campaign
 - keep the tab muted
 - track progress and update the extension badge
-- claim rewards when they become available
+- claim completed drops when they become available
+- claim free channel points bonuses on the active farmed channel when enabled
 - switch streams only when recovery is needed
 - continue through the queue when a campaign is completed
 
 DropHunter refreshes the campaign list and drop statuses every 2 minutes in the background to catch new campaigns, status changes, and expirations.
 
-If Twitch blocks playback or needs a manual interaction, DropHunter can notify you so you can click the player and resume progress.
+If Twitch blocks playback or needs a manual interaction, DropHunter can notify you so you can click the player and resume progress. If the browser restarts mid-session, you can also choose whether DropHunter should resume automatically or stay paused until you come back.
 
 ## Monitor Window
 
@@ -70,6 +73,18 @@ DropHunter includes a compact monitor popup for quick progress checks while farm
 - You can open or close it manually from the popup header
 - You can enable or disable monitor auto-open from Settings
 - When auto-open is enabled, the monitor opens shortly after farming starts so it is easier to see
+
+## Settings
+
+DropHunter includes a few runtime controls in the popup so you can tune how aggressive or quiet the automation feels:
+
+- enable or disable desktop notifications
+- choose whether farming should auto-resume after a browser restart
+- toggle auto-claim for channel points bonuses
+- toggle auto-claim for completed drops
+- switch between low-view, random, and top-viewer streamer selection
+- prefer a specific streamer language when one is available
+- choose whether the farming tab stays muted
 
 ## Notes
 
