@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { setupChromeMocks, type ChromeMocks } from './mocks/chrome';
-import type { AppState, Message, TwitchGame } from '../src/types/index.ts';
+import type { RuntimeRequest } from '../src/shared/messages.ts';
+import type { AppState, TwitchGame } from '../src/types/index.ts';
 import { setTimingSaveDebounceMsForTests } from '../src/background/state-persistence.ts';
 
 const chromeMocks = setupChromeMocks();
@@ -91,6 +92,11 @@ function installServiceWorkerSupportMocks(mocks: ChromeMocks) {
 
   chromeAny.notifications = {
     create: async () => 'notification-id',
+  };
+
+  chromeAny.permissions = {
+    contains: mocks.permissions.contains,
+    request: mocks.permissions.request,
   };
 
   chromeAny.scripting = {
@@ -403,7 +409,7 @@ async function waitForAppState(check: (state: AppState) => boolean, message: str
   throw new Error(message);
 }
 
-async function dispatchMessage(message: Message, sender: Record<string, unknown> = {}): Promise<unknown> {
+async function dispatchMessage(message: RuntimeRequest, sender: Record<string, unknown> = {}): Promise<unknown> {
   const handler = chromeMocks.runtime.onMessage._handlers[0];
   if (!handler) {
     throw new Error('service worker onMessage handler not registered');
@@ -452,6 +458,9 @@ describe('service worker message handlers', () => {
     snapshotQueue.length = 0;
     directoryQueue.length = 0;
     activeSnapshotScenario = null;
+    chromeMocks.permissions.setContainsResult(false);
+    chromeMocks.permissions.setRequestResult(false);
+    chromeMocks.permissions._requests.length = 0;
     installFetchMock();
     installActiveTabMocks();
     await resetWorkerState();
@@ -485,6 +494,11 @@ describe('service worker message handlers', () => {
       notifications.push(options);
       return 'notification-id';
     };
+    chromeMocks.permissions.setContainsResult(true);
+    await dispatchMessage({
+      type: 'SET_NOTIFICATIONS_ENABLED',
+      payload: { enabled: true },
+    });
 
     const response = await dispatchMessage(
       { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'trevonerd' } },
@@ -743,8 +757,50 @@ describe('service worker message handlers', () => {
       payload: { enabled: true },
     });
 
+    expect(enabled).toEqual({
+      success: false,
+      notificationsEnabled: false,
+      error: 'Notification permission was not granted',
+    });
+    expect(getAppStateFromStorage().notificationsEnabled).toBe(false);
+  });
+
+  test('SET_NOTIFICATIONS_ENABLED requires optional notification permission before enabling', async () => {
+    chromeMocks.permissions.setContainsResult(true);
+
+    const enabled = await dispatchMessage({
+      type: 'SET_NOTIFICATIONS_ENABLED',
+      payload: { enabled: true },
+    });
+
+    expect(chromeMocks.permissions._requests).toEqual([]);
     expect(enabled).toEqual({ success: true, notificationsEnabled: true });
     expect(getAppStateFromStorage().notificationsEnabled).toBe(true);
+  });
+
+  test('notification alerts are skipped when optional permission is missing', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    const notifications: unknown[] = [];
+    chromeAny.notifications.create = async (options: unknown) => {
+      notifications.push(options);
+      return 'notification-id';
+    };
+
+    chromeMocks.permissions.setContainsResult(true);
+    await dispatchMessage({
+      type: 'SET_NOTIFICATIONS_ENABLED',
+      payload: { enabled: true },
+    });
+
+    chromeMocks.permissions.setContainsResult(false);
+    const response = await dispatchMessage(
+      { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'missing-permission' } },
+      { tab: { id: 123 } },
+    );
+
+    expect(response).toEqual({ success: true });
+    expect(notifications).toEqual([]);
+    expect(getAppStateFromStorage().notificationsEnabled).toBe(false);
   });
 
   test('STOP_FARMING clears running flags and stores terminal stop metadata', async () => {

@@ -76,12 +76,12 @@ describe('sessionDebugSummary', () => {
     const result = sessionDebugSummary(session);
     expect(result).toEqual({
       available: true,
-      userId: 'uid123',
-      oauthTokenLength: 11,
+      hasUserId: true,
+      hasOAuthToken: true,
       hasIntegrity: true,
-      deviceIdSuffix: '123456',
-      uuid: 'uuid-abc',
-      clientId: 'client-xyz',
+      hasDeviceId: true,
+      hasUuid: true,
+      hasClientId: true,
     });
   });
 
@@ -89,12 +89,17 @@ describe('sessionDebugSummary', () => {
     const session = { userId: 'uid1' } as TwitchSession;
     const result = sessionDebugSummary(session);
     expect(result.available).toBe(true);
-    expect(result.userId).toBe('uid1');
-    expect(result.oauthTokenLength).toBe(0);
+    expect(result.hasUserId).toBe(true);
+    expect(result.hasOAuthToken).toBe(false);
     expect(result.hasIntegrity).toBe(false);
-    expect(result.deviceIdSuffix).toBeNull();
-    expect(result.uuid).toBeNull();
-    expect(result.clientId).toBeNull();
+    expect(result.hasDeviceId).toBe(false);
+    expect(result.hasUuid).toBe(false);
+    expect(result.hasClientId).toBe(false);
+    expect(result).not.toHaveProperty('oauthTokenLength');
+    expect(result).not.toHaveProperty('deviceIdSuffix');
+    expect(result).not.toHaveProperty('uuid');
+    expect(result).not.toHaveProperty('clientId');
+    expect(result).not.toHaveProperty('userId');
   });
 });
 

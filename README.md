@@ -109,6 +109,7 @@ bun run check
 bun run clean
 bun run deps:outdated
 bun run deps:audit
+bun run deps:audit:all
 bun run update
 bun run update:interactive
 ```
@@ -116,8 +117,8 @@ bun run update:interactive
 ### Local workflow
 
 1. Make your changes in `src/`
-2. Run `bun run build`
-3. Reload the unpacked extension from `chrome://extensions/`
+2. Run `bun run dev` to keep `dist/` rebuilt while you work, or `bun run build` for a one-off production build
+3. Load or reload `dist/` as the unpacked extension from `chrome://extensions/`
 4. Re-test the relevant Twitch flow
 
 ## Project Structure

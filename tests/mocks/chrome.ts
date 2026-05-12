@@ -5,6 +5,7 @@ interface MessageSender { tab?: Tab; frameId?: number; id?: string; url?: string
 interface BadgeTextDetails { text?: string | null; tabId?: number }
 interface BadgeColorDetails { color: string | [number, number, number, number]; tabId?: number }
 interface QueryInfo { active?: boolean; windowId?: number; url?: string | string[] }
+interface PermissionsRequest { permissions?: string[]; origins?: string[] }
 
 interface ListenerMock<T> {
   addListener(handler: (arg: T) => void): void;
@@ -117,6 +118,13 @@ export interface ChromeMocks {
     create: (options: unknown) => Promise<string>;
     _notifications: unknown[];
   };
+  permissions: {
+    contains: (permissions: PermissionsRequest) => Promise<boolean>;
+    request: (permissions: PermissionsRequest) => Promise<boolean>;
+    setContainsResult: (result: boolean) => void;
+    setRequestResult: (result: boolean) => void;
+    _requests: PermissionsRequest[];
+  };
   teardown: () => void;
 }
 
@@ -131,6 +139,9 @@ export function setupChromeMocks(): ChromeMocks {
   const createdAlarms: Array<{ name: string; info: AlarmInfo }> = [];
   const badgeState = { text: '', color: '' };
   const notifications: unknown[] = [];
+  const permissionRequests: PermissionsRequest[] = [];
+  let permissionsContainsResult = false;
+  let permissionsRequestResult = false;
   let tabsQueryResult: Tab[] = [];
   let tabsGetResult: Tab | null = null;
 
@@ -165,6 +176,15 @@ export function setupChromeMocks(): ChromeMocks {
         return 'notification-id';
       },
     },
+    permissions: {
+      contains(_permissions: PermissionsRequest): Promise<boolean> {
+        return Promise.resolve(permissionsContainsResult);
+      },
+      request(permissions: PermissionsRequest): Promise<boolean> {
+        permissionRequests.push(permissions);
+        return Promise.resolve(permissionsRequestResult);
+      },
+    },
   };
 
   (globalThis as Record<string, unknown>).chrome = mockChrome;
@@ -191,6 +211,13 @@ export function setupChromeMocks(): ChromeMocks {
     notifications: {
       create: mockChrome.notifications.create.bind(mockChrome.notifications),
       _notifications: notifications,
+    },
+    permissions: {
+      contains: mockChrome.permissions.contains.bind(mockChrome.permissions),
+      request: mockChrome.permissions.request.bind(mockChrome.permissions),
+      setContainsResult(result) { permissionsContainsResult = result; },
+      setRequestResult(result) { permissionsRequestResult = result; },
+      _requests: permissionRequests,
     },
     teardown() {
       (globalThis as Record<string, unknown>).chrome = originalChrome;
