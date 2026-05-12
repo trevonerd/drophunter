@@ -3,6 +3,8 @@
 // integrity token is stored in sessionStorage so the content script
 // (running in ISOLATED world) can forward it to the background.
 
+import { logContentDebug } from './logging.ts';
+
 const STORAGE_KEY = '__drophunter_integrity__';
 
 const originalFetch = window.fetch;
@@ -19,7 +21,7 @@ window.fetch = function (...args: Parameters<typeof fetch>): ReturnType<typeof f
       })
       .then((data: unknown) => {
         if (typeof data !== 'object') {
-          console.debug('[DropHunter][integrity-interceptor] unexpected response shape:', typeof data);
+          logContentDebug('[integrity-interceptor] unexpected response shape:', typeof data);
           return;
         }
         const payload = data as Record<string, unknown> | null;
@@ -39,7 +41,7 @@ window.fetch = function (...args: Parameters<typeof fetch>): ReturnType<typeof f
         }
       })
       .catch((error: unknown) => {
-        console.debug('[DropHunter][integrity-interceptor] failed to parse response:', String(error));
+        logContentDebug('[integrity-interceptor] failed to parse response:', String(error));
       });
   }
 
