@@ -418,6 +418,7 @@ async function resetWorkerState() {
   await dispatchMessage({ type: 'STOP_FARMING' });
   await dispatchMessage({ type: 'CLEAR_QUEUE' });
   await dispatchMessage({ type: 'SET_MONITOR_AUTO_OPEN', payload: { enabled: false } });
+  await dispatchMessage({ type: 'SET_AUTO_RESUME_ON_STARTUP', payload: { enabled: false } });
 }
 
 async function syncTestSession() {
@@ -460,7 +461,8 @@ describe('service worker message handlers', () => {
     chromeMocks.storage.session._store.clear();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await sleepTick();
     chromeMocks.teardown();
   });
 
@@ -680,6 +682,24 @@ describe('service worker message handlers', () => {
     chromeMocks.runtime.onMessage.trigger({ type: 'RESUME_FARMING' });
     const resumed = await waitForAppState((next) => next.isPaused === false, 'resume state did not persist');
     expect(resumed.isPaused).toBe(false);
+  });
+
+  test('SET_AUTO_RESUME_ON_STARTUP persists the startup resume preference', async () => {
+    const enabled = await dispatchMessage({
+      type: 'SET_AUTO_RESUME_ON_STARTUP',
+      payload: { enabled: true },
+    });
+
+    expect(enabled).toEqual({ success: true, autoResumeOnStartup: true });
+    expect(getAppStateFromStorage().autoResumeOnStartup).toBe(true);
+
+    const disabled = await dispatchMessage({
+      type: 'SET_AUTO_RESUME_ON_STARTUP',
+      payload: { enabled: false },
+    });
+
+    expect(disabled).toEqual({ success: true, autoResumeOnStartup: false });
+    expect(getAppStateFromStorage().autoResumeOnStartup).toBe(false);
   });
 
   test('STOP_FARMING clears running flags and stores terminal stop metadata', async () => {

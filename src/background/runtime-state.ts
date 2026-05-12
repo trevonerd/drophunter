@@ -144,6 +144,54 @@ export function clearRotationMetadata(state: AppState): AppState {
   };
 }
 
+export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'paused-on-startup';
+
+export interface StartupResumePolicyState {
+  appState: AppState;
+  lastHeartbeatAt: number;
+  recoveryBackoffUntil: number;
+  lastRecoveryAttemptAt: number;
+  stalledRecoveryAttempts: number;
+  recoveryNotificationSent: boolean;
+}
+
+export function applyStartupResumePolicy(
+  state: StartupResumePolicyState,
+  now: number,
+  staleThresholdMs: number,
+): StartupResumePolicyResult {
+  const isStaleStartup =
+    state.appState.isRunning &&
+    !state.appState.isPaused &&
+    state.lastHeartbeatAt > 0 &&
+    now - state.lastHeartbeatAt > staleThresholdMs;
+
+  if (!isStaleStartup) {
+    return 'not-stale';
+  }
+
+  if (state.appState.autoResumeOnStartup) {
+    return 'auto-resume';
+  }
+
+  state.appState = {
+    ...state.appState,
+    isPaused: true,
+    tabId: null,
+    activeStreamer: null,
+    recoveryReason: null,
+    recoveryBackoffUntil: null,
+    recoveryAttempts: null,
+    resumedFromCrash: null,
+  };
+  state.recoveryBackoffUntil = 0;
+  state.lastRecoveryAttemptAt = 0;
+  state.stalledRecoveryAttempts = 0;
+  state.recoveryNotificationSent = false;
+
+  return 'paused-on-startup';
+}
+
 export function shouldCloseManagedTab(windowTabCount: number | null | undefined): boolean {
   return typeof windowTabCount === 'number' && Number.isFinite(windowTabCount) && windowTabCount > 1;
 }

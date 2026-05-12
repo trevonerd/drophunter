@@ -148,7 +148,6 @@ export async function saveState(state: ServiceWorkerState) {
 export interface LoadStateCallbacks {
   onLoadTimingState: (state: ServiceWorkerState) => Promise<void>;
   onEnforceInactivityReset: (trigger: string) => Promise<boolean>;
-  onStartMonitoring: () => void;
 }
 
 export interface LoadStateDeps {
@@ -194,12 +193,9 @@ export async function loadState(
     if (resetForInactivity) {
       return;
     }
-    if (state.appState.isRunning && !state.appState.isPaused) {
-      if (state.appState.tabId) {
-        state.streamValidationGraceUntil = Date.now() + deps.STREAM_VALIDATION_GRACE_MS;
-      }
+    if (state.appState.isRunning && !state.appState.isPaused && state.appState.tabId) {
+      state.streamValidationGraceUntil = Date.now() + deps.STREAM_VALIDATION_GRACE_MS;
       state.noProgressRotationAttempts = 0;
-      callbacks.onStartMonitoring();
     }
   } catch (error) {
     console.warn('Error loading state:', String(error));

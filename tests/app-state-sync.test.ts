@@ -16,6 +16,7 @@ describe('normalizeStoredAppState', () => {
     expect(state.isRunning).toBe(true);
     expect(state.selectedGame?.name).toBe('Game');
     expect(state.queue).toEqual([]);
+    expect(state.autoResumeOnStartup).toBe(false);
     expect(state.muteFarmingTab).toBe(true);
     expect(state.autoClaimChannelPointsBonus).toBe(true);
     expect(state.streamerSelectionMode).toBe('low-view');
