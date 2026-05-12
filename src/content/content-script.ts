@@ -1,3 +1,4 @@
+import { loadStoredContentAppState, subscribeToContentAppState } from './app-state.ts';
 import { claimChannelPointsBonus } from './channel-points.ts';
 import { logContentDebug, logContentInfo, logContentWarn } from './logging.ts';
 import { canAttemptPageUnmute } from './playback.ts';
@@ -23,50 +24,6 @@ const RESERVED_TWITCH_PATH_SEGMENTS = new Set([
   'p',
   'store',
 ]);
-
-function normalizeStoredAppState(value: unknown) {
-  if (!value || typeof value !== 'object') {
-    return { autoClaimChannelPointsBonus: true };
-  }
-  return {
-    autoClaimChannelPointsBonus: true,
-    ...(value as { autoClaimChannelPointsBonus?: boolean }),
-  };
-}
-
-async function loadStoredAppState() {
-  const result = await chrome.storage.local.get(['appState']);
-  return normalizeStoredAppState(result.appState);
-}
-
-function subscribeToAppState(
-  onState: (state: { autoClaimChannelPointsBonus?: boolean }) => void,
-): () => void {
-  const runtimeListener = (message: unknown) => {
-    if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'UPDATE_STATE') {
-      return;
-    }
-    const updateMessage = message as ContentRuntimeMessage;
-    if (updateMessage.payload) {
-      onState(normalizeStoredAppState(updateMessage.payload));
-    }
-  };
-
-  const storageListener: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, areaName) => {
-    if (areaName !== 'local' || !changes.appState) {
-      return;
-    }
-    onState(normalizeStoredAppState(changes.appState.newValue));
-  };
-
-  chrome.runtime.onMessage.addListener(runtimeListener);
-  chrome.storage.onChanged.addListener(storageListener);
-
-  return () => {
-    chrome.runtime.onMessage.removeListener(runtimeListener);
-    chrome.storage.onChanged.removeListener(storageListener);
-  };
-}
 
 function normalizeText(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -715,13 +672,13 @@ function stopChannelPointsAutoClaim(): void {
   }
 }
 
-loadStoredAppState()
+loadStoredContentAppState()
   .then((state) => {
     autoClaimEnabled = state.autoClaimChannelPointsBonus !== false;
     if (autoClaimEnabled) startChannelPointsAutoClaim();
   })
   .catch(() => undefined);
-appStateUnsubscribe = subscribeToAppState((state) => {
+appStateUnsubscribe = subscribeToContentAppState((state) => {
   autoClaimEnabled = state.autoClaimChannelPointsBonus !== false;
   if (autoClaimEnabled) startChannelPointsAutoClaim();
   else stopChannelPointsAutoClaim();
