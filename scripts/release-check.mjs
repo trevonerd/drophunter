@@ -27,6 +27,16 @@ function contentScriptMatches(manifest) {
   return (manifest.content_scripts ?? []).map((script) => script.matches ?? []);
 }
 
+async function assertClassicScript(path) {
+  const source = await readFile(path, 'utf8').catch((error) => {
+    fail(`Unable to read ${path}: ${error.message}`);
+  });
+  const moduleSyntax = /\bimport\s*(?:\(|["'{*])|\bexport\s+(?:\{|default|const|function|class|let|var)/;
+  if (moduleSyntax.test(source)) {
+    fail(`${path} contains ESM syntax but is injected as a classic Chrome content script`);
+  }
+}
+
 const packageJson = await readJson('package.json');
 const sourceManifest = await readJson('public/manifest.json');
 const distManifest = await readJson('dist/manifest.json');
@@ -51,5 +61,7 @@ assertEqual(
   contentScriptMatches(distManifest),
   contentScriptMatches(sourceManifest),
 );
+await assertClassicScript('dist/content.js');
+await assertClassicScript('dist/integrity-interceptor.js');
 
-console.info('[release:check] manifest versions and permissions are fresh');
+console.info('[release:check] manifest, permissions, and classic content scripts are fresh');
