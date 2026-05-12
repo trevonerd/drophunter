@@ -17,6 +17,7 @@ const sourceFiles = [
 const directConsoleAllowed = new Set([
   'src/background/logging.ts',
   'src/content/logging.ts',
+  'src/content/integrity-interceptor.ts',
   'src/popup/logging.ts',
   'src/shared/ErrorBoundary.tsx',
 ]);
