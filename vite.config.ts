@@ -5,7 +5,10 @@ import { defineConfig } from 'vite';
 
 const isWatchBuild = process.argv.includes('--watch');
 
-export default defineConfig(() => ({
+export default defineConfig(({ mode }) => ({
+  define: {
+    __DROPHUNTER_DEBUG_LOGS__: JSON.stringify(mode !== 'production'),
+  },
   plugins: [
     react(),
     {
