@@ -758,6 +758,9 @@ export async function rotateStreamerIfInvalid(
   if (now < state.streamValidationGraceUntil) {
     return;
   }
+  const effectiveThreshold = computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
+  const progressIsRecentlyAdvancing =
+    state.lastProgressAdvanceAt > 0 && now - state.lastProgressAdvanceAt < effectiveThreshold;
 
   if (!context) {
     const tabUrl = tab.url ?? '';
@@ -765,6 +768,13 @@ export async function rotateStreamerIfInvalid(
     if (!isStillOnTwitch) {
       logInfo('Managed tab navigated away from Twitch', { tabUrl });
       state.invalidStreamChecks = INVALID_STREAM_THRESHOLD;
+    } else if (progressIsRecentlyAdvancing) {
+      logDebug('Stream context missing but drop progress is recent; keeping current streamer', {
+        tabUrl,
+        lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+      });
+      state.invalidStreamChecks = 0;
+      return;
     } else {
       state.invalidStreamChecks += 1;
     }
@@ -811,7 +821,6 @@ export async function rotateStreamerIfInvalid(
     farmablePending: state.appState.pendingDrops.some((d) => d.dropType !== 'event-based'),
   });
 
-  const effectiveThreshold = computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
   const progressStalled =
     state.lastProgressAdvanceAt > 0 &&
     state.appState.currentDrop != null &&
@@ -1018,6 +1027,15 @@ export async function checkDropProgress(
       }
     }
     await callbacks.onEnforcePlaybackPolicy();
+
+    const isFullTick = Date.now() - state.lastFullRefreshAt >= FULL_REFRESH_INTERVAL_MS;
+    if (isFullTick) {
+      await callbacks.onRefreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true });
+      state.lastFullRefreshAt = Date.now();
+    } else {
+      await callbacks.onRefreshDropsData();
+    }
+
     const inCrashGrace =
       state.appState.resumedFromCrash != null &&
       Date.now() - state.appState.resumedFromCrash < CRASH_RECOVERY_GRACE_MS;
@@ -1027,14 +1045,6 @@ export async function checkDropProgress(
       await callbacks.onRotateStreamerIfInvalid();
     }
     await callbacks.onAttemptAutoClaimChannelPointsBonus();
-
-    const isFullTick = Date.now() - state.lastFullRefreshAt >= FULL_REFRESH_INTERVAL_MS;
-    if (isFullTick) {
-      await callbacks.onRefreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true });
-      state.lastFullRefreshAt = Date.now();
-    } else {
-      await callbacks.onRefreshDropsData();
-    }
 
     const claimedAny = await callbacks.onAutoClaimClaimableDrops();
     if (claimedAny) {
