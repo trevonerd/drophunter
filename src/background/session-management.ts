@@ -171,8 +171,8 @@ export async function refreshTwitchIntegrityToken(
 ): Promise<TwitchSession | null> {
   try {
     logDebug('Refreshing Twitch Client-Integrity token', {
-      deviceIdSuffix: session.deviceId ? session.deviceId.slice(-6) : null,
-      oauthTokenLength: session.oauthToken ? session.oauthToken.length : 0,
+      hasDeviceId: Boolean(session.deviceId),
+      hasOAuthToken: Boolean(session.oauthToken),
       hasPreviousIntegrity: Boolean(session.clientIntegrity),
     });
     const token = await fetchTwitchIntegrityToken(session);
@@ -186,8 +186,8 @@ export async function refreshTwitchIntegrityToken(
     state.twitchSessionCache = updatedSession;
     await persistTwitchSession(updatedSession);
     logDebug('Twitch Client-Integrity token refreshed', {
-      integrityLength: token.length,
-      deviceIdSuffix: updatedSession.deviceId ? updatedSession.deviceId.slice(-6) : null,
+      hasIntegrity: Boolean(token),
+      hasDeviceId: Boolean(updatedSession.deviceId),
     });
     return updatedSession;
   } catch (error) {
@@ -227,7 +227,7 @@ export async function ensureSessionIntegrity(
 
   const pageToken = await loadPageIntegrityToken();
   if (pageToken && !forceRefresh) {
-    logDebug('Using page-intercepted integrity token', { tokenLength: pageToken.length });
+    logDebug('Using page-intercepted integrity token', { hasToken: true });
     const updated: TwitchSession = { ...session, clientIntegrity: pageToken };
     state.twitchSessionCache = updated;
     await persistTwitchSession(updated);

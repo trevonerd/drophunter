@@ -26,12 +26,12 @@ export function sessionDebugSummary(session: TwitchSession | null) {
   }
   return {
     available: true,
-    userId: session.userId || null,
-    oauthTokenLength: session.oauthToken ? session.oauthToken.length : 0,
+    hasUserId: Boolean(session.userId),
+    hasOAuthToken: Boolean(session.oauthToken),
     hasIntegrity: Boolean(session.clientIntegrity),
-    deviceIdSuffix: session.deviceId ? session.deviceId.slice(-6) : null,
-    uuid: session.uuid || null,
-    clientId: session.clientId || null,
+    hasDeviceId: Boolean(session.deviceId),
+    hasUuid: Boolean(session.uuid),
+    hasClientId: Boolean(session.clientId),
   };
 }
 
@@ -198,7 +198,7 @@ export async function loadState(
       state.noProgressRotationAttempts = 0;
     }
   } catch (error) {
-    console.warn('Error loading state:', String(error));
+    logWarn('Error loading state:', String(error));
   }
 }
 
