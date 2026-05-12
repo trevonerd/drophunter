@@ -15,6 +15,7 @@ import {
   handleStartFarming,
   rotateStreamer,
   rotateStreamerIfInvalid,
+  checkDropProgress,
 } from '../src/background/queue-management.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import { createInitialState } from '../src/shared/utils.ts';
@@ -1287,6 +1288,77 @@ describe('rotateStreamer', () => {
   });
 });
 
+describe('checkDropProgress', () => {
+  let mocks: ChromeMocks;
+
+  beforeEach(() => {
+    mocks = setupChromeMocks();
+  });
+
+  afterEach(() => {
+    mocks.teardown();
+  });
+
+  test('refreshes drop data before stream validation so fresh progress prevents stalled recovery', async () => {
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 60, currentMinutes: 12 });
+    state.lastFullRefreshAt = Date.now();
+    state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    const calls: string[] = [];
+    let attemptSelfHealCalled = false;
+    let rotateReason: StreamRotationReason | null = null;
+
+    await checkDropProgress(state, {
+      onEnforcePlaybackPolicy: async () => {
+        calls.push('playback-policy');
+      },
+      onRefreshDropsData: async () => {
+        calls.push('refresh-drops');
+        state.lastProgressAdvanceAt = Date.now();
+        state.lastTrackedMinutes = 13;
+        state.appState.currentDrop = createDrop({ requiredMinutes: 60, currentMinutes: 13 });
+      },
+      onRotateStreamerIfInvalid: async () => {
+        calls.push('validate-stream');
+        await rotateStreamerIfInvalid(state, {
+          onFetchStreamContext: async () => ({
+            channelName: 'streamer',
+            categorySlug: 'test-game',
+            categoryLabel: 'Test Game',
+            streamTitle: 'Stream Title',
+            titleContainsDrops: true,
+            hasDropsSignal: true,
+            isLive: true,
+            pageUrl: 'https://twitch.tv/streamer',
+          }),
+          onResolveCategorySlug: async () => 'test-game',
+          onAttemptPlaybackSelfHeal: async () => {
+            attemptSelfHealCalled = true;
+          },
+          onRotateStreamer: async (_, reason) => {
+            rotateReason = reason;
+            return true;
+          },
+        });
+      },
+      onAttemptAutoClaimChannelPointsBonus: async () => false,
+      onAutoClaimClaimableDrops: async () => false,
+      onAdvanceQueueIfCompleted: async () => true,
+      onSaveTimingState: async () => undefined,
+    });
+
+    expect(calls).toEqual(['playback-policy', 'refresh-drops', 'validate-stream']);
+    expect(attemptSelfHealCalled).toBe(false);
+    expect(rotateReason).toBeNull();
+  });
+});
+
 describe('rotateStreamerIfInvalid', () => {
   let mocks: ChromeMocks;
 
@@ -1391,6 +1463,53 @@ describe('rotateStreamerIfInvalid', () => {
     });
 
     expect(state.invalidStreamChecks).toBe(1);
+  });
+
+  test('keeps current streamer when context is missing but drop progress is recent', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 60, currentMinutes: 12 });
+    state.lastProgressAdvanceAt = Date.now();
+    state.invalidStreamChecks = 7;
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let rotateStreamerCalled = false;
+    await rotateStreamerIfInvalid(state, {
+      onFetchStreamContext: async () => null,
+      onRotateStreamer: async () => {
+        rotateStreamerCalled = true;
+        return true;
+      },
+    });
+
+    expect(rotateStreamerCalled).toBe(false);
+    expect(state.invalidStreamChecks).toBe(0);
+  });
+
+  test('rotates on missing context when progress is not recent and invalid checks reach threshold', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 60, currentMinutes: 12 });
+    state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
+    state.invalidStreamChecks = 7;
+    state.lastStreamRotationAt = 0;
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let rotateReason: StreamRotationReason | null = null;
+    await rotateStreamerIfInvalid(state, {
+      onFetchStreamContext: async () => null,
+      onRotateStreamer: async (_, reason) => {
+        rotateReason = reason;
+        return true;
+      },
+    });
+
+    expect(rotateReason).toBe('missing-context');
+    expect(state.invalidStreamChecks).toBe(0);
   });
 
   test('sets invalidStreamChecks to threshold when navigated away from Twitch', async () => {
