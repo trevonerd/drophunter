@@ -15,7 +15,7 @@ import {
 } from './channel-points';
 import { logDebug, logInfo, logWarn } from './logging';
 import { needsPlaybackAttention } from './playback.ts';
-import { clearRotationMetadata } from './runtime-state';
+import { applyStartupResumePolicy, clearRotationMetadata } from './runtime-state';
 import {
   applyBestEffortAlwaysOnTop as applyBestEffortAlwaysOnTopExt,
   clearManagedTabOwnership as clearManagedTabOwnershipExt,
@@ -568,7 +568,6 @@ async function loadState() {
     {
       onLoadTimingState: loadTimingStateExt,
       onEnforceInactivityReset: enforceInactivityReset,
-      onStartMonitoring: startMonitoring,
     },
     {
       sanitizeTwitchSession,
@@ -583,26 +582,32 @@ async function loadState() {
     },
   );
 
-  const isCrashRecovery =
-    state.appState.isRunning &&
-    !state.appState.isPaused &&
-    state.lastHeartbeatAt > 0 &&
-    Date.now() - state.lastHeartbeatAt > CRASH_DETECTION_THRESHOLD_MS;
+  const now = Date.now();
+  const startupResumePolicy = applyStartupResumePolicy(state, now, CRASH_DETECTION_THRESHOLD_MS);
 
-  if (isCrashRecovery) {
-    logInfo('Crash recovery detected', {
-      secondsAgo: Math.round((Date.now() - state.lastHeartbeatAt) / 1000),
+  if (startupResumePolicy === 'paused-on-startup') {
+    logInfo('Startup resume policy paused stale farming session', {
+      secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
     });
-    state.appState.resumedFromCrash = Date.now();
+    await saveStateExt(state);
+    await saveTimingStateExt(state);
+    return;
+  }
+
+  if (startupResumePolicy === 'auto-resume') {
+    logInfo('Crash recovery detected', {
+      secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
+    });
+    state.appState.resumedFromCrash = now;
     state.appState.tabId = null;
     state.appState.activeStreamer = null;
-    state.lastProgressAdvanceAt = Date.now();
+    state.lastProgressAdvanceAt = now;
     state.noProgressRotationAttempts = 0;
     state.recoveryBackoffUntil = 0;
     state.stalledRecoveryAttempts = 0;
     state.recoveryNotificationSent = false;
     state.appState = clearRecoveryStatus(state.appState);
-    state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
+    state.streamValidationGraceUntil = now + STREAM_VALIDATION_GRACE_MS;
     await saveStateExt(state);
     await saveTimingStateExt(state);
     if (state.appState.selectedGame) {
@@ -614,6 +619,10 @@ async function loadState() {
         saveStateExt(state).catch(() => undefined);
       }
     }, CRASH_RECOVERY_GRACE_MS);
+  }
+
+  if (state.appState.isRunning && !state.appState.isPaused) {
+    startMonitoring();
   }
 }
 
@@ -1430,6 +1439,13 @@ async function handleSetMonitorAutoOpen(payload?: { enabled?: boolean }) {
   return { success: true, monitorAutoOpen: appState.monitorAutoOpen };
 }
 
+async function handleSetAutoResumeOnStartup(payload?: { enabled?: boolean }) {
+  await trackActivity('set-auto-resume-on-startup');
+  appState.autoResumeOnStartup = payload?.enabled === true;
+  await saveStateExt(state);
+  return { success: true, autoResumeOnStartup: appState.autoResumeOnStartup };
+}
+
 async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
   await trackActivity('set-mute-farming-tab');
   appState.muteFarmingTab = payload?.enabled !== false;
@@ -1566,6 +1582,12 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
 
     case 'PAUSE_FARMING':
       handlePauseFarming()
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: String(error) }));
+      return true;
+
+    case 'SET_AUTO_RESUME_ON_STARTUP':
+      handleSetAutoResumeOnStartup(message.payload as { enabled?: boolean } | undefined)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: String(error) }));
       return true;

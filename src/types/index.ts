@@ -67,6 +67,7 @@ export interface AppState {
   isRunning: boolean;
   isPaused: boolean;
   monitorAutoOpen: boolean;
+  autoResumeOnStartup: boolean;
   muteFarmingTab: boolean;
   autoClaimChannelPointsBonus: boolean;
   autoClaimDrops: boolean;
@@ -108,6 +109,7 @@ export type MessageType =
   | 'CHANNEL_POINTS_BONUS_CLAIMED'
   | 'OPEN_MONITOR_DASHBOARD'
   | 'SET_MONITOR_AUTO_OPEN'
+  | 'SET_AUTO_RESUME_ON_STARTUP'
   | 'SET_MUTE_FARMING_TAB'
   | 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'
   | 'SET_AUTO_CLAIM_DROPS'

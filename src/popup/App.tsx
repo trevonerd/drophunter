@@ -516,6 +516,20 @@ function App() {
     setState((prev) => ({ ...prev, monitorAutoOpen: response.monitorAutoOpen ?? next }));
   };
 
+  const handleAutoResumeOnStartupToggle = async () => {
+    const next = !state.autoResumeOnStartup;
+    setState((prev) => ({ ...prev, autoResumeOnStartup: next }));
+    const response = (await chrome.runtime.sendMessage({
+      type: 'SET_AUTO_RESUME_ON_STARTUP',
+      payload: { enabled: next },
+    })) as { success?: boolean; autoResumeOnStartup?: boolean } | undefined;
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, autoResumeOnStartup: !next }));
+      return;
+    }
+    setState((prev) => ({ ...prev, autoResumeOnStartup: response.autoResumeOnStartup ?? next }));
+  };
+
   const handleAutoClaimChannelPointsBonusToggle = async () => {
     const next = !state.autoClaimChannelPointsBonus;
     setState((prev) => ({ ...prev, autoClaimChannelPointsBonus: next }));
@@ -694,6 +708,32 @@ function App() {
               <span
                 className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
                   state.muteFarmingTab ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-white">Auto-resume on startup</p>
+              <p className="mt-1 text-[11px] text-gray-400">
+                Resume farming automatically after the browser restarts.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={state.autoResumeOnStartup}
+              aria-label="Auto-resume on startup"
+              onClick={() => void handleAutoResumeOnStartupToggle()}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
+                state.autoResumeOnStartup ? 'bg-green-500/90' : 'bg-white/15'
+              }`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  state.autoResumeOnStartup ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>
