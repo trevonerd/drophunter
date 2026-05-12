@@ -102,44 +102,6 @@ export interface StorageData {
   lastUpdate: number;
 }
 
-export type MessageType =
-  | 'GET_TWITCH_SESSION'
-  | 'GET_STREAM_CONTEXT'
-  | 'PREPARE_STREAM_PLAYBACK'
-  | 'CLAIM_CHANNEL_POINTS_BONUS'
-  | 'CHANNEL_POINTS_BONUS_CLAIMED'
-  | 'OPEN_MONITOR_DASHBOARD'
-  | 'SET_MONITOR_AUTO_OPEN'
-  | 'SET_AUTO_RESUME_ON_STARTUP'
-  | 'SET_MUTE_FARMING_TAB'
-  | 'SET_NOTIFICATIONS_ENABLED'
-  | 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'
-  | 'SET_AUTO_CLAIM_DROPS'
-  | 'SET_STREAMER_SELECTION_MODE'
-  | 'SET_PREFERRED_STREAMER_LANGUAGE'
-  | 'ADD_TO_QUEUE'
-  | 'REMOVE_FROM_QUEUE'
-  | 'CLEAR_QUEUE'
-  | 'START_FARMING'
-  | 'SET_SELECTED_GAME'
-  | 'PAUSE_FARMING'
-  | 'RESUME_FARMING'
-  | 'STOP_FARMING'
-  | 'UPDATE_STATE'
-  | 'ENSURE_GAMES_CACHE'
-  | 'OPEN_DROPS_PAGE_AND_REFRESH'
-  | 'REFRESH_DROPS'
-  | 'UPDATE_GAMES'
-  | 'SYNC_TWITCH_SESSION'
-  | 'SYNC_TWITCH_INTEGRITY'
-  | 'PLAY_ALERT'
-  | 'OPEN_STREAMER';
-
-export interface Message {
-  type: MessageType;
-  payload?: unknown;
-}
-
 export interface PlaybackPrepResult {
   gateDismissed?: boolean;
   isPlaybackReady?: boolean;

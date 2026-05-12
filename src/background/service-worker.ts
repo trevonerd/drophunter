@@ -3,8 +3,7 @@ import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selec
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { createInitialState, toSlug } from '../shared/utils';
-import type { PlaybackPrepResult } from '../types';
-import { AppState, DropsSnapshot, Message, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import {
   applyAutoClaimDropsSetting,
   autoClaimClaimableDrops as autoClaimClaimableDropsExt,
@@ -15,8 +14,13 @@ import {
   shouldAttemptAutoClaimChannelPointsBonus,
 } from './channel-points';
 import { logDebug, logInfo, logWarn } from './logging';
+import { registerRuntimeMessageRouter } from './message-router.ts';
+import { openMonitorDashboardWindow as openMonitorDashboardWindowController } from './monitor-dashboard.ts';
+import { createNotificationController } from './notifications.ts';
 import { needsPlaybackAttention } from './playback.ts';
+import { createPlaybackOrchestrator } from './playback-orchestrator.ts';
 import { applyStartupResumePolicy, clearRotationMetadata } from './runtime-state';
+import { createSessionOrchestrator } from './session-orchestrator.ts';
 import {
   applyBestEffortAlwaysOnTop as applyBestEffortAlwaysOnTopExt,
   clearManagedTabOwnership as clearManagedTabOwnershipExt,
@@ -43,6 +47,8 @@ import {
   splitDropsForSelectedGame as splitDropsForSelectedGameExt,
   updateStateFromSnapshot as updateStateFromSnapshotExt,
 } from './drop-processing.ts';
+import { createDropsPageRefresher } from './drops-page-refresh.ts';
+import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import {
   advanceQueueIfCompleted as advanceQueueIfCompletedExt,
   applyStopState as applyStopStateExt,
@@ -391,15 +397,37 @@ const state: ServiceWorkerState = {
   },
 };
 
-const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
+const notificationController = createNotificationController(state, {
+  saveState: () => saveStateExt(state),
+});
+const sessionOrchestrator = createSessionOrchestrator(state, {
+  sanitizeTwitchSession,
+  sessionDebugSummary: sessionDebugSummaryExt,
+  readTwitchSessionViaExecuteScript: readTwitchSessionViaExecuteScriptExt,
+  persistTwitchSession: persistTwitchSessionExt,
+  logDebug,
+  logWarn,
+});
+const dropsPageRefresher = createDropsPageRefresher(state, {
+  trackActivity,
+  ensureStateHydratedForCache,
+  waitForTabComplete: waitForTabCompleteExt,
+  persistSessionFromDropsPage,
+  refreshGamesCacheFromHiddenFetch,
+  saveState: () => saveStateExt(state),
+  broadcastStateUpdate: broadcastStateUpdateExt,
+});
+const playbackOrchestrator = createPlaybackOrchestrator(state, {
+  ensureContentScriptOnTab,
+  ensureManagedTab: ensureManagedTabExt,
+  waitForTabComplete: waitForTabCompleteExt,
+  shouldMuteManagedFarmingTab: () => shouldMuteManagedFarmingTabExt(state),
+  needsPlaybackAttention,
+  notify,
+  streamerWatchUrl: streamerWatchUrlExt,
+});
+
 const GAMES_STALE_THRESHOLD_MS = 60 * 60_000;
-let dropsPageRefreshInFlight: Promise<{
-  success: boolean;
-  opened: boolean;
-  refreshed: boolean;
-  gamesCount: number;
-  error?: string;
-}> | null = null;
 
 async function resetStateForInactivity(trigger: string, idleForMs: number) {
   logInfo('Resetting state after inactivity', {
@@ -447,40 +475,22 @@ async function trackActivity(reason: string) {
   await markActivityExt(state, reason);
 }
 
-chrome.runtime.onStartup.addListener(async () => {
-  try {
-    // State is already loading via the module-level initPromise — just await it.
-    if (initPromise) await initPromise;
-  } catch (error) {
-    logWarn('onStartup error:', String(error));
-  }
-});
-
-chrome.runtime.onInstalled.addListener(async (details) => {
-  try {
-    // Ensure module initialization has settled before potentially resetting state.
-    if (initPromise) await initPromise;
-    if (details.reason === 'update') {
-      // Reset volatile farming state on update while preserving lifetime statistics.
-      const lifetimeStats = {
-        totalDropsClaimed: appState.totalDropsClaimed,
-        totalChannelPointsClaimed: appState.totalChannelPointsClaimed,
-      };
-      appState = clearRotationMetadata({
-        ...createInitialState(),
-        ...lifetimeStats,
-      });
-      cachedDropsSnapshot = [];
-      await chrome.storage.local.remove([DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, 'twitchIntegrity']);
-      await chrome.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
-      await chrome.storage.local.set({ appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
-      broadcastStateUpdateExt(appState);
-    }
-  } catch (error) {
-    logWarn('onInstalled error:', String(error));
-  }
-  // Fresh install: loadState() already ran at module evaluation time.
-});
+async function handleExtensionUpdate() {
+  // Reset volatile farming state on update while preserving lifetime statistics.
+  const lifetimeStats = {
+    totalDropsClaimed: appState.totalDropsClaimed,
+    totalChannelPointsClaimed: appState.totalChannelPointsClaimed,
+  };
+  appState = clearRotationMetadata({
+    ...createInitialState(),
+    ...lifetimeStats,
+  });
+  cachedDropsSnapshot = [];
+  await chrome.storage.local.remove([DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, 'twitchIntegrity']);
+  await chrome.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
+  await chrome.storage.local.set({ appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
+  broadcastStateUpdateExt(appState);
+}
 
 // Initialize state immediately when the SW module is evaluated. This handles the common
 // case where a Chrome alarm wakes the SW from dormancy — neither onStartup nor onInstalled
@@ -488,11 +498,19 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 initPromise = loadState().catch((error) => {
   logWarn('SW initialization failed:', String(error));
 });
+initPromise = initPromise.then(async () => {
+  await notificationController.syncPermissionState();
+});
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM_NAME) {
-    checkDropProgress().catch((error) => logWarn('Monitoring error:', String(error)));
-  }
+registerExtensionLifecycleListeners({
+  alarmName: ALARM_NAME,
+  getInitPromise: () => initPromise,
+  onExtensionUpdate: handleExtensionUpdate,
+  onAlarm: () => checkDropProgress(),
+  onManagedTabRemoved: (removedTabId) => handleManagedTabRemoved(removedTabId),
+  onManagedTabNavigatedAway: (updatedTabId, url) => handleManagedTabNavigatedAway(updatedTabId, url),
+  onMonitorWindowRemoved: (removedWindowId) => handleMonitorWindowRemoved(removedWindowId),
+  logWarn,
 });
 
 function clearRecoveryState() {
@@ -508,16 +526,7 @@ function clearStopState() {
 }
 
 async function notify(title: string, message: string, priority = 2) {
-  if (!appState.notificationsEnabled) {
-    return;
-  }
-  await chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icons/icon128.png',
-    title,
-    message,
-    priority,
-  });
+  await notificationController.notify(title, message, priority);
 }
 
 async function stopFarmingSession(options?: {
@@ -542,28 +551,7 @@ async function stopFarmingSession(options?: {
 }
 
 async function attemptPlaybackSelfHeal(tabId: number): Promise<void> {
-  playbackAttentionWarningSent = false;
-  // Do NOT focus/activate the tab here — self-heal targets the same already-open streamer.
-  // Forcing focus would steal window focus from the user even though no streamer change is
-  // happening. Focus is only appropriate when opening a new streamer (openForegroundChannel).
-  const prepared = await prepareStreamPlayback(tabId, {
-    unmuteTab: true,
-    muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
-  });
-  if (prepared?.gateDismissed) {
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    const retried = await prepareStreamPlayback(tabId, {
-      unmuteTab: true,
-      muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
-    });
-    if (needsPlaybackAttention(retried)) {
-      await sendPlaybackAttentionWarning();
-    }
-    return;
-  }
-  if (needsPlaybackAttention(prepared)) {
-    await sendPlaybackAttentionWarning();
-  }
+  await playbackOrchestrator.attemptPlaybackSelfHeal(tabId);
 }
 
 async function loadState() {
@@ -667,115 +655,20 @@ async function ensureStateHydratedForCache() {
 }
 
 async function openMonitorDashboardWindow(options?: { toggle?: boolean }) {
-  const url = monitorDashboardUrlExt();
-  if (appState.monitorWindowId) {
-    const existingWindow = await chrome.windows.get(appState.monitorWindowId).catch(() => null);
-    if (existingWindow?.id) {
-      if (options?.toggle) {
-        await chrome.windows.remove(existingWindow.id).catch(() => undefined);
-        appState.monitorWindowId = null;
-        await saveStateExt(state);
-        return { success: true, opened: false };
-      }
-      await applyBestEffortAlwaysOnTopExt(existingWindow.id);
-      return { success: true, opened: true };
-    }
-    appState.monitorWindowId = null;
-  }
-
-  const createdWindow = await chrome.windows
-    .create({
-      url,
-      type: 'popup',
-      width: 360,
-      height: 220,
-      focused: true,
-    })
-    .catch(() => null);
-  if (!createdWindow?.id) {
-    return { success: false, error: 'Unable to open monitor window.' };
-  }
-
-  appState.monitorWindowId = createdWindow.id;
-  await applyBestEffortAlwaysOnTopExt(createdWindow.id);
-  await saveStateExt(state);
-  return { success: true, opened: true };
+  return openMonitorDashboardWindowController(state, {
+    ...options,
+    monitorDashboardUrl: monitorDashboardUrlExt,
+    applyBestEffortAlwaysOnTop: applyBestEffortAlwaysOnTopExt,
+    saveState: () => saveStateExt(state),
+  });
 }
 
 async function ensureContentScriptOnTab(tabId: number) {
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['content.js'],
-    });
-  } catch (error) {
-    // Content script may already be injected or the tab may not allow scripting — this is expected.
-    logDebug('Content script injection skipped', { tabId, reason: String(error) });
-  }
-}
-
-async function readTwitchSessionFromTab(tabId: number): Promise<TwitchSession | null> {
-  const send = async () => chrome.tabs.sendMessage(tabId, { type: 'GET_TWITCH_SESSION' });
-  let response: { success?: boolean; session?: unknown } | null = null;
-  try {
-    response = await send();
-  } catch (error) {
-    logWarn('GET_TWITCH_SESSION send failed on first attempt', { tabId, error: String(error) });
-    await ensureContentScriptOnTab(tabId);
-    response = await send().catch((secondError) => {
-      logWarn('GET_TWITCH_SESSION send failed after injection', { tabId, error: String(secondError) });
-      return null;
-    });
-  }
-
-  if (!response?.success) {
-    logWarn('GET_TWITCH_SESSION failed on tab', { tabId });
-    return readTwitchSessionViaExecuteScriptExt(tabId);
-  }
-
-  const session = sanitizeTwitchSession(response.session as unknown);
-  if (!session) {
-    logWarn('Received invalid Twitch session payload from tab', { tabId });
-    return readTwitchSessionViaExecuteScriptExt(tabId);
-  }
-  logDebug('Extracted Twitch session from tab', { tabId, ...sessionDebugSummaryExt(session) });
-  return session;
+  await sessionOrchestrator.ensureContentScriptOnTab(tabId);
 }
 
 async function findTwitchSessionInOpenTabs(): Promise<TwitchSession | null> {
-  const tabs = await chrome.tabs.query({
-    url: ['https://www.twitch.tv/*', 'https://twitch.tv/*', 'https://player.twitch.tv/*'],
-  });
-
-  const sortedTabs = tabs.slice().sort((left, right) => {
-    const leftUrl = left.url ?? '';
-    const rightUrl = right.url ?? '';
-    const leftIsMain = leftUrl.includes('://www.twitch.tv/') || leftUrl.includes('://twitch.tv/');
-    const rightIsMain = rightUrl.includes('://www.twitch.tv/') || rightUrl.includes('://twitch.tv/');
-    if (leftIsMain !== rightIsMain) {
-      return leftIsMain ? -1 : 1;
-    }
-    if (Boolean(left.active) !== Boolean(right.active)) {
-      return left.active ? -1 : 1;
-    }
-    return 0;
-  });
-
-  for (const tab of sortedTabs) {
-    if (!tab.id) {
-      continue;
-    }
-    logDebug('Trying Twitch session extraction from tab', {
-      tabId: tab.id,
-      url: tab.url ?? null,
-      active: Boolean(tab.active),
-    });
-    const session = await readTwitchSessionFromTab(tab.id).catch(() => null);
-    if (session) {
-      return session;
-    }
-  }
-  return null;
+  return sessionOrchestrator.findTwitchSessionInOpenTabs();
 }
 
 async function ensureTwitchSession(forceRefresh = false): Promise<TwitchSession | null> {
@@ -795,22 +688,11 @@ async function ensureTwitchSession(forceRefresh = false): Promise<TwitchSession 
 }
 
 async function persistSessionFromDropsPage(tabId: number): Promise<TwitchSession | null> {
-  await ensureContentScriptOnTab(tabId);
-  const session = await readTwitchSessionFromTab(tabId).catch(() => null);
-  if (!session) {
-    return null;
-  }
-  twitchSessionCache = session;
-  twitchSessionLastAttemptAt = 0;
-  await persistTwitchSessionExt(session);
-  return session;
+  return sessionOrchestrator.persistSessionFromDropsPage(tabId);
 }
 
 function shouldRefreshCampaignsAfterSessionSync(): boolean {
-  return (
-    appState.availableGames.length === 0 ||
-    Date.now() - (appState.lastSuccessfulRefreshAt ?? 0) > GAMES_STALE_THRESHOLD_MS
-  );
+  return sessionOrchestrator.shouldRefreshCampaignsAfterSessionSync(GAMES_STALE_THRESHOLD_MS);
 }
 
 async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<DropsSnapshot | null> {
@@ -916,64 +798,8 @@ async function refreshGamesCacheFromHiddenFetch(
   return gamesCacheRefreshInFlight;
 }
 
-async function findOrOpenDropsPageTab(): Promise<{ tabId: number | null; opened: boolean }> {
-  const existingTabs = await chrome.tabs
-    .query({ url: ['https://www.twitch.tv/drops/campaigns*', 'https://twitch.tv/drops/campaigns*'] })
-    .catch(() => []);
-  const existing = existingTabs.find((tab) => typeof tab.id === 'number');
-  if (existing?.id) {
-    await chrome.tabs.update(existing.id, { active: true }).catch(() => undefined);
-    return { tabId: existing.id, opened: false };
-  }
-
-  const created = await chrome.tabs.create({ url: TWITCH_DROPS_PAGE_URL, active: true }).catch(() => null);
-  return { tabId: created?.id ?? null, opened: true };
-}
-
 async function openDropsPageAndRefresh() {
-  if (dropsPageRefreshInFlight) {
-    return dropsPageRefreshInFlight;
-  }
-
-  dropsPageRefreshInFlight = (async () => {
-    await trackActivity('open-drops-page-and-refresh');
-    await ensureStateHydratedForCache();
-
-    const { tabId, opened } = await findOrOpenDropsPageTab();
-    if (!tabId) {
-      return {
-        success: false,
-        opened: false,
-        refreshed: false,
-        gamesCount: appState.availableGames.length,
-        error: 'Unable to open the Twitch Drops page.',
-      };
-    }
-
-    await waitForTabCompleteExt(tabId);
-    const sessionFromTab = await persistSessionFromDropsPage(tabId);
-    await refreshGamesCacheFromHiddenFetch({ forceSessionRefresh: !sessionFromTab });
-    await saveStateExt(state);
-    broadcastStateUpdateExt(appState);
-
-    const gamesCount = appState.availableGames.length;
-    return {
-      success: gamesCount > 0,
-      opened,
-      refreshed: true,
-      gamesCount,
-      error:
-        gamesCount > 0
-          ? undefined
-          : sessionFromTab
-            ? 'No active Twitch Drops campaigns were detected.'
-            : 'Open Twitch and sign in so DropHunter can detect your session.',
-    };
-  })().finally(() => {
-    dropsPageRefreshInFlight = null;
-  });
-
-  return dropsPageRefreshInFlight;
+  return dropsPageRefresher.openDropsPageAndRefresh();
 }
 
 function evaluateDropsForGame(
@@ -1003,133 +829,12 @@ async function resolveCategorySlug(game: TwitchGame): Promise<string> {
   return toSlug(game.name);
 }
 
-async function focusManagedTab(tabId: number) {
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab?.id) {
-    return;
-  }
-  if (typeof tab.windowId === 'number') {
-    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
-  }
-  await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined);
-}
-
-async function sendPlaybackAttentionWarning() {
-  if (playbackAttentionWarningSent) {
-    return;
-  }
-  playbackAttentionWarningSent = true;
-  await notify(
-    'DropHunter needs your attention',
-    "Keep Twitch in front and click the video if playback didn't start.",
-    2,
-  );
-}
-
-async function prepareStreamPlayback(
-  tabId: number,
-  options?: { activateTab?: boolean; unmuteTab?: boolean; muteAfterPrep?: boolean },
-): Promise<PlaybackPrepResult> {
-  await ensureContentScriptOnTab(tabId);
-  const tabUpdate: chrome.tabs.UpdateProperties = {};
-  if (options?.activateTab) {
-    tabUpdate.active = true;
-  }
-  if (options?.unmuteTab !== false) {
-    tabUpdate.muted = false;
-  }
-  if (Object.keys(tabUpdate).length > 0) {
-    await chrome.tabs.update(tabId, tabUpdate).catch(() => undefined);
-  }
-  const prepared = await chrome.tabs
-    .sendMessage(tabId, {
-      type: 'PREPARE_STREAM_PLAYBACK',
-    })
-    .catch(() => null);
-  if (options?.muteAfterPrep) {
-    await chrome.tabs.update(tabId, { muted: true }).catch(() => undefined);
-  }
-  return (prepared ?? {}) as PlaybackPrepResult;
-}
-
 async function openForegroundChannel(streamer: TwitchStreamer) {
-  const channelName = streamer.name.toLowerCase();
-  const displayName = streamer.displayName || channelName;
-  const targetUrl = streamerWatchUrlExt(channelName);
-  const isStreamerChange = !appState.activeStreamer || appState.activeStreamer.name !== channelName;
-  const managedTabId = await ensureManagedTabExt(appState.tabId, targetUrl, isStreamerChange);
-  if (!managedTabId) {
-    return;
-  }
-
-  const prepareVisiblePlayback = async () => {
-    playbackAttentionWarningSent = false;
-    if (isStreamerChange) {
-      await focusManagedTab(managedTabId);
-    }
-    await waitForTabCompleteExt(managedTabId, 15_000).catch(() => undefined);
-    const prepared = await prepareStreamPlayback(managedTabId, {
-      activateTab: isStreamerChange,
-      unmuteTab: true,
-      muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
-    });
-    if (prepared?.gateDismissed) {
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      const retried = await prepareStreamPlayback(managedTabId, {
-        muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
-      });
-      if (needsPlaybackAttention(retried)) {
-        await sendPlaybackAttentionWarning();
-      }
-      return;
-    }
-    if (needsPlaybackAttention(prepared)) {
-      await sendPlaybackAttentionWarning();
-    }
-  };
-
-  void prepareVisiblePlayback().catch(() => undefined);
-  appState.tabId = managedTabId;
-  appState.activeStreamer = {
-    id: channelName,
-    name: channelName,
-    displayName,
-    isLive: true,
-    viewerCount: streamer.viewerCount,
-  };
-  invalidStreamChecks = 0;
-  streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
+  await playbackOrchestrator.openForegroundChannel(streamer);
 }
 
 async function enforcePlaybackPolicyOnStreamTab() {
-  if (!appState.tabId) {
-    return;
-  }
-  // Only enforce playback policy during the initial grace period after opening a stream.
-  // After that the stream should be playing fine and repeated enforcement causes unnecessary tab disruption.
-  if (Date.now() >= streamValidationGraceUntil) {
-    return;
-  }
-  const tab = await chrome.tabs.get(appState.tabId).catch(() => null);
-  if (!tab?.id) {
-    return;
-  }
-  const prepared = await prepareStreamPlayback(tab.id, {
-    muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
-  });
-  if (prepared?.gateDismissed) {
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    const retried = await prepareStreamPlayback(tab.id, {
-      muteAfterPrep: shouldMuteManagedFarmingTabExt(state),
-    });
-    if (needsPlaybackAttention(retried)) {
-      await sendPlaybackAttentionWarning();
-    }
-    return;
-  }
-  if (needsPlaybackAttention(prepared)) {
-    await sendPlaybackAttentionWarning();
-  }
+  await playbackOrchestrator.enforcePlaybackPolicyOnStreamTab();
 }
 
 async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string) {
@@ -1416,6 +1121,7 @@ async function handleEnsureGamesCache(payload?: { force?: boolean }) {
   return {
     success: true,
     refreshed: shouldRefresh,
+    gamesCount: appState.availableGames.length,
     games: appState.availableGames,
   };
 }
@@ -1484,7 +1190,24 @@ async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
 
 async function handleSetNotificationsEnabled(payload?: { enabled?: boolean }) {
   await trackActivity('set-notifications-enabled');
-  appState.notificationsEnabled = payload?.enabled !== false;
+  const enabled = payload?.enabled !== false;
+  if (!enabled) {
+    appState.notificationsEnabled = false;
+    await saveStateExt(state);
+    return { success: true, notificationsEnabled: appState.notificationsEnabled };
+  }
+
+  if (!(await notificationController.hasNotificationPermission())) {
+    appState.notificationsEnabled = false;
+    await saveStateExt(state);
+    return {
+      success: false,
+      notificationsEnabled: appState.notificationsEnabled,
+      error: 'Notification permission was not granted',
+    };
+  }
+
+  appState.notificationsEnabled = true;
   await saveStateExt(state);
   return { success: true, notificationsEnabled: appState.notificationsEnabled };
 }
@@ -1579,244 +1302,133 @@ async function recordChannelPointsBonusClaimed(channelName?: string | null) {
   await notify('Channel points claimed', `Claimed${fromChannel}.`, 0);
 }
 
-chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
-  switch (message.type) {
-    case 'ENSURE_GAMES_CACHE':
-      handleEnsureGamesCache(message.payload as { force?: boolean } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'OPEN_DROPS_PAGE_AND_REFRESH':
-      openDropsPageAndRefresh()
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'ADD_TO_QUEUE':
-      handleAddToQueue(message.payload as { game?: TwitchGame })
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'REMOVE_FROM_QUEUE':
-      handleRemoveFromQueue(message.payload as { game?: TwitchGame; gameId?: string; campaignId?: string })
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'CLEAR_QUEUE':
-      handleClearQueue()
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'START_FARMING':
-      handleStartFarming(message.payload as { game?: TwitchGame })
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_SELECTED_GAME':
-      handleSetSelectedGame(message.payload as { game: TwitchGame })
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'PAUSE_FARMING':
-      handlePauseFarming()
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_AUTO_RESUME_ON_STARTUP':
-      handleSetAutoResumeOnStartup(message.payload as { enabled?: boolean } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'RESUME_FARMING':
-      handleResumeFarming()
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'STOP_FARMING':
-      handleStopFarming()
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'UPDATE_GAMES':
-      appState.availableGames = replaceAvailableGames((message.payload ?? []) as TwitchGame[]);
-      appState.availableGames = annotateGameCompletionExt(appState.availableGames, cachedDropsSnapshot);
-      if (appState.availableGames.length > 0) {
-        appState.lastSuccessfulRefreshAt = Date.now();
-      }
-      normalizeGameSelectionExt(state, appState.availableGames, true);
-      normalizeQueueSelectionExt(state, appState.availableGames, true);
-      saveStateExt(state)
-        .then(() => sendResponse({ success: true }))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      saveTimingStateExt(state).catch(() => undefined);
-      return true;
-
-    case 'SYNC_TWITCH_SESSION': {
-      const incoming = sanitizeTwitchSession(
-        (message.payload as { session?: unknown } | undefined)?.session ?? message.payload,
-      );
-      if (!incoming) {
-        sendResponse({ success: false, error: 'Invalid session payload' });
-        return true;
-      }
-      twitchSessionCache = incoming;
-      twitchSessionLastAttemptAt = 0;
-      persistTwitchSessionExt(incoming)
-        .then(async () => {
-          logDebug('Twitch session synced from content script', sessionDebugSummaryExt(incoming));
-          if (sender.tab?.id && shouldRefreshCampaignsAfterSessionSync()) {
-            await refreshGamesCacheFromHiddenFetch();
-            await saveStateExt(state);
-            broadcastStateUpdateExt(appState);
-          }
-        })
-        .then(() => {
-          sendResponse({ success: true });
-        })
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-    }
-
-    case 'SYNC_TWITCH_INTEGRITY': {
-      const payload = message.payload as
-        | { token?: string; expiration?: number; request_id?: string }
-        | undefined;
-      const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
-      if (!token) {
-        sendResponse({ success: false, error: 'Empty integrity token' });
-        return true;
-      }
-      const expiration = typeof payload?.expiration === 'number' ? payload.expiration : 0;
-      logDebug('Integrity token synced from content script', {
-        tokenLength: token.length,
-        expiration,
-        hasSession: Boolean(twitchSessionCache),
-      });
-      // A fresh page-intercepted token means integrity is working — reset the fallback flag
-      // so the next request re-attempts with integrity instead of staying in no-integrity mode.
-      integrityFallbackActive = false;
-      integrityFallbackActiveUntil = 0;
-      if (twitchSessionCache) {
-        twitchSessionCache = { ...twitchSessionCache, clientIntegrity: token };
-        persistTwitchSessionExt(twitchSessionCache).catch(() => undefined);
-      }
-      // Also store the full integrity object separately for expiration tracking
-      chrome.storage.local
-        .set({ twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' } })
-        .catch(() => undefined);
-      sendResponse({ success: true });
-      return true;
-    }
-
-    case 'REFRESH_DROPS':
-      handleRefreshDrops()
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_MONITOR_AUTO_OPEN':
-      handleSetMonitorAutoOpen(message.payload as { enabled?: boolean } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_MUTE_FARMING_TAB':
-      handleSetMuteFarmingTab(message.payload as { enabled?: boolean } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_NOTIFICATIONS_ENABLED':
-      handleSetNotificationsEnabled(message.payload as { enabled?: boolean } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
-      handleSetAutoClaimChannelPointsBonus(message.payload as { enabled?: boolean } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'CHANNEL_POINTS_BONUS_CLAIMED':
-      logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });
-      recordChannelPointsBonusClaimed(
-        (message.payload as { channelName?: string } | undefined)?.channelName ??
-          getChannelNameFromTab(sender.tab?.url),
-      )
-        .then(() => sendResponse({ success: true }))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_AUTO_CLAIM_DROPS':
-      handleSetAutoClaimDrops(message.payload as { enabled?: boolean } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_STREAMER_SELECTION_MODE':
-      handleSetStreamerSelectionMode(
-        message.payload as { mode?: 'low-view' | 'random' | 'top-viewers' } | undefined,
-      )
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'SET_PREFERRED_STREAMER_LANGUAGE':
-      handleSetPreferredStreamerLanguage(message.payload as { language?: string | null } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    case 'OPEN_MONITOR_DASHBOARD':
-      openMonitorDashboardWindow((message.payload ?? {}) as { toggle?: boolean } | undefined)
-        .then((result) => sendResponse(result))
-        .catch((error) => sendResponse({ success: false, error: String(error) }));
-      return true;
-
-    default:
-      sendResponse({ success: false, error: 'Unknown message type' });
-      return true;
+async function handleUpdateGames(payload?: TwitchGame[]) {
+  appState.availableGames = replaceAvailableGames(payload ?? []);
+  appState.availableGames = annotateGameCompletionExt(appState.availableGames, cachedDropsSnapshot);
+  if (appState.availableGames.length > 0) {
+    appState.lastSuccessfulRefreshAt = Date.now();
   }
+  normalizeGameSelectionExt(state, appState.availableGames, true);
+  normalizeQueueSelectionExt(state, appState.availableGames, true);
+  await saveStateExt(state);
+  saveTimingStateExt(state).catch(() => undefined);
+  return { success: true };
+}
+
+function sessionPayloadCandidate(payload: unknown): unknown {
+  if (payload && typeof payload === 'object' && 'session' in payload) {
+    return (payload as { session?: unknown }).session;
+  }
+  return payload;
+}
+
+async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.MessageSender) {
+  const incoming = sanitizeTwitchSession(sessionPayloadCandidate(payload));
+  if (!incoming) {
+    return { success: false, error: 'Invalid session payload' };
+  }
+  twitchSessionCache = incoming;
+  twitchSessionLastAttemptAt = 0;
+  await persistTwitchSessionExt(incoming);
+  logDebug('Twitch session synced from content script', sessionDebugSummaryExt(incoming));
+  if (sender.tab?.id && shouldRefreshCampaignsAfterSessionSync()) {
+    await refreshGamesCacheFromHiddenFetch();
+    await saveStateExt(state);
+    broadcastStateUpdateExt(appState);
+  }
+  return { success: true };
+}
+
+async function handleSyncTwitchIntegrity(payload?: {
+  token?: string;
+  expiration?: number;
+  request_id?: string;
+}) {
+  const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
+  if (!token) {
+    return { success: false, error: 'Empty integrity token' };
+  }
+  const expiration = typeof payload?.expiration === 'number' ? payload.expiration : 0;
+  logDebug('Integrity token synced from content script', {
+    hasToken: true,
+    expiration,
+    hasSession: Boolean(twitchSessionCache),
+  });
+  // A fresh page-intercepted token means integrity is working — reset the fallback flag
+  // so the next request re-attempts with integrity instead of staying in no-integrity mode.
+  integrityFallbackActive = false;
+  integrityFallbackActiveUntil = 0;
+  if (twitchSessionCache) {
+    twitchSessionCache = { ...twitchSessionCache, clientIntegrity: token };
+    persistTwitchSessionExt(twitchSessionCache).catch(() => undefined);
+  }
+  // Also store the full integrity object separately for expiration tracking.
+  chrome.storage.local
+    .set({ twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' } })
+    .catch(() => undefined);
+  return { success: true };
+}
+
+async function handleChannelPointsBonusClaimed(
+  payload: { channelName?: string | null } | undefined,
+  sender: chrome.runtime.MessageSender,
+) {
+  logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });
+  await recordChannelPointsBonusClaimed(payload?.channelName ?? getChannelNameFromTab(sender.tab?.url));
+  return { success: true };
+}
+
+registerRuntimeMessageRouter({
+  ensureGamesCache: (message) => handleEnsureGamesCache(message.payload),
+  openDropsPageAndRefresh: () => openDropsPageAndRefresh(),
+  addToQueue: (message) => handleAddToQueue(message.payload),
+  removeFromQueue: (message) => handleRemoveFromQueue(message.payload),
+  clearQueue: () => handleClearQueue(),
+  startFarming: (message) => handleStartFarming(message.payload),
+  setSelectedGame: (message) => handleSetSelectedGame(message.payload),
+  pauseFarming: () => handlePauseFarming(),
+  setAutoResumeOnStartup: (message) => handleSetAutoResumeOnStartup(message.payload),
+  resumeFarming: () => handleResumeFarming(),
+  stopFarming: () => handleStopFarming(),
+  updateGames: (message) => handleUpdateGames(message.payload),
+  syncTwitchSession: (message, sender) => handleSyncTwitchSession(message.payload, sender),
+  syncTwitchIntegrity: (message) => handleSyncTwitchIntegrity(message.payload),
+  refreshDrops: () => handleRefreshDrops(),
+  setMonitorAutoOpen: (message) => handleSetMonitorAutoOpen(message.payload),
+  setMuteFarmingTab: (message) => handleSetMuteFarmingTab(message.payload),
+  setNotificationsEnabled: (message) => handleSetNotificationsEnabled(message.payload),
+  setAutoClaimChannelPointsBonus: (message) => handleSetAutoClaimChannelPointsBonus(message.payload),
+  channelPointsBonusClaimed: (message, sender) => handleChannelPointsBonusClaimed(message.payload, sender),
+  setAutoClaimDrops: (message) => handleSetAutoClaimDrops(message.payload),
+  setStreamerSelectionMode: (message) => handleSetStreamerSelectionMode(message.payload),
+  setPreferredStreamerLanguage: (message) => handleSetPreferredStreamerLanguage(message.payload),
+  openMonitorDashboard: (message) => openMonitorDashboardWindow(message.payload ?? {}),
 });
 
-chrome.tabs.onRemoved.addListener((removedTabId) => {
+async function handleManagedTabRemoved(removedTabId: number) {
   if (appState.tabId === removedTabId) {
     clearManagedTabOwnershipExt(state);
-    saveStateExt(state).catch(() => undefined);
+    await saveStateExt(state);
   }
-});
+}
 
 // Detect when the managed farming tab navigates away from Twitch
-chrome.tabs.onUpdated.addListener((updatedTabId, changeInfo) => {
-  if (updatedTabId !== appState.tabId || !changeInfo.url) {
+async function handleManagedTabNavigatedAway(updatedTabId: number, url: string) {
+  if (updatedTabId !== appState.tabId) {
     return;
   }
-  const isStillOnTwitch = /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(changeInfo.url);
-  if (!isStillOnTwitch) {
-    logInfo('Managed tab navigated away from Twitch (onUpdated)', { url: changeInfo.url });
-    // Release the tab so next rotation creates a NEW tab instead of hijacking this one
-    clearManagedTabOwnershipExt(state);
-    invalidStreamChecks = INVALID_STREAM_THRESHOLD;
-    saveStateExt(state).catch(() => undefined);
-  }
-});
+  logInfo('Managed tab navigated away from Twitch (onUpdated)', { url });
+  // Release the tab so next rotation creates a new tab instead of hijacking this one.
+  clearManagedTabOwnershipExt(state);
+  invalidStreamChecks = INVALID_STREAM_THRESHOLD;
+  await saveStateExt(state);
+}
 
-chrome.windows.onRemoved.addListener((removedWindowId) => {
+async function handleMonitorWindowRemoved(removedWindowId: number) {
   if (appState.monitorWindowId === removedWindowId) {
     appState.monitorWindowId = null;
-    saveStateExt(state).catch(() => undefined);
+    await saveStateExt(state);
   }
-});
+}
 
 logDebug('DropHunter service worker loaded');

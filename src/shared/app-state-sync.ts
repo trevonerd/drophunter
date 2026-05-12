@@ -1,4 +1,5 @@
-import type { AppState, Message } from '../types/index.ts';
+import type { AppState } from '../types/index.ts';
+import { isRuntimeRequest } from './messages.ts';
 import { createInitialState } from './utils.ts';
 
 export function normalizeStoredAppState(value: unknown): AppState {
@@ -17,8 +18,8 @@ export async function loadStoredAppState(): Promise<AppState> {
 }
 
 export function subscribeToAppState(onState: (state: AppState) => void): () => void {
-  const runtimeListener = (message: Message) => {
-    if (message.type === 'UPDATE_STATE' && message.payload) {
+  const runtimeListener = (message: unknown) => {
+    if (isRuntimeRequest(message) && message.type === 'UPDATE_STATE' && message.payload) {
       onState(normalizeStoredAppState(message.payload));
     }
   };

@@ -2,15 +2,17 @@
   "manifest_version": 3,
   "name": "DropHunter",
   "short_name": "DropHunter",
-  "version": "2.9.1",
+  "version": "3.0.0",
   "description": "Automatically farm and collect Twitch Drops — queue multiple campaigns, track progress in real time, and never miss a reward.",
   "homepage_url": "https://github.com/trevonerd/drophunter",
   "minimum_chrome_version": "120",
   "permissions": [
     "storage",
     "scripting",
-    "notifications",
     "alarms"
+  ],
+  "optional_permissions": [
+    "notifications"
   ],
   "host_permissions": [
     "https://*.twitch.tv/*"

@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
 import { sortPendingDrops } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
+import { sendRuntimeMessage } from '../shared/messages';
 import { deriveRuntimeMode, formatRecoveryReason, formatRetryLabel } from '../shared/runtime-status';
 import { createInitialState, isExpiredGame } from '../shared/utils';
 import { AppState, ExpiryStatus, StreamerSelectionMode, TwitchDrop, TwitchGame } from '../types';
+import { logPopupError, logPopupWarn } from './logging';
 import { getGameToStartFromQueue } from './queue-start';
 
 const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: string }> = [
@@ -12,6 +14,7 @@ const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: s
   { value: 'random', label: 'Random' },
   { value: 'top-viewers', label: 'Top viewers' },
 ];
+const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = { permissions: ['notifications'] };
 
 const STREAMER_LANGUAGE_OPTIONS = [
   { value: '', label: 'Any' },
@@ -334,9 +337,9 @@ function App() {
   const [activeView, setActiveView] = useState<'main' | 'settings'>('main');
 
   const fetchAvailableGames = useCallback(async (force = false) => {
-    await chrome.runtime
-      .sendMessage({ type: 'ENSURE_GAMES_CACHE', payload: { force } })
-      .catch((err: unknown) => console.warn('[DropHunter] ENSURE_GAMES_CACHE failed:', err));
+    await sendRuntimeMessage({ type: 'ENSURE_GAMES_CACHE', payload: { force } }).catch((err: unknown) =>
+      logPopupWarn('ENSURE_GAMES_CACHE failed:', err),
+    );
     setState(await loadStoredAppState());
   }, []);
 
@@ -345,7 +348,7 @@ function App() {
       try {
         setState(await loadStoredAppState());
       } catch (error) {
-        console.error('Error loading state:', error);
+        logPopupError('Error loading state:', error);
       } finally {
         setLoading(false);
       }
@@ -386,9 +389,9 @@ function App() {
       setQueueMessage(null);
       setRewardsLoading(true);
       try {
-        await chrome.runtime
-          .sendMessage({ type: 'SET_SELECTED_GAME', payload: { game: selected } })
-          .catch((err: unknown) => console.warn('[DropHunter] SET_SELECTED_GAME failed:', err));
+        await sendRuntimeMessage({ type: 'SET_SELECTED_GAME', payload: { game: selected } }).catch(
+          (err: unknown) => logPopupWarn('SET_SELECTED_GAME failed:', err),
+        );
       } finally {
         setTimeout(() => setRewardsLoading(false), 350);
       }
@@ -399,10 +402,10 @@ function App() {
     if (!state.selectedGame || actionLoading) return;
     setActionLoading(true);
     try {
-      const response = (await chrome.runtime.sendMessage({
+      const response = await sendRuntimeMessage({
         type: 'ADD_TO_QUEUE',
         payload: { game: state.selectedGame },
-      })) as { success?: boolean; added?: boolean; reason?: string };
+      });
       if (!response?.success) {
         setQueueMessage('Unable to add campaign to queue.');
         return;
@@ -428,15 +431,15 @@ function App() {
   };
 
   const handleRemoveFromQueue = async (game: TwitchGame) => {
-    await chrome.runtime
-      .sendMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } })
-      .catch((err: unknown) => console.warn('[DropHunter] REMOVE_FROM_QUEUE failed:', err));
+    await sendRuntimeMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } }).catch((err: unknown) =>
+      logPopupWarn('REMOVE_FROM_QUEUE failed:', err),
+    );
   };
 
   const handleClearQueue = async () => {
-    await chrome.runtime
-      .sendMessage({ type: 'CLEAR_QUEUE' })
-      .catch((err: unknown) => console.warn('[DropHunter] CLEAR_QUEUE failed:', err));
+    await sendRuntimeMessage({ type: 'CLEAR_QUEUE' }).catch((err: unknown) =>
+      logPopupWarn('CLEAR_QUEUE failed:', err),
+    );
     setQueueMessage('Queue cleared.');
   };
 
@@ -460,10 +463,10 @@ function App() {
         setQueueMessage('Select a game to start farming.');
         return;
       }
-      const response = (await chrome.runtime.sendMessage({
+      const response = await sendRuntimeMessage({
         type: 'START_FARMING',
         payload: { game: gameToStart },
-      })) as { success?: boolean; error?: string } | undefined;
+      });
       if (response && !response.success && response.error) {
         setQueueMessage(response.error);
       }
@@ -472,7 +475,7 @@ function App() {
   const handlePause = useCallback(
     () =>
       withAction(async () => {
-        await chrome.runtime.sendMessage({ type: 'PAUSE_FARMING' });
+        await sendRuntimeMessage({ type: 'PAUSE_FARMING' });
       }),
     [withAction],
   );
@@ -480,7 +483,7 @@ function App() {
   const handleResume = useCallback(
     () =>
       withAction(async () => {
-        await chrome.runtime.sendMessage({ type: 'RESUME_FARMING' });
+        await sendRuntimeMessage({ type: 'RESUME_FARMING' });
       }),
     [withAction],
   );
@@ -488,18 +491,16 @@ function App() {
   const handleStop = useCallback(
     () =>
       withAction(async () => {
-        await chrome.runtime.sendMessage({ type: 'STOP_FARMING' });
+        await sendRuntimeMessage({ type: 'STOP_FARMING' });
       }),
     [withAction],
   );
 
   const openDropsPage = () =>
     withAction(async () => {
-      const response = (await chrome.runtime
-        .sendMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' })
-        .catch((error: unknown) => ({ success: false, error: String(error) }))) as
-        | { success?: boolean; error?: string; gamesCount?: number }
-        | undefined;
+      const response = await sendRuntimeMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' }).catch(
+        (error: unknown) => ({ success: false as const, error: String(error) }),
+      );
       setState(await loadStoredAppState());
       if (response && response.success === false) {
         setQueueMessage(response.error ?? 'Opened Twitch. Waiting for DropHunter to detect your session.');
@@ -513,18 +514,18 @@ function App() {
     });
 
   const openMiniDashboard = async () => {
-    await chrome.runtime
-      .sendMessage({ type: 'OPEN_MONITOR_DASHBOARD', payload: { toggle: true } })
-      .catch((err: unknown) => console.warn('[DropHunter] OPEN_MONITOR_DASHBOARD failed:', err));
+    await sendRuntimeMessage({ type: 'OPEN_MONITOR_DASHBOARD', payload: { toggle: true } }).catch(
+      (err: unknown) => logPopupWarn('OPEN_MONITOR_DASHBOARD failed:', err),
+    );
   };
 
   const handleMonitorAutoOpenToggle = async () => {
     const next = !state.monitorAutoOpen;
     setState((prev) => ({ ...prev, monitorAutoOpen: next }));
-    const response = (await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: 'SET_MONITOR_AUTO_OPEN',
       payload: { enabled: next },
-    })) as { success?: boolean; monitorAutoOpen?: boolean } | undefined;
+    });
     if (!response?.success) {
       setState((prev) => ({ ...prev, monitorAutoOpen: !next }));
       return;
@@ -535,10 +536,10 @@ function App() {
   const handleAutoResumeOnStartupToggle = async () => {
     const next = !state.autoResumeOnStartup;
     setState((prev) => ({ ...prev, autoResumeOnStartup: next }));
-    const response = (await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: 'SET_AUTO_RESUME_ON_STARTUP',
       payload: { enabled: next },
-    })) as { success?: boolean; autoResumeOnStartup?: boolean } | undefined;
+    });
     if (!response?.success) {
       setState((prev) => ({ ...prev, autoResumeOnStartup: !next }));
       return;
@@ -549,10 +550,10 @@ function App() {
   const handleAutoClaimChannelPointsBonusToggle = async () => {
     const next = !state.autoClaimChannelPointsBonus;
     setState((prev) => ({ ...prev, autoClaimChannelPointsBonus: next }));
-    const response = (await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
       payload: { enabled: next },
-    })) as { success?: boolean; autoClaimChannelPointsBonus?: boolean } | undefined;
+    });
     if (!response?.success) {
       setState((prev) => ({ ...prev, autoClaimChannelPointsBonus: !next }));
       return;
@@ -566,10 +567,10 @@ function App() {
   const handleAutoClaimDropsToggle = async () => {
     const next = !state.autoClaimDrops;
     setState((prev) => ({ ...prev, autoClaimDrops: next }));
-    const response = (await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: 'SET_AUTO_CLAIM_DROPS',
       payload: { enabled: next },
-    })) as { success?: boolean; autoClaimDrops?: boolean } | undefined;
+    });
     if (!response?.success) {
       setState((prev) => ({ ...prev, autoClaimDrops: !next }));
       return;
@@ -583,10 +584,10 @@ function App() {
   const handleMuteFarmingTabToggle = async () => {
     const next = !state.muteFarmingTab;
     setState((prev) => ({ ...prev, muteFarmingTab: next }));
-    const response = (await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: 'SET_MUTE_FARMING_TAB',
       payload: { enabled: next },
-    })) as { success?: boolean; muteFarmingTab?: boolean } | undefined;
+    });
     if (!response?.success) {
       setState((prev) => ({ ...prev, muteFarmingTab: !next }));
       return;
@@ -600,10 +601,17 @@ function App() {
   const handleNotificationsEnabledToggle = async () => {
     const next = !state.notificationsEnabled;
     setState((prev) => ({ ...prev, notificationsEnabled: next }));
-    const response = (await chrome.runtime.sendMessage({
+    if (next) {
+      const granted = await chrome.permissions.request(NOTIFICATION_PERMISSION).catch(() => false);
+      if (!granted) {
+        setState((prev) => ({ ...prev, notificationsEnabled: false }));
+        return;
+      }
+    }
+    const response = await sendRuntimeMessage({
       type: 'SET_NOTIFICATIONS_ENABLED',
       payload: { enabled: next },
-    })) as { success?: boolean; notificationsEnabled?: boolean } | undefined;
+    });
     if (!response?.success) {
       setState((prev) => ({ ...prev, notificationsEnabled: !next }));
       return;
@@ -617,10 +625,10 @@ function App() {
   const handleStreamerSelectionModeChange = async (mode: StreamerSelectionMode) => {
     const previous = state.streamerSelectionMode;
     setState((prev) => ({ ...prev, streamerSelectionMode: mode }));
-    const response = (await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: 'SET_STREAMER_SELECTION_MODE',
       payload: { mode },
-    })) as { success?: boolean; streamerSelectionMode?: StreamerSelectionMode } | undefined;
+    });
     if (!response?.success) {
       setState((prev) => ({ ...prev, streamerSelectionMode: previous }));
       return;
@@ -635,10 +643,10 @@ function App() {
     const next = language || null;
     const previous = state.preferredStreamerLanguage;
     setState((prev) => ({ ...prev, preferredStreamerLanguage: next }));
-    const response = (await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: 'SET_PREFERRED_STREAMER_LANGUAGE',
       payload: { language: next },
-    })) as { success?: boolean; preferredStreamerLanguage?: string | null } | undefined;
+    });
     if (!response?.success) {
       setState((prev) => ({ ...prev, preferredStreamerLanguage: previous ?? null }));
       return;
