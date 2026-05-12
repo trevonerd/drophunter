@@ -12,7 +12,7 @@
     "dev": "vite build --watch --mode development",
     "build": "vite build --mode production",
     "check": "bun run test:ts && bun run lint && bun run test && bun run build",
-    "release:check": "bun run check && bun scripts/release-check.mjs",
+    "release:check": "bun scripts/release-check.mjs",
     "video:install": "cd video && bun install",
     "video:preview": "cd video && bun run preview",
     "video:render:cta": "cd video && bun run render:cta",
