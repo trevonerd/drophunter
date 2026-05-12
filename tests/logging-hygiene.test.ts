@@ -16,6 +16,7 @@ const sourceFiles = [
   'src/popup/logging.ts',
   'src/shared/ErrorBoundary.tsx',
   'src/background/state-persistence.ts',
+  'src/content/app-state.ts',
   'src/content/content-script.ts',
   'src/content/integrity-interceptor.ts',
   'src/popup/App.tsx',
