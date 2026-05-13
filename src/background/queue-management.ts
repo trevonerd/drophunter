@@ -1210,6 +1210,10 @@ export async function openBestStreamerForSelectedGame(
 
 export interface RefreshDropsDataCallbacks {
   onFetchDropsSnapshotFromApi: (force?: boolean) => Promise<DropsSnapshot | null>;
+  onFetchInventorySnapshotFromApi?: (
+    baseDrops: TwitchDrop[],
+    force?: boolean,
+  ) => Promise<DropsSnapshot | null>;
   onEvaluateDropTransitions: (previousCompletedIds: Set<string>) => Promise<void>;
   onSaveState: (state: ServiceWorkerState) => Promise<void>;
 }
@@ -1236,16 +1240,13 @@ export async function refreshDropsData(
   const includeInventoryFetch = options.includeInventoryFetch ?? state.appState.isRunning;
   const previousCompletedIds = new Set(state.appState.completedDrops.map((drop) => drop.id));
   let games = state.appState.availableGames;
-  let drops = includeCampaignFetch
-    ? state.cachedDropsSnapshot.length > 0
-      ? state.cachedDropsSnapshot
-      : state.appState.allDrops
-    : state.appState.allDrops;
+  let drops = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : state.appState.allDrops;
   let apiSnapshotUsed = false;
 
-  if (includeCampaignFetch || includeInventoryFetch) {
+  if (includeCampaignFetch) {
     const apiSnapshot = await callbacks.onFetchDropsSnapshotFromApi();
     if (apiSnapshot) {
+      state.lastFullRefreshAt = Date.now();
       games =
         apiSnapshot.games.length > 0
           ? deps.replaceAvailableGames(apiSnapshot.games)
@@ -1260,6 +1261,19 @@ export async function refreshDropsData(
         state.cachedCampaignChannelsMap = apiSnapshot.campaignChannelsMap;
       }
       apiSnapshotUsed = true;
+    }
+  } else if (includeInventoryFetch && callbacks.onFetchInventorySnapshotFromApi) {
+    const baseDrops = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : drops;
+    if (baseDrops.length > 0) {
+      const inventorySnapshot = await callbacks.onFetchInventorySnapshotFromApi(
+        baseDrops,
+        options.forceInventoryFetch,
+      );
+      if (inventorySnapshot?.drops.length) {
+        drops = inventorySnapshot.drops;
+        state.cachedDropsSnapshot = inventorySnapshot.drops;
+        apiSnapshotUsed = true;
+      }
     }
   }
 

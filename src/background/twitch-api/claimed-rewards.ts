@@ -1,4 +1,3 @@
-import { logVerboseInfo } from '../logging.ts';
 import { normalizeText } from './parsing.ts';
 
 export interface ClaimedRewardEntry {
@@ -39,21 +38,6 @@ export function buildClaimedRewardLookup(inventoryRaw: unknown): ClaimedRewardLo
     const entry = lookup.get(gameName)!;
     if (rewardName) entry.nameCounts.set(rewardName, (entry.nameCounts.get(rewardName) ?? 0) + 1);
     if (benefitId) entry.idCounts.set(benefitId, (entry.idCounts.get(benefitId) ?? 0) + 1);
-    logVerboseInfo(
-      `[buildClaimedRewardLookup] game="${gameName}" claimedName="${rewardName}" benefitId="${benefitId}"`,
-    );
-  });
-
-  lookup.forEach((entry, gameName) => {
-    const nameEntries = Array.from(entry.nameCounts.entries())
-      .map(([name, count]) => `${name}(x${count})`)
-      .join(', ');
-    const idEntries = Array.from(entry.idCounts.entries())
-      .map(([id, count]) => `${id}(x${count})`)
-      .join(', ');
-    logVerboseInfo(
-      `[buildClaimedRewardLookup] SUMMARY game="${gameName}" claimedNames=[${nameEntries}] claimedIdCounts=[${idEntries}]`,
-    );
   });
 
   return lookup;

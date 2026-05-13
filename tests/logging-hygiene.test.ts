@@ -12,6 +12,8 @@ const sourceFiles = [
   'src/background/notifications.ts',
   'src/background/playback-orchestrator.ts',
   'src/background/session-orchestrator.ts',
+  'src/background/twitch-api/client.ts',
+  'src/background/twitch-api/claimed-rewards.ts',
   'src/content/logging.ts',
   'src/popup/logging.ts',
   'src/shared/ErrorBoundary.tsx',
@@ -56,5 +58,22 @@ describe('logging hygiene', () => {
     expect(viteConfig).toContain('__DROPHUNTER_DEBUG_LOGS__');
     expect(backgroundLogger).toContain('__DROPHUNTER_DEBUG_LOGS__');
     expect(backgroundLogger).not.toContain('import.meta.env.DEV');
+  });
+
+  test('does not keep per-campaign or per-drop Twitch parser logs', () => {
+    const twitchClient = readFileSync(join(repoRoot, 'src/background/twitch-api/client.ts'), 'utf-8');
+    const claimedRewards = readFileSync(
+      join(repoRoot, 'src/background/twitch-api/claimed-rewards.ts'),
+      'utf-8',
+    );
+
+    expect(twitchClient).not.toContain('[parseGameFromCampaign]');
+    expect(twitchClient).not.toContain('[parseCampaignDrops]');
+    expect(twitchClient).not.toContain('[parseEventBasedDrops]');
+    expect(twitchClient).not.toContain('benefitIds=[');
+    expect(twitchClient).not.toContain('idMatch=');
+    expect(twitchClient).not.toContain('Raw inventory keys');
+    expect(twitchClient).not.toContain('InProgress campaign=');
+    expect(claimedRewards).not.toContain('[buildClaimedRewardLookup]');
   });
 });

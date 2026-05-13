@@ -33,7 +33,11 @@ import {
   waitForTabComplete as waitForTabCompleteExt,
 } from './tab-management.ts';
 import './stream-rotation';
-import { fetchDirectoryStreamersFromApiWrapper, fetchDropsSnapshotFromApiWrapper } from './api-operations.ts';
+import {
+  fetchDirectoryStreamersFromApiWrapper,
+  fetchDropsSnapshotFromApiWrapper,
+  fetchInventorySnapshotFromApiWrapper,
+} from './api-operations.ts';
 import {
   CRASH_DETECTION_THRESHOLD_MS,
   CRASH_RECOVERY_GRACE_MS,
@@ -718,6 +722,23 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
   );
 }
 
+async function fetchInventorySnapshotFromApi(
+  baseDrops: TwitchDrop[],
+  forceSessionRefresh = false,
+): Promise<DropsSnapshot | null> {
+  return fetchInventorySnapshotFromApiWrapper(
+    state,
+    baseDrops,
+    forceSessionRefresh,
+    {
+      onEnsureTwitchSession: ensureTwitchSession,
+      onIsLikelyAuthError: isLikelyAuthError,
+      onClearTwitchSessionCache: clearTwitchSessionCacheExt,
+    },
+    { logWarn },
+  );
+}
+
 async function fetchDirectoryStreamersFromApi(
   game: TwitchGame,
   forceSessionRefresh = false,
@@ -906,6 +927,7 @@ async function refreshDropsData(options: RefreshDropsOptions = {}) {
     options,
     {
       onFetchDropsSnapshotFromApi: fetchDropsSnapshotFromApi,
+      onFetchInventorySnapshotFromApi: fetchInventorySnapshotFromApi,
       onEvaluateDropTransitions: evaluateDropTransitions,
       onSaveState: saveStateExt,
     },

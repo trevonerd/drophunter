@@ -68,6 +68,61 @@ export async function fetchDropsSnapshotFromApi(
   }
 }
 
+export async function fetchInventorySnapshotFromApi(
+  state: ServiceWorkerState,
+  session: TwitchSession,
+  baseDrops: DropsSnapshot['drops'],
+): Promise<DropsSnapshot | null> {
+  if (baseDrops.length === 0) {
+    return null;
+  }
+
+  const sessionWithIntegrity =
+    state.integrityFallbackActive && Date.now() < state.integrityFallbackActiveUntil
+      ? { ...session, clientIntegrity: undefined }
+      : await ensureSessionIntegrityExt(state, session);
+
+  let client = new TwitchApiClient(sessionWithIntegrity);
+  try {
+    const snapshot = await client.fetchInventorySnapshot(baseDrops);
+    state.apiConsecutiveFailures = 0;
+    state.apiBackoffUntil = 0;
+    return snapshot.drops.length > 0 ? snapshot : null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    if (message.includes('integrity')) {
+      const refreshedIntegritySession = await ensureSessionIntegrityExt(state, session, true);
+      if (
+        refreshedIntegritySession.clientIntegrity &&
+        refreshedIntegritySession.clientIntegrity !== sessionWithIntegrity.clientIntegrity
+      ) {
+        try {
+          client = new TwitchApiClient(refreshedIntegritySession);
+          const retriedSnapshot = await client.fetchInventorySnapshot(baseDrops);
+          state.apiConsecutiveFailures = 0;
+          state.apiBackoffUntil = 0;
+          return retriedSnapshot.drops.length > 0 ? retriedSnapshot : null;
+        } catch {}
+      }
+
+      try {
+        const sessionWithoutIntegrity: TwitchSession = { ...session, clientIntegrity: undefined };
+        client = new TwitchApiClient(sessionWithoutIntegrity);
+        const fallbackSnapshot = await client.fetchInventorySnapshot(baseDrops);
+        state.integrityFallbackActive = true;
+        state.integrityFallbackActiveUntil = Date.now() + 30 * 60_000;
+        state.apiConsecutiveFailures = 0;
+        state.apiBackoffUntil = 0;
+        return fallbackSnapshot.drops.length > 0 ? fallbackSnapshot : null;
+      } catch {}
+    }
+    state.apiConsecutiveFailures += 1;
+    state.apiBackoffUntil =
+      Date.now() + Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
+    return null;
+  }
+}
+
 export async function fetchDirectoryStreamersFromApi(
   state: ServiceWorkerState,
   game: TwitchGame,
@@ -109,6 +164,41 @@ export interface FetchDropsSnapshotFromApiCallbacks {
   }) => Promise<void>;
   onIsLikelyAuthError: (error: unknown) => boolean;
   onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
+}
+
+export interface FetchInventorySnapshotFromApiCallbacks {
+  onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<TwitchSession | null>;
+  onIsLikelyAuthError: (error: unknown) => boolean;
+  onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
+}
+
+export async function fetchInventorySnapshotFromApiWrapper(
+  state: ServiceWorkerState,
+  baseDrops: DropsSnapshot['drops'],
+  forceSessionRefresh: boolean,
+  callbacks: FetchInventorySnapshotFromApiCallbacks,
+  deps: {
+    logWarn: (msg: string, ctx?: unknown) => void;
+  },
+): Promise<DropsSnapshot | null> {
+  const session = await callbacks.onEnsureTwitchSession(forceSessionRefresh);
+  if (!session) {
+    deps.logWarn('Inventory snapshot API skipped: Twitch session missing');
+    return null;
+  }
+
+  try {
+    return await fetchInventorySnapshotFromApi(state, session, baseDrops);
+  } catch (error) {
+    if (callbacks.onIsLikelyAuthError(error)) {
+      callbacks.onClearTwitchSessionCache(state);
+      if (!forceSessionRefresh) {
+        return fetchInventorySnapshotFromApiWrapper(state, baseDrops, true, callbacks, deps);
+      }
+    }
+    deps.logWarn('Twitch inventory snapshot fetch failed:', String(error));
+    return null;
+  }
 }
 
 export async function fetchDropsSnapshotFromApiWrapper(
