@@ -13,10 +13,13 @@ import {
   advanceQueueIfCompleted,
   skipCurrentGameDueToStall,
   handleStartFarming,
+  refreshDropsData,
   rotateStreamer,
   rotateStreamerIfInvalid,
   checkDropProgress,
 } from '../src/background/queue-management.ts';
+import { splitDropsForSelectedGame, updateStateFromSnapshot } from '../src/background/drop-processing.ts';
+import { replaceAvailableGames } from '../src/shared/game-selection.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchGame, TwitchDrop } from '../src/types/index.ts';
@@ -1356,6 +1359,189 @@ describe('checkDropProgress', () => {
     expect(calls).toEqual(['playback-policy', 'refresh-drops', 'validate-stream']);
     expect(attemptSelfHealCalled).toBe(false);
     expect(rotateReason).toBeNull();
+  });
+
+  test('requests a full campaign refresh when the full tick interval elapses', async () => {
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.lastFullRefreshAt = Date.now() - 3 * 60 * 1000;
+
+    const refreshOptions: Array<{
+      includeCampaignFetch?: boolean;
+      includeInventoryFetch?: boolean;
+      forceInventoryFetch?: boolean;
+    } | undefined> = [];
+
+    await checkDropProgress(state, {
+      onEnforcePlaybackPolicy: async () => undefined,
+      onRefreshDropsData: async (opts) => {
+        refreshOptions.push(opts);
+      },
+      onRotateStreamerIfInvalid: async () => undefined,
+      onAttemptAutoClaimChannelPointsBonus: async () => false,
+      onAutoClaimClaimableDrops: async () => false,
+      onAdvanceQueueIfCompleted: async () => true,
+      onSaveTimingState: async () => undefined,
+    });
+
+    expect(refreshOptions[0]).toEqual({ includeCampaignFetch: true, includeInventoryFetch: true });
+  });
+});
+
+describe('refreshDropsData light refresh', () => {
+  test('updates inventory progress without calling the full campaign fetch', async () => {
+    const state = createMinimalState();
+    const forHonor = createGame({
+      id: 'campaign-for-honor',
+      name: 'For Honor',
+      campaignId: 'campaign-for-honor',
+      categorySlug: 'for-honor',
+    });
+    const overwatch = createGame({
+      id: 'campaign-overwatch',
+      name: 'Overwatch',
+      campaignId: 'campaign-overwatch',
+      categorySlug: 'overwatch',
+    });
+    const forHonorDrop = createDrop({
+      id: 'drop-for-honor',
+      gameId: forHonor.id,
+      gameName: forHonor.name,
+      campaignId: forHonor.campaignId,
+      currentMinutes: 120,
+      requiredMinutes: 240,
+      remainingMinutes: 120,
+      progress: 50,
+    });
+    const overwatchDrop = createDrop({
+      id: 'drop-overwatch',
+      gameId: overwatch.id,
+      gameName: overwatch.name,
+      campaignId: overwatch.campaignId,
+      currentMinutes: 327,
+      requiredMinutes: 720,
+      remainingMinutes: 393,
+      progress: 45,
+    });
+
+    state.appState.isRunning = true;
+    state.appState.selectedGame = forHonor;
+    state.appState.availableGames = [forHonor, overwatch];
+    state.appState.queue = [forHonor, overwatch];
+    state.cachedDropsSnapshot = [forHonorDrop, overwatchDrop];
+    splitDropsForSelectedGame(state, state.cachedDropsSnapshot);
+
+    let fullFetchCalled = false;
+    let inventoryFetchCalled = false;
+
+    await refreshDropsData(
+      state,
+      { includeInventoryFetch: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => {
+          fullFetchCalled = true;
+          return null;
+        },
+        onFetchInventorySnapshotFromApi: async (baseDrops) => {
+          inventoryFetchCalled = true;
+          return {
+            games: [],
+            drops: baseDrops.map((drop) =>
+              drop.campaignId === forHonor.campaignId
+                ? { ...drop, currentMinutes: 180, progress: 75, remainingMinutes: 60 }
+                : drop,
+            ),
+            updatedAt: Date.now(),
+          };
+        },
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      {
+        replaceAvailableGames,
+        getGameDisplayLabel: (game) => game.displayName ?? game.name,
+        updateStateFromSnapshot,
+        normalizeQueueSelection,
+      },
+    );
+
+    expect(fullFetchCalled).toBe(false);
+    expect(inventoryFetchCalled).toBe(true);
+    expect(state.appState.selectedGame?.campaignId).toBe(forHonor.campaignId);
+    expect(state.appState.currentDrop?.campaignId).toBe(forHonor.campaignId);
+    expect(state.appState.currentDrop?.currentMinutes).toBe(180);
+    expect(state.appState.queue.map((game) => game.campaignId)).toEqual([
+      forHonor.campaignId,
+      overwatch.campaignId,
+    ]);
+  });
+
+  test('preserves cached cross-game drops when inventory-only refresh has no data', async () => {
+    const state = createMinimalState();
+    const forHonor = createGame({
+      id: 'campaign-for-honor',
+      name: 'For Honor',
+      campaignId: 'campaign-for-honor',
+      categorySlug: 'for-honor',
+    });
+    const overwatch = createGame({
+      id: 'campaign-overwatch',
+      name: 'Overwatch',
+      campaignId: 'campaign-overwatch',
+      categorySlug: 'overwatch',
+    });
+    const forHonorDrop = createDrop({
+      id: 'drop-for-honor',
+      gameId: forHonor.id,
+      gameName: forHonor.name,
+      campaignId: forHonor.campaignId,
+      currentMinutes: 120,
+      requiredMinutes: 240,
+      remainingMinutes: 120,
+      progress: 50,
+    });
+    const overwatchDrop = createDrop({
+      id: 'drop-overwatch',
+      gameId: overwatch.id,
+      gameName: overwatch.name,
+      campaignId: overwatch.campaignId,
+      claimId: 'claim-overwatch',
+      claimable: true,
+      currentMinutes: 60,
+      requiredMinutes: 60,
+      remainingMinutes: 0,
+      progress: 100,
+    });
+
+    state.appState.isRunning = true;
+    state.appState.selectedGame = forHonor;
+    state.appState.availableGames = [forHonor, overwatch];
+    state.appState.queue = [forHonor, overwatch];
+    state.cachedDropsSnapshot = [forHonorDrop, overwatchDrop];
+    splitDropsForSelectedGame(state, state.cachedDropsSnapshot);
+
+    await refreshDropsData(
+      state,
+      { includeInventoryFetch: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => null,
+        onFetchInventorySnapshotFromApi: async () => null,
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      {
+        replaceAvailableGames,
+        getGameDisplayLabel: (game) => game.displayName ?? game.name,
+        updateStateFromSnapshot,
+        normalizeQueueSelection,
+      },
+    );
+
+    expect(state.appState.selectedGame?.campaignId).toBe(forHonor.campaignId);
+    expect(state.appState.currentDrop?.campaignId).toBe(forHonor.campaignId);
+    expect(state.cachedDropsSnapshot.map((drop) => drop.id)).toEqual(['drop-for-honor', 'drop-overwatch']);
+    expect(state.cachedDropsSnapshot.find((drop) => drop.id === 'drop-overwatch')?.claimable).toBe(true);
   });
 });
 
