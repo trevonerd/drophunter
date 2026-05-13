@@ -307,11 +307,11 @@ function installFetchMock() {
       }
 
       case 'Inventory': {
-        const scenario = activeSnapshotScenario;
+        const scenario = activeSnapshotScenario ?? snapshotQueue.shift();
         if (!scenario) {
           throw new Error('Unexpected inventory fetch in auto-claim-cross-game test');
         }
-        if (scenario.drops.length === 0) {
+        if (activeSnapshotScenario && scenario.drops.length === 0) {
           activeSnapshotScenario = null;
         }
         return jsonResponse({

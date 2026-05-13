@@ -10,6 +10,9 @@ interface ExtensionManifest {
   permissions?: string[];
   optional_permissions?: string[];
   host_permissions?: string[];
+  content_security_policy?: {
+    extension_pages?: string;
+  };
   content_scripts?: ManifestContentScript[];
   version?: string;
 }
@@ -38,6 +41,12 @@ describe('manifest permissions', () => {
     expect(hosts).not.toContain('*://*/*');
     expect(hosts).not.toContain('https://*/*');
     expect(hosts).not.toContain('http://*/*');
+  });
+
+  test('declares a strict extension-page content security policy', () => {
+    expect(manifest.content_security_policy?.extension_pages).toBe(
+      "script-src 'self'; object-src 'self';",
+    );
   });
 
   test('uses one Twitch-only host pattern everywhere', () => {

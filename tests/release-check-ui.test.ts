@@ -109,6 +109,37 @@ describe('release check UI runner', () => {
     expect(output.text()).toContain('src/file.ts:1:1 error TS2304');
   });
 
+  test('summarizes huge bun test failures without dumping the whole log', async () => {
+    const output = createOutput();
+    const noise = Array.from({ length: 80 }, (_value, index) => `(pass) noise test ${index}`).join('\n');
+
+    await runSteps([{ name: 'Tests', command: ['bun', 'run', 'test'] }], {
+      write: output.write,
+      executor: async () => ({
+        exitCode: 1,
+        stdout: 'bun test v1.3.13\n',
+        stderr: `${noise}
+(fail) queue management > skips game after stalled recovery [2.14ms]
+1096 |     expect(result).toBe(true)
+                         ^
+error: expect(received).toBe(expected)
+Expected: true
+Received: false
+    at /Users/djtrevo/repos/drophunter/tests/queue-management.test.ts:1096:22
+${noise}
+`,
+      }),
+      isInteractive: false,
+    });
+
+    expect(output.text()).toContain('Error summary');
+    expect(output.text()).toContain('tests/queue-management.test.ts:1096:22');
+    expect(output.text()).toContain('(fail) queue management > skips game after stalled recovery');
+    expect(output.text()).toContain('Expected: true');
+    expect(output.text()).toContain('Received: false');
+    expect(output.text()).not.toContain('(pass) noise test 79');
+  });
+
   test('marks warning output without failing the release check', async () => {
     const output = createOutput();
 

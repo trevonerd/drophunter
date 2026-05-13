@@ -3,7 +3,7 @@ import { setupChromeMocks, type ChromeMocks } from './mocks/chrome.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import type { TwitchSession } from '../src/background/twitch-api/types.ts';
-import type { TwitchGame } from '../src/types/index.ts';
+import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
 let chromeMocks: ChromeMocks;
 
@@ -139,12 +139,38 @@ function buildDropsDashboardResponse(games: TwitchGame[]): unknown {
   };
 }
 
-function buildInventoryResponse(): unknown {
+function buildInventoryResponse(
+  campaigns: Array<{
+    campaignId: string;
+    gameName?: string;
+    drops: Array<{
+      dropId: string;
+      currentMinutes: number;
+      requiredMinutes: number;
+      isClaimed?: boolean;
+      isClaimable?: boolean;
+      dropInstanceID?: string;
+    }>;
+  }> = [],
+): unknown {
   return {
     data: {
       currentUser: {
         inventory: {
-          dropCampaignsInProgress: [],
+          dropCampaignsInProgress: campaigns.map((campaign) => ({
+            id: campaign.campaignId,
+            game: campaign.gameName ? { displayName: campaign.gameName } : undefined,
+            timeBasedDrops: campaign.drops.map((drop) => ({
+              id: drop.dropId,
+              requiredMinutesWatched: drop.requiredMinutes,
+              self: {
+                currentMinutesWatched: drop.currentMinutes,
+                isClaimed: drop.isClaimed ?? false,
+                isClaimable: drop.isClaimable ?? false,
+                dropInstanceID: drop.dropInstanceID,
+              },
+            })),
+          })),
           gameEventDrops: [],
         },
       },
@@ -403,6 +429,69 @@ describe('fetchDropsSnapshotFromApi', () => {
 
     expect(result).toBeNull();
     expect(state.apiConsecutiveFailures).toBeGreaterThan(0);
+  });
+});
+
+describe('fetchInventorySnapshotFromApi', () => {
+  let originalFetch: FetchMock | undefined;
+
+  beforeEach(() => {
+    chromeMocks = setupChromeMocks();
+  });
+
+  afterEach(() => {
+    restoreFetch(originalFetch);
+    chromeMocks.teardown();
+  });
+
+  test('updates cached drop progress with inventory only', async () => {
+    const { fetchInventorySnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const cachedDrops: TwitchDrop[] = [
+      {
+        id: 'drop-1',
+        name: 'For Honor Drop',
+        gameId: 'campaign-for-honor',
+        gameName: 'For Honor',
+        imageUrl: 'https://example.com/drop.png',
+        progress: 50,
+        currentMinutes: 120,
+        claimed: false,
+        campaignId: 'campaign-for-honor',
+        requiredMinutes: 240,
+        remainingMinutes: 120,
+      },
+    ];
+
+    originalFetch = installFetchMock([
+      async () =>
+        buildInventoryResponse([
+          {
+            campaignId: 'campaign-for-honor',
+            gameName: 'For Honor',
+            drops: [
+              {
+                dropId: 'drop-1',
+                currentMinutes: 180,
+                requiredMinutes: 240,
+              },
+            ],
+          },
+        ]),
+    ]);
+
+    const result = await fetchInventorySnapshotFromApi(state, session, cachedDrops);
+
+    expect(result).not.toBeNull();
+    expect(result?.games).toEqual([]);
+    expect(result?.drops).toHaveLength(1);
+    expect(result?.drops[0].currentMinutes).toBe(180);
+    expect(result?.drops[0].progress).toBe(75);
+    expect(result?.drops[0].remainingMinutes).toBe(60);
+    expect(result?.drops[0].progressSource).toBe('inventory');
+    expect(state.apiConsecutiveFailures).toBe(0);
   });
 });
 
