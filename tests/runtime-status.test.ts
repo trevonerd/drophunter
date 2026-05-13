@@ -5,6 +5,7 @@ import {
   clearRecoveryStatus,
   clearTerminalStopStatus,
   deriveRuntimeMode,
+  formatRecoveryAttemptLabel,
   formatRecoveryReason,
   formatRetryLabel,
   formatRotationReason,
@@ -133,8 +134,19 @@ describe('runtime status selectors', () => {
 describe('runtime status formatting', () => {
   test('formats rotation and recovery reasons for the UI', () => {
     expect(formatRotationReason('drops-inactive')).toBe('Drops signal missing');
-    expect(formatRotationReason('open-failed')).toBe('Reopened stream');
+    expect(formatRotationReason('open-failed')).toBe('Could not open stream');
+    expect(formatRotationReason('no-streamers')).toBe('No live streamers found');
     expect(formatRecoveryReason('drops-inactive')).toBe('Recovering missing drops signal');
+    expect(formatRecoveryReason('open-failed')).toBe('Could not open stream');
+    expect(formatRecoveryReason('no-streamers')).toBe('No live streamers found');
+    expect(formatRecoveryReason('stalled-progress')).toBe('Checking stalled drop progress');
+  });
+
+  test('formats stalled-progress attempts with a visible cap', () => {
+    expect(formatRecoveryAttemptLabel('stalled-progress', 1)).toBe('attempt 1/3');
+    expect(formatRecoveryAttemptLabel('stalled-progress', 4)).toBe('attempt 3/3');
+    expect(formatRecoveryAttemptLabel('no-streamers', 1)).toBeNull();
+    expect(formatRecoveryAttemptLabel('stalled-progress', null)).toBeNull();
   });
 
   test('formats retry label only for future timestamps', () => {

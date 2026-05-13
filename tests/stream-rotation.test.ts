@@ -2,11 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import {
   classifyStreamHealth,
   computeRecoveryBackoffMs,
+  NO_STREAMERS_RETRY_MS,
   detectRecoveryProof,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
   MAX_PERSISTENT_RECOVERY_CYCLES,
+  MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
   MAX_RECOVERY_BACKOFF_MS,
   RECOVERY_BACKOFF_BASE_MS,
+  STALLED_PROGRESS_RETRY_MS,
   didDropProgressAdvance,
   didDropMinutesAdvance,
   computeEffectiveStallThreshold,
@@ -59,9 +62,10 @@ test('recovery proof is not detected when the active drop changed without new co
   ).toBe(false);
 });
 
-test('only stalled rotations and open failures increment retry attempts', () => {
+test('only stalled rotations increment no-progress retry attempts', () => {
   expect(shouldIncrementNoProgressRotationAttempts('stalled-progress')).toBe(true);
-  expect(shouldIncrementNoProgressRotationAttempts('open-failed')).toBe(true);
+  expect(shouldIncrementNoProgressRotationAttempts('open-failed')).toBe(false);
+  expect(shouldIncrementNoProgressRotationAttempts('no-streamers')).toBe(false);
   expect(shouldIncrementNoProgressRotationAttempts('offline')).toBe(false);
   expect(shouldIncrementNoProgressRotationAttempts('wrong-channel')).toBe(false);
   expect(shouldIncrementNoProgressRotationAttempts('wrong-game')).toBe(false);
@@ -72,7 +76,7 @@ test('retry attempts stop at the configured cap', () => {
   let attempts = 0;
   attempts = nextNoProgressRotationAttempts(attempts, 'stalled-progress');
   attempts = nextNoProgressRotationAttempts(attempts, 'stalled-progress');
-  attempts = nextNoProgressRotationAttempts(attempts, 'open-failed');
+  attempts = nextNoProgressRotationAttempts(attempts, 'stalled-progress');
   expect(attempts).toBe(MAX_NO_PROGRESS_ROTATION_ATTEMPTS);
 
   attempts = nextNoProgressRotationAttempts(attempts, 'stalled-progress');
@@ -88,7 +92,18 @@ test('recovery backoff grows exponentially and caps at the configured maximum', 
 
 test('offline rotations keep the current retry count unchanged', () => {
   expect(nextNoProgressRotationAttempts(2, 'offline')).toBe(2);
+  expect(nextNoProgressRotationAttempts(2, 'open-failed')).toBe(2);
+  expect(nextNoProgressRotationAttempts(2, 'no-streamers')).toBe(2);
   expect(nextNoProgressRotationAttempts(2, 'missing-context')).toBe(2);
+});
+
+test('no streamer retry window is exactly one minute', () => {
+  expect(NO_STREAMERS_RETRY_MS).toBe(60_000);
+});
+
+test('stalled progress recovery is capped to three human-readable attempts', () => {
+  expect(MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS).toBe(3);
+  expect(STALLED_PROGRESS_RETRY_MS).toBe(60_000);
 });
 
 test('healthy live stream with matching game and drops signal does not request recovery', () => {

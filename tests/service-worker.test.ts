@@ -284,11 +284,11 @@ function installFetchMock() {
       }
 
       case 'Inventory': {
-        const scenario = activeSnapshotScenario;
+        const scenario = activeSnapshotScenario ?? snapshotQueue.shift();
         if (!scenario) {
           throw new Error('Unexpected inventory fetch in service-worker test');
         }
-        if (scenario.drops.length === 0) {
+        if (activeSnapshotScenario && scenario.drops.length === 0) {
           activeSnapshotScenario = null;
         }
         return jsonResponse({
@@ -472,6 +472,7 @@ describe('service worker message handlers', () => {
 
   afterAll(async () => {
     await sleepTick();
+    setTimingSaveDebounceMsForTests(null);
     chromeMocks.teardown();
   });
 
@@ -991,6 +992,86 @@ describe('service worker message handlers', () => {
 
     expect(state.selectedGame?.campaignId).toBe(nextGame.campaignId);
     expect(state.queue.map((game) => game.name)).toEqual([nextGame.name, thirdGame.name]);
+  });
+
+  test('completes the queue when the last queued game has no live streamers after retry', async () => {
+    const realDateNow = Date.now;
+    let now = realDateNow();
+    Date.now = () => now;
+
+    const notifications: Array<{ title: string; message: string }> = [];
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    const originalCreateNotification = chromeAny.notifications.create;
+    chromeAny.notifications.create = async ({ title, message }: { title: string; message: string }) => {
+      notifications.push({ title, message });
+      return 'notification-id';
+    };
+
+    try {
+      enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 0 }]);
+      enqueueDirectoryResult(null);
+      enqueueDirectoryResult(null);
+      enqueueDropsSnapshot([{ game: nextGame, dropId: 'drop-next', currentMinutes: 0 }]);
+      enqueueDirectoryResult(null);
+      enqueueDirectoryResult(null);
+
+      await syncTestSession();
+      chromeMocks.permissions.setContainsResult(true);
+      await dispatchMessage({
+        type: 'SET_NOTIFICATIONS_ENABLED',
+        payload: { enabled: true },
+      });
+      await addGameToQueue(nextGame);
+
+      const startResponse = await dispatchMessage({
+        type: 'START_FARMING',
+        payload: { game: demoGame },
+      });
+
+      expect(startResponse).toEqual({ success: true });
+      await waitForAppState(
+        (state) =>
+          state.isRunning &&
+          state.selectedGame?.campaignId === demoGame.campaignId &&
+          state.recoveryReason === 'no-streamers',
+        'first no-streamers retry was not scheduled',
+      );
+
+      now += 61_000;
+      await triggerMonitorAlarm();
+      await waitForAppState(
+        (state) =>
+          state.isRunning &&
+          state.selectedGame?.campaignId === nextGame.campaignId &&
+          state.recoveryReason === 'no-streamers',
+        'queue did not advance to the second game and schedule its no-streamers retry',
+      );
+      for (let i = 0; i < 5; i += 1) {
+        await sleepTick();
+      }
+
+      now += 61_000;
+      await triggerMonitorAlarm();
+      const finalState = await waitForAppState(
+        (state) => !state.isRunning && state.lastStopReason === 'queue-complete',
+        'queue did not complete after the last no-streamers retry failed',
+      );
+
+      expect(finalState.isPaused).toBe(false);
+      expect(finalState.selectedGame).toBeNull();
+      expect(finalState.activeStreamer).toBeNull();
+      expect(finalState.tabId).toBeNull();
+      expect(finalState.queue).toEqual([]);
+      expect(finalState.recoveryReason).toBeNull();
+      expect(finalState.recoveryBackoffUntil).toBeNull();
+      expect(finalState.recoveryAttempts).toBeNull();
+      expect(finalState.lastStopMessage).toContain('Queue completed');
+      expect(finalState.lastStopMessage).toContain('No live streamers found');
+      expect(notifications.some((notification) => notification.title === 'Queue completed')).toBe(true);
+    } finally {
+      Date.now = realDateNow;
+      chromeAny.notifications.create = originalCreateNotification;
+    }
   });
 
   test('normalizeGameSelection clears selectedGame when exact campaign no longer exists', async () => {
