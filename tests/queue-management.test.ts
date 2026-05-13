@@ -8,15 +8,18 @@ import {
   pushGameToQueue,
   resetStreamTrackingState,
   applyStopState,
+  acquireStreamerForSelectedGame,
   enterPersistentRecovery,
   stopFarmingSession,
   advanceQueueIfCompleted,
+  skipCurrentGameAndAdvanceQueue,
   skipCurrentGameDueToStall,
   handleStartFarming,
   refreshDropsData,
   rotateStreamer,
   rotateStreamerIfInvalid,
   checkDropProgress,
+  openBestStreamerForSelectedGame,
 } from '../src/background/queue-management.ts';
 import { splitDropsForSelectedGame, updateStateFromSnapshot } from '../src/background/drop-processing.ts';
 import { replaceAvailableGames } from '../src/shared/game-selection.ts';
@@ -24,6 +27,7 @@ import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchGame, TwitchDrop } from '../src/types/index.ts';
 import type { StreamRotationReason } from '../src/background/stream-rotation.ts';
+import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from '../src/background/stream-rotation.ts';
 
 function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
@@ -383,6 +387,227 @@ describe('enterPersistentRecovery', () => {
     expect(state.recoveryNotificationSent).toBe(true);
 
     await enterPersistentRecovery(state, 'stalled-progress', 'Test message');
+  });
+});
+
+describe('acquireStreamerForSelectedGame', () => {
+  test('sets one-minute no-streamers recovery on first failed acquisition', async () => {
+    const state = createMinimalState({ stalledRecoveryAttempts: 2 });
+    state.appState.selectedGame = createGame({ name: 'Rainbow Six Siege' });
+    const before = Date.now();
+
+    let openCalls = 0;
+    await acquireStreamerForSelectedGame(state, {
+      onOpenStreamer: async () => {
+        openCalls += 1;
+        return false;
+      },
+    });
+
+    expect(openCalls).toBe(1);
+    expect(state.appState.recoveryReason).toBe('no-streamers');
+    expect(state.appState.recoveryAttempts).toBe(1);
+    expect(state.recoveryBackoffUntil).toBeGreaterThanOrEqual(before + 60_000);
+    expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect(state.stalledRecoveryAttempts).toBe(2);
+  });
+
+  test('does not search again while no-streamers retry backoff is active', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.appState.recoveryReason = 'no-streamers';
+    state.appState.recoveryAttempts = 1;
+    state.recoveryBackoffUntil = Date.now() + 60_000;
+
+    let openCalls = 0;
+    await acquireStreamerForSelectedGame(state, {
+      onOpenStreamer: async () => {
+        openCalls += 1;
+        return true;
+      },
+    });
+
+    expect(openCalls).toBe(0);
+  });
+
+  test('skips current game after the one no-streamers retry also fails', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.appState.recoveryReason = 'no-streamers';
+    state.appState.recoveryAttempts = 1;
+    state.recoveryBackoffUntil = Date.now() - 1;
+
+    let skipCalled = false;
+    await acquireStreamerForSelectedGame(state, {
+      onOpenStreamer: async () => false,
+      onSkipCurrentGame: async () => {
+        skipCalled = true;
+      },
+    });
+
+    expect(skipCalled).toBe(true);
+    expect(state.stalledRecoveryAttempts).toBe(0);
+  });
+
+  test('clears no-streamers recovery when a streamer opens', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.appState.recoveryReason = 'no-streamers';
+    state.appState.recoveryAttempts = 1;
+    state.appState.recoveryBackoffUntil = Date.now() - 1;
+    state.recoveryBackoffUntil = state.appState.recoveryBackoffUntil;
+
+    await acquireStreamerForSelectedGame(state, {
+      onOpenStreamer: async () => true,
+    });
+
+    expect(state.appState.recoveryReason).toBeNull();
+    expect(state.appState.recoveryAttempts).toBeNull();
+    expect(state.recoveryBackoffUntil).toBe(0);
+  });
+});
+
+describe('skipCurrentGameAndAdvanceQueue', () => {
+  test('removes no-streamers game and opens the next queued game', async () => {
+    const mocks = setupChromeMocks();
+    const current = createGame({ id: 'game-1', name: 'No Live Game' });
+    const next = createGame({ id: 'game-2', name: 'Live Game' });
+    const state = createMinimalState();
+    state.appState.selectedGame = current;
+    state.appState.queue = [current, next];
+
+    try {
+      let openedGame: string | null = null;
+      await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
+        onSaveTimingState: async () => {},
+        onOpenStreamer: async () => {
+          openedGame = state.appState.selectedGame?.id ?? null;
+          return true;
+        },
+      });
+
+      expect(state.appState.queue.some((game) => game.id === current.id)).toBe(false);
+      expect(state.appState.selectedGame?.id).toBe(next.id);
+      expect(openedGame).toBe(next.id);
+    } finally {
+      mocks.teardown();
+    }
+  });
+
+  test('uses no-streamers-specific skip notification when moving to the next game', async () => {
+    const mocks = setupChromeMocks();
+    const current = createGame({ id: 'game-1', name: 'No Live Game' });
+    const next = createGame({ id: 'game-2', name: 'Live Game' });
+    const state = createMinimalState();
+    state.appState.selectedGame = current;
+    state.appState.queue = [current, next];
+
+    try {
+      await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
+        onSaveTimingState: async () => {},
+        onOpenStreamer: async () => true,
+      });
+
+      const notification = mocks.notifications._notifications[0] as { title?: string; message?: string } | undefined;
+      expect(notification?.title).toBe('Game skipped: no live streamers');
+      expect(notification?.message).toContain('Skipped No Live Game');
+      expect(notification?.message).toContain('no live streamers were found');
+      expect(notification?.message).not.toContain('drop progress');
+    } finally {
+      mocks.teardown();
+    }
+  });
+
+  test('uses stalled-progress-specific skip notification when moving to the next game', async () => {
+    const mocks = setupChromeMocks();
+    const current = createGame({ id: 'game-1', name: 'Stalled Game' });
+    const next = createGame({ id: 'game-2', name: 'Live Game' });
+    const state = createMinimalState();
+    state.appState.selectedGame = current;
+    state.appState.queue = [current, next];
+
+    try {
+      await skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', {
+        onSaveTimingState: async () => {},
+        onOpenStreamer: async () => true,
+      });
+
+      const notification = mocks.notifications._notifications[0] as { title?: string; message?: string } | undefined;
+      expect(notification?.title).toBe('Game skipped: no drop progress');
+      expect(notification?.message).toContain('Skipped Stalled Game');
+      expect(notification?.message).toContain('stream opened but drop progress did not resume');
+      expect(notification?.message).not.toContain('no live streamers');
+    } finally {
+      mocks.teardown();
+    }
+  });
+
+  test('stops cleanly when no-streamers skip exhausts the queue', async () => {
+    const current = createGame({ id: 'game-1', name: 'No Live Game' });
+    const state = createMinimalState();
+    state.appState.selectedGame = current;
+    state.appState.queue = [current];
+
+    let stopReason: string | null = null;
+    let stopMessage: string | null = null;
+    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
+      onStopFarmingSession: async (opts) => {
+        stopReason = opts.stopReason;
+        stopMessage = opts.stopMessage;
+      },
+    });
+
+    expect(stopReason).toBe('queue-complete');
+    expect(stopMessage).toContain('Queue completed');
+    expect(stopMessage).toContain('No live streamers found');
+  });
+
+  test('clears stale stalled recovery when no-streamers skip exhausts the queue', async () => {
+    const current = createGame({ id: 'game-1', name: 'No Live Game' });
+    const state = createMinimalState({
+      stalledRecoveryAttempts: 3,
+      recoveryBackoffUntil: Date.now() + 60_000,
+    });
+    state.appState.selectedGame = current;
+    state.appState.queue = [current];
+    state.appState.recoveryReason = 'stalled-progress';
+    state.appState.recoveryBackoffUntil = state.recoveryBackoffUntil;
+    state.appState.recoveryAttempts = 3;
+
+    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
+      onStopFarmingSession: async () => {
+        state.appState.isRunning = false;
+        state.appState.isPaused = false;
+        state.appState.selectedGame = null;
+        state.appState.activeStreamer = null;
+        state.appState.tabId = null;
+      },
+    });
+
+    expect(state.appState.recoveryReason).toBeNull();
+    expect(state.appState.recoveryBackoffUntil).toBeNull();
+    expect(state.appState.recoveryAttempts).toBeNull();
+    expect(state.stalledRecoveryAttempts).toBe(0);
+    expect(state.recoveryBackoffUntil).toBe(0);
+  });
+
+  test('uses stalled-progress-specific terminal notification when no games remain', async () => {
+    const current = createGame({ id: 'game-1', name: 'Stalled Game' });
+    const state = createMinimalState();
+    state.appState.selectedGame = current;
+    state.appState.queue = [current];
+
+    let notification: { title: string; message: string } | null = null;
+    await skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', {
+      onStopFarmingSession: async (opts) => {
+        notification = opts.notification;
+      },
+    });
+
+    expect(notification?.title).toBe('Farming stopped: no drop progress');
+    expect(notification?.message).toContain('Stalled Game');
+    expect(notification?.message).toContain('opened a stream but drop progress did not resume');
+    expect(notification?.message).not.toContain('No live streamers found');
   });
 });
 
@@ -823,7 +1048,8 @@ describe('skipCurrentGameDueToStall', () => {
 
     expect(stopFarmingCalled).toBe(true);
     expect(stopParams?.stopReason).toBe('stall-skipped');
-    expect(stopParams?.notification.title).toBe('Farming stopped');
+    expect(stopParams?.notification.title).toBe('Farming stopped: no drop progress');
+    expect(stopParams?.notification.message).toContain('opened a stream but drop progress did not resume');
   });
 
   test('calls onSaveState after skipping', async () => {
@@ -1096,10 +1322,10 @@ describe('rotateStreamer', () => {
     expect(state.noProgressRotationAttempts).toBe(1);
   });
 
-  test('increments noProgressRotationAttempts for open-failed reason', async () => {
+  test('does not increment noProgressRotationAttempts for open-failed reason', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 0 });
     await rotateStreamer(state, 'open-failed', {});
-    expect(state.noProgressRotationAttempts).toBe(1);
+    expect(state.noProgressRotationAttempts).toBe(0);
   });
 
   test('does not increment for other rotation reasons', async () => {
@@ -1110,7 +1336,7 @@ describe('rotateStreamer', () => {
     expect(state.noProgressRotationAttempts).toBe(0);
   });
 
-  test('enters persistent recovery when max attempts reached', async () => {
+  test('does not enter persistent recovery for stalled progress because stalled flow has its own cap', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 3 });
 
     let enterRecoveryCalled = false;
@@ -1120,10 +1346,10 @@ describe('rotateStreamer', () => {
       },
     });
 
-    expect(enterRecoveryCalled).toBe(true);
+    expect(enterRecoveryCalled).toBe(false);
   });
 
-  test('forwards skip callback when stalled-progress enters persistent recovery', async () => {
+  test('does not forward skip callback through persistent recovery for stalled progress', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 3 });
     const skipCurrentGame = async () => {};
 
@@ -1135,10 +1361,10 @@ describe('rotateStreamer', () => {
       onSkipCurrentGame: skipCurrentGame,
     });
 
-    expect(forwardedSkip).toBe(skipCurrentGame);
+    expect(forwardedSkip).toBeUndefined();
   });
 
-  test('returns false when entering persistent recovery', async () => {
+  test('returns false when stalled rotation has no replacement streamer', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 3 });
 
     const result = await rotateStreamer(state, 'stalled-progress', {
@@ -1146,6 +1372,21 @@ describe('rotateStreamer', () => {
     });
 
     expect(result).toBe(false);
+  });
+
+  test('skips as stalled progress when a stalled rotation cannot open a replacement', async () => {
+    const state = createMinimalState({ stalledRecoveryAttempts: 2 });
+
+    let skipCalled = false;
+    await rotateStreamer(state, 'stalled-progress', {
+      onOpenStreamer: async () => false,
+      onSkipCurrentGame: async () => {
+        skipCalled = true;
+      },
+    });
+
+    expect(skipCalled).toBe(true);
+    expect(state.appState.recoveryReason).not.toBe('no-streamers');
   });
 
   test('sets rotation timestamps', async () => {
@@ -1208,17 +1449,17 @@ describe('rotateStreamer', () => {
     expect(result).toBe(false);
   });
 
-  test('increments attempts when open fails and reason does not count', async () => {
+  test('does not increment no-progress attempts when opening a replacement fails', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 0 });
 
     await rotateStreamer(state, 'offline', {
       onOpenStreamer: async () => false,
     });
 
-    expect(state.noProgressRotationAttempts).toBe(1);
+    expect(state.noProgressRotationAttempts).toBe(0);
   });
 
-  test('enters recovery when open fails and max attempts reached', async () => {
+  test('does not enter persistent recovery when a non-stall replacement fails to open', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 3 });
 
     let enterRecoveryCalled = false;
@@ -1229,10 +1470,10 @@ describe('rotateStreamer', () => {
       },
     });
 
-    expect(enterRecoveryCalled).toBe(true);
+    expect(enterRecoveryCalled).toBe(false);
   });
 
-  test('forwards skip callback when open failure enters persistent recovery', async () => {
+  test('does not forward skip callback through persistent recovery for non-stall open failures', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 3 });
     const skipCurrentGame = async () => {};
 
@@ -1245,7 +1486,7 @@ describe('rotateStreamer', () => {
       onSkipCurrentGame: skipCurrentGame,
     });
 
-    expect(forwardedSkip).toBe(skipCurrentGame);
+    expect(forwardedSkip).toBeUndefined();
   });
 
   test('calls onSaveState', async () => {
@@ -1289,6 +1530,20 @@ describe('rotateStreamer', () => {
 
     expect(saveTimingCalled).toBe(true);
   });
+
+  test('caps stalled progress retry attempts without entering persistent recovery', async () => {
+    const state = createMinimalState({ noProgressRotationAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS });
+
+    let enterRecoveryCalled = false;
+    await rotateStreamer(state, 'stalled-progress', {
+      onEnterPersistentRecovery: async () => {
+        enterRecoveryCalled = true;
+      },
+    });
+
+    expect(state.noProgressRotationAttempts).toBe(MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS);
+    expect(enterRecoveryCalled).toBe(false);
+  });
 });
 
 describe('checkDropProgress', () => {
@@ -1321,6 +1576,7 @@ describe('checkDropProgress', () => {
       onEnforcePlaybackPolicy: async () => {
         calls.push('playback-policy');
       },
+      onAcquireStreamerForSelectedGame: async () => false,
       onRefreshDropsData: async () => {
         calls.push('refresh-drops');
         state.lastProgressAdvanceAt = Date.now();
@@ -1375,6 +1631,7 @@ describe('checkDropProgress', () => {
 
     await checkDropProgress(state, {
       onEnforcePlaybackPolicy: async () => undefined,
+      onAcquireStreamerForSelectedGame: async () => false,
       onRefreshDropsData: async (opts) => {
         refreshOptions.push(opts);
       },
@@ -1386,6 +1643,117 @@ describe('checkDropProgress', () => {
     });
 
     expect(refreshOptions[0]).toEqual({ includeCampaignFetch: true, includeInventoryFetch: true });
+  });
+
+  test('does not validate the old tab while no-streamers retry backoff is active', async () => {
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = createGame({ name: 'No Live Game' });
+    state.appState.tabId = 123;
+    state.appState.recoveryReason = 'no-streamers';
+    state.appState.recoveryAttempts = 1;
+    state.recoveryBackoffUntil = Date.now() + 60_000;
+
+    let playbackPolicyCalls = 0;
+    let validationCalls = 0;
+    let acquisitionCalls = 0;
+
+    await checkDropProgress(state, {
+      onEnforcePlaybackPolicy: async () => {
+        playbackPolicyCalls += 1;
+      },
+      onRotateStreamerIfInvalid: async () => {
+        validationCalls += 1;
+      },
+      onAcquireStreamerForSelectedGame: async () => {
+        acquisitionCalls += 1;
+        return false;
+      },
+      onRefreshDropsData: async () => undefined,
+      onAttemptAutoClaimChannelPointsBonus: async () => false,
+      onAutoClaimClaimableDrops: async () => false,
+      onAdvanceQueueIfCompleted: async () => true,
+      onSaveTimingState: async () => undefined,
+    });
+
+    expect(playbackPolicyCalls).toBe(0);
+    expect(validationCalls).toBe(0);
+    expect(acquisitionCalls).toBe(0);
+    expect(state.appState.tabId).toBe(123);
+  });
+
+  test('retries streamer acquisition directly when no-streamers backoff expires', async () => {
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = createGame({ name: 'No Live Game' });
+    state.appState.tabId = 123;
+    state.appState.recoveryReason = 'no-streamers';
+    state.appState.recoveryAttempts = 1;
+    state.recoveryBackoffUntil = Date.now() - 1;
+
+    let validationCalls = 0;
+    let acquisitionCalls = 0;
+
+    await checkDropProgress(state, {
+      onEnforcePlaybackPolicy: async () => undefined,
+      onRotateStreamerIfInvalid: async () => {
+        validationCalls += 1;
+      },
+      onAcquireStreamerForSelectedGame: async () => {
+        acquisitionCalls += 1;
+        return false;
+      },
+      onRefreshDropsData: async () => undefined,
+      onAttemptAutoClaimChannelPointsBonus: async () => false,
+      onAutoClaimClaimableDrops: async () => false,
+      onAdvanceQueueIfCompleted: async () => true,
+      onSaveTimingState: async () => undefined,
+    });
+
+    expect(validationCalls).toBe(0);
+    expect(acquisitionCalls).toBe(1);
+  });
+});
+
+describe('openBestStreamerForSelectedGame', () => {
+  test('preserves managed tab id when no streamer is found so the next game can reuse it', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'No Live Game' });
+    state.appState.tabId = 123;
+    state.appState.activeStreamer = {
+      id: 'old-streamer',
+      name: 'old-streamer',
+      displayName: 'Old Streamer',
+      isLive: true,
+    };
+
+    const opened = await openBestStreamerForSelectedGame(
+      state,
+      {
+        onFetchDirectoryStreamersFromApi: async () =>
+          Object.assign([], { languageFilterApplied: false }) as never,
+        onOpenForegroundChannel: async () => {
+          throw new Error('should not open a channel without candidates');
+        },
+      },
+      {
+        dropMatchesSelectedGame: () => true,
+        isDropCompleted: () => false,
+        getGameDisplayLabel: (item) => item.name,
+        resolveCategorySlug: async () => 'no-live-game',
+        pickStreamerForPreferences: () => ({
+          streamer: null,
+          activePoolSize: 0,
+          preferredLanguageApplied: false,
+          preferredLanguageMatches: 0,
+        }),
+        normalizePreferredStreamerLanguage: () => null,
+      },
+    );
+
+    expect(opened).toBe(false);
+    expect(state.appState.tabId).toBe(123);
+    expect(state.appState.activeStreamer).toBeNull();
   });
 });
 
@@ -1839,10 +2207,12 @@ describe('rotateStreamerIfInvalid', () => {
     });
 
     expect(attemptSelfHealCalled).toBe(true);
-    expect(state.stalledRecoveryAttempts).toBeGreaterThan(0);
+    expect(state.stalledRecoveryAttempts).toBe(1);
+    expect(state.appState.recoveryReason).toBe('stalled-progress');
+    expect(state.appState.recoveryAttempts).toBe(1);
   });
 
-  test('rotates when stalled and past recovery backoff', async () => {
+  test('rotates with a bounded stalled attempt count when past recovery backoff', async () => {
     const state = createMinimalState();
     state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     state.appState.tabId = 123;
@@ -1876,15 +2246,17 @@ describe('rotateStreamerIfInvalid', () => {
     });
 
     expect(rotateReason).toBe('stalled-progress');
+    expect(state.stalledRecoveryAttempts).toBe(3);
+    expect(state.appState.recoveryAttempts).toBe(3);
   });
 
-  test('skips current game when stalled recovery cycles are exhausted', async () => {
+  test('skips current game when stalled progress reaches the human attempt cap', async () => {
     const state = createMinimalState();
     state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     state.appState.tabId = 123;
     state.appState.currentDrop = createDrop({ requiredMinutes: 60 });
     state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
-    state.stalledRecoveryAttempts = 6;
+    state.stalledRecoveryAttempts = MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
     state.lastStreamRotationAt = 0;
 
     mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
