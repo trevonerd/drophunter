@@ -2212,6 +2212,43 @@ describe('rotateStreamerIfInvalid', () => {
     expect(state.appState.recoveryAttempts).toBe(1);
   });
 
+  test('does not enter recovery for a healthy 4-hour drop with slow progress updates', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 240, currentMinutes: 61, progress: 25 });
+    state.lastProgressAdvanceAt = Date.now() - 8 * 60 * 1000;
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let attemptSelfHealCalled = false;
+    let rotateReason: StreamRotationReason | null = null;
+    await rotateStreamerIfInvalid(state, {
+      onFetchStreamContext: async () => ({
+        channelName: 'streamer',
+        categorySlug: 'test-game',
+        categoryLabel: 'Test Game',
+        streamTitle: 'Stream Title',
+        titleContainsDrops: true,
+        hasDropsSignal: true,
+        isLive: true,
+        pageUrl: 'https://twitch.tv/streamer',
+      }),
+      onResolveCategorySlug: async () => 'test-game',
+      onAttemptPlaybackSelfHeal: async () => {
+        attemptSelfHealCalled = true;
+      },
+      onRotateStreamer: async (_, reason) => {
+        rotateReason = reason;
+      },
+    });
+
+    expect(attemptSelfHealCalled).toBe(false);
+    expect(rotateReason).toBeNull();
+    expect(state.stalledRecoveryAttempts).toBe(0);
+    expect(state.appState.recoveryReason).toBeNull();
+  });
+
   test('rotates with a bounded stalled attempt count when past recovery backoff', async () => {
     const state = createMinimalState();
     state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
