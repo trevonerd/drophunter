@@ -8,6 +8,7 @@ import {
   saveTimingState,
   shouldRefreshGamesCache,
   broadcastStateUpdate,
+  loadState,
   saveState,
   resetStateForInactivity,
   setTimingSaveDebounceMsForTests,
@@ -124,6 +125,48 @@ describe('markActivity', () => {
     expect(state.lastActivityAt).toBeGreaterThanOrEqual(before);
     expect(state.lastActivityAt).toBeLessThanOrEqual(after);
     expect(mocks.storage.local._store.get('lastActivityAt')).toBe(state.lastActivityAt);
+  });
+});
+
+describe('loadState', () => {
+  let mocks: ChromeMocks;
+
+  beforeEach(() => {
+    mocks = setupChromeMocks();
+  });
+
+  afterEach(() => {
+    mocks.teardown();
+  });
+
+  test('clears stale drops page refresh progress on service worker startup', async () => {
+    const persisted = createAppState({ dropsPageRefreshInProgress: true });
+    await mocks.storage.local.set({ appState: persisted });
+    const state = createMinimalState();
+
+    await loadState(
+      state,
+      {
+        onLoadTimingState: async () => {},
+        onEnforceInactivityReset: async () => false,
+      },
+      {
+        sanitizeTwitchSession: () => null,
+        sessionDebugSummary,
+        createInitialState,
+        clearRotationMetadata: (appState) => appState,
+        TWITCH_SESSION_STORAGE_KEY: 'twitchSession',
+        DROPS_SNAPSHOT_CACHE_KEY: 'dropsSnapshotCache',
+        LAST_ACTIVITY_AT_KEY: 'lastActivityAt',
+        TIMING_STATE_KEY: 'timingState',
+        STREAM_VALIDATION_GRACE_MS: 0,
+      },
+    );
+
+    expect(state.appState.dropsPageRefreshInProgress).toBe(false);
+    expect((mocks.storage.local._store.get('appState') as AppState).dropsPageRefreshInProgress).toBe(
+      false,
+    );
   });
 });
 

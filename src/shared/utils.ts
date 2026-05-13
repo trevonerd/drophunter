@@ -44,6 +44,7 @@ export const createInitialState = (): AppState => ({
   monitorWindowId: null,
   tabId: null,
   completionNotified: false,
+  dropsPageRefreshInProgress: false,
   lastRotationReason: null,
   lastRotationAt: null,
   recoveryReason: null,

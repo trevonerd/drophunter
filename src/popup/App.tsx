@@ -520,15 +520,19 @@ function App() {
 
   const openDropsPage = () =>
     withAction(async () => {
-      const response = await sendRuntimeMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' }).catch(
-        (error: unknown) => ({ success: false as const, error: String(error) }),
-      );
+      setQueueMessage('Opening Twitch Drops...');
+      const response = await sendRuntimeMessage({
+        type: 'OPEN_DROPS_PAGE_AND_REFRESH',
+        payload: { waitForRefresh: false },
+      }).catch((error: unknown) => ({ success: false as const, error: String(error) }));
       setState(await loadStoredAppState());
       if (response && response.success === false) {
         setQueueMessage(response.error ?? 'Opened Twitch. Waiting for DropHunter to detect your session.');
         return;
       }
-      if ((response?.gamesCount ?? 0) === 0) {
+      if (response?.refreshed === false) {
+        setQueueMessage('Opened Twitch Drops. Refreshing campaigns in the background...');
+      } else if ((response?.gamesCount ?? 0) === 0) {
         setQueueMessage('Opened Twitch. Campaigns will appear as soon as Twitch session data is available.');
       } else {
         setQueueMessage(null);
@@ -1036,9 +1040,10 @@ function App() {
           <button
             type="button"
             onClick={openDropsPage}
-            className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            disabled={state.dropsPageRefreshInProgress}
+            className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
             aria-label="Open Twitch Drops"
-            title="Twitch Drops"
+            title={state.dropsPageRefreshInProgress ? 'Refreshing Twitch Drops' : 'Twitch Drops'}
           >
             <DropsIcon />
           </button>
@@ -1297,17 +1302,26 @@ function App() {
           <div className="glass rounded-lg p-3 border border-yellow-500/30">
             <div className="space-y-2">
               <p className="text-xs text-yellow-300 font-semibold">Campaign data may be outdated</p>
-              <p className="text-xs text-gray-400">
-                Open the Twitch Drops page so the extension can fetch the latest campaigns.
-              </p>
-              <button
-                type="button"
-                onClick={openDropsPage}
-                className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
-              >
-                <DropsIcon size={14} />
-                Open Twitch Drops Page
-              </button>
+              {state.dropsPageRefreshInProgress ? (
+                <div className="flex items-center gap-2">
+                  <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
+                  <p className="text-xs text-yellow-200">Refreshing campaigns from Twitch...</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-400">
+                    Open the Twitch Drops page so the extension can fetch the latest campaigns.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openDropsPage}
+                    className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+                  >
+                    <DropsIcon size={14} />
+                    Open Twitch Drops Page
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1315,10 +1329,14 @@ function App() {
         {/* No campaigns — first-launch guidance */}
         {!state.isRunning && state.availableGames.length === 0 && (
           <div className="glass rounded-lg p-3 border border-blue-500/30">
-            {gamesLoading ? (
+            {gamesLoading || state.dropsPageRefreshInProgress ? (
               <div className="flex items-center gap-2">
                 <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
-                <p className="text-xs text-blue-300">Loading campaigns...</p>
+                <p className="text-xs text-blue-300">
+                  {state.dropsPageRefreshInProgress
+                    ? 'Refreshing campaigns from Twitch...'
+                    : 'Loading campaigns...'}
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
