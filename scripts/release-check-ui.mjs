@@ -12,6 +12,7 @@ const ANSI = {
   yellow: '\x1b[38;5;226m',
   red: '\x1b[38;5;203m',
 };
+const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 
 function now() {
   return performance.now();
@@ -39,6 +40,106 @@ function outputText(result) {
 
 function hasWarningOutput(result) {
   return WARNING_PATTERN.test(outputText(result));
+}
+
+function stripAnsi(value) {
+  return value.replace(ANSI_ESCAPE_PATTERN, '');
+}
+
+function pushUnique(lines, line) {
+  const normalized = line.trim();
+
+  if (normalized && !lines.includes(normalized)) {
+    lines.push(normalized);
+  }
+}
+
+function shortenPath(path) {
+  return path.replace(/^.*?((?:src|tests|scripts|public)\/)/, '$1');
+}
+
+function extractLocation(line) {
+  const location = line.match(/((?:[./\w-]+\/)?[\w.-]+\.(?:ts|tsx|js|jsx|mjs)):(\d+):(\d+)/);
+
+  if (!location) {
+    return null;
+  }
+
+  return `${shortenPath(location[1])}:${location[2]}:${location[3]}`;
+}
+
+function extractTypeScriptDiagnostic(line) {
+  const diagnostic = line.match(
+    /^(.+?\.(?:ts|tsx|js|jsx|mjs))(?:(?:\((\d+),(\d+)\))|(?::(\d+):(\d+)))\s*:?\s*(.+)$/u,
+  );
+
+  if (!diagnostic || !/\berror\b|TS\d+/i.test(diagnostic[6])) {
+    return null;
+  }
+
+  const row = diagnostic[2] ?? diagnostic[4];
+  const column = diagnostic[3] ?? diagnostic[5];
+
+  return `${shortenPath(diagnostic[1])}:${row}:${column} ${diagnostic[6]}`;
+}
+
+function summarizeFailureOutput(result) {
+  const text = stripAnsi(outputText(result));
+  const lines = text.split(/\r?\n/);
+  const summary = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const typeScriptDiagnostic = extractTypeScriptDiagnostic(trimmed);
+    const location = extractLocation(trimmed);
+
+    if (typeScriptDiagnostic) {
+      pushUnique(summary, typeScriptDiagnostic);
+      continue;
+    }
+
+    if (trimmed.includes('(fail)')) {
+      pushUnique(summary, trimmed.replace(/\s+\[[\d.]+ms\]$/, ''));
+      continue;
+    }
+
+    if (location) {
+      pushUnique(summary, location);
+      continue;
+    }
+
+    if (/^(error|Error|AssertionError|TypeError|ReferenceError|SyntaxError):/.test(trimmed)) {
+      pushUnique(summary, trimmed);
+      continue;
+    }
+
+    if (/^(Expected|Received):/.test(trimmed)) {
+      pushUnique(summary, trimmed);
+    }
+  }
+
+  if (summary.length === 0) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (/\berror\b|\bfailed\b|\bexpected\b|\breceived\b/i.test(trimmed)) {
+        pushUnique(summary, trimmed);
+      }
+    }
+  }
+
+  if (summary.length === 0) {
+    const tail = lines
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(-12);
+
+    for (const line of tail) {
+      pushUnique(summary, line);
+    }
+  }
+
+  return summary.slice(0, 16);
 }
 
 function paint(enabled, color, text) {
@@ -114,6 +215,14 @@ function writeDone(write, line, isInteractive) {
 }
 
 function formatOutputBlock(result) {
+  if (result.status === 'failed') {
+    const summary = summarizeFailureOutput(result);
+
+    if (summary.length > 0) {
+      return `Error summary\n${summary.map((line) => `- ${line}`).join('\n')}`;
+    }
+  }
+
   const sections = [];
 
   if (result.stdout.trim()) {
