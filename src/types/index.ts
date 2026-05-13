@@ -87,6 +87,7 @@ export interface AppState {
   tabId: number | null;
   completionNotified: boolean;
   lastSuccessfulRefreshAt?: number;
+  dropsPageRefreshInProgress: boolean;
   lastRotationReason?: string | null;
   lastRotationAt?: number | null;
   recoveryReason?: string | null;

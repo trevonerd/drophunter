@@ -3,7 +3,7 @@ import type { AppState } from '../types';
 const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
 
 interface DropsPageState {
-  appState: Pick<AppState, 'availableGames'>;
+  appState: Pick<AppState, 'availableGames' | 'dropsPageRefreshInProgress'>;
 }
 
 interface TwitchTab {
@@ -35,8 +35,13 @@ export interface DropsPageRefreshResult {
   error?: string;
 }
 
+interface OpenDropsPageRefreshOptions {
+  waitForRefresh?: boolean;
+}
+
 export function createDropsPageRefresher(state: DropsPageState, options: DropsPageRefreshOptions) {
   const getTabsApi = () => options.tabsApi ?? chrome.tabs;
+  let openAndRefreshInFlight: Promise<DropsPageRefreshResult> | null = null;
   let refreshInFlight: Promise<DropsPageRefreshResult> | null = null;
 
   const findOrOpenDropsPageTab = async (): Promise<{ tabId: number | null; opened: boolean }> => {
@@ -57,31 +62,22 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     return { tabId: created?.id ?? null, opened: true };
   };
 
-  const openDropsPageAndRefresh = () => {
+  const publishRefreshProgress = async (inProgress: boolean) => {
+    state.appState.dropsPageRefreshInProgress = inProgress;
+    await options.saveState();
+    options.broadcastStateUpdate(state.appState as AppState);
+  };
+
+  const refreshFromDropsPageTab = (tabId: number, opened: boolean): Promise<DropsPageRefreshResult> => {
     if (refreshInFlight) {
       return refreshInFlight;
     }
 
     refreshInFlight = (async () => {
-      await options.trackActivity('open-drops-page-and-refresh');
-      await options.ensureStateHydratedForCache();
-
-      const { tabId, opened } = await findOrOpenDropsPageTab();
-      if (!tabId) {
-        return {
-          success: false,
-          opened: false,
-          refreshed: false,
-          gamesCount: state.appState.availableGames.length,
-          error: 'Unable to open the Twitch Drops page.',
-        };
-      }
-
       await options.waitForTabComplete(tabId);
       const sessionFromTab = await options.persistSessionFromDropsPage(tabId);
       await options.refreshGamesCacheFromHiddenFetch({ forceSessionRefresh: !sessionFromTab });
-      await options.saveState();
-      options.broadcastStateUpdate(state.appState as AppState);
+      await publishRefreshProgress(false);
 
       const gamesCount = state.appState.availableGames.length;
       const result: DropsPageRefreshResult = {
@@ -96,11 +92,64 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
           : 'Open Twitch and sign in so DropHunter can detect your session.';
       }
       return result;
-    })().finally(() => {
-      refreshInFlight = null;
-    });
+    })()
+      .catch(async (error) => {
+        await publishRefreshProgress(false);
+        throw error;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
 
     return refreshInFlight;
+  };
+
+  const openAndMaybeRefresh = async (waitForRefresh: boolean): Promise<DropsPageRefreshResult> => {
+    await options.trackActivity('open-drops-page-and-refresh');
+    await options.ensureStateHydratedForCache();
+
+    const { tabId, opened } = await findOrOpenDropsPageTab();
+    if (!tabId) {
+      return {
+        success: false,
+        opened: false,
+        refreshed: false,
+        gamesCount: state.appState.availableGames.length,
+        error: 'Unable to open the Twitch Drops page.',
+      };
+    }
+
+    if (!waitForRefresh) {
+      await publishRefreshProgress(true);
+      const refreshPromise = refreshFromDropsPageTab(tabId, opened);
+      refreshPromise.catch(() => undefined);
+      return {
+        success: true,
+        opened,
+        refreshed: false,
+        gamesCount: state.appState.availableGames.length,
+      };
+    }
+
+    const refreshPromise = refreshFromDropsPageTab(tabId, opened);
+    return refreshPromise;
+  };
+
+  const openDropsPageAndRefresh = (
+    openOptions: OpenDropsPageRefreshOptions = {},
+  ): Promise<DropsPageRefreshResult> => {
+    if (openOptions.waitForRefresh === false) {
+      return openAndMaybeRefresh(false);
+    }
+
+    if (openAndRefreshInFlight) {
+      return openAndRefreshInFlight;
+    }
+
+    openAndRefreshInFlight = openAndMaybeRefresh(true).finally(() => {
+      openAndRefreshInFlight = null;
+    });
+    return openAndRefreshInFlight;
   };
 
   return { openDropsPageAndRefresh };

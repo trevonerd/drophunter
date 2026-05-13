@@ -75,4 +75,52 @@ describe('drops page refresher', () => {
     expect(first).toBe(second);
     expect(tabsApi.created).toEqual(['https://www.twitch.tv/drops/campaigns']);
   });
+
+  test('can return after opening the tab while refresh continues in background', async () => {
+    const state = { appState: createInitialState() };
+    const tabsApi = createTabsApi();
+    const calls: string[] = [];
+    let finishTabLoad: () => void = () => {};
+    const tabLoadStarted = new Promise<void>((resolve) => {
+      finishTabLoad = resolve;
+    });
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => calls.push('activity'),
+      ensureStateHydratedForCache: async () => calls.push('hydrate'),
+      waitForTabComplete: async () => {
+        calls.push('wait');
+        await tabLoadStarted;
+      },
+      persistSessionFromDropsPage: async () => {
+        calls.push('session');
+        return { oauthToken: 'token', deviceId: 'device', uuid: 'uuid' };
+      },
+      refreshGamesCacheFromHiddenFetch: async () => calls.push('refresh'),
+      saveState: async () => calls.push('save'),
+      broadcastStateUpdate: () => calls.push('broadcast'),
+    });
+
+    const result = await refresher.openDropsPageAndRefresh({ waitForRefresh: false });
+
+    expect(result).toEqual({ success: true, opened: true, refreshed: false, gamesCount: 0 });
+    expect(state.appState.dropsPageRefreshInProgress).toBe(true);
+    expect(tabsApi.created).toEqual(['https://www.twitch.tv/drops/campaigns']);
+    expect(calls).toEqual(['activity', 'hydrate', 'save', 'broadcast', 'wait']);
+
+    finishTabLoad();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(state.appState.dropsPageRefreshInProgress).toBe(false);
+    expect(calls).toEqual([
+      'activity',
+      'hydrate',
+      'save',
+      'broadcast',
+      'wait',
+      'session',
+      'refresh',
+      'save',
+      'broadcast',
+    ]);
+  });
 });

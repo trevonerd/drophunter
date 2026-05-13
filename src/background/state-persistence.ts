@@ -179,6 +179,10 @@ export async function loadState(
       if (!Array.isArray(state.appState.queue)) {
         state.appState.queue = [];
       }
+      if (state.appState.dropsPageRefreshInProgress) {
+        state.appState.dropsPageRefreshInProgress = false;
+        await chrome.storage.local.set({ appState: state.appState }).catch(() => undefined);
+      }
     }
     state.twitchSessionCache = deps.sanitizeTwitchSession(result[deps.TWITCH_SESSION_STORAGE_KEY] as unknown);
     state.cachedDropsSnapshot = Array.isArray(result[deps.DROPS_SNAPSHOT_CACHE_KEY])

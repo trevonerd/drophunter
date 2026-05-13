@@ -821,8 +821,10 @@ async function refreshGamesCacheFromHiddenFetch(
   return gamesCacheRefreshInFlight;
 }
 
-async function openDropsPageAndRefresh() {
-  return dropsPageRefresher.openDropsPageAndRefresh();
+async function openDropsPageAndRefresh(message?: { payload?: { waitForRefresh?: boolean } }) {
+  return dropsPageRefresher.openDropsPageAndRefresh({
+    waitForRefresh: message?.payload?.waitForRefresh,
+  });
 }
 
 function evaluateDropsForGame(
@@ -1428,7 +1430,7 @@ async function handleChannelPointsBonusClaimed(
 
 registerRuntimeMessageRouter({
   ensureGamesCache: (message) => handleEnsureGamesCache(message.payload),
-  openDropsPageAndRefresh: () => openDropsPageAndRefresh(),
+  openDropsPageAndRefresh: (message) => openDropsPageAndRefresh(message),
   addToQueue: (message) => handleAddToQueue(message.payload),
   removeFromQueue: (message) => handleRemoveFromQueue(message.payload),
   clearQueue: () => handleClearQueue(),
