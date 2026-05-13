@@ -855,8 +855,10 @@ export async function rotateStreamerIfInvalid(
     return;
   }
   const effectiveThreshold = computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
-  const progressIsRecentlyAdvancing =
-    state.lastProgressAdvanceAt > 0 && now - state.lastProgressAdvanceAt < effectiveThreshold;
+  const dropProgressIsActive =
+    state.appState.currentDrop != null &&
+    state.lastProgressAdvanceAt > 0 &&
+    now - state.lastProgressAdvanceAt < effectiveThreshold;
 
   if (!context) {
     const tabUrl = tab.url ?? '';
@@ -864,10 +866,11 @@ export async function rotateStreamerIfInvalid(
     if (!isStillOnTwitch) {
       logInfo('Managed tab navigated away from Twitch', { tabUrl });
       state.invalidStreamChecks = INVALID_STREAM_THRESHOLD;
-    } else if (progressIsRecentlyAdvancing) {
+    } else if (dropProgressIsActive) {
       logDebug('Stream context missing but drop progress is recent; keeping current streamer', {
         tabUrl,
         lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+        effectiveThresholdMs: effectiveThreshold,
       });
       state.invalidStreamChecks = 0;
       return;
@@ -982,6 +985,19 @@ export async function rotateStreamerIfInvalid(
         onSkipCurrentGame: opts?.onSkipCurrentGame,
       });
     }
+    return;
+  }
+
+  if (dropProgressIsActive && health.reason !== 'stalled-progress') {
+    logDebug('Stream validation failed but drop progress is active; keeping current streamer', {
+      reason: health.reason,
+      lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+      effectiveThresholdMs: effectiveThreshold,
+      progress: state.appState.currentDrop?.progress ?? null,
+      currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
+      requiredMinutes: state.appState.currentDrop?.requiredMinutes ?? null,
+    });
+    state.invalidStreamChecks = 0;
     return;
   }
 

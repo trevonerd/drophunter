@@ -2352,6 +2352,40 @@ describe('rotateStreamerIfInvalid', () => {
     expect(state.invalidStreamChecks).toBe(0);
   });
 
+  test('keeps current streamer when long-drop progress is active despite invalid page signals', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 240, currentMinutes: 61, progress: 25 });
+    state.lastProgressAdvanceAt = Date.now() - 8 * 60 * 1000;
+    state.invalidStreamChecks = 7;
+    state.lastStreamRotationAt = 0;
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let rotateReason: StreamRotationReason | null = null;
+    await rotateStreamerIfInvalid(state, {
+      onFetchStreamContext: async () => ({
+        channelName: 'streamer',
+        categorySlug: 'other-game',
+        categoryLabel: 'Other Game',
+        streamTitle: 'Stream Title',
+        titleContainsDrops: false,
+        hasDropsSignal: false,
+        isLive: true,
+        pageUrl: 'https://twitch.tv/streamer',
+      }),
+      onResolveCategorySlug: async () => 'test-game',
+      onRotateStreamer: async (_, reason) => {
+        rotateReason = reason;
+        return true;
+      },
+    });
+
+    expect(rotateReason).toBeNull();
+    expect(state.invalidStreamChecks).toBe(0);
+  });
+
   test('clears recovery state when rotating from offline after stalled recovery', async () => {
     const state = createMinimalState();
     state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
