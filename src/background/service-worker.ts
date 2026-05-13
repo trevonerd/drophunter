@@ -54,6 +54,7 @@ import {
 import { createDropsPageRefresher } from './drops-page-refresh.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import {
+  acquireStreamerForSelectedGame as acquireStreamerForSelectedGameExt,
   advanceQueueIfCompleted as advanceQueueIfCompletedExt,
   applyStopState as applyStopStateExt,
   checkDropProgress as checkDropProgressExt,
@@ -70,6 +71,7 @@ import {
   resolveGameFromState as resolveGameFromStateExt,
   rotateStreamer as rotateStreamerExt,
   rotateStreamerIfInvalid as rotateStreamerIfInvalidExt,
+  skipCurrentGameAndAdvanceQueue as skipCurrentGameAndAdvanceQueueExt,
   skipCurrentGameDueToStall as skipCurrentGameDueToStallExt,
   stopFarmingSession as stopFarmingSessionExt,
 } from './queue-management.ts';
@@ -629,7 +631,7 @@ async function handleStartupResumePolicy() {
     await saveStateExt(state);
     await saveTimingStateExt(state);
     if (!keptExistingTab && state.appState.selectedGame) {
-      await openBestStreamerForSelectedGame();
+      await acquireStreamerForSelectedGame();
     }
     setTimeout(() => {
       if (state.appState.resumedFromCrash != null) {
@@ -949,6 +951,7 @@ async function checkDropProgress() {
   await checkDropProgressExt(state, {
     onEnforcePlaybackPolicy: enforcePlaybackPolicyOnStreamTab,
     onRotateStreamerIfInvalid: rotateStreamerIfInvalid,
+    onAcquireStreamerForSelectedGame: acquireStreamerForSelectedGame,
     onAttemptAutoClaimChannelPointsBonus: attemptAutoClaimChannelPointsBonus,
     onRefreshDropsData: refreshDropsData,
     onAutoClaimClaimableDrops: autoClaimClaimableDrops,
@@ -984,6 +987,26 @@ async function openBestStreamerForSelectedGame(): Promise<boolean> {
   );
 }
 
+async function skipCurrentGameDueToNoStreamers() {
+  await skipCurrentGameAndAdvanceQueueExt(state, 'no-streamers', {
+    onEnsureWorkspace: ensureWorkspaceForSelectedGame,
+    onRefreshDropsData: refreshDropsData,
+    onOpenStreamer: acquireStreamerForSelectedGame,
+    onSaveState: () => saveStateExt(state),
+    onSaveTimingState: saveTimingStateExt,
+    onStopFarmingSession: stopFarmingSession,
+  });
+}
+
+async function acquireStreamerForSelectedGame(): Promise<boolean> {
+  return acquireStreamerForSelectedGameExt(state, {
+    onOpenStreamer: openBestStreamerForSelectedGame,
+    onSkipCurrentGame: skipCurrentGameDueToNoStreamers,
+    onSaveState: () => saveStateExt(state),
+    onSaveTimingState: saveTimingStateExt,
+  });
+}
+
 async function ensureWorkspaceForSelectedGame() {
   if (!appState.selectedGame) {
     return;
@@ -997,13 +1020,16 @@ async function ensureWorkspaceForSelectedGame() {
 
 async function advanceQueueIfCompleted(): Promise<boolean> {
   return advanceQueueIfCompletedExt(state, {
-    onOpenStreamer: openBestStreamerForSelectedGame,
+    onOpenStreamer: acquireStreamerForSelectedGame,
     onEnsureWorkspace: ensureWorkspaceForSelectedGame,
     onSendAlert: sendAlert,
     onStopMonitoring: stopMonitoring,
     onCloseManagedTabIfSafe: closeManagedTabIfSafeExt,
     onClearManagedTabOwnership: () => clearManagedTabOwnershipExt(state),
     onApplyStopState: applyStopStateExt,
+    onNotify: async (title: string, message: string) => {
+      await notify(title, message);
+    },
     onRefreshDropsData: refreshDropsData,
     onSaveState: () => saveStateExt(state),
     onSaveTimingState: saveTimingStateExt,
@@ -1031,7 +1057,7 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
     return { success: false, error: 'Queue completed. No pending rewards left.' };
   }
   if (!appState.tabId && appState.selectedGame) {
-    await openBestStreamerForSelectedGame();
+    await acquireStreamerForSelectedGame();
   }
   if (appState.monitorAutoOpen) {
     await new Promise((resolve) => setTimeout(resolve, MONITOR_AUTO_OPEN_DELAY_MS));
@@ -1048,7 +1074,7 @@ async function skipCurrentGameDueToOfflineRecovery() {
   await skipCurrentGameDueToStallExt(state, {
     onEnsureWorkspace: ensureWorkspaceForSelectedGame,
     onRefreshDropsData: refreshDropsData,
-    onOpenStreamer: openBestStreamerForSelectedGame,
+    onOpenStreamer: acquireStreamerForSelectedGame,
     onSaveState: () => saveStateExt(state),
     onSaveTimingState: saveTimingStateExt,
     onStopFarmingSession: stopFarmingSession,
@@ -1063,7 +1089,7 @@ async function rotateStreamerIfInvalid() {
     onSaveState: () => saveStateExt(state),
     onSaveTimingState: saveTimingStateExt,
     onRotateStreamer: rotateStreamerExt,
-    onOpenStreamer: openBestStreamerForSelectedGame,
+    onOpenStreamer: acquireStreamerForSelectedGame,
     onEnterPersistentRecovery: enterPersistentRecoveryExt,
     onSkipCurrentGame: skipCurrentGameDueToOfflineRecovery,
   });
@@ -1086,7 +1112,7 @@ async function handleSetSelectedGame(payload: { game: TwitchGame }) {
       onTrackActivity: trackActivity,
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
       onRefreshDropsData: refreshDropsData,
-      onOpenBestStreamer: openBestStreamerForSelectedGame,
+      onOpenBestStreamer: acquireStreamerForSelectedGame,
       onSaveState: saveStateExt,
       onSaveTimingState: saveTimingStateExt,
     },

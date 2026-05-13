@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
 import { pickNearestDrop } from '../shared/drop-order';
-import { deriveRuntimeMode, formatRecoveryReason, formatRetryLabel } from '../shared/runtime-status';
+import {
+  deriveRuntimeMode,
+  formatRecoveryAttemptLabel,
+  formatRecoveryReason,
+  formatRetryLabel,
+} from '../shared/runtime-status';
 import { createInitialState } from '../shared/utils';
 import { AppState } from '../types';
 
@@ -33,13 +38,21 @@ function recoveryLabel(reason: string | null | undefined): string | null {
   return formatRecoveryReason(reason);
 }
 
-function retryAtLabel(timestamp?: number | null): string | null {
-  return formatRetryLabel(timestamp);
+function retryAtLabel(timestamp: number | null | undefined, now: number): string | null {
+  return formatRetryLabel(timestamp, now);
+}
+
+function recoveryAttemptLabel(
+  reason: string | null | undefined,
+  attempts: number | null | undefined,
+): string | null {
+  return formatRecoveryAttemptLabel(reason, attempts);
 }
 
 function App() {
   const [state, setState] = useState<AppState>(createInitialState());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
+  const [recoveryNow, setRecoveryNow] = useState(Date.now());
 
   useEffect(() => {
     const syncState = async () => {
@@ -58,6 +71,14 @@ function App() {
 
   const nearestDrop = useMemo(() => pickNearestDrop(state.pendingDrops), [state.pendingDrops]);
   const runtimeMode = deriveRuntimeMode(state);
+  useEffect(() => {
+    if (runtimeMode !== 'recovering') {
+      return;
+    }
+    setRecoveryNow(Date.now());
+    const timer = window.setInterval(() => setRecoveryNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [runtimeMode]);
   const runStateClass =
     runtimeMode === 'recovering'
       ? 'monitor-pill monitor-pill--recovering'
@@ -110,7 +131,12 @@ function App() {
         {runtimeMode === 'recovering' && state.recoveryReason && (
           <div className="monitor-rotation-reason">
             Recovering: {recoveryLabel(state.recoveryReason)}
-            {retryAtLabel(state.recoveryBackoffUntil) ? ` · ${retryAtLabel(state.recoveryBackoffUntil)}` : ''}
+            {recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)
+              ? ` · ${recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)}`
+              : ''}
+            {retryAtLabel(state.recoveryBackoffUntil, recoveryNow)
+              ? ` · ${retryAtLabel(state.recoveryBackoffUntil, recoveryNow)}`
+              : ''}
           </div>
         )}
 

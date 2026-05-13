@@ -23,12 +23,14 @@ import {
   classifyStreamHealth,
   computeEffectiveStallThreshold,
   computeRecoveryBackoffMs,
-  MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
+  MAX_NO_STREAMERS_RETRIES,
   MAX_PERSISTENT_RECOVERY_CYCLES,
+  MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+  NO_STREAMERS_RETRY_MS,
   nextNoProgressRotationAttempts,
   PROGRESS_STALL_THRESHOLD_MS,
+  STALLED_PROGRESS_RETRY_MS,
   StreamRotationReason,
-  shouldIncrementNoProgressRotationAttempts,
 } from './stream-rotation';
 import { PickStreamerResult, StreamerSelectionPreferences } from './streamer-selection';
 
@@ -70,11 +72,30 @@ function clearStopState(state: ServiceWorkerState) {
   state.appState = clearTerminalStopStatus(state.appState);
 }
 
-function applyRecoveryState(state: ServiceWorkerState, reason: StreamRotationReason, retryAt: number) {
+function applyRecoveryState(state: ServiceWorkerState, reason: StreamRotationReason, retryAt: number | null) {
   state.appState = applyRecoveryStatus(state.appState, {
     reason,
     retryAt,
     attempts: state.stalledRecoveryAttempts,
+  });
+}
+
+function clearNoStreamersRecoveryState(state: ServiceWorkerState) {
+  if (state.appState.recoveryReason !== 'no-streamers') {
+    return;
+  }
+  state.recoveryBackoffUntil = 0;
+  state.lastRecoveryAttemptAt = 0;
+  state.appState = clearRecoveryStatus(state.appState);
+}
+
+function applyNoStreamersRecoveryState(state: ServiceWorkerState, retryAt: number, attempts: number) {
+  state.recoveryBackoffUntil = retryAt;
+  state.lastRecoveryAttemptAt = Date.now();
+  state.appState = applyRecoveryStatus(state.appState, {
+    reason: 'no-streamers',
+    retryAt,
+    attempts,
   });
 }
 
@@ -215,6 +236,67 @@ export async function enterPersistentRecovery(
   }
 }
 
+export async function acquireStreamerForSelectedGame(
+  state: ServiceWorkerState,
+  opts?: {
+    onOpenStreamer?: () => Promise<boolean>;
+    onSkipCurrentGame?: () => Promise<void>;
+    onSaveState?: () => Promise<void>;
+    onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
+  },
+): Promise<boolean> {
+  if (!state.appState.selectedGame) {
+    return false;
+  }
+
+  const now = Date.now();
+  const isNoStreamersRecovery = state.appState.recoveryReason === 'no-streamers';
+  if (isNoStreamersRecovery && state.recoveryBackoffUntil > now) {
+    return false;
+  }
+
+  const opened = opts?.onOpenStreamer ? await opts.onOpenStreamer() : false;
+  if (opened) {
+    clearNoStreamersRecoveryState(state);
+    if (opts?.onSaveState) {
+      await opts.onSaveState();
+    }
+    if (opts?.onSaveTimingState) {
+      await opts.onSaveTimingState(state);
+    }
+    return true;
+  }
+
+  const previousAttempts = isNoStreamersRecovery ? Math.max(0, state.appState.recoveryAttempts ?? 0) : 0;
+  if (previousAttempts >= MAX_NO_STREAMERS_RETRIES) {
+    if (opts?.onSkipCurrentGame) {
+      await opts.onSkipCurrentGame();
+    }
+    if (opts?.onSaveState) {
+      await opts.onSaveState();
+    }
+    if (opts?.onSaveTimingState) {
+      await opts.onSaveTimingState(state);
+    }
+    return false;
+  }
+
+  const retryAt = now + NO_STREAMERS_RETRY_MS;
+  applyNoStreamersRecoveryState(state, retryAt, previousAttempts + 1);
+  logWarn('No live streamers found; scheduling one retry', {
+    game: getGameDisplayLabel(state.appState.selectedGame),
+    retryAt,
+    attempts: previousAttempts + 1,
+  });
+  if (opts?.onSaveState) {
+    await opts.onSaveState();
+  }
+  if (opts?.onSaveTimingState) {
+    await opts.onSaveTimingState(state);
+  }
+  return false;
+}
+
 export async function stopFarmingSession(
   state: ServiceWorkerState,
   opts?: {
@@ -290,6 +372,7 @@ export async function advanceQueueIfCompleted(
     onCloseManagedTabIfSafe?: (tabId: number | null) => Promise<boolean>;
     onClearManagedTabOwnership?: () => void;
     onApplyStopState?: (state: ServiceWorkerState, reason: string, message: string | null) => void;
+    onNotify?: (title: string, message: string) => Promise<void>;
     onRefreshDropsData?: (options: {
       includeCampaignFetch: boolean;
       includeInventoryFetch: boolean;
@@ -326,6 +409,11 @@ export async function advanceQueueIfCompleted(
       queueLength: state.appState.queue.length,
     });
   }
+
+  const completedWhileNoStreamers = state.appState.recoveryReason === 'no-streamers';
+  const completedGameName = state.appState.selectedGame
+    ? getGameDisplayLabel(state.appState.selectedGame)
+    : 'current game';
 
   if (state.appState.selectedGame) {
     removeGameFromQueue(state, state.appState.selectedGame);
@@ -394,14 +482,22 @@ export async function advanceQueueIfCompleted(
   state.appState.completionNotified = false;
   state.appState.lastRotationReason = null;
   state.appState.lastRotationAt = null;
+  const queueCompleteMessage = completedWhileNoStreamers
+    ? `Queue completed. No live streamers found for ${completedGameName}.`
+    : 'Queue completed. No pending rewards left.';
+  const queueCompleteNotificationMessage = completedWhileNoStreamers
+    ? `No live streamers found for ${completedGameName}. DropHunter has stopped.`
+    : queueCompleteMessage;
   if (opts?.onApplyStopState) {
-    opts.onApplyStopState(state, 'queue-complete', 'Queue completed. No pending rewards left.');
+    opts.onApplyStopState(state, 'queue-complete', queueCompleteMessage);
   }
   if (opts?.onStopMonitoring) {
     opts.onStopMonitoring();
   }
-  if (opts?.onSendAlert) {
-    await opts.onSendAlert('all-complete', 'Queue completed. No pending rewards left.');
+  if (completedWhileNoStreamers && opts?.onNotify) {
+    await opts.onNotify('Queue completed', queueCompleteNotificationMessage);
+  } else if (opts?.onSendAlert) {
+    await opts.onSendAlert('all-complete', queueCompleteMessage);
   }
   if (opts?.onSaveState) {
     await opts.onSaveState();
@@ -409,8 +505,35 @@ export async function advanceQueueIfCompleted(
   return false;
 }
 
-export async function skipCurrentGameDueToStall(
+export type QueueSkipReason = 'stalled-progress' | 'no-streamers';
+
+function queueSkipCopy(reason: QueueSkipReason, gameName: string) {
+  if (reason === 'no-streamers') {
+    return {
+      logMessage: 'Skipping game because no live streamers were found',
+      skipNotificationTitle: 'Game skipped: no live streamers',
+      skipMessage: `Skipped ${gameName} — no live streamers were found.`,
+      terminalNotificationTitle: 'Queue completed',
+      terminalMessage: `Queue completed. No live streamers found for ${gameName}.`,
+      terminalNotificationMessage: `No live streamers found for ${gameName}. DropHunter has stopped.`,
+      stopReason: 'queue-complete',
+    } as const;
+  }
+
+  return {
+    logMessage: 'Giving up on game after stalled drop progress',
+    skipNotificationTitle: 'Game skipped: no drop progress',
+    skipMessage: `Skipped ${gameName} — stream opened but drop progress did not resume.`,
+    terminalNotificationTitle: 'Farming stopped: no drop progress',
+    terminalMessage: `Farming stopped — ${gameName} opened a stream but drop progress did not resume and no other games are queued.`,
+    terminalNotificationMessage: `${gameName} opened a stream but drop progress did not resume. DropHunter has stopped.`,
+    stopReason: 'stall-skipped',
+  } as const;
+}
+
+export async function skipCurrentGameAndAdvanceQueue(
   state: ServiceWorkerState,
+  reason: QueueSkipReason = 'stalled-progress',
   opts?: {
     onEnsureWorkspace?: () => Promise<void>;
     onRefreshDropsData?: (options: {
@@ -430,9 +553,11 @@ export async function skipCurrentGameDueToStall(
 ) {
   const skippedGame = state.appState.selectedGame;
   const gameName = skippedGame ? getGameDisplayLabel(skippedGame) : 'current game';
+  const copy = queueSkipCopy(reason, gameName);
 
-  logWarn('Giving up on game after persistent recovery exhaustion', {
+  logWarn(copy.logMessage, {
     game: gameName,
+    reason,
     stalledRecoveryAttempts: state.stalledRecoveryAttempts,
   });
 
@@ -482,8 +607,8 @@ export async function skipCurrentGameDueToStall(
       await opts.onOpenStreamer();
     }
     await notify(
-      'Game skipped',
-      `Skipped ${gameName} — no progress after repeated attempts. Now farming ${getGameDisplayLabel(nextGame)}.`,
+      copy.skipNotificationTitle,
+      `${copy.skipMessage} Now farming ${getGameDisplayLabel(nextGame)}.`,
     );
     if (opts?.onSaveState) {
       await opts.onSaveState();
@@ -491,16 +616,24 @@ export async function skipCurrentGameDueToStall(
     return;
   }
 
+  state.appState.selectedGame = null;
   if (opts?.onStopFarmingSession) {
     await opts.onStopFarmingSession({
-      stopReason: 'stall-skipped',
-      stopMessage: `Farming stopped — ${gameName} made no progress and no other games are queued.`,
+      stopReason: copy.stopReason,
+      stopMessage: copy.terminalMessage,
       notification: {
-        title: 'Farming stopped',
-        message: `${gameName} made no progress after repeated recovery attempts.`,
+        title: copy.terminalNotificationTitle,
+        message: copy.terminalNotificationMessage,
       },
     });
   }
+}
+
+export async function skipCurrentGameDueToStall(
+  state: ServiceWorkerState,
+  opts?: Parameters<typeof skipCurrentGameAndAdvanceQueue>[2],
+) {
+  return skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', opts);
 }
 
 export async function handleStartFarming(
@@ -601,23 +734,6 @@ export async function rotateStreamer(
   },
 ): Promise<boolean> {
   state.noProgressRotationAttempts = nextNoProgressRotationAttempts(state.noProgressRotationAttempts, reason);
-  if (state.noProgressRotationAttempts >= MAX_NO_PROGRESS_ROTATION_ATTEMPTS) {
-    if (opts?.onEnterPersistentRecovery) {
-      await opts.onEnterPersistentRecovery(
-        state,
-        reason,
-        "DropHunter hasn't resumed progress yet, but it will keep retrying automatically.",
-        { onSkipCurrentGame: opts.onSkipCurrentGame },
-      );
-    }
-    if (opts?.onSaveState) {
-      await opts.onSaveState();
-    }
-    if (opts?.onSaveTimingState) {
-      await opts.onSaveTimingState(state);
-    }
-    return false;
-  }
 
   state.appState.lastRotationReason = reason;
   state.appState.lastRotationAt = Date.now();
@@ -629,28 +745,8 @@ export async function rotateStreamer(
   if (opts?.onOpenStreamer) {
     opened = await opts.onOpenStreamer();
   }
-  if (!opened && !shouldIncrementNoProgressRotationAttempts(reason)) {
-    state.noProgressRotationAttempts = nextNoProgressRotationAttempts(
-      state.noProgressRotationAttempts,
-      'open-failed',
-    );
-    if (state.noProgressRotationAttempts >= MAX_NO_PROGRESS_ROTATION_ATTEMPTS) {
-      if (opts?.onEnterPersistentRecovery) {
-        await opts.onEnterPersistentRecovery(
-          state,
-          'open-failed',
-          'DropHunter could not reopen a working stream yet, but it will keep retrying automatically.',
-          { onSkipCurrentGame: opts.onSkipCurrentGame },
-        );
-      }
-      if (opts?.onSaveState) {
-        await opts.onSaveState();
-      }
-      if (opts?.onSaveTimingState) {
-        await opts.onSaveTimingState(state);
-      }
-      return false;
-    }
+  if (!opened && reason === 'stalled-progress' && opts?.onSkipCurrentGame) {
+    await opts.onSkipCurrentGame();
   }
 
   if (opts?.onSaveState) {
@@ -713,7 +809,7 @@ export async function rotateStreamerIfInvalid(
     if (
       state.recoveryBackoffUntil > 0 &&
       Date.now() < state.recoveryBackoffUntil &&
-      state.appState.recoveryReason === 'open-failed'
+      (state.appState.recoveryReason === 'open-failed' || state.appState.recoveryReason === 'no-streamers')
     ) {
       return;
     }
@@ -736,7 +832,7 @@ export async function rotateStreamerIfInvalid(
     if (
       state.recoveryBackoffUntil > 0 &&
       Date.now() < state.recoveryBackoffUntil &&
-      state.appState.recoveryReason === 'open-failed'
+      (state.appState.recoveryReason === 'open-failed' || state.appState.recoveryReason === 'no-streamers')
     ) {
       return;
     }
@@ -850,7 +946,9 @@ export async function rotateStreamerIfInvalid(
     if (
       state.recoveryBackoffUntil > 0 &&
       now < state.recoveryBackoffUntil &&
-      (state.appState.recoveryReason === 'offline' || state.appState.recoveryReason === 'open-failed')
+      (state.appState.recoveryReason === 'offline' ||
+        state.appState.recoveryReason === 'open-failed' ||
+        state.appState.recoveryReason === 'no-streamers')
     ) {
       logDebug('Offline detected but in recovery backoff, skipping rotation', {
         recoveryReason: state.appState.recoveryReason,
@@ -888,9 +986,10 @@ export async function rotateStreamerIfInvalid(
   }
 
   if (health.reason === 'stalled-progress') {
-    if (state.stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
+    if (state.stalledRecoveryAttempts >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS) {
       logWarn('Stalled progress recovery exhausted — skipping game', {
         stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+        maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
         progress: state.appState.currentDrop?.progress ?? null,
         currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
       });
@@ -907,12 +1006,16 @@ export async function rotateStreamerIfInvalid(
       return;
     }
     if (state.lastRecoveryAttemptAt < state.lastProgressAdvanceAt || state.stalledRecoveryAttempts === 0) {
-      state.stalledRecoveryAttempts = Math.max(1, state.stalledRecoveryAttempts + 1);
+      state.stalledRecoveryAttempts = Math.min(
+        MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+        Math.max(1, state.stalledRecoveryAttempts + 1),
+      );
       state.lastRecoveryAttemptAt = now;
-      state.recoveryBackoffUntil = now + computeRecoveryBackoffMs(state.stalledRecoveryAttempts);
+      state.recoveryBackoffUntil = now + STALLED_PROGRESS_RETRY_MS;
       applyRecoveryState(state, 'stalled-progress', state.recoveryBackoffUntil);
       logInfo('Attempting in-place playback self-heal before rotating', {
         stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+        maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
         recoveryBackoffUntil: state.recoveryBackoffUntil,
       });
       if (opts?.onAttemptPlaybackSelfHeal && tab.id) {
@@ -926,7 +1029,14 @@ export async function rotateStreamerIfInvalid(
       }
       return;
     }
+    state.stalledRecoveryAttempts = Math.min(
+      MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+      state.stalledRecoveryAttempts + 1,
+    );
+    applyRecoveryState(state, 'stalled-progress', null);
     logInfo('Drop progress stalled, triggering stream rotation', {
+      stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+      maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
       progress: state.appState.currentDrop?.progress ?? null,
       currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
       requiredMinutes: state.appState.currentDrop?.requiredMinutes ?? null,
@@ -967,6 +1077,7 @@ export async function rotateStreamerIfInvalid(
 export interface CheckDropProgressCallbacks {
   onEnforcePlaybackPolicy: () => Promise<void>;
   onRotateStreamerIfInvalid: () => Promise<void>;
+  onAcquireStreamerForSelectedGame: () => Promise<boolean>;
   onAttemptAutoClaimChannelPointsBonus: () => Promise<boolean>;
   onRefreshDropsData: (opts?: {
     includeCampaignFetch?: boolean;
@@ -1019,6 +1130,15 @@ export async function checkDropProgress(
   }, TICK_WATCHDOG_TIMEOUT_MS);
 
   try {
+    const noStreamersRecoveryActive =
+      state.appState.recoveryReason === 'no-streamers' && state.recoveryBackoffUntil > 0;
+    if (noStreamersRecoveryActive) {
+      if (Date.now() >= state.recoveryBackoffUntil) {
+        await callbacks.onAcquireStreamerForSelectedGame();
+      }
+      return;
+    }
+
     if (state.appState.tabId) {
       const streamTab = await chrome.tabs.get(state.appState.tabId).catch(() => null);
       if (!streamTab) {
@@ -1043,6 +1163,9 @@ export async function checkDropProgress(
       state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
     } else {
       await callbacks.onRotateStreamerIfInvalid();
+      if (!state.appState.isRunning || state.appState.isPaused) {
+        return;
+      }
     }
     await callbacks.onAttemptAutoClaimChannelPointsBonus();
 
@@ -1203,7 +1326,6 @@ export async function openBestStreamerForSelectedGame(
     game: deps.getGameDisplayLabel(state.appState.selectedGame),
     categorySlug: state.appState.selectedGame.categorySlug ?? null,
   });
-  state.appState.tabId = null;
   state.appState.activeStreamer = null;
   return false;
 }

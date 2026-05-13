@@ -13,6 +13,8 @@ export interface TerminalStopState {
   message: string | null;
 }
 
+export const MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS = 3;
+
 export function deriveRuntimeMode(
   state: Pick<AppState, 'isRunning' | 'isPaused' | 'recoveryReason' | 'lastStopReason'>,
 ) {
@@ -105,7 +107,9 @@ export function formatRotationReason(reason: string | null | undefined): string 
     case 'navigated-away':
       return 'Tab navigated away';
     case 'open-failed':
-      return 'Reopened stream';
+      return 'Could not open stream';
+    case 'no-streamers':
+      return 'No live streamers found';
     default:
       return reason ?? null;
   }
@@ -114,9 +118,11 @@ export function formatRotationReason(reason: string | null | undefined): string 
 export function formatRecoveryReason(reason: string | null | undefined): string | null {
   switch (reason) {
     case 'stalled-progress':
-      return 'Recovering stalled progress';
+      return 'Checking stalled drop progress';
     case 'open-failed':
-      return 'Retrying stream recovery';
+      return 'Could not open stream';
+    case 'no-streamers':
+      return 'No live streamers found';
     case 'drops-inactive':
       return 'Recovering missing drops signal';
     case 'wrong-game':
@@ -128,6 +134,17 @@ export function formatRecoveryReason(reason: string | null | undefined): string 
     default:
       return reason ?? null;
   }
+}
+
+export function formatRecoveryAttemptLabel(
+  reason: string | null | undefined,
+  attempts: number | null | undefined,
+): string | null {
+  if (reason !== 'stalled-progress' || typeof attempts !== 'number' || !Number.isFinite(attempts)) {
+    return null;
+  }
+  const safeAttempts = Math.max(1, Math.min(MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS, Math.floor(attempts)));
+  return `attempt ${safeAttempts}/${MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS}`;
 }
 
 export function formatRetryLabel(timestamp?: number | null, now = Date.now()): string | null {

@@ -3,7 +3,12 @@ import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-syn
 import { sortPendingDrops } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
 import { sendRuntimeMessage } from '../shared/messages';
-import { deriveRuntimeMode, formatRecoveryReason, formatRetryLabel } from '../shared/runtime-status';
+import {
+  deriveRuntimeMode,
+  formatRecoveryAttemptLabel,
+  formatRecoveryReason,
+  formatRetryLabel,
+} from '../shared/runtime-status';
 import { createInitialState, isExpiredGame } from '../shared/utils';
 import { AppState, ExpiryStatus, StreamerSelectionMode, TwitchDrop, TwitchGame } from '../types';
 import { logPopupError, logPopupWarn } from './logging';
@@ -102,8 +107,15 @@ function statusReasonLabel(reason: string | null | undefined): string | null {
   return formatRecoveryReason(reason);
 }
 
-function retryLabel(timestamp?: number | null): string | null {
-  return formatRetryLabel(timestamp);
+function retryLabel(timestamp: number | null | undefined, now: number): string | null {
+  return formatRetryLabel(timestamp, now);
+}
+
+function recoveryAttemptLabel(
+  reason: string | null | undefined,
+  attempts: number | null | undefined,
+): string | null {
+  return formatRecoveryAttemptLabel(reason, attempts);
 }
 
 /* ── SVG Icons ── */
@@ -381,6 +393,16 @@ function App() {
     return state.queue.map((q) => fallbackById.get(q.id) ?? q);
   }, [state.queue, sortedGames]);
   const runtimeMode = deriveRuntimeMode(state);
+  const [recoveryNow, setRecoveryNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (runtimeMode !== 'recovering') {
+      return;
+    }
+    setRecoveryNow(Date.now());
+    const timer = window.setInterval(() => setRecoveryNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [runtimeMode]);
 
   const handleGameSelect = async (gameId: string) => {
     const selected = sortedGames.find((g) => g.id === gameId);
@@ -1096,7 +1118,12 @@ function App() {
           <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
             <p className="text-[11px] font-semibold text-yellow-300">
               {statusReasonLabel(state.recoveryReason)}
-              {retryLabel(state.recoveryBackoffUntil) ? ` · ${retryLabel(state.recoveryBackoffUntil)}` : ''}
+              {recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)
+                ? ` · ${recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)}`
+                : ''}
+              {retryLabel(state.recoveryBackoffUntil, recoveryNow)
+                ? ` · ${retryLabel(state.recoveryBackoffUntil, recoveryNow)}`
+                : ''}
             </p>
           </div>
         )}

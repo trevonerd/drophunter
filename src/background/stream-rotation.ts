@@ -1,7 +1,11 @@
 export const MAX_NO_PROGRESS_ROTATION_ATTEMPTS = 3;
+export const MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS = 3;
+export const STALLED_PROGRESS_RETRY_MS = 60_000;
 export const MAX_PERSISTENT_RECOVERY_CYCLES = 5;
 export const RECOVERY_BACKOFF_BASE_MS = 60_000;
 export const MAX_RECOVERY_BACKOFF_MS = 15 * 60_000;
+export const NO_STREAMERS_RETRY_MS = 60_000;
+export const MAX_NO_STREAMERS_RETRIES = 1;
 
 export const PROGRESS_STALL_THRESHOLD_MS = 5 * 60_000;
 
@@ -13,10 +17,11 @@ export type StreamRotationReason =
   | 'wrong-game'
   | 'drops-inactive'
   | 'stalled-progress'
-  | 'open-failed';
+  | 'open-failed'
+  | 'no-streamers';
 
 export function shouldIncrementNoProgressRotationAttempts(reason: StreamRotationReason): boolean {
-  return reason === 'stalled-progress' || reason === 'open-failed';
+  return reason === 'stalled-progress';
 }
 
 export function nextNoProgressRotationAttempts(
