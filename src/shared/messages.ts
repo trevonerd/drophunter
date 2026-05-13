@@ -68,7 +68,7 @@ export type RuntimeRequest =
   | { type: 'STOP_FARMING' }
   | { type: 'UPDATE_STATE'; payload: AppState }
   | { type: 'ENSURE_GAMES_CACHE'; payload?: { force?: boolean } }
-  | { type: 'OPEN_DROPS_PAGE_AND_REFRESH' }
+  | { type: 'OPEN_DROPS_PAGE_AND_REFRESH'; payload?: { waitForRefresh?: boolean } }
   | { type: 'REFRESH_DROPS' }
   | { type: 'UPDATE_GAMES'; payload?: TwitchGame[] }
   | { type: 'SYNC_TWITCH_SESSION'; payload?: { session?: unknown } | unknown }
@@ -119,7 +119,13 @@ export type RuntimeResponseByType = {
     games?: TwitchGame[];
     error?: string;
   };
-  OPEN_DROPS_PAGE_AND_REFRESH: { success: boolean; gamesCount?: number; error?: string };
+  OPEN_DROPS_PAGE_AND_REFRESH: {
+    success: boolean;
+    opened?: boolean;
+    refreshed?: boolean;
+    gamesCount?: number;
+    error?: string;
+  };
   REFRESH_DROPS: { success: boolean; error?: string };
   UPDATE_GAMES: { success: boolean; error?: string };
   SYNC_TWITCH_SESSION: { success: boolean; error?: string };
