@@ -246,23 +246,28 @@ describe('didDropMinutesAdvance', () => {
 
 describe('computeEffectiveStallThreshold', () => {
   test('returns 5-minute floor for short drops where formula < 5min (requiredMinutes = 60)', () => {
-    // formula: (60/100)*2+1 = 2.2 min → floor applies
+    // formula: (60/100)*5+2 = 5 min
     expect(computeEffectiveStallThreshold(60)).toBe(5 * 60_000);
   });
 
+  test('allows slow progress updates for 4-hour drops (requiredMinutes = 240)', () => {
+    // formula: (240/100)*5+2 = 14 min
+    expect(computeEffectiveStallThreshold(240)).toBe(14 * 60_000);
+  });
+
   test('returns formula result for medium drops (requiredMinutes = 300)', () => {
-    // formula: (300/100)*2+1 = 7 min
-    expect(computeEffectiveStallThreshold(300)).toBe(7 * 60_000);
+    // formula: (300/100)*5+2 = 17 min
+    expect(computeEffectiveStallThreshold(300)).toBe(17 * 60_000);
   });
 
-  test('returns formula result for long drops (requiredMinutes = 500)', () => {
-    // formula: (500/100)*2+1 = 11 min
-    expect(computeEffectiveStallThreshold(500)).toBe(11 * 60_000);
+  test('caps long drops (requiredMinutes = 500)', () => {
+    // formula: (500/100)*5+2 = 27 min → cap applies
+    expect(computeEffectiveStallThreshold(500)).toBe(20 * 60_000);
   });
 
-  test('returns formula result for very long drops (requiredMinutes = 720)', () => {
-    // formula: (720/100)*2+1 = 15.4 min
-    expect(computeEffectiveStallThreshold(720)).toBe(15.4 * 60_000);
+  test('caps very long drops (requiredMinutes = 720)', () => {
+    // formula: (720/100)*5+2 = 38 min → cap applies
+    expect(computeEffectiveStallThreshold(720)).toBe(20 * 60_000);
   });
 
   test('returns 5-minute floor when requiredMinutes is null', () => {
@@ -305,9 +310,9 @@ test('short drop: neither minutes nor progress advance indicates stall correctly
   // Both false → stall can be declared
 });
 
-test('exact boundary: requiredMinutes=500 gives 11-minute threshold, not 5-minute', () => {
+test('exact boundary: requiredMinutes=500 gives capped long-drop threshold, not 5-minute', () => {
   const threshold = computeEffectiveStallThreshold(500);
-  expect(threshold).toBe(11 * 60_000);
+  expect(threshold).toBe(20 * 60_000);
   expect(threshold).toBeGreaterThan(5 * 60_000);
 });
 

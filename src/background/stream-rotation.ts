@@ -8,6 +8,7 @@ export const NO_STREAMERS_RETRY_MS = 60_000;
 export const MAX_NO_STREAMERS_RETRIES = 1;
 
 export const PROGRESS_STALL_THRESHOLD_MS = 5 * 60_000;
+export const MAX_PROGRESS_STALL_THRESHOLD_MS = 20 * 60_000;
 
 export type StreamRotationReason =
   | 'missing-context'
@@ -44,7 +45,8 @@ export function didDropMinutesAdvance(previousMinutes: number, currentMinutes: n
 
 export function computeEffectiveStallThreshold(requiredMinutes: number | null | undefined): number {
   if (requiredMinutes == null || requiredMinutes <= 0) return PROGRESS_STALL_THRESHOLD_MS;
-  return Math.max(PROGRESS_STALL_THRESHOLD_MS, ((requiredMinutes / 100) * 2 + 1) * 60_000);
+  const longDropThreshold = ((requiredMinutes / 100) * 5 + 2) * 60_000;
+  return Math.min(MAX_PROGRESS_STALL_THRESHOLD_MS, Math.max(PROGRESS_STALL_THRESHOLD_MS, longDropThreshold));
 }
 
 export interface RecoveryProofInput {
