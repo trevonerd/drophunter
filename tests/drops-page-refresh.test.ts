@@ -123,4 +123,37 @@ describe('drops page refresher', () => {
       'broadcast',
     ]);
   });
+
+  test('clears background refresh progress when the async refresh fails', async () => {
+    const state = { appState: createInitialState() };
+    const tabsApi = createTabsApi();
+    let finishTabLoad: () => void = () => {};
+    const tabLoadStarted = new Promise<void>((resolve) => {
+      finishTabLoad = resolve;
+    });
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => {},
+      ensureStateHydratedForCache: async () => {},
+      waitForTabComplete: async () => {
+        await tabLoadStarted;
+      },
+      persistSessionFromDropsPage: async () => {
+        throw new Error('session unavailable');
+      },
+      refreshGamesCacheFromHiddenFetch: async () => {},
+      saveState: async () => {},
+      broadcastStateUpdate: () => {},
+    });
+
+    const result = await refresher.openDropsPageAndRefresh({ waitForRefresh: false });
+
+    expect(result.refreshed).toBe(false);
+    expect(state.appState.dropsPageRefreshInProgress).toBe(true);
+
+    finishTabLoad();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(state.appState.dropsPageRefreshInProgress).toBe(false);
+  });
 });

@@ -521,12 +521,13 @@ function App() {
   const openDropsPage = () =>
     withAction(async () => {
       setQueueMessage('Opening Twitch Drops...');
+      setState((prev) => ({ ...prev, dropsPageRefreshInProgress: true }));
       const response = await sendRuntimeMessage({
         type: 'OPEN_DROPS_PAGE_AND_REFRESH',
         payload: { waitForRefresh: false },
       }).catch((error: unknown) => ({ success: false as const, error: String(error) }));
-      setState(await loadStoredAppState());
       if (response && response.success === false) {
+        setState(await loadStoredAppState());
         setQueueMessage(response.error ?? 'Opened Twitch. Waiting for DropHunter to detect your session.');
         return;
       }

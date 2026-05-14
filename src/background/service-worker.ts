@@ -823,6 +823,9 @@ async function refreshGamesCacheFromHiddenFetch(
 }
 
 async function openDropsPageAndRefresh(message?: { payload?: { waitForRefresh?: boolean } }) {
+  if (initPromise) {
+    await initPromise;
+  }
   return dropsPageRefresher.openDropsPageAndRefresh({
     waitForRefresh: message?.payload?.waitForRefresh,
   });
@@ -1162,6 +1165,9 @@ async function handleClearQueue() {
 }
 
 async function handleEnsureGamesCache(payload?: { force?: boolean }) {
+  if (initPromise) {
+    await initPromise;
+  }
   await trackActivity('ensure-games-cache');
   await ensureStateHydratedForCache();
   const force = Boolean(payload?.force);
@@ -1395,6 +1401,9 @@ function sessionPayloadCandidate(payload: unknown): unknown {
 async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.MessageSender) {
   if (!isTrustedTwitchSender(sender)) {
     return { success: false, error: 'Untrusted message sender' };
+  }
+  if (initPromise) {
+    await initPromise;
   }
   const incoming = sanitizeTwitchSession(sessionPayloadCandidate(payload));
   if (!incoming) {
