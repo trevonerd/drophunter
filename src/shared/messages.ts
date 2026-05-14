@@ -136,12 +136,152 @@ export type RuntimeResponseByType = {
 
 const runtimeMessageTypeSet = new Set<string>(RUNTIME_MESSAGE_TYPES);
 
+export function isRuntimeMessageType(value: unknown): value is RuntimeMessageType {
+  return typeof value === 'string' && runtimeMessageTypeSet.has(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isOptionalBooleanPayload(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (isRecord(value) && (value.enabled === undefined || typeof value.enabled === 'boolean'))
+  );
+}
+
+function isTwitchGameLike(value: unknown): value is TwitchGame {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.trim().length > 0 &&
+    typeof value.name === 'string' &&
+    value.name.trim().length > 0 &&
+    typeof value.imageUrl === 'string'
+  );
+}
+
+function hasGamePayload(value: unknown, allowMissingGame = false): boolean {
+  if (!isRecord(value)) {
+    return allowMissingGame && value === undefined;
+  }
+  return value.game === undefined ? allowMissingGame : isTwitchGameLike(value.game);
+}
+
+function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): boolean {
+  switch (type) {
+    case 'START_FARMING':
+      return hasGamePayload(payload, true);
+    case 'ADD_TO_QUEUE':
+      return hasGamePayload(payload, false);
+    case 'SET_SELECTED_GAME':
+      return isRecord(payload) && isTwitchGameLike(payload.game);
+    case 'UPDATE_GAMES':
+      return payload === undefined || (Array.isArray(payload) && payload.every(isTwitchGameLike));
+    case 'SYNC_TWITCH_SESSION':
+      return isRecord(payload);
+    case 'SYNC_TWITCH_INTEGRITY':
+      return (
+        isRecord(payload) &&
+        typeof payload.token === 'string' &&
+        payload.token.trim().length > 0 &&
+        (payload.expiration === undefined || typeof payload.expiration === 'number') &&
+        (payload.request_id === undefined || typeof payload.request_id === 'string')
+      );
+    case 'CHANNEL_POINTS_BONUS_CLAIMED':
+      return (
+        payload === undefined ||
+        (isRecord(payload) &&
+          (payload.channelName === undefined ||
+            payload.channelName === null ||
+            typeof payload.channelName === 'string'))
+      );
+    case 'REMOVE_FROM_QUEUE':
+      return (
+        isRecord(payload) &&
+        (payload.game === undefined || isTwitchGameLike(payload.game)) &&
+        (payload.gameId === undefined || typeof payload.gameId === 'string') &&
+        (payload.campaignId === undefined || typeof payload.campaignId === 'string')
+      );
+    case 'OPEN_DROPS_PAGE_AND_REFRESH':
+      return (
+        payload === undefined ||
+        (isRecord(payload) &&
+          (payload.waitForRefresh === undefined || typeof payload.waitForRefresh === 'boolean'))
+      );
+    case 'ENSURE_GAMES_CACHE':
+      return (
+        payload === undefined ||
+        (isRecord(payload) && (payload.force === undefined || typeof payload.force === 'boolean'))
+      );
+    case 'OPEN_MONITOR_DASHBOARD':
+      return (
+        payload === undefined ||
+        (isRecord(payload) && (payload.toggle === undefined || typeof payload.toggle === 'boolean'))
+      );
+    case 'SET_MONITOR_AUTO_OPEN':
+    case 'SET_AUTO_RESUME_ON_STARTUP':
+    case 'SET_MUTE_FARMING_TAB':
+    case 'SET_NOTIFICATIONS_ENABLED':
+    case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
+    case 'SET_AUTO_CLAIM_DROPS':
+      return isOptionalBooleanPayload(payload);
+    case 'SET_STREAMER_SELECTION_MODE':
+      return (
+        payload === undefined ||
+        (isRecord(payload) &&
+          (payload.mode === undefined ||
+            payload.mode === 'low-view' ||
+            payload.mode === 'random' ||
+            payload.mode === 'top-viewers'))
+      );
+    case 'SET_PREFERRED_STREAMER_LANGUAGE':
+      return (
+        payload === undefined ||
+        (isRecord(payload) &&
+          (payload.language === undefined ||
+            payload.language === null ||
+            typeof payload.language === 'string'))
+      );
+    case 'PLAY_ALERT':
+      return (
+        payload === undefined ||
+        (isRecord(payload) &&
+          (payload.kind === undefined ||
+            payload.kind === 'all-complete' ||
+            payload.kind === 'drop-complete') &&
+          (payload.message === undefined || typeof payload.message === 'string'))
+      );
+    case 'OPEN_STREAMER':
+      return (
+        payload === undefined ||
+        (isRecord(payload) &&
+          (payload.game === undefined || isTwitchGameLike(payload.game)) &&
+          (payload.streamer === undefined || isRecord(payload.streamer)))
+      );
+    case 'GET_TWITCH_SESSION':
+    case 'GET_STREAM_CONTEXT':
+    case 'PREPARE_STREAM_PLAYBACK':
+    case 'CLAIM_CHANNEL_POINTS_BONUS':
+    case 'CLEAR_QUEUE':
+    case 'PAUSE_FARMING':
+    case 'RESUME_FARMING':
+    case 'STOP_FARMING':
+    case 'REFRESH_DROPS':
+    case 'UPDATE_STATE':
+      return true;
+    default:
+      return true;
+  }
+}
+
 export function isRuntimeRequest(value: unknown): value is RuntimeRequest {
   if (!value || typeof value !== 'object' || !('type' in value)) {
     return false;
   }
   const type = (value as { type?: unknown }).type;
-  return typeof type === 'string' && runtimeMessageTypeSet.has(type);
+  return isRuntimeMessageType(type) && isRuntimePayloadValid(type, (value as { payload?: unknown }).payload);
 }
 
 export async function sendRuntimeMessage<T extends RuntimeRequest['type']>(

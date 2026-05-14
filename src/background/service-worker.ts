@@ -736,6 +736,7 @@ async function fetchInventorySnapshotFromApi(
       onEnsureTwitchSession: ensureTwitchSession,
       onIsLikelyAuthError: isLikelyAuthError,
       onClearTwitchSessionCache: clearTwitchSessionCacheExt,
+      onStopFarmingSession: stopFarmingSession,
     },
     { logWarn },
   );
@@ -822,6 +823,9 @@ async function refreshGamesCacheFromHiddenFetch(
 }
 
 async function openDropsPageAndRefresh(message?: { payload?: { waitForRefresh?: boolean } }) {
+  if (initPromise) {
+    await initPromise;
+  }
   return dropsPageRefresher.openDropsPageAndRefresh({
     waitForRefresh: message?.payload?.waitForRefresh,
   });
@@ -997,6 +1001,7 @@ async function skipCurrentGameDueToNoStreamers() {
     onSaveState: () => saveStateExt(state),
     onSaveTimingState: saveTimingStateExt,
     onStopFarmingSession: stopFarmingSession,
+    onNotify: notify,
   });
 }
 
@@ -1080,6 +1085,7 @@ async function skipCurrentGameDueToOfflineRecovery() {
     onSaveState: () => saveStateExt(state),
     onSaveTimingState: saveTimingStateExt,
     onStopFarmingSession: stopFarmingSession,
+    onNotify: notify,
   });
 }
 
@@ -1092,7 +1098,11 @@ async function rotateStreamerIfInvalid() {
     onSaveTimingState: saveTimingStateExt,
     onRotateStreamer: rotateStreamerExt,
     onOpenStreamer: acquireStreamerForSelectedGame,
-    onEnterPersistentRecovery: enterPersistentRecoveryExt,
+    onEnterPersistentRecovery: async (nextState, reason, message, recoveryOpts) =>
+      enterPersistentRecoveryExt(nextState, reason, message, {
+        ...recoveryOpts,
+        onNotify: notify,
+      }),
     onSkipCurrentGame: skipCurrentGameDueToOfflineRecovery,
   });
 }
@@ -1155,6 +1165,9 @@ async function handleClearQueue() {
 }
 
 async function handleEnsureGamesCache(payload?: { force?: boolean }) {
+  if (initPromise) {
+    await initPromise;
+  }
   await trackActivity('ensure-games-cache');
   await ensureStateHydratedForCache();
   const force = Boolean(payload?.force);
@@ -1344,6 +1357,19 @@ function getChannelNameFromTab(url: string | undefined): string | null {
   return getFarmableTwitchChannelNameFromUrl(url);
 }
 
+function isTrustedTwitchSender(sender: chrome.runtime.MessageSender): boolean {
+  const url = sender.tab?.url ?? sender.url ?? '';
+  if (getFarmableTwitchChannelNameFromUrl(url) !== null) {
+    return true;
+  }
+  try {
+    const parsed = new URL(url);
+    return /(^|\.)twitch\.tv$/i.test(parsed.hostname) && /^\/drops\/campaigns(?:\/|$)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function recordChannelPointsBonusClaimed(channelName?: string | null) {
   await ensureInitializedForStatsUpdate();
   appState.totalChannelPointsClaimed = appState.totalChannelPointsClaimed + 1;
@@ -1373,6 +1399,12 @@ function sessionPayloadCandidate(payload: unknown): unknown {
 }
 
 async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.MessageSender) {
+  if (!isTrustedTwitchSender(sender)) {
+    return { success: false, error: 'Untrusted message sender' };
+  }
+  if (initPromise) {
+    await initPromise;
+  }
   const incoming = sanitizeTwitchSession(sessionPayloadCandidate(payload));
   if (!incoming) {
     return { success: false, error: 'Invalid session payload' };
@@ -1389,11 +1421,17 @@ async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.
   return { success: true };
 }
 
-async function handleSyncTwitchIntegrity(payload?: {
-  token?: string;
-  expiration?: number;
-  request_id?: string;
-}) {
+async function handleSyncTwitchIntegrity(
+  payload?: {
+    token?: string;
+    expiration?: number;
+    request_id?: string;
+  },
+  sender?: chrome.runtime.MessageSender,
+) {
+  if (!sender || !isTrustedTwitchSender(sender)) {
+    return { success: false, error: 'Untrusted message sender' };
+  }
   const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
   if (!token) {
     return { success: false, error: 'Empty integrity token' };
@@ -1423,6 +1461,9 @@ async function handleChannelPointsBonusClaimed(
   payload: { channelName?: string | null } | undefined,
   sender: chrome.runtime.MessageSender,
 ) {
+  if (!isTrustedTwitchSender(sender)) {
+    return { success: false, error: 'Untrusted message sender' };
+  }
   logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });
   await recordChannelPointsBonusClaimed(payload?.channelName ?? getChannelNameFromTab(sender.tab?.url));
   return { success: true };
@@ -1442,7 +1483,7 @@ registerRuntimeMessageRouter({
   stopFarming: () => handleStopFarming(),
   updateGames: (message) => handleUpdateGames(message.payload),
   syncTwitchSession: (message, sender) => handleSyncTwitchSession(message.payload, sender),
-  syncTwitchIntegrity: (message) => handleSyncTwitchIntegrity(message.payload),
+  syncTwitchIntegrity: (message, sender) => handleSyncTwitchIntegrity(message.payload, sender),
   refreshDrops: () => handleRefreshDrops(),
   setMonitorAutoOpen: (message) => handleSetMonitorAutoOpen(message.payload),
   setMuteFarmingTab: (message) => handleSetMuteFarmingTab(message.payload),

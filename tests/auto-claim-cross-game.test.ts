@@ -460,14 +460,14 @@ async function waitForCondition(check: () => boolean, message: string) {
   throw new Error(message);
 }
 
-async function dispatchMessage(message: Message): Promise<unknown> {
+async function dispatchMessage(message: Message, sender: chrome.runtime.MessageSender = {}): Promise<unknown> {
   const handler = chromeMocks.runtime.onMessage._handlers[0];
   if (!handler) {
     throw new Error('service worker onMessage handler not registered');
   }
 
   return new Promise((resolve) => {
-    handler(message, {}, (response?: unknown) => resolve(response));
+    handler(message, sender, (response?: unknown) => resolve(response));
   });
 }
 
@@ -487,6 +487,11 @@ async function syncTestSession() {
         deviceId: 'device-12345678',
         uuid: 'uuid-1',
       },
+    },
+  }, {
+    tab: {
+      id: 999,
+      url: 'https://www.twitch.tv/drops/campaigns',
     },
   });
 }
