@@ -428,17 +428,20 @@ async function resetWorkerState() {
 }
 
 async function syncTestSession() {
-  await dispatchMessage({
-    type: 'SYNC_TWITCH_SESSION',
-    payload: {
-      session: {
-        oauthToken: 'oauth-token-with-valid-length-1234567890',
-        userId: '123456',
-        deviceId: 'device-12345678',
-        uuid: 'uuid-1',
+  await dispatchMessage(
+    {
+      type: 'SYNC_TWITCH_SESSION',
+      payload: {
+        session: {
+          oauthToken: 'oauth-token-with-valid-length-1234567890',
+          userId: '123456',
+          deviceId: 'device-12345678',
+          uuid: 'uuid-1',
+        },
       },
     },
-  });
+    { tab: { id: 42, url: 'https://www.twitch.tv/drops/campaigns' } },
+  );
 }
 
 async function addGameToQueue(game: TwitchGame) {
@@ -503,7 +506,7 @@ describe('service worker message handlers', () => {
 
     const response = await dispatchMessage(
       { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'trevonerd' } },
-      { tab: { id: 123 } },
+      { tab: { id: 123, url: 'https://www.twitch.tv/trevonerd' } },
     );
 
     expect(response).toEqual({ success: true });
@@ -695,6 +698,38 @@ describe('service worker message handlers', () => {
     expect(getAppStateFromStorage().availableGames).toHaveLength(1);
   });
 
+  test('rejects sensitive content-script sync from non-Twitch senders', async () => {
+    const before = getAppStateFromStorage().totalChannelPointsClaimed;
+
+    const sessionResponse = await dispatchMessage(
+      {
+        type: 'SYNC_TWITCH_SESSION',
+        payload: {
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        },
+      },
+      { tab: { id: 666, url: 'https://example.com/not-twitch' } },
+    );
+    const integrityResponse = await dispatchMessage(
+      { type: 'SYNC_TWITCH_INTEGRITY', payload: { token: 'integrity-token', expiration: 0 } },
+      { tab: { id: 666, url: 'https://example.com/not-twitch' } },
+    );
+    const channelPointsResponse = await dispatchMessage(
+      { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'bad-sender' } },
+      { tab: { id: 666, url: 'https://example.com/not-twitch' } },
+    );
+
+    expect(sessionResponse).toEqual({ success: false, error: 'Untrusted message sender' });
+    expect(integrityResponse).toEqual({ success: false, error: 'Untrusted message sender' });
+    expect(channelPointsResponse).toEqual({ success: false, error: 'Untrusted message sender' });
+    expect(getAppStateFromStorage().totalChannelPointsClaimed).toBe(before);
+  });
+
   test('PAUSE_FARMING sets isPaused via chrome.runtime.onMessage.trigger', async () => {
     chromeMocks.runtime.onMessage.trigger({ type: 'PAUSE_FARMING' });
 
@@ -747,7 +782,7 @@ describe('service worker message handlers', () => {
 
     const response = await dispatchMessage(
       { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'quiet-channel' } },
-      { tab: { id: 123 } },
+      { tab: { id: 123, url: 'https://www.twitch.tv/quiet-channel' } },
     );
 
     expect(response).toEqual({ success: true });
@@ -796,7 +831,7 @@ describe('service worker message handlers', () => {
     chromeMocks.permissions.setContainsResult(false);
     const response = await dispatchMessage(
       { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'missing-permission' } },
-      { tab: { id: 123 } },
+      { tab: { id: 123, url: 'https://www.twitch.tv/missing-permission' } },
     );
 
     expect(response).toEqual({ success: true });
