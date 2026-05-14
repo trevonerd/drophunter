@@ -303,6 +303,21 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(state.apiBackoffUntil).toBeLessThanOrEqual(after + 60 * 1000);
   });
 
+  test('rethrows auth errors so wrappers can refresh the Twitch session', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState({ apiConsecutiveFailures: 0 });
+    const session = createSession();
+
+    originalFetch = installFetchMock([
+      async () => { throw new Error('401 unauthorized'); },
+    ]);
+
+    await expect(fetchDropsSnapshotFromApi(state, session)).rejects.toThrow('401 unauthorized');
+    expect(state.apiConsecutiveFailures).toBe(0);
+    expect(state.apiBackoffUntil).toBe(0);
+  });
+
   test('backoff is capped at 10 minutes with high failure count', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 
@@ -430,6 +445,69 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(result).toBeNull();
     expect(state.apiConsecutiveFailures).toBeGreaterThan(0);
   });
+
+  test('wrapper stops running farming when auth still fails after forced session refresh', async () => {
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../src/background/api-operations.ts');
+    const { TwitchApiClient } = await import('../src/background/twitch-api/client.ts');
+
+    const session = createSession();
+    const state = createMinimalState({
+      appState: { ...createInitialState(), isRunning: true },
+      twitchSessionCache: session,
+    });
+    const ensureCalls: boolean[] = [];
+    let stopReason: string | undefined;
+
+    let dashboardCalls = 0;
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+      if (body?.operationName === 'ViewerDropsDashboard') {
+        dashboardCalls += 1;
+        throw new Error(dashboardCalls === 1 ? '401 unauthorized' : 'invalid oauth token');
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => buildInventoryResponse(),
+        text: async () => JSON.stringify(buildInventoryResponse()),
+      } as Response;
+    }) as FetchMock;
+
+    const result = await fetchDropsSnapshotFromApiWrapper(
+      state,
+      false,
+      {
+        onEnsureTwitchSession: async (forceRefresh = false) => {
+          ensureCalls.push(forceRefresh);
+          return session;
+        },
+        onEnsureSessionIntegrity: async () => session,
+        onPersistTwitchSession: async () => undefined,
+        onStopFarmingSession: async (options) => {
+          stopReason = options.stopReason;
+        },
+        onIsLikelyAuthError: (error) => /401|invalid oauth token/i.test(String(error)),
+        onClearTwitchSessionCache: (nextState) => {
+          nextState.twitchSessionCache = null;
+        },
+      },
+      {
+        TwitchApiClient,
+        sessionDebugSummary: (nextSession) => ({ available: Boolean(nextSession) }),
+        PROGRESS_POLL_MS: 60_000,
+        logDebug: () => undefined,
+        logWarn: () => undefined,
+        logInfo: () => undefined,
+      },
+    );
+
+    expect(result).toBeNull();
+    expect(ensureCalls).toEqual([false, true]);
+    expect(stopReason).toBe('sign-in-required');
+    expect(state.apiConsecutiveFailures).toBe(0);
+    expect(state.apiBackoffUntil).toBe(0);
+  });
 });
 
 describe('fetchInventorySnapshotFromApi', () => {
@@ -492,6 +570,92 @@ describe('fetchInventorySnapshotFromApi', () => {
     expect(result?.drops[0].remainingMinutes).toBe(60);
     expect(result?.drops[0].progressSource).toBe('inventory');
     expect(state.apiConsecutiveFailures).toBe(0);
+  });
+
+  test('rethrows inventory auth errors so wrappers can refresh the Twitch session', async () => {
+    const { fetchInventorySnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const cachedDrops: TwitchDrop[] = [
+      {
+        id: 'drop-1',
+        name: 'For Honor Drop',
+        gameId: 'campaign-for-honor',
+        gameName: 'For Honor',
+        imageUrl: 'https://example.com/drop.png',
+        progress: 50,
+        currentMinutes: 120,
+        claimed: false,
+        campaignId: 'campaign-for-honor',
+        requiredMinutes: 240,
+      },
+    ];
+
+    originalFetch = installFetchMock([
+      async () => { throw new Error('403 forbidden'); },
+    ]);
+
+    await expect(fetchInventorySnapshotFromApi(state, session, cachedDrops)).rejects.toThrow(
+      '403 forbidden',
+    );
+    expect(state.apiConsecutiveFailures).toBe(0);
+    expect(state.apiBackoffUntil).toBe(0);
+  });
+
+  test('wrapper stops running farming when inventory auth still fails after forced session refresh', async () => {
+    const { fetchInventorySnapshotFromApiWrapper } = await import('../src/background/api-operations.ts');
+
+    const session = createSession();
+    const state = createMinimalState({
+      appState: { ...createInitialState(), isRunning: true },
+      twitchSessionCache: session,
+    });
+    const ensureCalls: boolean[] = [];
+    let stopReason: string | undefined;
+    const cachedDrops: TwitchDrop[] = [
+      {
+        id: 'drop-1',
+        name: 'For Honor Drop',
+        gameId: 'campaign-for-honor',
+        gameName: 'For Honor',
+        imageUrl: 'https://example.com/drop.png',
+        progress: 50,
+        currentMinutes: 120,
+        claimed: false,
+        campaignId: 'campaign-for-honor',
+        requiredMinutes: 240,
+      },
+    ];
+
+    originalFetch = installFetchMock([
+      async () => { throw new Error('403 forbidden'); },
+      async () => { throw new Error('invalid oauth token'); },
+    ]);
+
+    const result = await fetchInventorySnapshotFromApiWrapper(
+      state,
+      cachedDrops,
+      false,
+      {
+        onEnsureTwitchSession: async (forceRefresh = false) => {
+          ensureCalls.push(forceRefresh);
+          return session;
+        },
+        onStopFarmingSession: async (options) => {
+          stopReason = options.stopReason;
+        },
+        onIsLikelyAuthError: (error) => /403|invalid oauth token/i.test(String(error)),
+        onClearTwitchSessionCache: (nextState) => {
+          nextState.twitchSessionCache = null;
+        },
+      },
+      { logWarn: () => undefined },
+    );
+
+    expect(result).toBeNull();
+    expect(ensureCalls).toEqual([false, true]);
+    expect(stopReason).toBe('sign-in-required');
   });
 });
 

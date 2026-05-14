@@ -383,10 +383,24 @@ describe('enterPersistentRecovery', () => {
 
   test('sends notification only on first recovery entry', async () => {
     const state = createMinimalState({ recoveryNotificationSent: false });
-    await enterPersistentRecovery(state, 'stalled-progress', 'Test message');
+    const notifications: Array<{ title: string; message: string; priority?: number }> = [];
+    await enterPersistentRecovery(state, 'stalled-progress', 'Test message', {
+      onNotify: async (title, message, priority) => {
+        notifications.push({ title, message, priority });
+      },
+    });
     expect(state.recoveryNotificationSent).toBe(true);
 
-    await enterPersistentRecovery(state, 'stalled-progress', 'Test message');
+    await enterPersistentRecovery(state, 'stalled-progress', 'Test message', {
+      onNotify: async (title, message, priority) => {
+        notifications.push({ title, message, priority });
+      },
+    });
+
+    expect(notifications).toEqual([
+      { title: 'DropHunter is still recovering', message: 'Test message', priority: 1 },
+    ]);
+    expect(mocks.notifications._notifications).toEqual([]);
   });
 });
 
@@ -503,16 +517,21 @@ describe('skipCurrentGameAndAdvanceQueue', () => {
     state.appState.queue = [current, next];
 
     try {
+      const notifications: Array<{ title: string; message: string }> = [];
       await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
         onSaveTimingState: async () => {},
         onOpenStreamer: async () => true,
+        onNotify: async (title, message) => {
+          notifications.push({ title, message });
+        },
       });
 
-      const notification = mocks.notifications._notifications[0] as { title?: string; message?: string } | undefined;
+      const notification = notifications[0];
       expect(notification?.title).toBe('Game skipped: no live streamers');
       expect(notification?.message).toContain('Skipped No Live Game');
       expect(notification?.message).toContain('no live streamers were found');
       expect(notification?.message).not.toContain('drop progress');
+      expect(mocks.notifications._notifications).toEqual([]);
     } finally {
       mocks.teardown();
     }
@@ -527,16 +546,21 @@ describe('skipCurrentGameAndAdvanceQueue', () => {
     state.appState.queue = [current, next];
 
     try {
+      const notifications: Array<{ title: string; message: string }> = [];
       await skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', {
         onSaveTimingState: async () => {},
         onOpenStreamer: async () => true,
+        onNotify: async (title, message) => {
+          notifications.push({ title, message });
+        },
       });
 
-      const notification = mocks.notifications._notifications[0] as { title?: string; message?: string } | undefined;
+      const notification = notifications[0];
       expect(notification?.title).toBe('Game skipped: no drop progress');
       expect(notification?.message).toContain('Skipped Stalled Game');
       expect(notification?.message).toContain('stream opened but drop progress did not resume');
       expect(notification?.message).not.toContain('no live streamers');
+      expect(mocks.notifications._notifications).toEqual([]);
     } finally {
       mocks.teardown();
     }
@@ -1615,6 +1639,37 @@ describe('checkDropProgress', () => {
     expect(calls).toEqual(['playback-policy', 'refresh-drops', 'validate-stream']);
     expect(attemptSelfHealCalled).toBe(false);
     expect(rotateReason).toBeNull();
+  });
+
+  test('persists heartbeat timing when API backoff skips network refresh work', async () => {
+    const state = createMinimalState({
+      apiBackoffUntil: Date.now() + 60_000,
+      lastHeartbeatAt: 0,
+    });
+    state.appState.isRunning = true;
+    state.appState.selectedGame = createGame();
+
+    let refreshCalled = false;
+    let savedHeartbeat = 0;
+    await checkDropProgress(state, {
+      onEnforcePlaybackPolicy: async () => undefined,
+      onAcquireStreamerForSelectedGame: async () => false,
+      onRefreshDropsData: async () => {
+        refreshCalled = true;
+      },
+      onRotateStreamerIfInvalid: async () => undefined,
+      onAttemptAutoClaimChannelPointsBonus: async () => false,
+      onAutoClaimClaimableDrops: async () => false,
+      onAdvanceQueueIfCompleted: async () => true,
+      onSaveTimingState: async (nextState) => {
+        savedHeartbeat = nextState.lastHeartbeatAt;
+      },
+    });
+
+    expect(refreshCalled).toBe(false);
+    expect(state.lastHeartbeatAt).toBeGreaterThan(0);
+    expect(savedHeartbeat).toBe(state.lastHeartbeatAt);
+    expect(state.monitorTickInFlight).toBe(false);
   });
 
   test('requests a full campaign refresh when the full tick interval elapses', async () => {
