@@ -257,7 +257,10 @@ export async function resetStateForInactivity(
       [deps.LAST_ACTIVITY_AT_KEY]: state.lastActivityAt,
     })
     .catch(() => undefined);
-  await chrome.storage.session.remove([deps.TIMING_STATE_KEY]).catch(() => undefined);
+  await Promise.all([
+    chrome.storage.local.remove(deps.TIMING_STATE_KEY).catch(() => undefined),
+    chrome.storage.session.remove(deps.TIMING_STATE_KEY).catch(() => undefined),
+  ]);
   await callbacks.onSaveTimingState(state);
   callbacks.onBroadcastStateUpdate(state.appState);
 }

@@ -510,4 +510,50 @@ describe('resetStateForInactivity', () => {
       totalChannelPointsClaimed: 34,
     });
   });
+
+  test('removes stale timingState from local storage during inactivity reset even before timing save flushes', async () => {
+    const staleTiming = {
+      lastProgressAdvanceAt: 123456,
+      recoveryBackoffUntil: Date.now() + 60_000,
+      stalledRecoveryAttempts: 3,
+      lastHeartbeatAt: 999999,
+    };
+    await chrome.storage.local.set({ timingState: staleTiming });
+    await chrome.storage.session.set({ timingState: staleTiming });
+
+    const state = createMinimalState({
+      appState: createAppState({ isRunning: true, activeStreamer: { id: 's1', name: 'streamer', displayName: 'Streamer', isLive: true }, tabId: 321 }),
+      lastProgressAdvanceAt: 123456,
+      recoveryBackoffUntil: staleTiming.recoveryBackoffUntil,
+      stalledRecoveryAttempts: 3,
+    });
+
+    await resetStateForInactivity(
+      state,
+      'test',
+      999,
+      {
+        onStopMonitoring: () => undefined,
+        onClearRotationMetadata: (appState) => appState,
+        onResetStreamTrackingState: () => {
+          state.lastProgressAdvanceAt = 0;
+          state.recoveryBackoffUntil = 0;
+          state.stalledRecoveryAttempts = 0;
+        },
+        onSaveTimingState: async () => undefined,
+        onBroadcastStateUpdate: () => undefined,
+      },
+      {
+        createInitialState,
+        DROPS_SNAPSHOT_CACHE_KEY: 'dropsSnapshotCache',
+        LAST_ACTIVITY_AT_KEY: 'lastActivityAt',
+        TIMING_STATE_KEY: 'timingState',
+      },
+    );
+
+    expect(mocks.storage.local._store.has('timingState')).toBe(false);
+    expect(mocks.storage.session._store.has('timingState')).toBe(false);
+    expect(state.appState.tabId).toBeNull();
+    expect(state.appState.activeStreamer).toBeNull();
+  });
 });

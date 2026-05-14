@@ -79,8 +79,10 @@ function createStorageMock() {
       for (const [k, v] of Object.entries(items)) store.set(k, v);
       return Promise.resolve();
     },
-    remove(key: string): Promise<void> {
-      store.delete(key);
+    remove(key: string | string[]): Promise<void> {
+      for (const entry of Array.isArray(key) ? key : [key]) {
+        store.delete(entry);
+      }
       return Promise.resolve();
     },
     clear(): Promise<void> {
