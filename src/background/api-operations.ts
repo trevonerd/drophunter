@@ -61,6 +61,9 @@ export async function fetchDropsSnapshotFromApi(
         return fallbackSnapshot;
       } catch {}
     }
+    if (isLikelyAuthError(error)) {
+      throw error;
+    }
     state.apiConsecutiveFailures += 1;
     state.apiBackoffUntil =
       Date.now() + Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
@@ -116,6 +119,9 @@ export async function fetchInventorySnapshotFromApi(
         return fallbackSnapshot.drops.length > 0 ? fallbackSnapshot : null;
       } catch {}
     }
+    if (isLikelyAuthError(error)) {
+      throw error;
+    }
     state.apiConsecutiveFailures += 1;
     state.apiBackoffUntil =
       Date.now() + Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
@@ -170,6 +176,31 @@ export interface FetchInventorySnapshotFromApiCallbacks {
   onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<TwitchSession | null>;
   onIsLikelyAuthError: (error: unknown) => boolean;
   onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
+  onStopFarmingSession?: (options: {
+    notification?: { title: string; message: string };
+    stopReason?: string;
+    stopMessage?: string | null;
+  }) => Promise<void>;
+}
+
+const SIGN_IN_REQUIRED_MESSAGE =
+  'DropHunter could not refresh your Twitch session. Please open Twitch and sign in.';
+
+async function stopForSignInRequiredIfRunning(
+  state: ServiceWorkerState,
+  callback?: FetchDropsSnapshotFromApiCallbacks['onStopFarmingSession'],
+) {
+  if (!state.appState.isRunning || !callback) {
+    return;
+  }
+  await callback({
+    notification: {
+      title: 'Sign-in required',
+      message: SIGN_IN_REQUIRED_MESSAGE,
+    },
+    stopReason: 'sign-in-required',
+    stopMessage: SIGN_IN_REQUIRED_MESSAGE,
+  });
 }
 
 export async function fetchInventorySnapshotFromApiWrapper(
@@ -184,6 +215,9 @@ export async function fetchInventorySnapshotFromApiWrapper(
   const session = await callbacks.onEnsureTwitchSession(forceSessionRefresh);
   if (!session) {
     deps.logWarn('Inventory snapshot API skipped: Twitch session missing');
+    if (forceSessionRefresh) {
+      await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
+    }
     return null;
   }
 
@@ -195,6 +229,9 @@ export async function fetchInventorySnapshotFromApiWrapper(
       if (!forceSessionRefresh) {
         return fetchInventorySnapshotFromApiWrapper(state, baseDrops, true, callbacks, deps);
       }
+      deps.logWarn('Twitch inventory auth failed after forced session refresh:', String(error));
+      await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
+      return null;
     }
     deps.logWarn('Twitch inventory snapshot fetch failed:', String(error));
     return null;
@@ -217,6 +254,9 @@ export async function fetchDropsSnapshotFromApiWrapper(
   let session = await callbacks.onEnsureTwitchSession(forceSessionRefresh);
   if (!session) {
     deps.logWarn('Drops snapshot API skipped: Twitch session missing');
+    if (forceSessionRefresh) {
+      await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
+    }
     return null;
   }
   if (!session.userId) {
@@ -264,6 +304,9 @@ export async function fetchDropsSnapshotFromApiWrapper(
       if (!forceSessionRefresh) {
         return fetchDropsSnapshotFromApiWrapper(state, true, callbacks, deps);
       }
+      deps.logWarn('Twitch API auth failed after forced session refresh:', String(error));
+      await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
+      return null;
     }
     deps.logWarn('Twitch API snapshot fetch failed:', String(error));
     state.apiConsecutiveFailures += 1;

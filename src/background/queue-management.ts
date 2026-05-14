@@ -28,7 +28,6 @@ import {
   MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
   NO_STREAMERS_RETRY_MS,
   nextNoProgressRotationAttempts,
-  PROGRESS_STALL_THRESHOLD_MS,
   STALLED_PROGRESS_RETRY_MS,
   StreamRotationReason,
 } from './stream-rotation';
@@ -44,16 +43,6 @@ const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
 
 function queueContainsGame(state: ServiceWorkerState, game: TwitchGame): boolean {
   return state.appState.queue.some((queuedGame) => isSameGame(queuedGame, game));
-}
-
-async function notify(title: string, message: string, priority = 2) {
-  await chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icons/icon128.png',
-    title,
-    message,
-    priority,
-  });
 }
 
 function resetNoProgressRotationAttempts(state: ServiceWorkerState) {
@@ -97,6 +86,27 @@ function applyNoStreamersRecoveryState(state: ServiceWorkerState, retryAt: numbe
     retryAt,
     attempts,
   });
+}
+
+function shouldKeepStreamerWhileDropProgresses(input: {
+  currentDrop: TwitchDrop | null;
+  lastProgressAdvanceAt: number;
+  now: number;
+  effectiveThresholdMs: number;
+  reason: StreamRotationReason | null;
+}): boolean {
+  const fatalReason =
+    input.reason === 'offline' ||
+    input.reason === 'navigated-away' ||
+    input.reason === 'open-failed' ||
+    input.reason === 'no-streamers' ||
+    input.reason === 'stalled-progress';
+  return (
+    !fatalReason &&
+    input.currentDrop != null &&
+    input.lastProgressAdvanceAt > 0 &&
+    input.now - input.lastProgressAdvanceAt < input.effectiveThresholdMs
+  );
 }
 
 // ============================================================================
@@ -209,6 +219,7 @@ export async function enterPersistentRecovery(
   message: string,
   opts?: {
     onSkipCurrentGame?: () => Promise<void>;
+    onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
   },
 ) {
   state.stalledRecoveryAttempts += 1;
@@ -232,7 +243,7 @@ export async function enterPersistentRecovery(
   });
   if (!state.recoveryNotificationSent) {
     state.recoveryNotificationSent = true;
-    await notify('DropHunter is still recovering', message, 1);
+    await opts?.onNotify?.('DropHunter is still recovering', message, 1);
   }
 }
 
@@ -549,6 +560,7 @@ export async function skipCurrentGameAndAdvanceQueue(
       stopMessage: string;
       notification: { title: string; message: string };
     }) => Promise<void>;
+    onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
   },
 ) {
   const skippedGame = state.appState.selectedGame;
@@ -606,7 +618,7 @@ export async function skipCurrentGameAndAdvanceQueue(
     if (opts?.onOpenStreamer) {
       await opts.onOpenStreamer();
     }
-    await notify(
+    await opts?.onNotify?.(
       copy.skipNotificationTitle,
       `${copy.skipMessage} Now farming ${getGameDisplayLabel(nextGame)}.`,
     );
@@ -728,7 +740,10 @@ export async function rotateStreamer(
       state: ServiceWorkerState,
       reason: StreamRotationReason,
       message: string,
-      opts?: { onSkipCurrentGame?: () => Promise<void> },
+      opts?: {
+        onSkipCurrentGame?: () => Promise<void>;
+        onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
+      },
     ) => Promise<void>;
     onSkipCurrentGame?: () => Promise<void>;
   },
@@ -786,7 +801,10 @@ export async function rotateStreamerIfInvalid(
           state: ServiceWorkerState,
           reason: StreamRotationReason,
           message: string,
-          opts?: { onSkipCurrentGame?: () => Promise<void> },
+          opts?: {
+            onSkipCurrentGame?: () => Promise<void>;
+            onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
+          },
         ) => Promise<void>;
         onSkipCurrentGame?: () => Promise<void>;
       },
@@ -796,7 +814,10 @@ export async function rotateStreamerIfInvalid(
       state: ServiceWorkerState,
       reason: StreamRotationReason,
       message: string,
-      opts?: { onSkipCurrentGame?: () => Promise<void> },
+      opts?: {
+        onSkipCurrentGame?: () => Promise<void>;
+        onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
+      },
     ) => Promise<void>;
     onSkipCurrentGame?: () => Promise<void>;
   },
@@ -855,10 +876,6 @@ export async function rotateStreamerIfInvalid(
     return;
   }
   const effectiveThreshold = computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
-  const dropProgressIsActive =
-    state.appState.currentDrop != null &&
-    state.lastProgressAdvanceAt > 0 &&
-    now - state.lastProgressAdvanceAt < effectiveThreshold;
 
   if (!context) {
     const tabUrl = tab.url ?? '';
@@ -866,7 +883,15 @@ export async function rotateStreamerIfInvalid(
     if (!isStillOnTwitch) {
       logInfo('Managed tab navigated away from Twitch', { tabUrl });
       state.invalidStreamChecks = INVALID_STREAM_THRESHOLD;
-    } else if (dropProgressIsActive) {
+    } else if (
+      shouldKeepStreamerWhileDropProgresses({
+        currentDrop: state.appState.currentDrop,
+        lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+        now,
+        effectiveThresholdMs: effectiveThreshold,
+        reason: 'missing-context',
+      })
+    ) {
       logDebug('Stream context missing but drop progress is recent; keeping current streamer', {
         tabUrl,
         lastProgressAdvanceAt: state.lastProgressAdvanceAt,
@@ -988,7 +1013,15 @@ export async function rotateStreamerIfInvalid(
     return;
   }
 
-  if (dropProgressIsActive && health.reason !== 'stalled-progress') {
+  if (
+    shouldKeepStreamerWhileDropProgresses({
+      currentDrop: state.appState.currentDrop,
+      lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+      now,
+      effectiveThresholdMs: effectiveThreshold,
+      reason: health.reason,
+    })
+  ) {
     logDebug('Stream validation failed but drop progress is active; keeping current streamer', {
       reason: health.reason,
       lastProgressAdvanceAt: state.lastProgressAdvanceAt,
@@ -1061,13 +1094,6 @@ export async function rotateStreamerIfInvalid(
     });
     state.invalidStreamChecks = INVALID_STREAM_THRESHOLD;
   } else {
-    const progressIsLive =
-      state.lastProgressAdvanceAt > 0 && now - state.lastProgressAdvanceAt < PROGRESS_STALL_THRESHOLD_MS;
-    const isWeakSignal = health.reason === 'drops-inactive' || health.reason === 'missing-context';
-    if (progressIsLive && isWeakSignal) {
-      state.invalidStreamChecks = 0;
-      return;
-    }
     state.invalidStreamChecks += health.invalidIncrement;
   }
   if (state.invalidStreamChecks < INVALID_STREAM_THRESHOLD) {
@@ -1116,11 +1142,6 @@ export async function checkDropProgress(
     return;
   }
 
-  if (state.apiBackoffUntil > 0 && Date.now() < state.apiBackoffUntil) {
-    logDebug('API backoff active, skipping tick', { remainingMs: state.apiBackoffUntil - Date.now() });
-    return;
-  }
-
   state.lastHeartbeatAt = Date.now();
 
   logDebug('Tick entry', {
@@ -1146,6 +1167,13 @@ export async function checkDropProgress(
   }, TICK_WATCHDOG_TIMEOUT_MS);
 
   try {
+    if (state.apiBackoffUntil > 0 && Date.now() < state.apiBackoffUntil) {
+      logDebug('API backoff active, skipping network refresh work', {
+        remainingMs: state.apiBackoffUntil - Date.now(),
+      });
+      return;
+    }
+
     const noStreamersRecoveryActive =
       state.appState.recoveryReason === 'no-streamers' && state.recoveryBackoffUntil > 0;
     if (noStreamersRecoveryActive) {

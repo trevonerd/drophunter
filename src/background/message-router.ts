@@ -1,4 +1,9 @@
-import { assertNever, isRuntimeRequest, type RuntimeRequest } from '../shared/messages.ts';
+import {
+  assertNever,
+  isRuntimeMessageType,
+  isRuntimeRequest,
+  type RuntimeRequest,
+} from '../shared/messages.ts';
 
 type MaybePromise<T> = T | Promise<T>;
 type RuntimeSender = chrome.runtime.MessageSender;
@@ -59,8 +64,13 @@ function unsupportedTarget(sendResponse: RuntimeSendResponse) {
 
 export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): RuntimeMessageListener {
   return (message: unknown, sender, sendResponse) => {
-    if (!isRuntimeRequest(message)) {
+    const type = message && typeof message === 'object' ? (message as { type?: unknown }).type : undefined;
+    if (!isRuntimeMessageType(type)) {
       sendResponse({ success: false, error: 'Unknown message type' });
+      return true;
+    }
+    if (!isRuntimeRequest(message)) {
+      sendResponse({ success: false, error: 'Invalid message payload' });
       return true;
     }
 

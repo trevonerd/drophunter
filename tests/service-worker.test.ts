@@ -3,6 +3,7 @@ import { setupChromeMocks, type ChromeMocks } from './mocks/chrome';
 import type { RuntimeRequest } from '../src/shared/messages.ts';
 import type { AppState, TwitchGame } from '../src/types/index.ts';
 import { setTimingSaveDebounceMsForTests } from '../src/background/state-persistence.ts';
+import { createInitialState } from '../src/shared/utils.ts';
 
 const chromeMocks = setupChromeMocks();
 setTimingSaveDebounceMsForTests(0);
@@ -111,10 +112,10 @@ function installServiceWorkerSupportMocks(mocks: ChromeMocks) {
   chromeAny.storage.sync = syncStorage;
   chromeAny.storage.local.remove = async (keys: string | string[]) => {
     if (Array.isArray(keys)) {
-      keys.forEach((key) => chromeMocks.storage.local._store.delete(key));
+      keys.forEach((key) => mocks.storage.local._store.delete(key));
       return;
     }
-    chromeMocks.storage.local._store.delete(keys);
+    mocks.storage.local._store.delete(keys);
   };
 
   mocks.tabs.setTabsQueryResult([]);
@@ -420,6 +421,61 @@ async function dispatchMessage(message: RuntimeRequest, sender: Record<string, u
   });
 }
 
+async function dispatchMessageFromMocks(
+  mocks: ChromeMocks,
+  message: RuntimeRequest,
+  sender: Record<string, unknown> = {},
+): Promise<unknown> {
+  const handler = mocks.runtime.onMessage._handlers[0];
+  if (!handler) {
+    throw new Error('service worker onMessage handler not registered');
+  }
+
+  return new Promise((resolve) => {
+    handler(message, sender, (response?: unknown) => resolve(response));
+  });
+}
+
+async function importServiceWorkerWithBlockedInitialLoad(testId: string, appState: AppState) {
+  const isolatedMocks = setupChromeMocks();
+  installServiceWorkerSupportMocks(isolatedMocks);
+  await isolatedMocks.storage.local.set({ appState });
+
+  const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+  const originalGet = chromeAny.storage.local.get.bind(chromeAny.storage.local);
+  const originalSet = chromeAny.storage.local.set.bind(chromeAny.storage.local);
+  const setCalls: Array<Record<string, unknown>> = [];
+  let initialLoadBlocked = false;
+  let releaseInitialLoad: () => void = () => {};
+  const initialLoadStarted = new Promise<void>((resolveStarted) => {
+    const releasePromise = new Promise<void>((resolveRelease) => {
+      releaseInitialLoad = resolveRelease;
+    });
+    chromeAny.storage.local.get = async (keys: unknown) => {
+      if (!initialLoadBlocked && Array.isArray(keys) && keys.includes('appState')) {
+        initialLoadBlocked = true;
+        resolveStarted();
+        await releasePromise;
+      }
+      return originalGet(keys);
+    };
+  });
+
+  chromeAny.storage.local.set = async (items: Record<string, unknown>) => {
+    setCalls.push(items);
+    return originalSet(items);
+  };
+
+  await import(`../src/background/service-worker.ts?init-race-${testId}-${Date.now()}`);
+  await initialLoadStarted;
+
+  return {
+    mocks: isolatedMocks,
+    releaseInitialLoad,
+    setCalls,
+  };
+}
+
 async function resetWorkerState() {
   await dispatchMessage({ type: 'STOP_FARMING' });
   await dispatchMessage({ type: 'CLEAR_QUEUE' });
@@ -428,17 +484,20 @@ async function resetWorkerState() {
 }
 
 async function syncTestSession() {
-  await dispatchMessage({
-    type: 'SYNC_TWITCH_SESSION',
-    payload: {
-      session: {
-        oauthToken: 'oauth-token-with-valid-length-1234567890',
-        userId: '123456',
-        deviceId: 'device-12345678',
-        uuid: 'uuid-1',
+  await dispatchMessage(
+    {
+      type: 'SYNC_TWITCH_SESSION',
+      payload: {
+        session: {
+          oauthToken: 'oauth-token-with-valid-length-1234567890',
+          userId: '123456',
+          deviceId: 'device-12345678',
+          uuid: 'uuid-1',
+        },
       },
     },
-  });
+    { tab: { id: 42, url: 'https://www.twitch.tv/drops/campaigns' } },
+  );
 }
 
 async function addGameToQueue(game: TwitchGame) {
@@ -480,6 +539,75 @@ describe('service worker message handlers', () => {
     expect(chromeMocks.runtime.onMessage._handlers.length).toBeGreaterThan(0);
   });
 
+  test('OPEN_DROPS_PAGE_AND_REFRESH waits for initialization before touching refresh state', async () => {
+    const isolated = await importServiceWorkerWithBlockedInitialLoad('open-drops', createInitialState());
+    try {
+      const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+      let createCalls = 0;
+      chromeAny.tabs.create = async () => {
+        createCalls += 1;
+        return null;
+      };
+
+      const responsePromise = dispatchMessageFromMocks(isolated.mocks, {
+        type: 'OPEN_DROPS_PAGE_AND_REFRESH',
+        payload: { waitForRefresh: false },
+      });
+
+      await sleepTick();
+      await sleepTick();
+
+      expect(createCalls).toBe(0);
+      expect(isolated.setCalls).toHaveLength(0);
+
+      isolated.releaseInitialLoad();
+      const response = (await responsePromise) as { success?: boolean; error?: string };
+
+      expect(createCalls).toBe(1);
+      expect(response).toEqual({
+        success: false,
+        opened: false,
+        refreshed: false,
+        gamesCount: 0,
+        error: 'Unable to open the Twitch Drops page.',
+      });
+    } finally {
+      isolated.mocks.teardown();
+    }
+  });
+
+  test('ENSURE_GAMES_CACHE waits for initialization before touching cache state', async () => {
+    const persisted = {
+      ...createInitialState(),
+      availableGames: [demoGame],
+    };
+    const isolated = await importServiceWorkerWithBlockedInitialLoad('ensure-cache', persisted);
+    try {
+      let fetchCalls = 0;
+      globalThis.fetch = (async () => {
+        fetchCalls += 1;
+        throw new Error('unexpected fetch before initialization');
+      }) as typeof fetch;
+
+      const responsePromise = dispatchMessageFromMocks(isolated.mocks, { type: 'ENSURE_GAMES_CACHE' });
+
+      await sleepTick();
+      await sleepTick();
+
+      expect(fetchCalls).toBe(0);
+      expect(isolated.setCalls).toHaveLength(0);
+
+      isolated.releaseInitialLoad();
+      const response = (await responsePromise) as { success?: boolean; gamesCount?: number };
+
+      expect(response.success).toBe(true);
+      expect(response.gamesCount).toBe(1);
+      expect(fetchCalls).toBe(0);
+    } finally {
+      isolated.mocks.teardown();
+    }
+  });
+
   test('START_FARMING returns an error when no game is provided', async () => {
     const response = await dispatchMessage({ type: 'START_FARMING' });
 
@@ -503,7 +631,7 @@ describe('service worker message handlers', () => {
 
     const response = await dispatchMessage(
       { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'trevonerd' } },
-      { tab: { id: 123 } },
+      { tab: { id: 123, url: 'https://www.twitch.tv/trevonerd' } },
     );
 
     expect(response).toEqual({ success: true });
@@ -695,6 +823,38 @@ describe('service worker message handlers', () => {
     expect(getAppStateFromStorage().availableGames).toHaveLength(1);
   });
 
+  test('rejects sensitive content-script sync from non-Twitch senders', async () => {
+    const before = getAppStateFromStorage().totalChannelPointsClaimed;
+
+    const sessionResponse = await dispatchMessage(
+      {
+        type: 'SYNC_TWITCH_SESSION',
+        payload: {
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        },
+      },
+      { tab: { id: 666, url: 'https://example.com/not-twitch' } },
+    );
+    const integrityResponse = await dispatchMessage(
+      { type: 'SYNC_TWITCH_INTEGRITY', payload: { token: 'integrity-token', expiration: 0 } },
+      { tab: { id: 666, url: 'https://example.com/not-twitch' } },
+    );
+    const channelPointsResponse = await dispatchMessage(
+      { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'bad-sender' } },
+      { tab: { id: 666, url: 'https://example.com/not-twitch' } },
+    );
+
+    expect(sessionResponse).toEqual({ success: false, error: 'Untrusted message sender' });
+    expect(integrityResponse).toEqual({ success: false, error: 'Untrusted message sender' });
+    expect(channelPointsResponse).toEqual({ success: false, error: 'Untrusted message sender' });
+    expect(getAppStateFromStorage().totalChannelPointsClaimed).toBe(before);
+  });
+
   test('PAUSE_FARMING sets isPaused via chrome.runtime.onMessage.trigger', async () => {
     chromeMocks.runtime.onMessage.trigger({ type: 'PAUSE_FARMING' });
 
@@ -747,7 +907,7 @@ describe('service worker message handlers', () => {
 
     const response = await dispatchMessage(
       { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'quiet-channel' } },
-      { tab: { id: 123 } },
+      { tab: { id: 123, url: 'https://www.twitch.tv/quiet-channel' } },
     );
 
     expect(response).toEqual({ success: true });
@@ -796,7 +956,7 @@ describe('service worker message handlers', () => {
     chromeMocks.permissions.setContainsResult(false);
     const response = await dispatchMessage(
       { type: 'CHANNEL_POINTS_BONUS_CLAIMED', payload: { channelName: 'missing-permission' } },
-      { tab: { id: 123 } },
+      { tab: { id: 123, url: 'https://www.twitch.tv/missing-permission' } },
     );
 
     expect(response).toEqual({ success: true });
