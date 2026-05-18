@@ -93,6 +93,9 @@ function normalizeDropStatus(progress: number, claimed: boolean, claimable: bool
   if (claimed) {
     return 'completed';
   }
+  if (progress >= 100 && !claimable) {
+    return 'completed';
+  }
   if (progress > 0 || claimable) {
     return 'active';
   }
@@ -211,19 +214,19 @@ function applyInventoryStateToDrop(drop: TwitchDrop, inventoryMaps: InventoryDro
   const claimed = drop.claimed || inventoryState.claimed;
   const claimId = inventoryState.claimId ?? drop.claimId;
   const claimableFromApi = !claimed && inventoryState.claimable;
-  const claimableFromProgress = Boolean(
-    !claimed && requiredMinutes !== null && requiredMinutes > 0 && currentMinutes >= requiredMinutes,
+  const earnedFromProgress = Boolean(
+    requiredMinutes !== null && requiredMinutes > 0 && currentMinutes >= requiredMinutes,
   );
   const hasDropInstance = Boolean(claimId) && !claimed;
-  const claimable = claimableFromApi || claimableFromProgress || hasDropInstance;
+  const claimable = claimableFromApi || hasDropInstance;
   const progress =
-    claimed || claimable
+    claimed || claimable || earnedFromProgress
       ? 100
       : requiredMinutes !== null && requiredMinutes > 0
         ? Math.max(0, Math.min(100, Math.floor((currentMinutes / requiredMinutes) * 100)))
         : drop.progress;
   const remainingMinutes =
-    claimed || claimable || requiredMinutes === null
+    claimed || claimable || earnedFromProgress || requiredMinutes === null
       ? 0
       : Math.max(0, Math.round(requiredMinutes - currentMinutes));
   const endsAt = inventoryState.endsAt ?? drop.endsAt ?? null;
@@ -376,21 +379,22 @@ function parseCampaignDrops(
     const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
     const claimedFromInventory = inventoryState?.claimed ?? Boolean(self.isClaimed ?? drop.isClaimed);
     const claimed = claimedFromGameEvents || claimedFromInventory;
-    const claimableFromApi = inventoryState?.claimable ?? Boolean(self.isClaimable ?? self.canClaim);
-    const claimableFromProgress = Boolean(
-      !claimed && requiredMinutes !== null && requiredMinutes > 0 && currentMinutes >= requiredMinutes,
+    const claimableFromApi =
+      !claimed && (inventoryState?.claimable ?? Boolean(self.isClaimable ?? self.canClaim));
+    const earnedFromProgress = Boolean(
+      requiredMinutes !== null && requiredMinutes > 0 && currentMinutes >= requiredMinutes,
     );
     const hasDropInstance = Boolean(claimId) && !claimed;
-    const claimable = claimableFromApi || claimableFromProgress || hasDropInstance;
+    const claimable = claimableFromApi || hasDropInstance;
     const progress =
-      claimed || claimable
+      claimed || claimable || earnedFromProgress
         ? 100
         : requiredMinutes && requiredMinutes > 0
           ? Math.max(0, Math.min(100, Math.floor((currentMinutes / requiredMinutes) * 100)))
           : 0;
 
     const remainingMinutes =
-      claimed || claimable || requiredMinutes === null
+      claimed || claimable || earnedFromProgress || requiredMinutes === null
         ? 0
         : Math.max(0, Math.round(requiredMinutes - currentMinutes));
 

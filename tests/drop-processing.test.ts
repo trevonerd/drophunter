@@ -339,6 +339,120 @@ describe('splitDropsForSelectedGame', () => {
     expect(state.appState.completedDrops).toHaveLength(0);
   });
 
+  test('claimed farmable drop does not become currentDrop', () => {
+    const game = { id: 'g1', name: 'IL', imageUrl: '', campaignId: 'c1' };
+    const claimedDrop = {
+      id: 'd1',
+      name: 'Claimed Reward',
+      gameId: 'g1',
+      gameName: 'IL',
+      imageUrl: '',
+      progress: 100,
+      currentMinutes: 60,
+      claimed: true,
+      claimable: false,
+      campaignId: 'c1',
+      dropType: 'time-based',
+      requiredMinutes: 60,
+      remainingMinutes: 0,
+    } as TwitchDrop;
+
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+      },
+    });
+
+    splitDropsForSelectedGame(state, [claimedDrop]);
+
+    expect(state.appState.completedDrops).toHaveLength(1);
+    expect(state.appState.pendingDrops).toHaveLength(0);
+    expect(state.appState.currentDrop).toBeNull();
+  });
+
+  test('fully watched unclaimable drop does not become currentDrop', () => {
+    const game = { id: 'g1', name: 'Subnautica', imageUrl: '', campaignId: 'c1' };
+    const earnedDrop = {
+      id: 'd1',
+      name: 'Locked Account Reward',
+      gameId: 'g1',
+      gameName: 'Subnautica',
+      imageUrl: '',
+      progress: 100,
+      currentMinutes: 60,
+      claimed: false,
+      claimable: false,
+      campaignId: 'c1',
+      dropType: 'time-based',
+      requiredMinutes: 60,
+      remainingMinutes: 0,
+      status: 'completed',
+    } as TwitchDrop;
+
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+      },
+    });
+
+    splitDropsForSelectedGame(state, [earnedDrop]);
+
+    expect(state.appState.completedDrops).toHaveLength(1);
+    expect(state.appState.pendingDrops).toHaveLength(0);
+    expect(state.appState.currentDrop).toBeNull();
+  });
+
+  test('campaign with all farmable drops claimed has no pending drops or currentDrop', () => {
+    const game = { id: 'g1', name: 'IL', imageUrl: '', campaignId: 'c1' };
+    const drops = [
+      {
+        id: 'd1',
+        name: 'Claimed Reward A',
+        gameId: 'g1',
+        gameName: 'IL',
+        imageUrl: '',
+        progress: 100,
+        currentMinutes: 60,
+        claimed: true,
+        claimable: false,
+        campaignId: 'c1',
+        dropType: 'time-based',
+        requiredMinutes: 60,
+        remainingMinutes: 0,
+      },
+      {
+        id: 'd2',
+        name: 'Claimed Reward B',
+        gameId: 'g1',
+        gameName: 'IL',
+        imageUrl: '',
+        progress: 100,
+        currentMinutes: 120,
+        claimed: true,
+        claimable: false,
+        campaignId: 'c1',
+        dropType: 'time-based',
+        requiredMinutes: 120,
+        remainingMinutes: 0,
+      },
+    ] as TwitchDrop[];
+
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+      },
+    });
+
+    splitDropsForSelectedGame(state, drops);
+
+    expect(state.appState.completedDrops).toHaveLength(2);
+    expect(state.appState.pendingDrops).toHaveLength(0);
+    expect(state.appState.currentDrop).toBeNull();
+  });
+
   test('no strict matches triggers relaxed fallback (drops with name overlap)', () => {
     const selected = { id: 'g1', name: 'Destiny 2', imageUrl: '' };
     const fallback = { id: 'd1', name: 'Drop', gameId: 'g1', gameName: 'Destiny 2', imageUrl: '', progress: 20, currentMinutes: 0, claimed: false } as TwitchDrop;

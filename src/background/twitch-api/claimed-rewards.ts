@@ -60,7 +60,7 @@ export function buildGlobalClaimedIdCounts(inventoryRaw: unknown): Set<string> {
 
 export function matchClaimedReward(
   benefitIds: string[],
-  benefitNames: string[],
+  _benefitNames: string[],
   gameClaimedRewards: ClaimedRewardEntry | undefined,
   globalClaimedIdCounts: Set<string>,
 ): { idMatch: boolean; nameMatch: boolean; globalIdMatch: boolean } {
@@ -70,23 +70,12 @@ export function matchClaimedReward(
       const remaining = gameClaimedRewards.idCounts.get(id) ?? 0;
       if (remaining > 0) {
         idMatch = true;
-        gameClaimedRewards.idCounts.set(id, remaining - 1);
         break;
       }
     }
   }
 
-  let nameMatch = false;
-  if (!idMatch && gameClaimedRewards != null) {
-    for (const name of benefitNames) {
-      const remaining = gameClaimedRewards.nameCounts.get(name) ?? 0;
-      if (remaining > 0) {
-        nameMatch = true;
-        gameClaimedRewards.nameCounts.set(name, remaining - 1);
-        break;
-      }
-    }
-  }
+  const nameMatch = false;
 
   let globalIdMatch = false;
   if (!idMatch && !nameMatch && gameClaimedRewards == null) {

@@ -450,9 +450,12 @@ describe('matchClaimedReward', () => {
     expect(result.globalIdMatch).toBe(false);
   });
 
-  test('Layer 1: decrements idCount after a match', () => {
-    const entry = makeEntry({ 'benefit-1': 2 }, {});
-    matchClaimedReward(['benefit-1'], [], entry, new Set());
+  test('Layer 1: keeps idCount reusable for duplicate drops with the same benefit id', () => {
+    const entry = makeEntry({ 'benefit-1': 1 }, {});
+    const first = matchClaimedReward(['benefit-1'], [], entry, new Set());
+    const second = matchClaimedReward(['benefit-1'], [], entry, new Set());
+    expect(first.idMatch).toBe(true);
+    expect(second.idMatch).toBe(true);
     expect(entry.idCounts.get('benefit-1')).toBe(1);
   });
 
@@ -460,21 +463,15 @@ describe('matchClaimedReward', () => {
     const entry = makeEntry({ 'benefit-1': 0 }, { reward: 1 });
     const result = matchClaimedReward(['benefit-1'], ['reward'], entry, new Set());
     expect(result.idMatch).toBe(false);
-    expect(result.nameMatch).toBe(true);
+    expect(result.nameMatch).toBe(false);
   });
 
-  test('Layer 2: returns nameMatch=true when id not found but name is found', () => {
+  test('Layer 2: does not claim by reward name without a benefit id match', () => {
     const entry = makeEntry({}, { 'gold chest': 1 });
     const result = matchClaimedReward(['unknown-id'], ['gold chest'], entry, new Set());
     expect(result.idMatch).toBe(false);
-    expect(result.nameMatch).toBe(true);
+    expect(result.nameMatch).toBe(false);
     expect(result.globalIdMatch).toBe(false);
-  });
-
-  test('Layer 2: decrements nameCount after a match', () => {
-    const entry = makeEntry({}, { reward: 3 });
-    matchClaimedReward([], ['reward'], entry, new Set());
-    expect(entry.nameCounts.get('reward')).toBe(2);
   });
 
   test('Layer 3: returns globalIdMatch=true when gameClaimedRewards is undefined and id is in global set', () => {
