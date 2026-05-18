@@ -80,6 +80,13 @@ test('merge status is active when progress > 0', () => {
   expect(merged.status).toBe('active');
 });
 
+test('merge status is completed when progress is 100 and not claimable', () => {
+  const next = createDrop({ progress: 100, claimable: false, claimed: false });
+  const prev = createDrop({ progress: 90, claimable: false, claimed: false });
+  const merged = mergeDropProgressMonotonic(next, prev);
+  expect(merged.status).toBe('completed');
+});
+
 test('merge status is pending when no progress', () => {
   const next = createDrop({ progress: 0 });
   const prev = createDrop({ progress: 0 });

@@ -29,9 +29,11 @@ export function mergeDropProgressMonotonic(nextDrop: TwitchDrop, previousDrop: T
       ? 'completed'
       : mergedClaimable
         ? 'active'
-        : mergedProgress > 0
-          ? 'active'
-          : 'pending',
+        : mergedProgress >= 100
+          ? 'completed'
+          : mergedProgress > 0
+            ? 'active'
+            : 'pending',
   };
 }
 

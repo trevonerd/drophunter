@@ -266,6 +266,139 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(state.apiConsecutiveFailures).toBe(0);
   });
 
+  test('marks simultaneous campaign drops claimed from historical gameEventDrops', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const endsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const claimedBenefit = { id: 'benefit-il-jacket', name: 'Pilot Jacket' };
+    const campaign = {
+      id: 'campaign-il',
+      status: 'ACTIVE',
+      endAt: endsAt,
+      game: {
+        displayName: 'IL',
+        name: 'IL',
+        slug: 'il',
+        boxArtURL: 'https://example.com/il.png',
+      },
+      timeBasedDrops: ['drop-il-a', 'drop-il-b'].map((id) => ({
+        id,
+        name: 'Pilot Jacket Drop',
+        requiredMinutesWatched: 60,
+        endAt: endsAt,
+        benefitEdges: [{ benefit: claimedBenefit }],
+        self: {
+          currentMinutesWatched: 0,
+          isClaimed: false,
+          isClaimable: false,
+        },
+      })),
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                {
+                  ...claimedBenefit,
+                  game: { displayName: 'IL-2 Sturmovik' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+
+    expect(result?.drops).toHaveLength(2);
+    expect(result?.drops.every((drop) => drop.claimed)).toBe(true);
+    expect(result?.drops.every((drop) => drop.claimable === false)).toBe(true);
+    expect(result?.drops.every((drop) => drop.progress === 100)).toBe(true);
+    expect(result?.drops.every((drop) => drop.remainingMinutes === 0)).toBe(true);
+    expect(result?.drops.every((drop) => drop.status === 'completed')).toBe(true);
+  });
+
+  test('marks fully watched but locked drops completed without inventing claimability', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const game = createGame({
+      id: 'game-subnautica',
+      name: 'Subnautica',
+      campaignId: 'campaign-subnautica',
+      categorySlug: 'subnautica',
+    });
+    const campaign = {
+      id: game.campaignId,
+      status: 'ACTIVE',
+      endAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      self: {
+        isAccountConnected: false,
+      },
+      game: {
+        displayName: game.name,
+        name: game.name,
+        slug: game.categorySlug,
+        boxArtURL: game.imageUrl,
+      },
+      timeBasedDrops: [
+        {
+          id: 'subnautica-locked-reward',
+          name: 'Locked Account Reward',
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit: { id: 'benefit-subnautica-locked', name: 'Locked Account Reward' } }],
+          self: {
+            currentMinutesWatched: 0,
+            isClaimed: false,
+            isClaimable: false,
+          },
+        },
+      ],
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () =>
+        buildInventoryResponse([
+          {
+            campaignId: game.campaignId!,
+            gameName: game.name,
+            drops: [
+              {
+                dropId: 'subnautica-locked-reward',
+                currentMinutes: 60,
+                requiredMinutes: 60,
+                isClaimed: false,
+                isClaimable: false,
+              },
+            ],
+          },
+        ]),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+    const drop = result?.drops[0];
+
+    expect(drop?.claimed).toBe(false);
+    expect(drop?.claimable).toBe(false);
+    expect(drop?.progress).toBe(100);
+    expect(drop?.remainingMinutes).toBe(0);
+    expect(drop?.status).toBe('completed');
+  });
+
   test('returns null when snapshot has no games or drops', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 
