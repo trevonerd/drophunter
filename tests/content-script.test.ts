@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { needsPlaybackAttention } from '../src/background/playback.ts';
-import { canAttemptPageUnmute } from '../src/content/playback.ts';
+import { canAttemptPageUnmute, isExpectedTwitchPlaybackInterruption } from '../src/content/playback.ts';
 
 function normalizeText(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -248,5 +248,19 @@ describe('playback prep policy', () => {
   test('still requests attention when playback is paused or unavailable', () => {
     expect(needsPlaybackAttention({ isPlaybackReady: false, userInteractionRequired: true })).toBe(true);
     expect(needsPlaybackAttention(null)).toBe(true);
+  });
+
+  test('treats Twitch video replacement playback aborts as expected noise', () => {
+    const error = new DOMException(
+      'The play() request was interrupted because the media was removed from the document.',
+      'AbortError',
+    );
+
+    expect(isExpectedTwitchPlaybackInterruption(error)).toBe(true);
+  });
+
+  test('keeps unexpected playback failures visible', () => {
+    expect(isExpectedTwitchPlaybackInterruption(new DOMException('Not allowed', 'NotAllowedError'))).toBe(false);
+    expect(isExpectedTwitchPlaybackInterruption(new Error('boom'))).toBe(false);
   });
 });

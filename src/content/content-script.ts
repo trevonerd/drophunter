@@ -1,7 +1,7 @@
 import { loadStoredContentAppState, subscribeToContentAppState } from './app-state.ts';
 import { claimChannelPointsBonus } from './channel-points.ts';
 import { logContentDebug, logContentInfo, logContentWarn } from './logging.ts';
-import { canAttemptPageUnmute } from './playback.ts';
+import { canAttemptPageUnmute, isExpectedTwitchPlaybackInterruption } from './playback.ts';
 
 type ContentRuntimeMessage = {
   type?: string;
@@ -276,6 +276,11 @@ function prepareStreamPlayback() {
         }
       } else {
         video.play().catch((err) => {
+          if (isExpectedTwitchPlaybackInterruption(err)) {
+            logContentDebug('Playback retry interrupted by Twitch player replacement');
+            return;
+          }
+
           logContentWarn('Playback failed:', err.message, {
             errorName: err.name,
             hasBeenActive: hasUserActivation,
