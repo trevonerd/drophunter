@@ -37,6 +37,7 @@ export interface DropsPageRefreshResult {
 
 interface OpenDropsPageRefreshOptions {
   waitForRefresh?: boolean;
+  active?: boolean;
 }
 
 export function createDropsPageRefresher(state: DropsPageState, options: DropsPageRefreshOptions) {
@@ -44,20 +45,24 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
   let openAndRefreshInFlight: Promise<DropsPageRefreshResult> | null = null;
   let refreshInFlight: Promise<DropsPageRefreshResult> | null = null;
 
-  const findOrOpenDropsPageTab = async (): Promise<{ tabId: number | null; opened: boolean }> => {
+  const findOrOpenDropsPageTab = async (
+    active: boolean,
+  ): Promise<{ tabId: number | null; opened: boolean }> => {
     const existingTabs = await getTabsApi()
       .query({ url: ['https://www.twitch.tv/drops/campaigns*', 'https://twitch.tv/drops/campaigns*'] })
       .catch(() => []);
     const existing = existingTabs.find((tab) => typeof tab.id === 'number');
     if (existing?.id) {
-      await getTabsApi()
-        .update(existing.id, { active: true })
-        .catch(() => undefined);
+      if (active) {
+        await getTabsApi()
+          .update(existing.id, { active })
+          .catch(() => undefined);
+      }
       return { tabId: existing.id, opened: false };
     }
 
     const created = await getTabsApi()
-      .create({ url: TWITCH_DROPS_PAGE_URL, active: true })
+      .create({ url: TWITCH_DROPS_PAGE_URL, active })
       .catch(() => null);
     return { tabId: created?.id ?? null, opened: true };
   };
@@ -74,41 +79,50 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     }
 
     refreshInFlight = (async () => {
-      await options.waitForTabComplete(tabId);
-      const sessionFromTab = await options.persistSessionFromDropsPage(tabId);
-      await options.refreshGamesCacheFromHiddenFetch({ forceSessionRefresh: !sessionFromTab });
-      await publishRefreshProgress(false);
+      try {
+        await options.waitForTabComplete(tabId);
+        const sessionFromTab = await options.persistSessionFromDropsPage(tabId);
+        await options.refreshGamesCacheFromHiddenFetch({ forceSessionRefresh: !sessionFromTab });
 
-      const gamesCount = state.appState.availableGames.length;
-      const result: DropsPageRefreshResult = {
-        success: gamesCount > 0,
-        opened,
-        refreshed: true,
-        gamesCount,
-      };
-      if (gamesCount === 0) {
-        result.error = sessionFromTab
-          ? 'No active Twitch Drops campaigns were detected.'
-          : 'Open Twitch and sign in so DropHunter can detect your session.';
-      }
-      return result;
-    })()
-      .catch(async (error) => {
+        const gamesCount = state.appState.availableGames.length;
+        const result: DropsPageRefreshResult = {
+          success: gamesCount > 0,
+          opened,
+          refreshed: true,
+          gamesCount,
+        };
+        if (gamesCount === 0) {
+          result.error = sessionFromTab
+            ? 'No active Twitch Drops campaigns were detected.'
+            : 'Open Twitch and sign in so DropHunter can detect your session.';
+        }
+        return result;
+      } catch (error) {
+        return {
+          success: false,
+          opened,
+          refreshed: false,
+          gamesCount: state.appState.availableGames.length,
+          error: String(error),
+        };
+      } finally {
         await publishRefreshProgress(false);
-        throw error;
-      })
-      .finally(() => {
-        refreshInFlight = null;
-      });
+      }
+    })().finally(() => {
+      refreshInFlight = null;
+    });
 
     return refreshInFlight;
   };
 
-  const openAndMaybeRefresh = async (waitForRefresh: boolean): Promise<DropsPageRefreshResult> => {
+  const openAndMaybeRefresh = async (
+    waitForRefresh: boolean,
+    active: boolean,
+  ): Promise<DropsPageRefreshResult> => {
     await options.trackActivity('open-drops-page-and-refresh');
     await options.ensureStateHydratedForCache();
 
-    const { tabId, opened } = await findOrOpenDropsPageTab();
+    const { tabId, opened } = await findOrOpenDropsPageTab(active);
     if (!tabId) {
       return {
         success: false,
@@ -119,8 +133,9 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
       };
     }
 
+    await publishRefreshProgress(true);
+
     if (!waitForRefresh) {
-      await publishRefreshProgress(true);
       const refreshPromise = refreshFromDropsPageTab(tabId, opened);
       refreshPromise.catch(() => undefined);
       return {
@@ -138,15 +153,16 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
   const openDropsPageAndRefresh = (
     openOptions: OpenDropsPageRefreshOptions = {},
   ): Promise<DropsPageRefreshResult> => {
+    const active = openOptions.active !== false;
     if (openOptions.waitForRefresh === false) {
-      return openAndMaybeRefresh(false);
+      return openAndMaybeRefresh(false, active);
     }
 
     if (openAndRefreshInFlight) {
       return openAndRefreshInFlight;
     }
 
-    openAndRefreshInFlight = openAndMaybeRefresh(true).finally(() => {
+    openAndRefreshInFlight = openAndMaybeRefresh(true, active).finally(() => {
       openAndRefreshInFlight = null;
     });
     return openAndRefreshInFlight;
