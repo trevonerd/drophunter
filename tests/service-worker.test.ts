@@ -709,6 +709,48 @@ describe('service worker message handlers', () => {
     expect(state.availableGames[0].campaignId).toBe(demoGame.campaignId);
   });
 
+  test('OPEN_DROPS_PAGE_AND_REFRESH can refresh through an inactive Twitch tab', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    const createdActiveValues: boolean[] = [];
+    chromeMocks.tabs.setTabsQueryResult([]);
+    chromeAny.tabs.create = async ({ url, active }: { url?: string; active?: boolean }) => {
+      createdActiveValues.push(Boolean(active));
+      return { id: 432, windowId: 1, url, active: Boolean(active), status: 'complete' };
+    };
+    chromeAny.tabs.get = async (tabId: number) => ({
+      id: tabId,
+      windowId: 1,
+      url: 'https://www.twitch.tv/drops/campaigns',
+      status: 'complete',
+    });
+    chromeAny.tabs.sendMessage = async (_tabId: number, message: { type?: string }) => {
+      if (message.type === 'GET_TWITCH_SESSION') {
+        return {
+          success: true,
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        };
+      }
+      return { success: false };
+    };
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-inactive-open-page', currentMinutes: 0 }]);
+
+    const response = (await dispatchMessage({
+      type: 'OPEN_DROPS_PAGE_AND_REFRESH',
+      payload: { waitForRefresh: true, active: false },
+    })) as { success?: boolean; gamesCount?: number; opened?: boolean };
+
+    expect(response.success).toBe(true);
+    expect(response.opened).toBe(true);
+    expect(response.gamesCount).toBe(1);
+    expect(createdActiveValues).toEqual([false]);
+    expect(getAppStateFromStorage().dropsPageRefreshInProgress).toBe(false);
+  });
+
   test('OPEN_DROPS_PAGE_AND_REFRESH reuses an existing Twitch Drops tab', async () => {
     const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
     let createCalls = 0;

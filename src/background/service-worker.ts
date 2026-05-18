@@ -822,12 +822,15 @@ async function refreshGamesCacheFromHiddenFetch(
   return gamesCacheRefreshInFlight;
 }
 
-async function openDropsPageAndRefresh(message?: { payload?: { waitForRefresh?: boolean } }) {
+async function openDropsPageAndRefresh(message?: {
+  payload?: { waitForRefresh?: boolean; active?: boolean };
+}) {
   if (initPromise) {
     await initPromise;
   }
   return dropsPageRefresher.openDropsPageAndRefresh({
     waitForRefresh: message?.payload?.waitForRefresh,
+    active: message?.payload?.active,
   });
 }
 

@@ -338,7 +338,9 @@ function App() {
   const [state, setState] = useState<AppState>(createInitialState());
   const [loading, setLoading] = useState(true);
   const [gamesLoading, setGamesLoading] = useState(true);
+  const [manualDropsRefreshLoading, setManualDropsRefreshLoading] = useState(false);
   const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+  const dropsRefreshLoading = manualDropsRefreshLoading || state.dropsPageRefreshInProgress;
   const isStale =
     !state.isRunning &&
     !gamesLoading &&
@@ -518,27 +520,62 @@ function App() {
     [withAction],
   );
 
-  const openDropsPage = () =>
-    withAction(async () => {
-      setQueueMessage('Opening Twitch Drops...');
-      setState((prev) => ({ ...prev, dropsPageRefreshInProgress: true }));
+  const openDropsPage = useCallback(async () => {
+    if (dropsRefreshLoading) {
+      return;
+    }
+
+    setManualDropsRefreshLoading(true);
+    setQueueMessage('Refreshing campaigns from Twitch...');
+    setState((prev) => ({ ...prev, dropsPageRefreshInProgress: true }));
+
+    try {
       const response = await sendRuntimeMessage({
         type: 'OPEN_DROPS_PAGE_AND_REFRESH',
-        payload: { waitForRefresh: false },
-      }).catch((error: unknown) => ({ success: false as const, error: String(error) }));
-      if (response && response.success === false) {
-        setState(await loadStoredAppState());
-        setQueueMessage(response.error ?? 'Opened Twitch. Waiting for DropHunter to detect your session.');
+        payload: { waitForRefresh: true, active: false },
+      }).catch((error: unknown) => ({
+        success: false as const,
+        opened: false,
+        refreshed: false,
+        gamesCount: 0,
+        error: String(error),
+      }));
+      const freshState = await loadStoredAppState().catch((error: unknown) => {
+        logPopupWarn('Unable to reload state after drops refresh:', error);
+        return null;
+      });
+      if (freshState) {
+        setState(freshState);
+      }
+
+      const gamesCount = response?.gamesCount ?? freshState?.availableGames.length ?? 0;
+      const errorMessage = response?.error ?? '';
+      if (!response?.success) {
+        if (/sign in|session/i.test(errorMessage)) {
+          setQueueMessage('Sign in to Twitch, then refresh campaigns again.');
+          return;
+        }
+        if (gamesCount === 0 && /No active Twitch Drops campaigns/i.test(errorMessage)) {
+          setQueueMessage('No campaigns detected.');
+          return;
+        }
+        setQueueMessage(errorMessage ? `Refresh failed: ${errorMessage}` : 'Refresh failed.');
         return;
       }
-      if (response?.refreshed === false) {
-        setQueueMessage('Opened Twitch Drops. Refreshing campaigns in the background...');
-      } else if ((response?.gamesCount ?? 0) === 0) {
-        setQueueMessage('Opened Twitch. Campaigns will appear as soon as Twitch session data is available.');
-      } else {
-        setQueueMessage(null);
+
+      if (gamesCount > 0) {
+        setQueueMessage('Campaigns updated.');
+        return;
       }
-    });
+
+      setQueueMessage('No campaigns detected.');
+    } finally {
+      setManualDropsRefreshLoading(false);
+      setState((prev) =>
+        prev.dropsPageRefreshInProgress ? { ...prev, dropsPageRefreshInProgress: false } : prev,
+      );
+    }
+  }, [dropsRefreshLoading]);
 
   const openMiniDashboard = async () => {
     await sendRuntimeMessage({ type: 'OPEN_MONITOR_DASHBOARD', payload: { toggle: true } }).catch(
@@ -1040,13 +1077,22 @@ function App() {
           )}
           <button
             type="button"
-            onClick={openDropsPage}
-            disabled={state.dropsPageRefreshInProgress}
-            className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
-            aria-label="Open Twitch Drops"
-            title={state.dropsPageRefreshInProgress ? 'Refreshing Twitch Drops' : 'Twitch Drops'}
+            onClick={() => void openDropsPage()}
+            disabled={dropsRefreshLoading}
+            className={`inline-flex h-6 items-center justify-center gap-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
+              dropsRefreshLoading ? 'px-1.5 text-[11px] font-semibold' : 'w-6'
+            }`}
+            aria-label={dropsRefreshLoading ? 'Refreshing Twitch Drops' : 'Open Twitch Drops'}
+            title={dropsRefreshLoading ? 'Refreshing Twitch Drops' : 'Twitch Drops'}
           >
-            <DropsIcon />
+            {dropsRefreshLoading ? (
+              <>
+                <span className="spinner h-3.5 w-3.5 rounded-full border-2 border-[#1B1030] border-t-transparent" />
+                <span>Refreshing...</span>
+              </>
+            ) : (
+              <DropsIcon />
+            )}
           </button>
           <button
             type="button"
@@ -1303,7 +1349,7 @@ function App() {
           <div className="glass rounded-lg p-3 border border-yellow-500/30">
             <div className="space-y-2">
               <p className="text-xs text-yellow-300 font-semibold">Campaign data may be outdated</p>
-              {state.dropsPageRefreshInProgress ? (
+              {dropsRefreshLoading ? (
                 <div className="flex items-center gap-2">
                   <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
                   <p className="text-xs text-yellow-200">Refreshing campaigns from Twitch...</p>
@@ -1315,11 +1361,16 @@ function App() {
                   </p>
                   <button
                     type="button"
-                    onClick={openDropsPage}
-                    className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+                    onClick={() => void openDropsPage()}
+                    disabled={dropsRefreshLoading}
+                    className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 disabled:hover:bg-twitch-purple/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
                   >
-                    <DropsIcon size={14} />
-                    Open Twitch Drops Page
+                    {dropsRefreshLoading ? (
+                      <span className="spinner h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent" />
+                    ) : (
+                      <DropsIcon size={14} />
+                    )}
+                    {dropsRefreshLoading ? 'Refreshing...' : 'Open Twitch Drops Page'}
                   </button>
                 </>
               )}
@@ -1330,13 +1381,11 @@ function App() {
         {/* No campaigns — first-launch guidance */}
         {!state.isRunning && state.availableGames.length === 0 && (
           <div className="glass rounded-lg p-3 border border-blue-500/30">
-            {gamesLoading || state.dropsPageRefreshInProgress ? (
+            {gamesLoading || dropsRefreshLoading ? (
               <div className="flex items-center gap-2">
                 <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
                 <p className="text-xs text-blue-300">
-                  {state.dropsPageRefreshInProgress
-                    ? 'Refreshing campaigns from Twitch...'
-                    : 'Loading campaigns...'}
+                  {dropsRefreshLoading ? 'Refreshing campaigns from Twitch...' : 'Loading campaigns...'}
                 </p>
               </div>
             ) : (
@@ -1347,11 +1396,16 @@ function App() {
                 </p>
                 <button
                   type="button"
-                  onClick={openDropsPage}
-                  className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+                  onClick={() => void openDropsPage()}
+                  disabled={dropsRefreshLoading}
+                  className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 disabled:hover:bg-twitch-purple/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
                 >
-                  <DropsIcon size={14} />
-                  Open Twitch Drops Page
+                  {dropsRefreshLoading ? (
+                    <span className="spinner h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent" />
+                  ) : (
+                    <DropsIcon size={14} />
+                  )}
+                  {dropsRefreshLoading ? 'Refreshing...' : 'Open Twitch Drops Page'}
                 </button>
               </div>
             )}

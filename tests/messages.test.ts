@@ -18,6 +18,21 @@ describe('runtime message protocol', () => {
     expect(new Set(RUNTIME_MESSAGE_TYPES).size).toBe(RUNTIME_MESSAGE_TYPES.length);
   });
 
+  test('validates OPEN_DROPS_PAGE_AND_REFRESH active payload', () => {
+    expect(
+      isRuntimeRequest({
+        type: 'OPEN_DROPS_PAGE_AND_REFRESH',
+        payload: { waitForRefresh: true, active: false },
+      }),
+    ).toBe(true);
+    expect(
+      isRuntimeRequest({
+        type: 'OPEN_DROPS_PAGE_AND_REFRESH',
+        payload: { active: 'nope' },
+      }),
+    ).toBe(false);
+  });
+
   test('maps request types to response types at compile time', () => {
     type ResponseKeys = keyof RuntimeResponseByType;
     type RequestTypes = RuntimeRequest['type'];

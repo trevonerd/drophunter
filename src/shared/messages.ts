@@ -68,7 +68,7 @@ export type RuntimeRequest =
   | { type: 'STOP_FARMING' }
   | { type: 'UPDATE_STATE'; payload: AppState }
   | { type: 'ENSURE_GAMES_CACHE'; payload?: { force?: boolean } }
-  | { type: 'OPEN_DROPS_PAGE_AND_REFRESH'; payload?: { waitForRefresh?: boolean } }
+  | { type: 'OPEN_DROPS_PAGE_AND_REFRESH'; payload?: { waitForRefresh?: boolean; active?: boolean } }
   | { type: 'REFRESH_DROPS' }
   | { type: 'UPDATE_GAMES'; payload?: TwitchGame[] }
   | { type: 'SYNC_TWITCH_SESSION'; payload?: { session?: unknown } | unknown }
@@ -208,7 +208,8 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
       return (
         payload === undefined ||
         (isRecord(payload) &&
-          (payload.waitForRefresh === undefined || typeof payload.waitForRefresh === 'boolean'))
+          (payload.waitForRefresh === undefined || typeof payload.waitForRefresh === 'boolean') &&
+          (payload.active === undefined || typeof payload.active === 'boolean'))
       );
     case 'ENSURE_GAMES_CACHE':
       return (

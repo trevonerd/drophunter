@@ -5,10 +5,12 @@ import { createInitialState } from '../src/shared/utils.ts';
 function createTabsApi() {
   let queryResult: Array<{ id?: number }> = [];
   const created: string[] = [];
+  const createdActive: boolean[] = [];
   const activated: number[] = [];
 
   return {
     created,
+    createdActive,
     activated,
     setQueryResult(tabs: Array<{ id?: number }>) {
       queryResult = tabs;
@@ -20,8 +22,9 @@ function createTabsApi() {
       activated.push(tabId);
       return { id: tabId };
     },
-    async create(createData: { url: string }) {
+    async create(createData: { url: string; active: boolean }) {
       created.push(createData.url);
+      createdActive.push(createData.active);
       return { id: 42 };
     },
   };
@@ -49,7 +52,30 @@ describe('drops page refresher', () => {
     expect(result).toEqual({ success: true, opened: false, refreshed: true, gamesCount: 1 });
     expect(tabsApi.activated).toEqual([12]);
     expect(tabsApi.created).toEqual([]);
-    expect(calls).toEqual(['activity', 'hydrate', 'wait', 'refresh', 'save', 'broadcast']);
+    expect(calls).toEqual(['activity', 'hydrate', 'save', 'broadcast', 'wait', 'refresh', 'save', 'broadcast']);
+    expect(state.appState.dropsPageRefreshInProgress).toBe(false);
+  });
+
+  test('waited refresh publishes progress before and after the refresh', async () => {
+    const state = { appState: createInitialState() };
+    state.appState.availableGames = [{ id: 'g1', name: 'Game', imageUrl: '' }];
+    const tabsApi = createTabsApi();
+    const progressStates: boolean[] = [];
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => {},
+      ensureStateHydratedForCache: async () => {},
+      waitForTabComplete: async () => {},
+      persistSessionFromDropsPage: async () => ({ oauthToken: 'token', deviceId: 'device', uuid: 'uuid' }),
+      refreshGamesCacheFromHiddenFetch: async () => {},
+      saveState: async () => progressStates.push(state.appState.dropsPageRefreshInProgress),
+      broadcastStateUpdate: () => {},
+    });
+
+    const result = await refresher.openDropsPageAndRefresh();
+
+    expect(result.success).toBe(true);
+    expect(progressStates).toEqual([true, false]);
   });
 
   test('shares concurrent refresh work to avoid duplicate Twitch tabs', async () => {
@@ -74,6 +100,30 @@ describe('drops page refresher', () => {
 
     expect(first).toBe(second);
     expect(tabsApi.created).toEqual(['https://www.twitch.tv/drops/campaigns']);
+    expect(tabsApi.createdActive).toEqual([true]);
+  });
+
+  test('can open the Twitch Drops tab in the background without focusing it', async () => {
+    const state = { appState: createInitialState() };
+    state.appState.availableGames = [{ id: 'g1', name: 'Game', imageUrl: '' }];
+    const tabsApi = createTabsApi();
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => {},
+      ensureStateHydratedForCache: async () => {},
+      waitForTabComplete: async () => {},
+      persistSessionFromDropsPage: async () => ({ oauthToken: 'token', deviceId: 'device', uuid: 'uuid' }),
+      refreshGamesCacheFromHiddenFetch: async () => {},
+      saveState: async () => {},
+      broadcastStateUpdate: () => {},
+    });
+
+    const result = await refresher.openDropsPageAndRefresh({ active: false });
+
+    expect(result.success).toBe(true);
+    expect(tabsApi.created).toEqual(['https://www.twitch.tv/drops/campaigns']);
+    expect(tabsApi.createdActive).toEqual([false]);
+    expect(tabsApi.activated).toEqual([]);
   });
 
   test('can return after opening the tab while refresh continues in background', async () => {
@@ -124,6 +174,30 @@ describe('drops page refresher', () => {
     ]);
   });
 
+  test('does not focus an existing Twitch Drops tab when active is false', async () => {
+    const state = { appState: createInitialState() };
+    state.appState.availableGames = [{ id: 'g1', name: 'Game', imageUrl: '' }];
+    const tabsApi = createTabsApi();
+    tabsApi.setQueryResult([{ id: 12 }]);
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => {},
+      ensureStateHydratedForCache: async () => {},
+      waitForTabComplete: async () => {},
+      persistSessionFromDropsPage: async () => ({ oauthToken: 'token', deviceId: 'device', uuid: 'uuid' }),
+      refreshGamesCacheFromHiddenFetch: async () => {},
+      saveState: async () => {},
+      broadcastStateUpdate: () => {},
+    });
+
+    const result = await refresher.openDropsPageAndRefresh({ active: false });
+
+    expect(result.success).toBe(true);
+    expect(result.opened).toBe(false);
+    expect(tabsApi.activated).toEqual([]);
+    expect(tabsApi.created).toEqual([]);
+  });
+
   test('clears background refresh progress when the async refresh fails', async () => {
     const state = { appState: createInitialState() };
     const tabsApi = createTabsApi();
@@ -154,6 +228,34 @@ describe('drops page refresher', () => {
     finishTabLoad();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
+    expect(state.appState.dropsPageRefreshInProgress).toBe(false);
+  });
+
+  test('waited refresh clears progress and returns a useful error when refresh fails', async () => {
+    const state = { appState: createInitialState() };
+    const tabsApi = createTabsApi();
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => {},
+      ensureStateHydratedForCache: async () => {},
+      waitForTabComplete: async () => {},
+      persistSessionFromDropsPage: async () => {
+        throw new Error('session unavailable');
+      },
+      refreshGamesCacheFromHiddenFetch: async () => {},
+      saveState: async () => {},
+      broadcastStateUpdate: () => {},
+    });
+
+    const result = await refresher.openDropsPageAndRefresh();
+
+    expect(result).toEqual({
+      success: false,
+      opened: true,
+      refreshed: false,
+      gamesCount: 0,
+      error: 'Error: session unavailable',
+    });
     expect(state.appState.dropsPageRefreshInProgress).toBe(false);
   });
 });
