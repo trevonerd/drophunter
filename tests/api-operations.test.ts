@@ -468,6 +468,214 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(drop?.remainingMinutes).toBe(2);
   });
 
+  test('does not mark a drop claimed when the awarded timestamp is invalid', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const benefit = { id: 'benefit-invalid-award', name: 'Invalid Award Badge', distributionType: 'BADGE' };
+    const campaign = {
+      id: 'campaign-invalid-award',
+      status: 'ACTIVE',
+      startAt: startsAt,
+      endAt: endsAt,
+      game: {
+        displayName: 'IRL',
+        name: 'IRL',
+        slug: 'irl',
+        boxArtURL: 'https://example.com/irl.png',
+      },
+      timeBasedDrops: [
+        {
+          id: 'invalid-award-badge-drop',
+          name: 'Invalid Award Badge',
+          startAt: startsAt,
+          endAt: endsAt,
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit }],
+          self: {
+            currentMinutesWatched: 58,
+            isClaimed: false,
+            isClaimable: false,
+          },
+        },
+      ],
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                {
+                  id: benefit.id,
+                  name: benefit.name,
+                  lastAwardedAt: 'not-a-date',
+                  game: { displayName: 'IRL' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+    const drop = result?.drops[0];
+
+    expect(drop?.claimed).toBe(false);
+    expect(drop?.progress).toBe(96);
+    expect(drop?.remainingMinutes).toBe(2);
+  });
+
+  test('marks external rewards claimed by global benefit id when timestamp is inside the window', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const benefit = {
+      id: 'benefit-external-windowed',
+      name: 'External Windowed Reward',
+      distributionType: 'DIRECT_ENTITLEMENT',
+    };
+    const campaign = {
+      id: 'campaign-external-windowed',
+      status: 'ACTIVE',
+      startAt: startsAt,
+      endAt: endsAt,
+      game: {
+        displayName: 'External Game',
+        name: 'External Game',
+        slug: 'external-game',
+        boxArtURL: 'https://example.com/external.png',
+      },
+      timeBasedDrops: [
+        {
+          id: 'external-windowed-drop',
+          name: 'External Windowed Reward',
+          startAt: startsAt,
+          endAt: endsAt,
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit }],
+          self: {
+            currentMinutesWatched: 58,
+            isClaimed: false,
+            isClaimable: false,
+          },
+        },
+      ],
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                {
+                  id: benefit.id,
+                  name: benefit.name,
+                  lastAwardedAt: '2026-05-19T08:00:00.000Z',
+                  game: { displayName: 'Different External Game Name' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+    const drop = result?.drops[0];
+
+    expect(drop?.claimed).toBe(true);
+    expect(drop?.progress).toBe(100);
+    expect(drop?.remainingMinutes).toBe(0);
+  });
+
+  test('does not globally claim external rewards without an awarded timestamp', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const benefit = {
+      id: 'benefit-external-missing-timestamp',
+      name: 'External Missing Timestamp Reward',
+      distributionType: 'DIRECT_ENTITLEMENT',
+    };
+    const campaign = {
+      id: 'campaign-external-missing-timestamp',
+      status: 'ACTIVE',
+      startAt: startsAt,
+      endAt: endsAt,
+      game: {
+        displayName: 'External Game',
+        name: 'External Game',
+        slug: 'external-game',
+        boxArtURL: 'https://example.com/external.png',
+      },
+      timeBasedDrops: [
+        {
+          id: 'external-missing-timestamp-drop',
+          name: 'External Missing Timestamp Reward',
+          startAt: startsAt,
+          endAt: endsAt,
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit }],
+          self: {
+            currentMinutesWatched: 58,
+            isClaimed: false,
+            isClaimable: false,
+          },
+        },
+      ],
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                {
+                  id: benefit.id,
+                  name: benefit.name,
+                  game: { displayName: 'Different External Game Name' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+    const drop = result?.drops[0];
+
+    expect(drop?.claimed).toBe(false);
+    expect(drop?.progress).toBe(96);
+    expect(drop?.remainingMinutes).toBe(2);
+  });
+
   test('does not claim direct entitlements by matching only the reward name', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 
@@ -657,7 +865,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(result?.drops).toHaveLength(1);
   });
 
-  test('does not lock IRL campaigns when Twitch reports no account connection', async () => {
+  test('does not lock IRL badge campaigns when Twitch reports no account connection', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 
     const state = createMinimalState();
@@ -681,6 +889,15 @@ describe('fetchDropsSnapshotFromApi', () => {
           id: 'irl-native-reward',
           name: 'Community Reward',
           requiredMinutesWatched: 60,
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'benefit-irl-badge',
+                name: 'Community Badge',
+                distributionType: 'BADGE',
+              },
+            },
+          ],
           self: {
             currentMinutesWatched: 0,
             isClaimed: false,
@@ -701,6 +918,62 @@ describe('fetchDropsSnapshotFromApi', () => {
 
     expect(result?.games).toHaveLength(1);
     expect(result?.games[0].isConnected).toBe(true);
+    expect(result?.drops).toHaveLength(1);
+  });
+
+  test('keeps plain IRL campaigns locked when only the category looks native', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const endsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const campaign = {
+      id: 'campaign-irl-external-reward',
+      status: 'ACTIVE',
+      endAt: endsAt,
+      self: {
+        isAccountConnected: false,
+      },
+      game: {
+        displayName: 'IRL',
+        name: 'IRL',
+        slug: 'irl',
+        boxArtURL: 'https://example.com/irl.png',
+      },
+      timeBasedDrops: [
+        {
+          id: 'irl-external-reward',
+          name: 'Partner Account Reward',
+          requiredMinutesWatched: 60,
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'benefit-irl-external',
+                name: 'Partner Account Reward',
+                distributionType: 'DIRECT_ENTITLEMENT',
+              },
+            },
+          ],
+          self: {
+            currentMinutesWatched: 0,
+            isClaimed: false,
+            isClaimable: false,
+          },
+        },
+      ],
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => buildInventoryResponse(),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+
+    expect(result?.games).toHaveLength(1);
+    expect(result?.games[0].isConnected).toBe(false);
     expect(result?.drops).toHaveLength(1);
   });
 
