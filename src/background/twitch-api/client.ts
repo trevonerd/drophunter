@@ -262,7 +262,36 @@ function isCampaignConnected(campaign: Record<string, unknown>): boolean {
     return true;
   }
   const isConnected = (self as Record<string, unknown>).isAccountConnected;
-  return isConnected !== false;
+  return isConnected !== false || isTwitchNativeCampaign(campaign);
+}
+
+function collectCampaignText(value: unknown, depth = 0): string[] {
+  if (depth > 5 || value == null) {
+    return [];
+  }
+  if (typeof value === 'string') {
+    const text = value.trim().toLowerCase();
+    return text ? [text] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectCampaignText(item, depth + 1));
+  }
+  if (typeof value !== 'object') {
+    return [];
+  }
+  return Object.values(value as Record<string, unknown>).flatMap((item) =>
+    collectCampaignText(item, depth + 1),
+  );
+}
+
+function isTwitchNativeCampaign(campaign: Record<string, unknown>): boolean {
+  const text = collectCampaignText(campaign).join(' ');
+  const gameText = collectCampaignText(campaign.game).join(' ');
+  const hasBadgeReward = /\b(?:badge|badges|chat badge|stemma|emblema)\b/i.test(text);
+  const hasTwitchConSignal = /\b(?:twitchcon|roadtotwitchcon|road to twitchcon)\b/i.test(text);
+  const hasTwitchBadgeSignal = /\btwitch\b/i.test(text) && hasBadgeReward;
+  const hasNativeCategorySignal = /\b(?:irl|twitch)\b/i.test(gameText);
+  return hasTwitchConSignal || hasTwitchBadgeSignal || hasNativeCategorySignal;
 }
 
 function isCampaignUsable(campaign: Record<string, unknown>): boolean {
