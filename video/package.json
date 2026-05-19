@@ -12,10 +12,17 @@
   "dependencies": {
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "remotion": "4.0.460"
+    "remotion": "4.0.463"
   },
   "devDependencies": {
-    "@remotion/cli": "4.0.460",
-    "@remotion/transitions": "4.0.460"
+    "@remotion/cli": "4.0.463",
+    "@remotion/eslint-config": "4.0.463",
+    "@remotion/transitions": "4.0.463",
+    "@remotion/webcodecs": "4.0.463"
+  },
+  "overrides": {
+    "@remotion/eslint-config": "4.0.463",
+    "@remotion/webcodecs": "4.0.463",
+    "ws": "8.20.1"
   }
 }
