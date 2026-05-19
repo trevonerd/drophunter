@@ -4,6 +4,7 @@ import { logDebug, logVerboseWarn, logWarn } from '../logging';
 import {
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
+  buildGlobalClaimedRewardEntry,
   ClaimedRewardEntry,
   ClaimedRewardLookup,
   matchClaimedReward,
@@ -11,6 +12,7 @@ import {
 import { TwitchGqlTransport } from './gql';
 import {
   computeExpiry,
+  extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
   getFirstImageUrl,
@@ -79,7 +81,9 @@ export type { ClaimedRewardEntry, ClaimedRewardLookup };
 export {
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
+  buildGlobalClaimedRewardEntry,
   computeExpiry,
+  extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
   matchClaimedReward,
@@ -294,6 +298,10 @@ function isTwitchNativeCampaign(campaign: Record<string, unknown>): boolean {
   return hasTwitchConSignal || hasTwitchBadgeSignal || hasNativeCategorySignal;
 }
 
+function isBadgeOrEmoteDrop(drop: Record<string, unknown>): boolean {
+  return extractBenefitDistributionTypes(drop).some((type) => type === 'BADGE' || type === 'EMOTE');
+}
+
 function isCampaignUsable(campaign: Record<string, unknown>): boolean {
   const status = normalizeText(campaign.status).toUpperCase();
   if (!status) {
@@ -366,9 +374,10 @@ function parseCampaignDrops(
   game: TwitchGame,
   inventoryMaps: InventoryDropMaps,
   claimedRewards: ClaimedRewardLookup,
-  globalClaimedIdCounts: Set<string>,
+  globalClaimedRewards: ClaimedRewardEntry,
 ): TwitchDrop[] {
   const campaignId = normalizeText(campaign.id) || game.campaignId || '';
+  const campaignStartsAt = toIsoDate(campaign.startAt);
   const campaignEndsAt = toIsoDate(campaign.endAt);
 
   // Guard: validate timeBasedDrops exists and is array
@@ -399,11 +408,15 @@ function parseCampaignDrops(
       0;
     const benefitNames = extractBenefitNames(drop);
     const benefitIds = extractBenefitIds(drop);
+    const dropStartsAt = toIsoDate(drop.startAt) ?? campaignStartsAt;
+    const dropEndsAt = toIsoDate(drop.endAt) ?? campaignEndsAt;
     const { idMatch, nameMatch, globalIdMatch } = matchClaimedReward(
       benefitIds,
       benefitNames,
       gameClaimedRewards,
-      globalClaimedIdCounts,
+      globalClaimedRewards,
+      { startsAt: dropStartsAt, endsAt: dropEndsAt },
+      isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign),
     );
     const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
     const claimedFromInventory = inventoryState?.claimed ?? Boolean(self.isClaimed ?? drop.isClaimed);
@@ -467,9 +480,10 @@ function parseEventBasedDrops(
   campaign: Record<string, unknown>,
   game: TwitchGame,
   claimedRewards: ClaimedRewardLookup,
-  globalClaimedIdCounts: Set<string>,
+  globalClaimedRewards: ClaimedRewardEntry,
 ): TwitchDrop[] {
   const campaignId = normalizeText(campaign.id) || game.campaignId || '';
+  const campaignStartsAt = toIsoDate(campaign.startAt);
   const campaignEndsAt = toIsoDate(campaign.endAt);
   const eventBasedDrops = Array.isArray(campaign.eventBasedDrops)
     ? (campaign.eventBasedDrops as Array<Record<string, unknown>>)
@@ -480,11 +494,15 @@ function parseEventBasedDrops(
     const parsedDropId = normalizeText(drop.id);
     const benefitNames = extractBenefitNames(drop);
     const benefitIds = extractBenefitIds(drop);
+    const dropStartsAt = toIsoDate(drop.startAt) ?? campaignStartsAt;
+    const dropEndsAt = toIsoDate(drop.endAt) ?? campaignEndsAt;
     const { idMatch, nameMatch, globalIdMatch } = matchClaimedReward(
       benefitIds,
       benefitNames,
       gameClaimedRewards,
-      globalClaimedIdCounts,
+      globalClaimedRewards,
+      { startsAt: dropStartsAt, endsAt: dropEndsAt },
+      isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign),
     );
     const claimed = idMatch || nameMatch || globalIdMatch;
     const dropId = parsedDropId || `${game.id}-event-drop-${index + 1}`;
@@ -658,6 +676,7 @@ export class TwitchApiClient {
     }
     const inventoryMaps = buildInventoryDropMaps(inventoryRaw);
     const claimedRewards = buildClaimedRewardLookup(inventoryRaw);
+    const globalClaimedRewards = buildGlobalClaimedRewardEntry(inventoryRaw);
     const globalClaimedIdCounts = buildGlobalClaimedIdCounts(inventoryRaw);
 
     // Filter to usable (non-expired) campaigns — show all, not just connected ones
@@ -697,11 +716,11 @@ export class TwitchApiClient {
         game,
         inventoryMaps,
         claimedRewards,
-        globalClaimedIdCounts,
+        globalClaimedRewards,
       );
 
       // Parse event-based (subscribe to redeem) drops
-      const eventDrops = parseEventBasedDrops(mergedCampaign, game, claimedRewards, globalClaimedIdCounts);
+      const eventDrops = parseEventBasedDrops(mergedCampaign, game, claimedRewards, globalClaimedRewards);
 
       const allCampaignDrops = [...campaignDrops, ...eventDrops];
       // Only include game if campaign has at least one farmable drop

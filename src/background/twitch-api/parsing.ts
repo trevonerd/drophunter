@@ -132,3 +132,15 @@ export function extractBenefitNames(drop: Record<string, unknown>): string[] {
 export function extractBenefitIds(drop: Record<string, unknown>): string[] {
   return extractBenefitProperty(drop, 'id');
 }
+
+export function extractBenefitDistributionTypes(drop: Record<string, unknown>): string[] {
+  const edges = Array.isArray(drop.benefitEdges) ? (drop.benefitEdges as Array<unknown>) : [];
+  return edges
+    .map((edge) => {
+      if (!edge || typeof edge !== 'object') return '';
+      const benefit = (edge as Record<string, unknown>).benefit;
+      if (!benefit || typeof benefit !== 'object') return '';
+      return normalizeText((benefit as Record<string, unknown>).distributionType).toUpperCase();
+    })
+    .filter((value) => value.length > 0);
+}
