@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildClaimedRewardLookup,
+  buildGlobalClaimedRewardEntry,
   buildGlobalClaimedIdCounts,
   computeExpiry,
   extractBroadcasterLanguage,
+  extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
   matchClaimedReward,
@@ -278,6 +280,10 @@ function makeEdge(id: string, name: string) {
   return { benefit: { id, name } };
 }
 
+function makeTypedEdge(id: string, name: string, distributionType: string) {
+  return { benefit: { id, name, distributionType } };
+}
+
 describe('extractBenefitIds', () => {
   test('returns ids from well-formed benefitEdges', () => {
     const drop = makeDrop([makeEdge('id-1', 'Reward One'), makeEdge('id-2', 'Reward Two')]);
@@ -324,6 +330,13 @@ describe('extractBenefitNames', () => {
   test('filters out edges where benefit.name normalizes to empty', () => {
     const drop = makeDrop([{ benefit: { id: 'x', name: '   ' } }]);
     expect(extractBenefitNames(drop)).toEqual([]);
+  });
+});
+
+describe('extractBenefitDistributionTypes', () => {
+  test('returns normalized distribution types from benefit edges', () => {
+    const drop = makeDrop([makeTypedEdge('id-1', 'Badge', 'BADGE'), makeTypedEdge('id-2', 'Emote', 'emote')]);
+    expect(extractBenefitDistributionTypes(drop)).toEqual(['BADGE', 'EMOTE']);
   });
 });
 
@@ -378,6 +391,22 @@ describe('buildGlobalClaimedIdCounts', () => {
     const result = buildGlobalClaimedIdCounts(inv);
     expect(result.size).toBe(1);
     expect(result.has('benefit-c')).toBe(true);
+  });
+});
+
+describe('buildGlobalClaimedRewardEntry', () => {
+  test('stores benefit ids and awarded timestamps', () => {
+    const inv = makeInventory([
+      {
+        id: 'benefit-a',
+        name: 'Reward A',
+        game: { displayName: 'GameX' },
+        lastAwardedAt: '2026-05-18T12:00:00Z',
+      },
+    ]);
+    const result = buildGlobalClaimedRewardEntry(inv);
+    expect(result.idCounts.get('benefit-a')).toBe(1);
+    expect(result.idAwardedAt.get('benefit-a')).toEqual(['2026-05-18T12:00:00.000Z']);
   });
 });
 
@@ -438,13 +467,35 @@ function makeEntry(ids: Record<string, number>, names: Record<string, number>): 
   return {
     idCounts: new Map(Object.entries(ids)),
     nameCounts: new Map(Object.entries(names)),
+    idAwardedAt: new Map(Object.entries(ids).filter(([, count]) => count > 0).map(([id]) => [id, [null]])),
   };
+}
+
+const emptyEntry = makeEntry({}, {});
+const defaultWindow = { startsAt: null, endsAt: null };
+
+function matchForTest(
+  benefitIds: string[],
+  benefitNames: string[],
+  gameClaimedRewards: ClaimedRewardEntry | undefined,
+  globalClaimedRewards: ClaimedRewardEntry = emptyEntry,
+  window = defaultWindow,
+  allowGlobalIdMatch = true,
+) {
+  return matchClaimedReward(
+    benefitIds,
+    benefitNames,
+    gameClaimedRewards,
+    globalClaimedRewards,
+    window,
+    allowGlobalIdMatch,
+  );
 }
 
 describe('matchClaimedReward', () => {
   test('Layer 1: returns idMatch=true when benefit id is found in game entry', () => {
     const entry = makeEntry({ 'benefit-1': 1 }, {});
-    const result = matchClaimedReward(['benefit-1'], ['reward'], entry, new Set());
+    const result = matchForTest(['benefit-1'], ['reward'], entry);
     expect(result.idMatch).toBe(true);
     expect(result.nameMatch).toBe(false);
     expect(result.globalIdMatch).toBe(false);
@@ -452,8 +503,8 @@ describe('matchClaimedReward', () => {
 
   test('Layer 1: keeps idCount reusable for duplicate drops with the same benefit id', () => {
     const entry = makeEntry({ 'benefit-1': 1 }, {});
-    const first = matchClaimedReward(['benefit-1'], [], entry, new Set());
-    const second = matchClaimedReward(['benefit-1'], [], entry, new Set());
+    const first = matchForTest(['benefit-1'], [], entry);
+    const second = matchForTest(['benefit-1'], [], entry);
     expect(first.idMatch).toBe(true);
     expect(second.idMatch).toBe(true);
     expect(entry.idCounts.get('benefit-1')).toBe(1);
@@ -461,54 +512,79 @@ describe('matchClaimedReward', () => {
 
   test('Layer 1: does not match when idCount is 0', () => {
     const entry = makeEntry({ 'benefit-1': 0 }, { reward: 1 });
-    const result = matchClaimedReward(['benefit-1'], ['reward'], entry, new Set());
+    const result = matchForTest(['benefit-1'], ['reward'], entry);
     expect(result.idMatch).toBe(false);
     expect(result.nameMatch).toBe(false);
   });
 
   test('Layer 2: does not claim by reward name without a benefit id match', () => {
     const entry = makeEntry({}, { 'gold chest': 1 });
-    const result = matchClaimedReward(['unknown-id'], ['gold chest'], entry, new Set());
+    const result = matchForTest(['unknown-id'], ['gold chest'], entry);
     expect(result.idMatch).toBe(false);
     expect(result.nameMatch).toBe(false);
     expect(result.globalIdMatch).toBe(false);
   });
 
   test('Layer 3: returns globalIdMatch=true when gameClaimedRewards is undefined and id is in global set', () => {
-    const globalSet = new Set(['benefit-global']);
-    const result = matchClaimedReward(['benefit-global'], ['reward'], undefined, globalSet);
+    const globalEntry = makeEntry({ 'benefit-global': 1 }, {});
+    const result = matchForTest(['benefit-global'], ['reward'], undefined, globalEntry);
     expect(result.idMatch).toBe(false);
     expect(result.nameMatch).toBe(false);
     expect(result.globalIdMatch).toBe(true);
   });
 
   test('Layer 3: multiple drops with same id ALL get globalIdMatch=true (v1.6.1 fix)', () => {
-    const globalSet = new Set(['benefit-shared']);
-    const r1 = matchClaimedReward(['benefit-shared'], ['drop 1'], undefined, globalSet);
-    const r2 = matchClaimedReward(['benefit-shared'], ['drop 2'], undefined, globalSet);
+    const globalEntry = makeEntry({ 'benefit-shared': 1 }, {});
+    const r1 = matchForTest(['benefit-shared'], ['drop 1'], undefined, globalEntry);
+    const r2 = matchForTest(['benefit-shared'], ['drop 2'], undefined, globalEntry);
     expect(r1.globalIdMatch).toBe(true);
     expect(r2.globalIdMatch).toBe(true);
   });
 
   test('Layer 3: does NOT fire when gameClaimedRewards is defined (even if empty)', () => {
-    const globalSet = new Set(['benefit-global']);
+    const globalEntry = makeEntry({ 'benefit-global': 1 }, {});
     const entry = makeEntry({}, {});
-    const result = matchClaimedReward(['benefit-global'], [], entry, globalSet);
+    const result = matchForTest(['benefit-global'], [], entry, globalEntry);
     expect(result.globalIdMatch).toBe(false);
   });
 
   test('no match when all lookups miss', () => {
     const entry = makeEntry({ 'other-id': 1 }, { 'other-name': 1 });
-    const result = matchClaimedReward(['benefit-x'], ['reward-x'], entry, new Set());
+    const result = matchForTest(['benefit-x'], ['reward-x'], entry);
     expect(result.idMatch).toBe(false);
     expect(result.nameMatch).toBe(false);
     expect(result.globalIdMatch).toBe(false);
   });
 
   test('no match with empty benefit lists', () => {
-    const result = matchClaimedReward([], [], undefined, new Set(['benefit-a']));
+    const globalEntry = makeEntry({ 'benefit-a': 1 }, {});
+    const result = matchForTest([], [], undefined, globalEntry);
     expect(result.idMatch).toBe(false);
     expect(result.nameMatch).toBe(false);
+    expect(result.globalIdMatch).toBe(false);
+  });
+
+  test('matches awarded benefit only inside the drop window when timestamp is present', () => {
+    const entry = makeEntry({}, {});
+    entry.idCounts.set('benefit-windowed', 1);
+    entry.idAwardedAt.set('benefit-windowed', ['2026-05-18T12:00:00.000Z']);
+
+    const inside = matchForTest(['benefit-windowed'], [], entry, emptyEntry, {
+      startsAt: '2026-05-18T06:00:00.000Z',
+      endsAt: '2026-05-19T06:00:00.000Z',
+    });
+    const outside = matchForTest(['benefit-windowed'], [], entry, emptyEntry, {
+      startsAt: '2026-05-19T06:00:00.000Z',
+      endsAt: '2026-05-20T06:00:00.000Z',
+    });
+
+    expect(inside.idMatch).toBe(true);
+    expect(outside.idMatch).toBe(false);
+  });
+
+  test('blocks global benefit fallback when not explicitly allowed', () => {
+    const globalEntry = makeEntry({ 'benefit-global': 1 }, {});
+    const result = matchForTest(['benefit-global'], [], undefined, globalEntry, defaultWindow, false);
     expect(result.globalIdMatch).toBe(false);
   });
 });

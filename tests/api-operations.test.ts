@@ -308,7 +308,7 @@ describe('fetchDropsSnapshotFromApi', () => {
               gameEventDrops: [
                 {
                   ...claimedBenefit,
-                  game: { displayName: 'IL-2 Sturmovik' },
+                  game: { displayName: 'IL' },
                 },
               ],
             },
@@ -326,6 +326,215 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(result?.drops.every((drop) => drop.progress === 100)).toBe(true);
     expect(result?.drops.every((drop) => drop.remainingMinutes === 0)).toBe(true);
     expect(result?.drops.every((drop) => drop.status === 'completed')).toBe(true);
+  });
+
+  test('marks badge drops claimed from gameEventDrops when awarded during the drop window', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const benefit = {
+      id: 'benefit-road-to-twitchcon-badge',
+      name: 'RoadToTwitchCon26 Badge',
+      distributionType: 'BADGE',
+    };
+    const campaign = {
+      id: 'campaign-road-to-twitchcon-badge',
+      name: 'RoadtoTwitchCon26',
+      status: 'ACTIVE',
+      startAt: startsAt,
+      endAt: endsAt,
+      game: {
+        displayName: 'IRL',
+        name: 'IRL',
+        slug: 'irl',
+        boxArtURL: 'https://example.com/irl.png',
+      },
+      timeBasedDrops: [
+        {
+          id: 'road-to-twitchcon-badge-drop',
+          name: 'RoadToTwitchCon26',
+          startAt: startsAt,
+          endAt: endsAt,
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit }],
+          self: {
+            currentMinutesWatched: 58,
+            isClaimed: false,
+            isClaimable: false,
+          },
+        },
+      ],
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                {
+                  id: benefit.id,
+                  name: benefit.name,
+                  lastAwardedAt: '2026-05-19T08:00:00.000Z',
+                  game: { displayName: 'IRL' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+    const drop = result?.drops[0];
+
+    expect(drop?.claimed).toBe(true);
+    expect(drop?.progress).toBe(100);
+    expect(drop?.remainingMinutes).toBe(0);
+    expect(drop?.status).toBe('completed');
+  });
+
+  test('does not mark a drop claimed when the awarded timestamp is outside the drop window', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const benefit = { id: 'benefit-windowed-badge', name: 'Windowed Badge', distributionType: 'BADGE' };
+    const campaign = {
+      id: 'campaign-windowed-badge',
+      status: 'ACTIVE',
+      startAt: startsAt,
+      endAt: endsAt,
+      game: {
+        displayName: 'IRL',
+        name: 'IRL',
+        slug: 'irl',
+        boxArtURL: 'https://example.com/irl.png',
+      },
+      timeBasedDrops: [
+        {
+          id: 'windowed-badge-drop',
+          name: 'Windowed Badge',
+          startAt: startsAt,
+          endAt: endsAt,
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit }],
+          self: {
+            currentMinutesWatched: 58,
+            isClaimed: false,
+            isClaimable: false,
+          },
+        },
+      ],
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                {
+                  id: benefit.id,
+                  name: benefit.name,
+                  lastAwardedAt: '2026-05-17T08:00:00.000Z',
+                  game: { displayName: 'IRL' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+    const drop = result?.drops[0];
+
+    expect(drop?.claimed).toBe(false);
+    expect(drop?.progress).toBe(96);
+    expect(drop?.remainingMinutes).toBe(2);
+  });
+
+  test('does not claim direct entitlements by matching only the reward name', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const endsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const campaign = {
+      id: 'campaign-direct-name-only',
+      status: 'ACTIVE',
+      endAt: endsAt,
+      game: {
+        displayName: 'External Game',
+        name: 'External Game',
+        slug: 'external-game',
+        boxArtURL: 'https://example.com/external.png',
+      },
+      timeBasedDrops: [
+        {
+          id: 'direct-name-only-drop',
+          name: 'Shared Reward Name',
+          requiredMinutesWatched: 60,
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'benefit-direct-campaign',
+                name: 'Shared Reward Name',
+                distributionType: 'DIRECT_ENTITLEMENT',
+              },
+            },
+          ],
+          self: {
+            currentMinutesWatched: 58,
+            isClaimed: false,
+            isClaimable: false,
+          },
+        },
+      ],
+      eventBasedDrops: [],
+    };
+
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                {
+                  id: 'different-benefit-id',
+                  name: 'Shared Reward Name',
+                  game: { displayName: 'External Game' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+    const drop = result?.drops[0];
+
+    expect(drop?.claimed).toBe(false);
+    expect(drop?.progress).toBe(96);
+    expect(drop?.remainingMinutes).toBe(2);
   });
 
   test('marks fully watched but locked drops completed without inventing claimability', async () => {
