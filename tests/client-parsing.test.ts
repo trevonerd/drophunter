@@ -406,7 +406,9 @@ describe('buildGlobalClaimedRewardEntry', () => {
     ]);
     const result = buildGlobalClaimedRewardEntry(inv);
     expect(result.idCounts.get('benefit-a')).toBe(1);
-    expect(result.idAwardedAt.get('benefit-a')).toEqual(['2026-05-18T12:00:00.000Z']);
+    expect(result.idAwardedAt.get('benefit-a')).toEqual([
+      { kind: 'valid', value: '2026-05-18T12:00:00.000Z' },
+    ]);
   });
 });
 
@@ -467,7 +469,11 @@ function makeEntry(ids: Record<string, number>, names: Record<string, number>): 
   return {
     idCounts: new Map(Object.entries(ids)),
     nameCounts: new Map(Object.entries(names)),
-    idAwardedAt: new Map(Object.entries(ids).filter(([, count]) => count > 0).map(([id]) => [id, [null]])),
+    idAwardedAt: new Map(
+      Object.entries(ids)
+        .filter(([, count]) => count > 0)
+        .map(([id]) => [id, [{ kind: 'missing' }]]),
+    ),
   };
 }
 
@@ -481,6 +487,7 @@ function matchForTest(
   globalClaimedRewards: ClaimedRewardEntry = emptyEntry,
   window = defaultWindow,
   allowGlobalIdMatch = true,
+  allowMissingGlobalAwardedAt = allowGlobalIdMatch,
 ) {
   return matchClaimedReward(
     benefitIds,
@@ -489,6 +496,7 @@ function matchForTest(
     globalClaimedRewards,
     window,
     allowGlobalIdMatch,
+    allowMissingGlobalAwardedAt,
   );
 }
 
@@ -567,7 +575,9 @@ describe('matchClaimedReward', () => {
   test('matches awarded benefit only inside the drop window when timestamp is present', () => {
     const entry = makeEntry({}, {});
     entry.idCounts.set('benefit-windowed', 1);
-    entry.idAwardedAt.set('benefit-windowed', ['2026-05-18T12:00:00.000Z']);
+    entry.idAwardedAt.set('benefit-windowed', [
+      { kind: 'valid', value: '2026-05-18T12:00:00.000Z' },
+    ]);
 
     const inside = matchForTest(['benefit-windowed'], [], entry, emptyEntry, {
       startsAt: '2026-05-18T06:00:00.000Z',
@@ -582,9 +592,59 @@ describe('matchClaimedReward', () => {
     expect(outside.idMatch).toBe(false);
   });
 
+  test('does not treat invalid awarded timestamps as missing timestamps', () => {
+    const entry = makeEntry({}, {});
+    entry.idCounts.set('benefit-invalid', 1);
+    entry.idAwardedAt.set('benefit-invalid', [{ kind: 'invalid' }]);
+
+    const result = matchForTest(['benefit-invalid'], [], entry, emptyEntry, {
+      startsAt: '2026-05-18T06:00:00.000Z',
+      endsAt: '2026-05-19T06:00:00.000Z',
+    });
+
+    expect(result.idMatch).toBe(false);
+  });
+
   test('blocks global benefit fallback when not explicitly allowed', () => {
     const globalEntry = makeEntry({ 'benefit-global': 1 }, {});
     const result = matchForTest(['benefit-global'], [], undefined, globalEntry, defaultWindow, false);
+    expect(result.globalIdMatch).toBe(false);
+  });
+
+  test('allows global fallback for valid timestamps even when missing timestamps are blocked', () => {
+    const globalEntry = makeEntry({}, {});
+    globalEntry.idCounts.set('benefit-global', 1);
+    globalEntry.idAwardedAt.set('benefit-global', [
+      { kind: 'valid', value: '2026-05-18T12:00:00.000Z' },
+    ]);
+
+    const result = matchForTest(
+      ['benefit-global'],
+      [],
+      undefined,
+      globalEntry,
+      {
+        startsAt: '2026-05-18T06:00:00.000Z',
+        endsAt: '2026-05-19T06:00:00.000Z',
+      },
+      true,
+      false,
+    );
+
+    expect(result.globalIdMatch).toBe(true);
+  });
+
+  test('blocks global fallback with missing timestamps when missing timestamps are blocked', () => {
+    const globalEntry = makeEntry({ 'benefit-global': 1 }, {});
+    const result = matchForTest(
+      ['benefit-global'],
+      [],
+      undefined,
+      globalEntry,
+      defaultWindow,
+      true,
+      false,
+    );
     expect(result.globalIdMatch).toBe(false);
   });
 });

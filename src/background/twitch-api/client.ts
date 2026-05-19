@@ -288,14 +288,24 @@ function collectCampaignText(value: unknown, depth = 0): string[] {
   );
 }
 
+function campaignHasBadgeOrEmoteDrop(campaign: Record<string, unknown>): boolean {
+  const drops = [
+    ...(Array.isArray(campaign.timeBasedDrops)
+      ? (campaign.timeBasedDrops as Array<Record<string, unknown>>)
+      : []),
+    ...(Array.isArray(campaign.eventBasedDrops)
+      ? (campaign.eventBasedDrops as Array<Record<string, unknown>>)
+      : []),
+  ];
+  return drops.some((drop) => isBadgeOrEmoteDrop(drop));
+}
+
 function isTwitchNativeCampaign(campaign: Record<string, unknown>): boolean {
   const text = collectCampaignText(campaign).join(' ');
-  const gameText = collectCampaignText(campaign.game).join(' ');
   const hasBadgeReward = /\b(?:badge|badges|chat badge|stemma|emblema)\b/i.test(text);
   const hasTwitchConSignal = /\b(?:twitchcon|roadtotwitchcon|road to twitchcon)\b/i.test(text);
   const hasTwitchBadgeSignal = /\btwitch\b/i.test(text) && hasBadgeReward;
-  const hasNativeCategorySignal = /\b(?:irl|twitch)\b/i.test(gameText);
-  return hasTwitchConSignal || hasTwitchBadgeSignal || hasNativeCategorySignal;
+  return hasTwitchConSignal || hasTwitchBadgeSignal || campaignHasBadgeOrEmoteDrop(campaign);
 }
 
 function isBadgeOrEmoteDrop(drop: Record<string, unknown>): boolean {
@@ -410,13 +420,15 @@ function parseCampaignDrops(
     const benefitIds = extractBenefitIds(drop);
     const dropStartsAt = toIsoDate(drop.startAt) ?? campaignStartsAt;
     const dropEndsAt = toIsoDate(drop.endAt) ?? campaignEndsAt;
+    const allowMissingGlobalAwardedAt = isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign);
     const { idMatch, nameMatch, globalIdMatch } = matchClaimedReward(
       benefitIds,
       benefitNames,
       gameClaimedRewards,
       globalClaimedRewards,
       { startsAt: dropStartsAt, endsAt: dropEndsAt },
-      isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign),
+      true,
+      allowMissingGlobalAwardedAt,
     );
     const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
     const claimedFromInventory = inventoryState?.claimed ?? Boolean(self.isClaimed ?? drop.isClaimed);
@@ -496,13 +508,15 @@ function parseEventBasedDrops(
     const benefitIds = extractBenefitIds(drop);
     const dropStartsAt = toIsoDate(drop.startAt) ?? campaignStartsAt;
     const dropEndsAt = toIsoDate(drop.endAt) ?? campaignEndsAt;
+    const allowMissingGlobalAwardedAt = isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign);
     const { idMatch, nameMatch, globalIdMatch } = matchClaimedReward(
       benefitIds,
       benefitNames,
       gameClaimedRewards,
       globalClaimedRewards,
       { startsAt: dropStartsAt, endsAt: dropEndsAt },
-      isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign),
+      true,
+      allowMissingGlobalAwardedAt,
     );
     const claimed = idMatch || nameMatch || globalIdMatch;
     const dropId = parsedDropId || `${game.id}-event-drop-${index + 1}`;

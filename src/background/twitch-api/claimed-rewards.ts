@@ -1,9 +1,14 @@
 import { normalizeText, toIsoDate } from './parsing.ts';
 
+export type ClaimedRewardAwardedAt =
+  | { kind: 'valid'; value: string }
+  | { kind: 'missing' }
+  | { kind: 'invalid' };
+
 export interface ClaimedRewardEntry {
   nameCounts: Map<string, number>;
   idCounts: Map<string, number>;
-  idAwardedAt: Map<string, Array<string | null>>;
+  idAwardedAt: Map<string, ClaimedRewardAwardedAt[]>;
 }
 
 export type ClaimedRewardLookup = Map<string, ClaimedRewardEntry>;
@@ -16,7 +21,7 @@ function addClaimedReward(
   entry: ClaimedRewardEntry,
   rewardName: string,
   benefitId: string,
-  awardedAt: string | null,
+  awardedAt: ClaimedRewardAwardedAt,
 ) {
   if (rewardName) {
     entry.nameCounts.set(rewardName, (entry.nameCounts.get(rewardName) ?? 0) + 1);
@@ -25,6 +30,14 @@ function addClaimedReward(
     entry.idCounts.set(benefitId, (entry.idCounts.get(benefitId) ?? 0) + 1);
     entry.idAwardedAt.set(benefitId, [...(entry.idAwardedAt.get(benefitId) ?? []), awardedAt]);
   }
+}
+
+function normalizeAwardedAt(value: unknown): ClaimedRewardAwardedAt {
+  if (typeof value !== 'string' || !value.trim()) {
+    return { kind: 'missing' };
+  }
+  const awardedAt = toIsoDate(value);
+  return awardedAt ? { kind: 'valid', value: awardedAt } : { kind: 'invalid' };
 }
 
 export function buildClaimedRewardLookup(inventoryRaw: unknown): ClaimedRewardLookup {
@@ -49,7 +62,7 @@ export function buildClaimedRewardLookup(inventoryRaw: unknown): ClaimedRewardLo
     const gameName = (normalizeText(gameRec.displayName) || normalizeText(gameRec.name)).toLowerCase();
     const rewardName = normalizeText(drop.name).toLowerCase();
     const benefitId = normalizeText(drop.id);
-    const awardedAt = toIsoDate(drop.lastAwardedAt);
+    const awardedAt = normalizeAwardedAt(drop.lastAwardedAt);
 
     if (!gameName || (!rewardName && !benefitId)) return;
 
@@ -89,7 +102,7 @@ export function buildGlobalClaimedRewardEntry(inventoryRaw: unknown): ClaimedRew
     if (!drop || typeof drop !== 'object') return;
     const rewardName = normalizeText(drop.name).toLowerCase();
     const benefitId = normalizeText(drop.id);
-    const awardedAt = toIsoDate(drop.lastAwardedAt);
+    const awardedAt = normalizeAwardedAt(drop.lastAwardedAt);
     addClaimedReward(entry, rewardName, benefitId, awardedAt);
   });
   return entry;
@@ -109,6 +122,7 @@ function entryHasAwardedBenefit(
   entry: ClaimedRewardEntry | undefined,
   benefitIds: string[],
   window: { startsAt: string | null; endsAt: string | null },
+  allowMissingTimestamp = true,
 ): boolean {
   if (!entry) {
     return false;
@@ -116,14 +130,16 @@ function entryHasAwardedBenefit(
   for (const id of benefitIds) {
     const awardedAtValues = entry.idAwardedAt.get(id);
     if (!awardedAtValues || awardedAtValues.length === 0) {
-      if ((entry.idCounts.get(id) ?? 0) > 0) {
+      if (allowMissingTimestamp && (entry.idCounts.get(id) ?? 0) > 0) {
         return true;
       }
       continue;
     }
     if (
       awardedAtValues.some(
-        (awardedAt) => awardedAt === null || awardWithinWindow(awardedAt, window.startsAt, window.endsAt),
+        (awardedAt) =>
+          (allowMissingTimestamp && awardedAt.kind === 'missing') ||
+          (awardedAt.kind === 'valid' && awardWithinWindow(awardedAt.value, window.startsAt, window.endsAt)),
       )
     ) {
       return true;
@@ -139,6 +155,7 @@ export function matchClaimedReward(
   globalClaimedRewards: ClaimedRewardEntry,
   window: { startsAt: string | null; endsAt: string | null },
   allowGlobalIdMatch: boolean,
+  allowMissingGlobalAwardedAt = allowGlobalIdMatch,
 ): { idMatch: boolean; nameMatch: boolean; globalIdMatch: boolean } {
   const idMatch = entryHasAwardedBenefit(gameClaimedRewards, benefitIds, window);
   const nameMatch = false;
@@ -147,7 +164,7 @@ export function matchClaimedReward(
     !nameMatch &&
     gameClaimedRewards == null &&
     allowGlobalIdMatch &&
-    entryHasAwardedBenefit(globalClaimedRewards, benefitIds, window);
+    entryHasAwardedBenefit(globalClaimedRewards, benefitIds, window, allowMissingGlobalAwardedAt);
 
   return { idMatch, nameMatch, globalIdMatch };
 }
