@@ -9,8 +9,8 @@
   },
   "scripts": {
     "clean": "rm -rf dist video/out",
-    "dev": "vite build --watch --mode development",
-    "build": "vite build --mode production",
+    "dev": "NODE_OPTIONS=--disable-warning=DEP0205 vite build --watch --mode development",
+    "build": "NODE_OPTIONS=--disable-warning=DEP0205 vite build --mode production",
     "check": "bun run test:ts && bun run lint && bun run test && bun run build",
     "release:check": "bun scripts/release-check.mjs",
     "video:install": "cd video && bun install",
@@ -40,14 +40,14 @@
     "@types/chrome": "0.1.42",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.1",
+    "@vitejs/plugin-react": "6.0.2",
     "autoprefixer": "10.5.0",
     "husky": "9.1.7",
-    "lint-staged": "17.0.4",
-    "postcss": "8.5.14",
+    "lint-staged": "17.0.5",
+    "postcss": "8.5.15",
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3",
-    "vite": "8.0.12"
+    "vite": "8.0.13"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,css}": [
