@@ -97,10 +97,6 @@ function installServiceWorkerSupportMocks(mocks: ChromeMocks) {
     executeScript: async () => [],
   };
 
-  chromeAny.cookies = {
-    get: async () => null,
-  };
-
   chromeAny.storage.session.remove = async () => undefined;
   chromeAny.storage.sync = syncStorage;
   chromeAny.storage.local.remove = async (keys: string | string[]) => {

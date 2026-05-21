@@ -3,9 +3,8 @@ import {
   AbsoluteFill,
   interpolate,
   spring,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 const MODES: { key: string; label: string }[] = [
   { key: "low-view", label: "Lowest viewers" },
@@ -14,8 +13,7 @@ const MODES: { key: string; label: string }[] = [
 ];
 
 export const SettingsScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const cardIn = spring({ frame, fps, config: { damping: 18, stiffness: 120 } });
   const langIn = spring({

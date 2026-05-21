@@ -3,15 +3,13 @@ import {
   AbsoluteFill,
   interpolate,
   spring,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 const QUEUE = ["Campaign Alpha", "Campaign Bravo", "Campaign Charlie"];
 
 export const ControlScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const cardIn = spring({ frame, fps, config: { damping: 18, stiffness: 120 } });
   const buttonIn = spring({

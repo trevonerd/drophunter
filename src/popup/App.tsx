@@ -526,7 +526,7 @@ function App() {
     }
 
     setManualDropsRefreshLoading(true);
-    setQueueMessage('Refreshing campaigns from Twitch...');
+    setQueueMessage(null);
     setState((prev) => ({ ...prev, dropsPageRefreshInProgress: true }));
 
     try {

@@ -5,13 +5,11 @@ import {
   interpolate,
   spring,
   staticFile,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 export const CtaScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const logoScale = spring({ frame, fps, config: { damping: 14, stiffness: 120 } });
   const btnProgress = spring({
@@ -74,7 +72,7 @@ export const CtaScene: React.FC = () => {
               color: "rgba(255,255,255,0.68)",
             }}
           >
-            DropHunter handles the repetitive part of Twitch Drops farming so you do not have to.
+            A Twitch Drops extension for Chrome, Chromium, and Edge. Local data, Twitch-only access, no tracking.
           </div>
         </div>
         <div
@@ -95,7 +93,7 @@ export const CtaScene: React.FC = () => {
               color: "white",
             }}
           >
-            Install on Chrome
+            Install DropHunter
           </span>
         </div>
         <div

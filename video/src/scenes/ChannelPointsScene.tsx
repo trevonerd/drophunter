@@ -3,13 +3,11 @@ import {
   AbsoluteFill,
   interpolate,
   spring,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 export const ChannelPointsScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const chatIn = spring({ frame, fps, config: { damping: 18, stiffness: 120 } });
   const buttonPop = spring({
