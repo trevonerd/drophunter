@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 
 export const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = {
@@ -18,8 +19,8 @@ export function createNotificationController(
   state: NotificationState,
   options: NotificationControllerOptions,
 ) {
-  const permissionsApi = options.permissionsApi ?? chrome.permissions;
-  const notificationsApi = options.notificationsApi ?? chrome.notifications;
+  const permissionsApi = options.permissionsApi ?? browser.permissions;
+  const notificationsApi = options.notificationsApi ?? browser.notifications;
 
   const hasNotificationPermission = async (): Promise<boolean> => {
     try {

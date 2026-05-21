@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import { isDropCompleted } from '../shared/drops';
 import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
@@ -492,32 +493,11 @@ async function handleExtensionUpdate() {
     ...lifetimeStats,
   });
   cachedDropsSnapshot = [];
-  await chrome.storage.local.remove([DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, 'twitchIntegrity']);
-  await chrome.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
-  await chrome.storage.local.set({ appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
+  await browser.storage.local.remove([DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, 'twitchIntegrity']);
+  await browser.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
+  await browser.storage.local.set({ appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
   broadcastStateUpdateExt(appState);
 }
-
-// Initialize state immediately when the SW module is evaluated. This handles the common
-// case where a Chrome alarm wakes the SW from dormancy — neither onStartup nor onInstalled
-// fires in that scenario, so without this the appState would remain at its empty defaults.
-initPromise = loadState().catch((error) => {
-  logWarn('SW initialization failed:', String(error));
-});
-initPromise = initPromise.then(async () => {
-  await notificationController.syncPermissionState();
-});
-
-registerExtensionLifecycleListeners({
-  alarmName: ALARM_NAME,
-  getInitPromise: () => initPromise,
-  onExtensionUpdate: handleExtensionUpdate,
-  onAlarm: () => checkDropProgress(),
-  onManagedTabRemoved: (removedTabId) => handleManagedTabRemoved(removedTabId),
-  onManagedTabNavigatedAway: (updatedTabId, url) => handleManagedTabNavigatedAway(updatedTabId, url),
-  onMonitorWindowRemoved: (removedWindowId) => handleMonitorWindowRemoved(removedWindowId),
-  logWarn,
-});
 
 function clearRecoveryState() {
   recoveryBackoffUntil = 0;
@@ -590,7 +570,7 @@ async function canResumeWithExistingManagedTab(): Promise<boolean> {
   if (!state.appState.tabId) {
     return false;
   }
-  const tab = await chrome.tabs.get(state.appState.tabId).catch(() => null);
+  const tab = await browser.tabs.get(state.appState.tabId).catch(() => null);
   return Boolean(tab?.id && getFarmableTwitchChannelNameFromUrl(tab.url));
 }
 
@@ -762,7 +742,7 @@ async function fetchDirectoryStreamersFromApi(
 }
 
 async function fetchStreamContext(tabId: number): Promise<StreamContext | null> {
-  const send = async () => chrome.tabs.sendMessage(tabId, { type: 'GET_STREAM_CONTEXT' });
+  const send = async () => browser.tabs.sendMessage(tabId, { type: 'GET_STREAM_CONTEXT' });
   const withTimeout = <T>(p: Promise<T>): Promise<T | null> =>
     Promise.race([
       p,
@@ -872,12 +852,12 @@ async function enforcePlaybackPolicyOnStreamTab() {
 async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string) {
   await notify(kind === 'all-complete' ? 'All drops completed' : 'Drop completed', message);
 
-  const tabs = await chrome.tabs.query({ url: ['https://www.twitch.tv/*', 'https://twitch.tv/*'] });
+  const tabs = await browser.tabs.query({ url: ['https://www.twitch.tv/*', 'https://twitch.tv/*'] });
   await Promise.all(
     tabs
       .filter((tab) => Boolean(tab.id))
       .map((tab) =>
-        chrome.tabs
+        browser.tabs
           .sendMessage(tab.id as number, {
             type: 'PLAY_ALERT',
             payload: { kind, message },
@@ -970,12 +950,12 @@ async function checkDropProgress() {
 }
 
 function startMonitoring() {
-  chrome.alarms.create(ALARM_NAME, { periodInMinutes: PROGRESS_POLL_MS / 60_000 });
+  browser.alarms.create(ALARM_NAME, { periodInMinutes: PROGRESS_POLL_MS / 60_000 });
   checkDropProgress().catch((error) => logWarn('Initial monitoring error:', String(error)));
 }
 
 function stopMonitoring() {
-  chrome.alarms.clear(ALARM_NAME).catch(() => undefined);
+  browser.alarms.clear(ALARM_NAME).catch(() => undefined);
 }
 
 async function openBestStreamerForSelectedGame(): Promise<boolean> {
@@ -1328,13 +1308,13 @@ async function attemptAutoClaimChannelPointsBonus() {
     return false;
   }
 
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const tab = await browser.tabs.get(tabId).catch(() => null);
   if (!tab?.id) {
     return false;
   }
 
   await ensureContentScriptOnTab(tab.id);
-  const result = (await chrome.tabs
+  const result = (await browser.tabs
     .sendMessage(tab.id, {
       type: 'CLAIM_CHANNEL_POINTS_BONUS',
     })
@@ -1454,7 +1434,7 @@ async function handleSyncTwitchIntegrity(
     persistTwitchSessionExt(twitchSessionCache).catch(() => undefined);
   }
   // Also store the full integrity object separately for expiration tracking.
-  chrome.storage.local
+  browser.storage.local
     .set({ twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' } })
     .catch(() => undefined);
   return { success: true };
@@ -1472,32 +1452,63 @@ async function handleChannelPointsBonusClaimed(
   return { success: true };
 }
 
-registerRuntimeMessageRouter({
-  ensureGamesCache: (message) => handleEnsureGamesCache(message.payload),
-  openDropsPageAndRefresh: (message) => openDropsPageAndRefresh(message),
-  addToQueue: (message) => handleAddToQueue(message.payload),
-  removeFromQueue: (message) => handleRemoveFromQueue(message.payload),
-  clearQueue: () => handleClearQueue(),
-  startFarming: (message) => handleStartFarming(message.payload),
-  setSelectedGame: (message) => handleSetSelectedGame(message.payload),
-  pauseFarming: () => handlePauseFarming(),
-  setAutoResumeOnStartup: (message) => handleSetAutoResumeOnStartup(message.payload),
-  resumeFarming: () => handleResumeFarming(),
-  stopFarming: () => handleStopFarming(),
-  updateGames: (message) => handleUpdateGames(message.payload),
-  syncTwitchSession: (message, sender) => handleSyncTwitchSession(message.payload, sender),
-  syncTwitchIntegrity: (message, sender) => handleSyncTwitchIntegrity(message.payload, sender),
-  refreshDrops: () => handleRefreshDrops(),
-  setMonitorAutoOpen: (message) => handleSetMonitorAutoOpen(message.payload),
-  setMuteFarmingTab: (message) => handleSetMuteFarmingTab(message.payload),
-  setNotificationsEnabled: (message) => handleSetNotificationsEnabled(message.payload),
-  setAutoClaimChannelPointsBonus: (message) => handleSetAutoClaimChannelPointsBonus(message.payload),
-  channelPointsBonusClaimed: (message, sender) => handleChannelPointsBonusClaimed(message.payload, sender),
-  setAutoClaimDrops: (message) => handleSetAutoClaimDrops(message.payload),
-  setStreamerSelectionMode: (message) => handleSetStreamerSelectionMode(message.payload),
-  setPreferredStreamerLanguage: (message) => handleSetPreferredStreamerLanguage(message.payload),
-  openMonitorDashboard: (message) => openMonitorDashboardWindow(message.payload ?? {}),
-});
+let serviceWorkerStarted = false;
+
+export function startServiceWorker(): void {
+  if (serviceWorkerStarted) {
+    return;
+  }
+  serviceWorkerStarted = true;
+
+  // Initialize state as soon as the SW starts. This handles the common case where
+  // a browser alarm wakes the SW from dormancy without onStartup/onInstalled.
+  initPromise = loadState().catch((error) => {
+    logWarn('SW initialization failed:', String(error));
+  });
+  initPromise = initPromise.then(async () => {
+    await notificationController.syncPermissionState();
+  });
+
+  registerExtensionLifecycleListeners({
+    alarmName: ALARM_NAME,
+    getInitPromise: () => initPromise,
+    onExtensionUpdate: handleExtensionUpdate,
+    onAlarm: () => checkDropProgress(),
+    onManagedTabRemoved: (removedTabId) => handleManagedTabRemoved(removedTabId),
+    onManagedTabNavigatedAway: (updatedTabId, url) => handleManagedTabNavigatedAway(updatedTabId, url),
+    onMonitorWindowRemoved: (removedWindowId) => handleMonitorWindowRemoved(removedWindowId),
+    logWarn,
+  });
+
+  registerRuntimeMessageRouter({
+    ensureGamesCache: (message) => handleEnsureGamesCache(message.payload),
+    openDropsPageAndRefresh: (message) => openDropsPageAndRefresh(message),
+    addToQueue: (message) => handleAddToQueue(message.payload),
+    removeFromQueue: (message) => handleRemoveFromQueue(message.payload),
+    clearQueue: () => handleClearQueue(),
+    startFarming: (message) => handleStartFarming(message.payload),
+    setSelectedGame: (message) => handleSetSelectedGame(message.payload),
+    pauseFarming: () => handlePauseFarming(),
+    setAutoResumeOnStartup: (message) => handleSetAutoResumeOnStartup(message.payload),
+    resumeFarming: () => handleResumeFarming(),
+    stopFarming: () => handleStopFarming(),
+    updateGames: (message) => handleUpdateGames(message.payload),
+    syncTwitchSession: (message, sender) => handleSyncTwitchSession(message.payload, sender),
+    syncTwitchIntegrity: (message, sender) => handleSyncTwitchIntegrity(message.payload, sender),
+    refreshDrops: () => handleRefreshDrops(),
+    setMonitorAutoOpen: (message) => handleSetMonitorAutoOpen(message.payload),
+    setMuteFarmingTab: (message) => handleSetMuteFarmingTab(message.payload),
+    setNotificationsEnabled: (message) => handleSetNotificationsEnabled(message.payload),
+    setAutoClaimChannelPointsBonus: (message) => handleSetAutoClaimChannelPointsBonus(message.payload),
+    channelPointsBonusClaimed: (message, sender) => handleChannelPointsBonusClaimed(message.payload, sender),
+    setAutoClaimDrops: (message) => handleSetAutoClaimDrops(message.payload),
+    setStreamerSelectionMode: (message) => handleSetStreamerSelectionMode(message.payload),
+    setPreferredStreamerLanguage: (message) => handleSetPreferredStreamerLanguage(message.payload),
+    openMonitorDashboard: (message) => openMonitorDashboardWindow(message.payload ?? {}),
+  });
+
+  logDebug('DropHunter service worker loaded');
+}
 
 async function handleManagedTabRemoved(removedTabId: number) {
   if (appState.tabId === removedTabId) {
@@ -1524,5 +1535,3 @@ async function handleMonitorWindowRemoved(removedWindowId: number) {
     await saveStateExt(state);
   }
 }
-
-logDebug('DropHunter service worker loaded');

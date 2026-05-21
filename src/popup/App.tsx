@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
+import { browser } from '../shared/browser-api.ts';
 import { sortPendingDrops } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
 import { sendRuntimeMessage } from '../shared/messages';
@@ -666,7 +667,7 @@ function App() {
     const next = !state.notificationsEnabled;
     setState((prev) => ({ ...prev, notificationsEnabled: next }));
     if (next) {
-      const granted = await chrome.permissions.request(NOTIFICATION_PERMISSION).catch(() => false);
+      const granted = await browser.permissions.request(NOTIFICATION_PERMISSION).catch(() => false);
       if (!granted) {
         setState((prev) => ({ ...prev, notificationsEnabled: false }));
         return;
@@ -974,7 +975,7 @@ function App() {
         </div>
         <p className="text-sm font-bold text-white">
           DropHunter{' '}
-          <span className="text-purple-300 font-normal">v{chrome.runtime.getManifest().version}</span>
+          <span className="text-purple-300 font-normal">v{browser.runtime.getManifest().version}</span>
         </p>
         <p className="text-[11px] text-gray-400">
           by{' '}
@@ -1009,7 +1010,7 @@ function App() {
           <button
             type="button"
             onClick={() =>
-              void chrome.tabs.create({ url: 'https://github.com/trevonerd/drophunter' }).catch(() => {})
+              void browser.tabs.create({ url: 'https://github.com/trevonerd/drophunter' }).catch(() => {})
             }
             className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 rounded"
             aria-label="Open DropHunter GitHub repository"
@@ -1020,7 +1021,7 @@ function App() {
           <button
             type="button"
             onClick={() =>
-              void chrome.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' }).catch(() => {})
+              void browser.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' }).catch(() => {})
             }
             className="flex items-center gap-1.5 rounded-full bg-[#FFDD00]/90 hover:bg-[#FFDD00] px-2.5 py-1 text-[11px] font-semibold text-[#1a1a1a] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
             aria-label="Open Buy Me a Coffee"

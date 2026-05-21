@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import { TWITCH_SESSION_STORAGE_KEY } from './constants.ts';
 import { logDebug, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './service-worker.ts';
@@ -7,10 +8,10 @@ import { sanitizeTwitchSession, TwitchSession } from './twitch-api/types.ts';
 
 export async function persistTwitchSession(session: TwitchSession | null) {
   if (session) {
-    await chrome.storage.local.set({ [TWITCH_SESSION_STORAGE_KEY]: session });
+    await browser.storage.local.set({ [TWITCH_SESSION_STORAGE_KEY]: session });
     return;
   }
-  await chrome.storage.local.remove(TWITCH_SESSION_STORAGE_KEY).catch(() => undefined);
+  await browser.storage.local.remove(TWITCH_SESSION_STORAGE_KEY).catch(() => undefined);
 }
 
 export function clearTwitchSessionCache(state: ServiceWorkerState) {
@@ -69,8 +70,8 @@ export function findSessionCandidateDeep(value: unknown, depth = 0): TwitchSessi
 
 export async function recoverTwitchSessionFromStorageKeys(): Promise<TwitchSession | null> {
   const [localAll, syncAll] = await Promise.all([
-    chrome.storage.local.get(null).catch(() => ({}) as Record<string, unknown>),
-    chrome.storage.sync.get(null).catch(() => ({}) as Record<string, unknown>),
+    browser.storage.local.get(null).catch(() => ({}) as Record<string, unknown>),
+    browser.storage.sync.get(null).catch(() => ({}) as Record<string, unknown>),
   ]);
 
   const local = localAll as Record<string, unknown>;
@@ -159,7 +160,7 @@ export async function refreshTwitchIntegrityToken(
 
 export async function loadPageIntegrityToken(): Promise<string | null> {
   try {
-    const stored = (await chrome.storage.local.get(['twitchIntegrity']).catch(() => ({}))) as Record<
+    const stored = (await browser.storage.local.get(['twitchIntegrity']).catch(() => ({}))) as Record<
       string,
       unknown
     >;
@@ -201,7 +202,7 @@ export async function ensureSessionIntegrity(
 
 export async function readTwitchSessionViaExecuteScript(tabId: number): Promise<TwitchSession | null> {
   try {
-    const execution = await chrome.scripting.executeScript({
+    const execution = await browser.scripting.executeScript({
       target: { tabId },
       func: () => {
         const normalize = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
@@ -348,7 +349,7 @@ export async function ensureTwitchSession(
   state.twitchSessionFetchInFlight = (async () => {
     state.twitchSessionLastAttemptAt = Date.now();
     if (!forceRefresh) {
-      const storageResult = (await chrome.storage.local.get(['twitchSession']).catch(() => ({}))) as Record<
+      const storageResult = (await browser.storage.local.get(['twitchSession']).catch(() => ({}))) as Record<
         string,
         unknown
       >;

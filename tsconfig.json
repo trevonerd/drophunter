@@ -20,9 +20,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    /* Chrome Extension Types + Vite env (for import.meta.env.DEV) */
+    /* Browser Extension Types + Vite env (for import.meta.env.DEV) */
     "types": ["chrome", "vite/client"]
   },
-  "include": ["src"],
+  "include": ["src", ".wxt/wxt.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }, { "path": "./video" }]
 }

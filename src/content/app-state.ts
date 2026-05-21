@@ -1,3 +1,5 @@
+import { browser } from '../shared/browser-api.ts';
+
 type ContentAppState = {
   autoClaimChannelPointsBonus?: boolean;
 };
@@ -6,7 +8,7 @@ type RuntimeListener = (message: unknown) => void;
 type StorageChange = { newValue?: unknown };
 type StorageListener = (changes: Record<string, StorageChange>, areaName: string) => void;
 
-type ContentChromeApi = {
+type ContentBrowserApi = {
   runtime?: {
     onMessage?: {
       addListener(listener: RuntimeListener): void;
@@ -24,9 +26,9 @@ type ContentChromeApi = {
   };
 };
 
-function getChromeApi(): ContentChromeApi | null {
+function getBrowserApi(): ContentBrowserApi | null {
   try {
-    return typeof chrome === 'undefined' ? null : (chrome as ContentChromeApi);
+    return browser as ContentBrowserApi;
   } catch {
     return null;
   }
@@ -43,7 +45,7 @@ export function normalizeContentAppState(value: unknown): ContentAppState {
 }
 
 export async function loadStoredContentAppState(): Promise<ContentAppState> {
-  const storageLocal = getChromeApi()?.storage?.local;
+  const storageLocal = getBrowserApi()?.storage?.local;
   if (!storageLocal) {
     return normalizeContentAppState(null);
   }
@@ -70,9 +72,9 @@ export function subscribeToContentAppState(onState: (state: ContentAppState) => 
     onState(normalizeContentAppState(changes.appState.newValue));
   };
 
-  const chromeApi = getChromeApi();
-  const runtimeOnMessage = chromeApi?.runtime?.onMessage;
-  const storageOnChanged = chromeApi?.storage?.onChanged;
+  const browserApi = getBrowserApi();
+  const runtimeOnMessage = browserApi?.runtime?.onMessage;
+  const storageOnChanged = browserApi?.storage?.onChanged;
 
   runtimeOnMessage?.addListener(runtimeListener);
   storageOnChanged?.addListener(storageListener);

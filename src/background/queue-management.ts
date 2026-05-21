@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import { haveAllDropsExpiredOrVanished } from '../shared/drops';
 import {
   compareGamesForDisplayOrder,
@@ -846,7 +847,7 @@ export async function rotateStreamerIfInvalid(
     return;
   }
 
-  const tab = await chrome.tabs.get(state.appState.tabId).catch(() => null);
+  const tab = await browser.tabs.get(state.appState.tabId).catch(() => null);
   if (!tab?.id) {
     state.appState.tabId = null;
     state.appState.activeStreamer = null;
@@ -1184,7 +1185,7 @@ export async function checkDropProgress(
     }
 
     if (state.appState.tabId) {
-      const streamTab = await chrome.tabs.get(state.appState.tabId).catch(() => null);
+      const streamTab = await browser.tabs.get(state.appState.tabId).catch(() => null);
       if (!streamTab) {
         state.appState.tabId = null;
         state.appState.activeStreamer = null;

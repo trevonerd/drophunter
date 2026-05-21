@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 
 const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
@@ -41,7 +42,7 @@ interface OpenDropsPageRefreshOptions {
 }
 
 export function createDropsPageRefresher(state: DropsPageState, options: DropsPageRefreshOptions) {
-  const getTabsApi = () => options.tabsApi ?? chrome.tabs;
+  const getTabsApi = () => options.tabsApi ?? browser.tabs;
   let openAndRefreshInFlight: Promise<DropsPageRefreshResult> | null = null;
   let refreshInFlight: Promise<DropsPageRefreshResult> | null = null;
 

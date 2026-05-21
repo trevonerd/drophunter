@@ -31,7 +31,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 
 Grab the latest zip from [Releases](https://github.com/trevonerd/drophunter/releases), unzip it, then:
 
-1. Open `chrome://extensions/`
+1. Open `chrome://extensions/` or `edge://extensions/`
 2. Enable **Developer mode**
 3. Click **Load unpacked**
 4. Select the unzipped project folder
@@ -43,7 +43,7 @@ bun install
 bun run build
 ```
 
-The production build is generated in `dist/`. Load that folder as an unpacked extension from `chrome://extensions/`.
+The production Chrome build is generated in `.output/chrome-mv3/`. The Edge build is generated in `.output/edge-mv3/` after `bun run build:edge` or `bun run build:all`.
 
 ## Usage
 
@@ -117,8 +117,8 @@ bun run update:interactive
 ### Local workflow
 
 1. Make your changes in `src/`
-2. Run `bun run dev` to keep `dist/` rebuilt while you work, or `bun run build` for a one-off production build
-3. Load or reload `dist/` as the unpacked extension from `chrome://extensions/`
+2. Run `bun run dev` for Chrome, `bun run dev:edge` for Edge, or `bun run build:all` for production builds
+3. Load or reload `.output/chrome-mv3/` or `.output/edge-mv3/` as the unpacked extension
 4. Re-test the relevant Twitch flow
 
 ## Project Structure

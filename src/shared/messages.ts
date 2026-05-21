@@ -6,6 +6,7 @@ import type {
   TwitchGame,
   TwitchStreamer,
 } from '../types';
+import { browser } from './browser-api.ts';
 
 export const RUNTIME_MESSAGE_TYPES = [
   'GET_TWITCH_SESSION',
@@ -288,7 +289,7 @@ export function isRuntimeRequest(value: unknown): value is RuntimeRequest {
 export async function sendRuntimeMessage<T extends RuntimeRequest['type']>(
   request: Extract<RuntimeRequest, { type: T }>,
 ): Promise<RuntimeResponseByType[T] | undefined> {
-  return (await chrome.runtime.sendMessage(request)) as RuntimeResponseByType[T] | undefined;
+  return (await browser.runtime.sendMessage(request)) as RuntimeResponseByType[T] | undefined;
 }
 
 export function assertNever(value: never): never {

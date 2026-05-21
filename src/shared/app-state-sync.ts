@@ -1,4 +1,5 @@
 import type { AppState } from '../types/index.ts';
+import { browser } from './browser-api.ts';
 import { isRuntimeRequest } from './messages.ts';
 import { createInitialState } from './utils.ts';
 
@@ -13,7 +14,7 @@ export function normalizeStoredAppState(value: unknown): AppState {
 }
 
 export async function loadStoredAppState(): Promise<AppState> {
-  const result = await chrome.storage.local.get(['appState']);
+  const result = await browser.storage.local.get(['appState']);
   return normalizeStoredAppState(result.appState);
 }
 
@@ -24,18 +25,21 @@ export function subscribeToAppState(onState: (state: AppState) => void): () => v
     }
   };
 
-  const storageListener: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, areaName) => {
+  const storageListener: Parameters<typeof browser.storage.onChanged.addListener>[0] = (
+    changes,
+    areaName,
+  ) => {
     if (areaName !== 'local' || !changes.appState) {
       return;
     }
     onState(normalizeStoredAppState(changes.appState.newValue));
   };
 
-  chrome.runtime.onMessage.addListener(runtimeListener);
-  chrome.storage.onChanged.addListener(storageListener);
+  browser.runtime.onMessage.addListener(runtimeListener);
+  browser.storage.onChanged.addListener(storageListener);
 
   return () => {
-    chrome.runtime.onMessage.removeListener(runtimeListener);
-    chrome.storage.onChanged.removeListener(storageListener);
+    browser.runtime.onMessage.removeListener(runtimeListener);
+    browser.storage.onChanged.removeListener(storageListener);
   };
 }

@@ -6,6 +6,8 @@ node_modules/
 # Build
 dist/
 build/
+.output/
+.wxt/
 video/out/
 
 # Testing

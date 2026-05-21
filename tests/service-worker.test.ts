@@ -119,7 +119,8 @@ function installServiceWorkerSupportMocks(mocks: ChromeMocks) {
 
 installServiceWorkerSupportMocks(chromeMocks);
 
-await import('../src/background/service-worker.ts');
+const serviceWorkerModule = await import('../src/background/service-worker.ts');
+serviceWorkerModule.startServiceWorker();
 
 const demoGame: TwitchGame = {
   id: 'game-1',
@@ -462,7 +463,10 @@ async function importServiceWorkerWithBlockedInitialLoad(testId: string, appStat
     return originalSet(items);
   };
 
-  await import(`../src/background/service-worker.ts?init-race-${testId}-${Date.now()}`);
+  const isolatedServiceWorkerModule = await import(
+    `../src/background/service-worker.ts?init-race-${testId}-${Date.now()}`
+  );
+  isolatedServiceWorkerModule.startServiceWorker();
   await initialLoadStarted;
 
   return {

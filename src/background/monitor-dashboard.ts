@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 
 interface MonitorDashboardState {
@@ -34,7 +35,7 @@ export async function openMonitorDashboardWindow(
   state: MonitorDashboardState,
   options: OpenMonitorDashboardOptions,
 ) {
-  const windowsApi = options.windowsApi ?? chrome.windows;
+  const windowsApi = options.windowsApi ?? browser.windows;
   const url = options.monitorDashboardUrl();
   if (state.appState.monitorWindowId) {
     const existingWindow = await windowsApi.get(state.appState.monitorWindowId).catch(() => null);

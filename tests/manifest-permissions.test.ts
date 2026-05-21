@@ -1,25 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { EXTENSION_MANIFEST, TWITCH_MATCHES } from '../src/shared/extension-manifest.ts';
 
-interface ManifestContentScript {
-  matches?: string[];
-}
-
-interface ExtensionManifest {
-  permissions?: string[];
-  optional_permissions?: string[];
-  host_permissions?: string[];
-  content_security_policy?: {
-    extension_pages?: string;
-  };
-  content_scripts?: ManifestContentScript[];
-  version?: string;
-}
-
-const manifest = JSON.parse(
-  readFileSync(resolve(import.meta.dir, '../public/manifest.json'), 'utf-8'),
-) as ExtensionManifest;
 const packageJson = JSON.parse(
   readFileSync(resolve(import.meta.dir, '../package.json'), 'utf-8'),
 ) as { version?: string };
@@ -37,17 +20,17 @@ function runtimeSourceFiles(dir: string): string[] {
 
 describe('manifest permissions', () => {
   test('does not request sensitive tab or cookie permissions', () => {
-    expect(manifest.permissions ?? []).not.toContain('tabs');
-    expect(manifest.permissions ?? []).not.toContain('cookies');
+    expect(EXTENSION_MANIFEST.permissions).not.toContain('tabs');
+    expect(EXTENSION_MANIFEST.permissions).not.toContain('cookies');
   });
 
   test('requests notifications only as an optional permission', () => {
-    expect(manifest.permissions ?? []).not.toContain('notifications');
-    expect(manifest.optional_permissions).toEqual(['notifications']);
+    expect(EXTENSION_MANIFEST.permissions).not.toContain('notifications');
+    expect(EXTENSION_MANIFEST.optional_permissions).toEqual(['notifications']);
   });
 
   test('does not request broad host access', () => {
-    const hosts = manifest.host_permissions ?? [];
+    const hosts = EXTENSION_MANIFEST.host_permissions;
     expect(hosts).not.toContain('<all_urls>');
     expect(hosts).not.toContain('*://*/*');
     expect(hosts).not.toContain('https://*/*');
@@ -55,7 +38,7 @@ describe('manifest permissions', () => {
   });
 
   test('declares a strict extension-page content security policy', () => {
-    expect(manifest.content_security_policy?.extension_pages).toBe(
+    expect(EXTENSION_MANIFEST.content_security_policy.extension_pages).toBe(
       "script-src 'self'; object-src 'self';",
     );
   });
@@ -63,24 +46,24 @@ describe('manifest permissions', () => {
   test('uses one Twitch-only host pattern everywhere', () => {
     const expected = ['https://*.twitch.tv/*'];
 
-    expect(manifest.host_permissions).toEqual(expected);
-    for (const script of manifest.content_scripts ?? []) {
-      expect(script.matches).toEqual(expected);
-    }
+    expect(EXTENSION_MANIFEST.host_permissions).toEqual(expected);
+    expect(TWITCH_MATCHES).toEqual(expected);
   });
 
-  test('keeps package and source manifest versions aligned', () => {
-    expect(manifest.version).toBe(packageJson.version);
+  test('keeps package version ready for WXT generated manifests', () => {
+    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  test('content script keeps runtime code self-contained for classic injection', () => {
-    const source = readFileSync(
-      resolve(import.meta.dir, '../src/content/content-script.ts'),
+  test('declares WXT entrypoints for both Twitch content scripts', () => {
+    const contentEntrypoint = readFileSync(resolve(import.meta.dir, '../src/entrypoints/content.ts'), 'utf-8');
+    const integrityEntrypoint = readFileSync(
+      resolve(import.meta.dir, '../src/entrypoints/integrity-interceptor.content.ts'),
       'utf-8',
     );
 
-    expect(source).not.toContain("from '../shared/");
-    expect(source).not.toContain('from "../shared/');
+    expect(contentEntrypoint).toContain("runAt: 'document_idle'");
+    expect(integrityEntrypoint).toContain("runAt: 'document_start'");
+    expect(integrityEntrypoint).toContain("world: 'MAIN'");
   });
 
   test('runtime source does not use the chrome.cookies API', () => {

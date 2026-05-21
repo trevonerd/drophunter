@@ -1,3 +1,5 @@
+import { browser } from '../shared/browser-api.ts';
+
 type ListenerEvent<TArgs extends unknown[]> = {
   addListener(handler: (...args: TArgs) => void): void;
 };
@@ -56,7 +58,7 @@ async function awaitInitialization(getInitPromise: () => Promise<void> | null) {
 }
 
 export function registerExtensionLifecycleListeners(options: ExtensionLifecycleOptions) {
-  const api = options.api ?? chrome;
+  const api = options.api ?? browser;
 
   api.runtime.onStartup.addListener(() => {
     reportAsyncError(awaitInitialization(options.getInitPromise), 'onStartup error', options.logWarn);

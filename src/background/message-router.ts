@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import {
   assertNever,
   isRuntimeMessageType,
@@ -140,5 +141,5 @@ export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): 
 }
 
 export function registerRuntimeMessageRouter(handlers: RuntimeMessageHandlers) {
-  chrome.runtime.onMessage.addListener(createRuntimeMessageListener(handlers));
+  browser.runtime.onMessage.addListener(createRuntimeMessageListener(handlers));
 }

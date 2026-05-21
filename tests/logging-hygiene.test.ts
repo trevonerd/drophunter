@@ -53,10 +53,10 @@ describe('logging hygiene', () => {
   });
 
   test('declares the build-time debug log flag', () => {
-    const viteConfig = readFileSync(join(repoRoot, 'vite.config.ts'), 'utf-8');
+    const wxtConfig = readFileSync(join(repoRoot, 'wxt.config.ts'), 'utf-8');
     const backgroundLogger = readFileSync(join(repoRoot, 'src/background/logging.ts'), 'utf-8');
 
-    expect(viteConfig).toContain('__DROPHUNTER_DEBUG_LOGS__');
+    expect(wxtConfig).toContain('__DROPHUNTER_DEBUG_LOGS__');
     expect(backgroundLogger).toContain('__DROPHUNTER_DEBUG_LOGS__');
     expect(backgroundLogger).not.toContain('import.meta.env.DEV');
   });

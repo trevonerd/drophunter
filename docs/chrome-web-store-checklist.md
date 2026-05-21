@@ -8,7 +8,7 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 - Run `bun run release:check`.
 - Run `bun audit`.
 - Run `bun audit` from the `video/` directory.
-- Confirm the production `dist/` folder was rebuilt by the final check.
+- Confirm the production `.output/chrome-mv3/` and `.output/edge-mv3/` folders were rebuilt by the final check.
 
 ## Listing accuracy
 
@@ -37,7 +37,7 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 
 ## Final QA
 
-- Load the fresh production `dist/` build.
+- Load the fresh production `.output/chrome-mv3/` build.
 - Verify popup load, campaign refresh, dropdown selection, start, pause, resume, stop, queue completion, and claim flows.
 - Verify the refresh UI has only the toolbar loader and bottom guidance loader, with no duplicate loading message under the dropdown.
 - Verify the monitor opens, updates, and closes cleanly.
