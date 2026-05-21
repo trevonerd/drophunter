@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import { AppState, TwitchDrop } from '../types';
 import {
   DROPS_SNAPSHOT_CACHE_KEY,
@@ -37,7 +38,7 @@ export function sessionDebugSummary(session: TwitchSession | null) {
 
 export async function markActivity(state: ServiceWorkerState, reason: string) {
   state.lastActivityAt = Date.now();
-  await chrome.storage.local.set({ [LAST_ACTIVITY_AT_KEY]: state.lastActivityAt }).catch(() => undefined);
+  await browser.storage.local.set({ [LAST_ACTIVITY_AT_KEY]: state.lastActivityAt }).catch(() => undefined);
   logDebug('Activity marked', { reason, lastActivityAt: state.lastActivityAt });
 }
 
@@ -72,7 +73,7 @@ export async function saveTimingState(state: ServiceWorkerState) {
         recoveryNotificationSent: state.recoveryNotificationSent,
         lastHeartbeatAt: state.lastHeartbeatAt,
       };
-      await chrome.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
+      await browser.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
       const resolvers = timingSaveResolvers;
       timingSaveResolvers = [];
       for (const pendingResolve of resolvers) pendingResolve();
@@ -82,7 +83,7 @@ export async function saveTimingState(state: ServiceWorkerState) {
 
 export async function loadTimingState(state: ServiceWorkerState) {
   try {
-    const result = await chrome.storage.local.get([TIMING_STATE_KEY]);
+    const result = await browser.storage.local.get([TIMING_STATE_KEY]);
     const saved = normalizeTimingState(result[TIMING_STATE_KEY]);
     state.lastStreamRotationAt = saved.lastStreamRotationAt;
     state.streamValidationGraceUntil = saved.streamValidationGraceUntil;
@@ -119,7 +120,7 @@ export function shouldRefreshGamesCache(state: ServiceWorkerState, force = false
 }
 
 export function broadcastStateUpdate(appState: AppState) {
-  chrome.runtime
+  browser.runtime
     .sendMessage({
       type: 'UPDATE_STATE',
       payload: appState,
@@ -127,18 +128,18 @@ export function broadcastStateUpdate(appState: AppState) {
     .catch(() => undefined);
 
   if (appState.currentDrop && appState.isRunning) {
-    chrome.action.setBadgeText({ text: `${appState.currentDrop.progress}%` });
-    chrome.action.setBadgeBackgroundColor({ color: '#9146FF' });
+    browser.action.setBadgeText({ text: `${appState.currentDrop.progress}%` });
+    browser.action.setBadgeBackgroundColor({ color: '#9146FF' });
   } else if (appState.isRunning) {
-    chrome.action.setBadgeText({ text: '...' });
-    chrome.action.setBadgeBackgroundColor({ color: '#9146FF' });
+    browser.action.setBadgeText({ text: '...' });
+    browser.action.setBadgeBackgroundColor({ color: '#9146FF' });
   } else {
-    chrome.action.setBadgeText({ text: '' });
+    browser.action.setBadgeText({ text: '' });
   }
 }
 
 export async function saveState(state: ServiceWorkerState) {
-  await chrome.storage.local.set({
+  await browser.storage.local.set({
     appState: state.appState,
     [DROPS_SNAPSHOT_CACHE_KEY]: state.cachedDropsSnapshot,
   });
@@ -168,7 +169,7 @@ export async function loadState(
   deps: LoadStateDeps,
 ): Promise<void> {
   try {
-    const result = await chrome.storage.local.get([
+    const result = await browser.storage.local.get([
       'appState',
       deps.TWITCH_SESSION_STORAGE_KEY,
       deps.DROPS_SNAPSHOT_CACHE_KEY,
@@ -181,7 +182,7 @@ export async function loadState(
       }
       if (state.appState.dropsPageRefreshInProgress) {
         state.appState.dropsPageRefreshInProgress = false;
-        await chrome.storage.local.set({ appState: state.appState }).catch(() => undefined);
+        await browser.storage.local.set({ appState: state.appState }).catch(() => undefined);
       }
     }
     state.twitchSessionCache = deps.sanitizeTwitchSession(result[deps.TWITCH_SESSION_STORAGE_KEY] as unknown);
@@ -250,7 +251,7 @@ export async function resetStateForInactivity(
   state.stalledRecoveryAttempts = 0;
   state.recoveryNotificationSent = false;
   state.lastActivityAt = Date.now();
-  await chrome.storage.local
+  await browser.storage.local
     .set({
       appState: state.appState,
       [deps.DROPS_SNAPSHOT_CACHE_KEY]: [],
@@ -258,8 +259,8 @@ export async function resetStateForInactivity(
     })
     .catch(() => undefined);
   await Promise.all([
-    chrome.storage.local.remove(deps.TIMING_STATE_KEY).catch(() => undefined),
-    chrome.storage.session.remove(deps.TIMING_STATE_KEY).catch(() => undefined),
+    browser.storage.local.remove(deps.TIMING_STATE_KEY).catch(() => undefined),
+    browser.storage.session.remove(deps.TIMING_STATE_KEY).catch(() => undefined),
   ]);
   await callbacks.onSaveTimingState(state);
   callbacks.onBroadcastStateUpdate(state.appState);

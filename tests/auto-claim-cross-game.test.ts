@@ -112,7 +112,8 @@ function installServiceWorkerSupportMocks(mocks: ChromeMocks) {
 
 installServiceWorkerSupportMocks(chromeMocks);
 
-await import('../src/background/service-worker.ts?auto-claim-cross-game');
+const serviceWorkerModule = await import('../src/background/service-worker.ts?auto-claim-cross-game');
+serviceWorkerModule.startServiceWorker();
 
 const farmingGame: TwitchGame = {
   id: 'game-farming',

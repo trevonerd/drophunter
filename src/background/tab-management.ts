@@ -1,5 +1,5 @@
+import { browser } from '../shared/browser-api.ts';
 import { shouldCloseManagedTab } from './runtime-state.ts';
-
 import type { ServiceWorkerState } from './service-worker.ts';
 
 export function streamerWatchUrl(channelName: string): string {
@@ -8,20 +8,20 @@ export function streamerWatchUrl(channelName: string): string {
 }
 
 export function monitorDashboardUrl(): string {
-  return chrome.runtime.getURL('monitor.html');
+  return browser.runtime.getURL('/monitor.html');
 }
 
 export async function applyBestEffortAlwaysOnTop(windowId: number) {
   const opts = { focused: true, alwaysOnTop: true };
-  await chrome.windows
+  await browser.windows
     .update(windowId, opts as unknown as chrome.windows.UpdateInfo)
-    .catch(() => chrome.windows.update(windowId, { focused: true }).catch(() => undefined));
+    .catch(() => browser.windows.update(windowId, { focused: true }).catch(() => undefined));
 }
 
 export async function createManagedTab(url: string, active = false): Promise<chrome.tabs.Tab | null> {
   if (active) {
     const currentActiveTab =
-      (await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []))[0] ?? null;
+      (await browser.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []))[0] ?? null;
     if (currentActiveTab?.id) {
       const currentUrl = currentActiveTab.url;
       const canReuseCurrent =
@@ -31,7 +31,7 @@ export async function createManagedTab(url: string, active = false): Promise<chr
           currentUrl.startsWith('edge://newtab') ||
           /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(currentUrl));
       if (canReuseCurrent) {
-        const updated = await chrome.tabs
+        const updated = await browser.tabs
           .update(currentActiveTab.id, { url, active: true })
           .catch(() => null);
         if (updated?.id) {
@@ -41,12 +41,12 @@ export async function createManagedTab(url: string, active = false): Promise<chr
     }
   }
 
-  const focusedWindow = await chrome.windows.getLastFocused().catch(() => null);
+  const focusedWindow = await browser.windows.getLastFocused().catch(() => null);
   if (focusedWindow?.id) {
-    return chrome.tabs.create({ windowId: focusedWindow.id, url, active }).catch(() => null);
+    return browser.tabs.create({ windowId: focusedWindow.id, url, active }).catch(() => null);
   }
 
-  return chrome.tabs.create({ url, active }).catch(() => null);
+  return browser.tabs.create({ url, active }).catch(() => null);
 }
 
 export async function ensureManagedTab(
@@ -55,15 +55,15 @@ export async function ensureManagedTab(
   active = false,
 ): Promise<number | null> {
   if (existingTabId) {
-    const existingTab = await chrome.tabs.get(existingTabId).catch(() => null);
+    const existingTab = await browser.tabs.get(existingTabId).catch(() => null);
     if (existingTab?.id) {
       const existingUrl = existingTab.url ?? '';
       const isOnTwitch = /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(existingUrl);
       if (isOnTwitch) {
         if (existingTab.url !== targetUrl) {
-          await chrome.tabs.update(existingTab.id, { url: targetUrl, active }).catch(() => undefined);
+          await browser.tabs.update(existingTab.id, { url: targetUrl, active }).catch(() => undefined);
         } else if (active && !existingTab.active) {
-          await chrome.tabs.update(existingTab.id, { active: true }).catch(() => undefined);
+          await browser.tabs.update(existingTab.id, { active: true }).catch(() => undefined);
         }
         return existingTab.id;
       }
@@ -79,17 +79,17 @@ export async function closeManagedTabIfSafe(tabId: number | null): Promise<boole
     return false;
   }
 
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const tab = await browser.tabs.get(tabId).catch(() => null);
   if (!tab?.id || typeof tab.windowId !== 'number') {
     return false;
   }
 
-  const windowTabs = await chrome.tabs.query({ windowId: tab.windowId }).catch(() => []);
+  const windowTabs = await browser.tabs.query({ windowId: tab.windowId }).catch(() => []);
   if (!shouldCloseManagedTab(windowTabs.length)) {
     return false;
   }
 
-  await chrome.tabs.remove(tab.id).catch(() => undefined);
+  await browser.tabs.remove(tab.id).catch(() => undefined);
   return true;
 }
 
@@ -106,7 +106,7 @@ export async function waitForTabComplete(tabId: number, timeoutMs = 12_000): Pro
         return;
       }
       settled = true;
-      chrome.tabs.onUpdated.removeListener(onUpdated);
+      browser.tabs.onUpdated.removeListener(onUpdated);
       clearTimeout(timer);
       resolve();
     };
@@ -118,8 +118,8 @@ export async function waitForTabComplete(tabId: number, timeoutMs = 12_000): Pro
     };
 
     const timer = setTimeout(finish, timeoutMs);
-    chrome.tabs.onUpdated.addListener(onUpdated);
-    chrome.tabs
+    browser.tabs.onUpdated.addListener(onUpdated);
+    browser.tabs
       .get(tabId)
       .then((tab) => {
         if (tab.status === 'complete') {
@@ -138,7 +138,7 @@ export async function syncManagedTabMuteState(state: ServiceWorkerState) {
   if (!state.appState.tabId) {
     return;
   }
-  await chrome.tabs
+  await browser.tabs
     .update(state.appState.tabId, { muted: shouldMuteManagedFarmingTab(state) })
     .catch(() => undefined);
 }

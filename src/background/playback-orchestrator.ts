@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import type { PlaybackPrepResult, TwitchStreamer } from '../types';
 import { STREAM_VALIDATION_GRACE_MS } from './constants.ts';
 
@@ -48,8 +49,8 @@ function delay(ms: number) {
 }
 
 export function createPlaybackOrchestrator(state: PlaybackState, options: PlaybackOrchestratorOptions) {
-  const getTabsApi = () => options.tabsApi ?? chrome.tabs;
-  const getWindowsApi = () => options.windowsApi ?? chrome.windows;
+  const getTabsApi = () => options.tabsApi ?? browser.tabs;
+  const getWindowsApi = () => options.windowsApi ?? browser.windows;
   const now = () => options.now?.() ?? Date.now();
 
   const focusManagedTab = async (tabId: number) => {

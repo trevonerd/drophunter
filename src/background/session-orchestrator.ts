@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 import type { TwitchSession } from './twitch-api/types';
 
@@ -42,14 +43,14 @@ export function createSessionOrchestrator(
   state: SessionOrchestratorState,
   options: SessionOrchestratorOptions,
 ) {
-  const getTabsApi = () => options.tabsApi ?? chrome.tabs;
-  const getScriptingApi = () => options.scriptingApi ?? chrome.scripting;
+  const getTabsApi = () => options.tabsApi ?? browser.tabs;
+  const getScriptingApi = () => options.scriptingApi ?? browser.scripting;
 
   const ensureContentScriptOnTab = async (tabId: number) => {
     try {
       await getScriptingApi().executeScript({
         target: { tabId },
-        files: ['content.js'],
+        files: ['/content-scripts/content.js'],
       });
     } catch (error) {
       // Content script may already be injected or the tab may not allow scripting.

@@ -8,11 +8,21 @@
     "url": "https://github.com/trevonerd/drophunter/"
   },
   "scripts": {
-    "clean": "rm -rf dist video/out",
-    "dev": "NODE_OPTIONS=--disable-warning=DEP0205 vite build --watch --mode development",
-    "build": "NODE_OPTIONS=--disable-warning=DEP0205 vite build --mode production",
-    "check": "bun run test:ts && bun run lint && bun run test && bun run build",
+    "clean": "wxt clean && rm -rf dist video/out",
+    "dev": "wxt -b chrome",
+    "dev:chrome": "wxt -b chrome",
+    "dev:edge": "wxt -b edge",
+    "build": "bun run build:chrome",
+    "build:chrome": "wxt build -b chrome",
+    "build:edge": "wxt build -b edge",
+    "build:all": "bun run build:chrome && bun run build:edge",
+    "zip": "bun run zip:chrome",
+    "zip:chrome": "wxt zip -b chrome",
+    "zip:edge": "wxt zip -b edge",
+    "zip:all": "bun run zip:chrome && bun run zip:edge",
+    "check": "bun run test:ts && bun run lint && bun run test && bun run build:all",
     "release:check": "bun scripts/release-check.mjs",
+    "release:zip": "bun run release:check && bun run zip:all",
     "video:install": "cd video && bun install",
     "video:preview": "cd video && bun run preview",
     "video:render:cta": "cd video && bun run render:cta",
@@ -32,6 +42,7 @@
     "deps:audit:all": "bun audit && cd video && bun audit",
     "update": "bun update --latest && bun install && cd video && bun update --latest && bun install",
     "update:interactive": "bun update --interactive --latest && bun install && cd video && bun update --interactive --latest && bun install",
+    "postinstall": "wxt prepare",
     "prepare": "husky"
   },
   "dependencies": {
@@ -51,7 +62,8 @@
     "postcss": "8.5.15",
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3",
-    "vite": "8.0.13"
+    "vite": "8.0.13",
+    "wxt": "^0.20.26"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,css}": [

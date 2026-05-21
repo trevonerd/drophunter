@@ -6,14 +6,17 @@ type RuntimeListener = (message: unknown) => void;
 type StorageListener = (changes: Record<string, { newValue?: unknown }>, areaName: string) => void;
 
 const originalChrome = (globalThis as typeof globalThis & { chrome?: unknown }).chrome;
+const originalBrowser = (globalThis as typeof globalThis & { browser?: unknown }).browser;
 
 function setChromeMock(chromeMock: unknown): void {
   (globalThis as typeof globalThis & { chrome?: unknown }).chrome = chromeMock;
+  (globalThis as typeof globalThis & { browser?: unknown }).browser = chromeMock;
 }
 
 describe('content app-state sync', () => {
   afterEach(() => {
     (globalThis as typeof globalThis & { chrome?: unknown }).chrome = originalChrome;
+    (globalThis as typeof globalThis & { browser?: unknown }).browser = originalBrowser;
   });
 
   test('does not throw when chrome.storage.onChanged is unavailable in a content world', () => {

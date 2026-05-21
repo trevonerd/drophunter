@@ -132,6 +132,7 @@ export interface ChromeMocks {
 
 export function setupChromeMocks(): ChromeMocks {
   const originalChrome = (globalThis as Record<string, unknown>).chrome;
+  const originalBrowser = (globalThis as Record<string, unknown>).browser;
 
   const localStore = createStorageMock();
   const sessionStore = createStorageMock();
@@ -190,6 +191,7 @@ export function setupChromeMocks(): ChromeMocks {
   };
 
   (globalThis as Record<string, unknown>).chrome = mockChrome;
+  (globalThis as Record<string, unknown>).browser = mockChrome;
 
   return {
     storage: { local: localStore, session: sessionStore, sync: syncStore },
@@ -223,6 +225,7 @@ export function setupChromeMocks(): ChromeMocks {
     },
     teardown() {
       (globalThis as Record<string, unknown>).chrome = originalChrome;
+      (globalThis as Record<string, unknown>).browser = originalBrowser;
     },
   };
 }

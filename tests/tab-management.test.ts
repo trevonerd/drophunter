@@ -141,7 +141,7 @@ function createMockChrome(): ChromeMock {
       },
     },
     runtime: {
-      getURL: (path) => `chrome-extension://mock-id/${path}`,
+      getURL: (path) => `chrome-extension://mock-id/${path.replace(/^\//, '')}`,
     },
     storage: {
       local: {
@@ -175,11 +175,16 @@ function createMockChrome(): ChromeMock {
 
 function setupChromeMock(): { mock: ChromeMock & { _setQueryResult: (tabs: Tab[]) => void; _setGetResult: (tab: Tab | null) => void }; teardown: () => void } {
   const originalChrome = (globalThis as Record<string, unknown>).chrome;
+  const originalBrowser = (globalThis as Record<string, unknown>).browser;
   const mock = createMockChrome();
   (globalThis as Record<string, unknown>).chrome = mock;
+  (globalThis as Record<string, unknown>).browser = mock;
   return {
     mock: mock as ChromeMock & { _setQueryResult: (tabs: Tab[]) => void; _setGetResult: (tab: Tab | null) => void },
-    teardown: () => { (globalThis as Record<string, unknown>).chrome = originalChrome; },
+    teardown: () => {
+      (globalThis as Record<string, unknown>).chrome = originalChrome;
+      (globalThis as Record<string, unknown>).browser = originalBrowser;
+    },
   };
 }
 
