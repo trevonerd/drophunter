@@ -3,13 +3,11 @@ import {
   AbsoluteFill,
   interpolate,
   spring,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 export const RecoveryScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const bellIn = spring({ frame, fps, config: { damping: 16, stiffness: 130 } });
   const pulse = (Math.sin(frame * 0.15) + 1) / 2;

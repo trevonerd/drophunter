@@ -53,11 +53,11 @@ DropHunter does **not** include:
 |---|---|
 | `storage` | Persist extension state (queue, progress) across browser sessions |
 | `scripting` | Inject content scripts into Twitch pages to control video playback |
-| `notifications` | Notify you when drops are claimed or issues arise |
+| `notifications` (optional) | Notify you when drops are claimed or issues arise, only after you enable notifications |
 | `alarms` | Keep the background farming loop running reliably |
 | `host_permissions` (twitch.tv) | Access Twitch pages and API endpoints |
 
-DropHunter does not request the `tabs` or `cookies` permissions.
+DropHunter does not request the `tabs` or `cookies` permissions and does not use the `chrome.cookies` API. Session recovery relies on Twitch page storage and content scripts running only on Twitch pages.
 
 ## Open source
 

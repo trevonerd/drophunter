@@ -266,6 +266,43 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(state.apiConsecutiveFailures).toBe(0);
   });
 
+  test('ViewerDropsDashboard does not request reward campaigns', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+    const game = createGame({ name: 'Test Game', campaignId: 'campaign-123', categorySlug: 'test-game' });
+    const dashboardPayloads: Array<Record<string, unknown>> = [];
+
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+      let payload: unknown;
+
+      if (Array.isArray(body)) {
+        payload = buildCampaignDetailsResponse();
+      } else if (body?.operationName === 'ViewerDropsDashboard') {
+        dashboardPayloads.push(body);
+        payload = buildDropsDashboardResponse([game]);
+      } else if (body?.operationName === 'Inventory') {
+        payload = buildInventoryResponse();
+      } else {
+        throw new Error(`Unexpected request: ${JSON.stringify(body)}`);
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as FetchMock;
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+
+    expect(result?.games).toHaveLength(1);
+    expect(dashboardPayloads).toHaveLength(1);
+    expect(dashboardPayloads[0]?.variables).toEqual({ fetchRewardCampaigns: false });
+  });
+
   test('marks simultaneous campaign drops claimed from historical gameEventDrops', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 

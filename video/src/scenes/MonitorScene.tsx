@@ -3,13 +3,11 @@ import {
   AbsoluteFill,
   interpolate,
   spring,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 export const MonitorScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const windowIn = spring({ frame, fps, config: { damping: 18, stiffness: 120 } });
   const progress = interpolate(frame, [24, 156], [0, 1], {

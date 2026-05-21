@@ -67,45 +67,6 @@ export function findSessionCandidateDeep(value: unknown, depth = 0): TwitchSessi
   return null;
 }
 
-export async function getTwitchCookieValue(name: string): Promise<string> {
-  if (!chrome.cookies?.get) {
-    return '';
-  }
-
-  const attempts = ['https://www.twitch.tv', 'https://twitch.tv', 'https://player.twitch.tv'];
-  for (const url of attempts) {
-    const cookie = await chrome.cookies.get({ url, name }).catch(() => null);
-    const value = typeof cookie?.value === 'string' ? cookie.value.trim() : '';
-    if (value) {
-      return value;
-    }
-  }
-  return '';
-}
-
-export async function recoverTwitchSessionFromCookies(): Promise<TwitchSession | null> {
-  const [authToken, secureAuthToken, uniqueId, secureUniqueId, deviceIdCookie] = await Promise.all([
-    getTwitchCookieValue('auth-token'),
-    getTwitchCookieValue('__Secure-auth-token'),
-    getTwitchCookieValue('unique_id'),
-    getTwitchCookieValue('__Secure-unique_id'),
-    getTwitchCookieValue('device_id'),
-  ]);
-
-  const candidate = trySanitizeSessionCandidate({
-    oauthToken: authToken || secureAuthToken,
-    deviceId: uniqueId || secureUniqueId || deviceIdCookie,
-    uuid: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
-  });
-
-  if (!candidate) {
-    return null;
-  }
-
-  logDebug('Recovered Twitch session from cookies', sessionDebugSummary(candidate));
-  return candidate;
-}
-
 export async function recoverTwitchSessionFromStorageKeys(): Promise<TwitchSession | null> {
   const [localAll, syncAll] = await Promise.all([
     chrome.storage.local.get(null).catch(() => ({}) as Record<string, unknown>),
@@ -405,14 +366,6 @@ export async function ensureTwitchSession(
         state.twitchSessionLastAttemptAt = Date.now();
         return recoveredSession;
       }
-    }
-
-    const fromCookies = await recoverTwitchSessionFromCookies();
-    if (fromCookies) {
-      state.twitchSessionCache = fromCookies;
-      await deps.persistTwitchSession(fromCookies);
-      state.twitchSessionLastAttemptAt = Date.now();
-      return fromCookies;
     }
 
     const fromOpenTabs = await callbacks.onFindTwitchSessionInOpenTabs();

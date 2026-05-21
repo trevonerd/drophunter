@@ -2,12 +2,21 @@
 
 Use this before submitting a new DropHunter build to the Chrome Web Store.
 
+## Automated checks
+
+- Run `bun run check`.
+- Run `bun run release:check`.
+- Run `bun audit`.
+- Run `bun audit` from the `video/` directory.
+- Confirm the production `dist/` folder was rebuilt by the final check.
+
 ## Listing accuracy
 
 - The single-purpose description says the extension automates Twitch Drops farming and monitoring on `twitch.tv`.
 - The screenshots show the current popup UI and the monitor window.
 - The support URL and homepage URL point to the GitHub repository or issue tracker.
 - The privacy policy URL is live and matches the current code.
+- The store description does not mention open reward campaigns or non-farmable reward lists.
 
 ## Permission justifications
 
@@ -17,19 +26,23 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 - `notifications` optional permission: requested only when the user enables notifications; used for claims, sign-in issues, and playback attention.
 - `alarms`: keeps the monitoring loop alive in MV3.
 - Twitch-only `host_permissions`: required to read Twitch page state, inject Twitch-only scripts, and call Twitch endpoints.
-- No `cookies` permission: session recovery uses Twitch page storage/content-script extraction instead of direct browser cookie access.
+- No `cookies` permission and no `chrome.cookies` runtime fallback: session recovery uses Twitch page storage, content-script extraction, and open Twitch tabs.
 
 ## Privacy disclosures
 
 - The listing explains that DropHunter reads Twitch session credentials already present in the browser.
 - The listing explains that data remains local to the browser and requests are sent only to Twitch.
 - The listing explicitly says there is no third-party analytics, ads, telemetry, or remote logging.
+- The listing explains that Twitch credentials are not sent to developer-owned servers.
 
 ## Final QA
 
 - Load the fresh production `dist/` build.
-- Verify popup load, monitor load, start, pause, resume, stop, queue completion, and claim flows.
+- Verify popup load, campaign refresh, dropdown selection, start, pause, resume, stop, queue completion, and claim flows.
+- Verify the refresh UI has only the toolbar loader and bottom guidance loader, with no duplicate loading message under the dropdown.
+- Verify the monitor opens, updates, and closes cleanly.
 - Verify notifications stay off when optional permission is denied, then turn on and fire after permission is granted.
 - Verify no stale rotation reason is shown when a new farming session starts.
 - Verify the extension still recovers cleanly after a service-worker restart.
+- Verify at least one real active Twitch Drops campaign accrues progress.
 - Verify the icon, title, and manifest version are correct.

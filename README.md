@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/trevonerd/drophunter/actions/workflows/ci.yml/badge.svg)](https://github.com/trevonerd/drophunter/actions/workflows/ci.yml)
 
-DropHunter is a Chrome/Brave extension for tracking and farming Twitch Drops with less manual busywork. It helps you pick a campaign, open an eligible stream, monitor progress, auto-claim rewards when possible, and move through queued campaigns with a cleaner workflow than juggling Twitch tabs by hand.
+DropHunter is a Chrome, Chromium, and Edge extension for tracking and farming Twitch Drops with less manual busywork. It helps you pick a campaign, open an eligible stream, monitor progress, auto-claim rewards when possible, and move through queued campaigns with a cleaner workflow than juggling Twitch tabs by hand.
 
 It works only on **twitch.tv**, uses your existing Twitch session locally in the browser, and does not send data to any developer-owned servers.
 

@@ -6,8 +6,6 @@ import {
   clearTwitchSessionCache,
   trySanitizeSessionCandidate,
   findSessionCandidateDeep,
-  getTwitchCookieValue,
-  recoverTwitchSessionFromCookies,
   recoverTwitchSessionFromStorageKeys,
   refreshTwitchIntegrityToken,
   loadPageIntegrityToken,
@@ -64,22 +62,6 @@ function validSession(overrides: Partial<TwitchSession> = {}): TwitchSession {
     uuid: 'abc12345',
     clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko',
     ...overrides,
-  };
-}
-
-interface CookieMock {
-  get: (details: { url: string; name: string }) => Promise<{ value: string } | null>;
-  _cookies: Map<string, string>;
-}
-
-function createCookieMock(): CookieMock {
-  const cookies = new Map<string, string>();
-  return {
-    get: ({ name }: { url: string; name: string }) => {
-      const value = cookies.get(name) ?? '';
-      return Promise.resolve(value ? { value } : null);
-    },
-    _cookies: cookies,
   };
 }
 
@@ -245,82 +227,6 @@ describe('findSessionCandidateDeep', () => {
   test('skips non-JSON strings', () => {
     const raw = 'just some plain text without braces';
     expect(findSessionCandidateDeep(raw)).toBeNull();
-  });
-});
-
-describe('getTwitchCookieValue', () => {
-  let mocks: ChromeMocks;
-  let cookieMock: CookieMock;
-
-  beforeEach(() => {
-    mocks = setupChromeMocks();
-    cookieMock = createCookieMock();
-    const chromeMock = (globalThis as Record<string, unknown>).chrome as Record<string, unknown>;
-    chromeMock.cookies = cookieMock as unknown;
-  });
-
-  afterEach(() => {
-    mocks.teardown();
-  });
-
-  test('returns cookie value from first matching URL', async () => {
-    cookieMock._cookies.set('auth-token', 'my-token-value');
-    const result = await getTwitchCookieValue('auth-token');
-    expect(result).toBe('my-token-value');
-  });
-
-  test('returns empty string when cookie not found', async () => {
-    const result = await getTwitchCookieValue('nonexistent-cookie');
-    expect(result).toBe('');
-  });
-});
-
-describe('recoverTwitchSessionFromCookies', () => {
-  let mocks: ChromeMocks;
-  let cookieMock: CookieMock;
-
-  beforeEach(() => {
-    mocks = setupChromeMocks();
-    cookieMock = createCookieMock();
-    const chromeMock = (globalThis as Record<string, unknown>).chrome as Record<string, unknown>;
-    chromeMock.cookies = cookieMock as unknown;
-  });
-
-  afterEach(() => {
-    mocks.teardown();
-  });
-
-  test('returns session when auth-token cookie is available', async () => {
-    cookieMock._cookies.set('auth-token', 'oauth12345678901234567890');
-    cookieMock._cookies.set('unique_id', 'device-abc-12345678901234567');
-
-    const session = await recoverTwitchSessionFromCookies();
-    expect(session).not.toBeNull();
-    expect(session!.oauthToken).toBe('oauth12345678901234567890');
-    expect(session!.deviceId).toBe('device-abc-12345678901234567');
-  });
-
-  test('falls back to __Secure-auth-token when auth-token is missing', async () => {
-    cookieMock._cookies.set('__Secure-auth-token', 'oauth12345678901234567890');
-    cookieMock._cookies.set('__Secure-unique_id', 'device-abc-12345678901234567');
-
-    const session = await recoverTwitchSessionFromCookies();
-    expect(session).not.toBeNull();
-    expect(session!.oauthToken).toBe('oauth12345678901234567890');
-  });
-
-  test('returns null when no tokens are available', async () => {
-    const session = await recoverTwitchSessionFromCookies();
-    expect(session).toBeNull();
-  });
-
-  test('uses device_id cookie as fallback for deviceId', async () => {
-    cookieMock._cookies.set('auth-token', 'oauth12345678901234567890');
-    cookieMock._cookies.set('device_id', 'device-abc-12345678901234567');
-
-    const session = await recoverTwitchSessionFromCookies();
-    expect(session).not.toBeNull();
-    expect(session!.deviceId).toBe('device-abc-12345678901234567');
   });
 });
 

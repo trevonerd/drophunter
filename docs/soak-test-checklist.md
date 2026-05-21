@@ -1,4 +1,4 @@
-# DropHunter 2.0 Soak Test Checklist
+# DropHunter 3.0 Soak Test Checklist
 
 ## Goal
 

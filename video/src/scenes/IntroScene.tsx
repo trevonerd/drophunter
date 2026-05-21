@@ -5,13 +5,11 @@ import {
   interpolate,
   spring,
   staticFile,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 export const IntroScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const logoScale = spring({ frame, fps, config: { damping: 14, stiffness: 120 } });
   const taglineOpacity = spring({

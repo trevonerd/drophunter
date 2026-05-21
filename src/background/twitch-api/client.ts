@@ -38,7 +38,7 @@ const CURRENT_USER_QUERY = {
 const VIEWER_DROPS_DASHBOARD_QUERY = {
   operationName: 'ViewerDropsDashboard',
   variables: {
-    fetchRewardCampaigns: true,
+    fetchRewardCampaigns: false,
   },
   extensions: {
     persistedQuery: {

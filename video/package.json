@@ -4,10 +4,14 @@
   "type": "module",
   "scripts": {
     "preview": "bunx remotion preview src/index.ts",
-    "render:cta": "bunx remotion render src/index.ts Cta out/cta.mp4",
-    "render:promo": "bunx remotion render src/index.ts Promo out/promo.mp4",
-    "still:cta": "bunx remotion still src/index.ts Cta out/cta.png --frame=80",
-    "still:promo": "bunx remotion still src/index.ts Promo out/promo-frame.png --frame=200"
+    "render:cta": "bunx remotion render src/index.ts Cta1080p60 out/cta-1080p60.mp4",
+    "render:cta:4k": "bunx remotion render src/index.ts Cta4K60 out/cta-4k60.mp4",
+    "render:promo": "bunx remotion render src/index.ts Promo1080p60 out/promo-1080p60.mp4",
+    "render:promo:4k": "bunx remotion render src/index.ts Promo4K60 out/promo-4k60.mp4",
+    "still:cta": "bunx remotion still src/index.ts Cta1080p60 out/cta-1080p60.png --frame=160",
+    "still:cta:4k": "bunx remotion still src/index.ts Cta4K60 out/cta-4k60.png --frame=160",
+    "still:promo": "bunx remotion still src/index.ts Promo1080p60 out/promo-frame-1080p60.png --frame=400",
+    "still:promo:4k": "bunx remotion still src/index.ts Promo4K60 out/promo-frame-4k60.png --frame=400"
   },
   "dependencies": {
     "react": "19.2.6",

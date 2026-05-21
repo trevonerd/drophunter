@@ -3,9 +3,8 @@ import {
   AbsoluteFill,
   interpolate,
   spring,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 const CAMPAIGNS = [
   { label: "Campaign Alpha", color: "#9146ff", status: "Done" },
@@ -14,8 +13,7 @@ const CAMPAIGNS = [
 ];
 
 export const QueueScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   return (
     <AbsoluteFill

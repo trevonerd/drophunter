@@ -3,13 +3,11 @@ import {
   AbsoluteFill,
   interpolate,
   spring,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 export const ClaimScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const boxScale = spring({ frame, fps, config: { damping: 16, stiffness: 120 } });
   const checkProgress = spring({

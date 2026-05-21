@@ -4,16 +4,14 @@ import {
   interpolate,
   interpolateColors,
   spring,
-  useCurrentFrame,
-  useVideoConfig,
 } from "remotion";
+import { useBaseTimeline } from "../timing";
 
 const CARD_W = 300;
 const CARD_H = 430;
 
 export const RotationScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { frame, fps } = useBaseTimeline();
 
   const issueProgress = spring({
     frame: Math.max(0, frame - 28),
