@@ -194,6 +194,31 @@ function BellIcon({ muted = false }: { muted?: boolean }) {
   );
 }
 
+function SpeakerIcon({ muted = false }: { muted?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M11 5 6 9H3v6h3l5 4V5z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {muted ? (
+        <>
+          <path d="m19 9-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+          <path d="m13 9 6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <path d="M15.5 8.5a5 5 0 0 1 0 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M18 6a8 8 0 0 1 0 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 function BackIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1076,6 +1101,17 @@ function App() {
               </button>
             </>
           )}
+          <button
+            type="button"
+            onClick={() => void handleMuteFarmingTabToggle()}
+            className={`inline-flex h-6 w-6 items-center justify-center rounded text-[#1B1030] transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
+              state.muteFarmingTab ? 'bg-[#1B1030]/10' : 'bg-white/25'
+            }`}
+            aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+            title={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+          >
+            <SpeakerIcon muted={state.muteFarmingTab} />
+          </button>
           <button
             type="button"
             onClick={() => void openDropsPage()}
