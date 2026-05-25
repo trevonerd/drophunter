@@ -7,5 +7,7 @@ export function isExpectedTwitchPlaybackInterruption(error: unknown): boolean {
     return false;
   }
 
-  return /media was removed from the document|interrupted by a new load request/i.test(error.message);
+  return /media was removed from the document|interrupted by a new load request|interrupted by a call to pause/i.test(
+    error.message,
+  );
 }

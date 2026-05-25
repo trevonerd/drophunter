@@ -259,6 +259,15 @@ describe('playback prep policy', () => {
     expect(isExpectedTwitchPlaybackInterruption(error)).toBe(true);
   });
 
+  test('treats Twitch pause-race playback aborts as expected noise', () => {
+    const error = new DOMException(
+      'The play() request was interrupted by a call to pause(). https://goo.gl/LdLk22',
+      'AbortError',
+    );
+
+    expect(isExpectedTwitchPlaybackInterruption(error)).toBe(true);
+  });
+
   test('keeps unexpected playback failures visible', () => {
     expect(isExpectedTwitchPlaybackInterruption(new DOMException('Not allowed', 'NotAllowedError'))).toBe(false);
     expect(isExpectedTwitchPlaybackInterruption(new Error('boom'))).toBe(false);
