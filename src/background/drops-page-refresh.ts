@@ -4,7 +4,7 @@ import type { AppState } from '../types';
 const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
 
 interface DropsPageState {
-  appState: Pick<AppState, 'availableGames' | 'dropsPageRefreshInProgress'>;
+  appState: AppState;
 }
 
 interface TwitchTab {
@@ -33,6 +33,7 @@ export interface DropsPageRefreshResult {
   opened: boolean;
   refreshed: boolean;
   gamesCount: number;
+  appState?: AppState;
   error?: string;
 }
 
@@ -80,13 +81,14 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     }
 
     refreshInFlight = (async () => {
+      let result: DropsPageRefreshResult;
       try {
         await options.waitForTabComplete(tabId);
         const sessionFromTab = await options.persistSessionFromDropsPage(tabId);
         await options.refreshGamesCacheFromHiddenFetch({ forceSessionRefresh: !sessionFromTab });
 
         const gamesCount = state.appState.availableGames.length;
-        const result: DropsPageRefreshResult = {
+        result = {
           success: gamesCount > 0,
           opened,
           refreshed: true,
@@ -97,18 +99,21 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
             ? 'No active Twitch Drops campaigns were detected.'
             : 'Open Twitch and sign in so DropHunter can detect your session.';
         }
-        return result;
       } catch (error) {
-        return {
+        result = {
           success: false,
           opened,
           refreshed: false,
           gamesCount: state.appState.availableGames.length,
           error: String(error),
         };
-      } finally {
-        await publishRefreshProgress(false);
       }
+
+      await publishRefreshProgress(false);
+      return {
+        ...result,
+        appState: state.appState,
+      };
     })().finally(() => {
       refreshInFlight = null;
     });

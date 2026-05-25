@@ -539,12 +539,15 @@ function App() {
         opened: false,
         refreshed: false,
         gamesCount: 0,
+        appState: undefined,
         error: String(error),
       }));
-      const freshState = await loadStoredAppState().catch((error: unknown) => {
-        logPopupWarn('Unable to reload state after drops refresh:', error);
-        return null;
-      });
+      const freshState =
+        response?.appState ??
+        (await loadStoredAppState().catch((error: unknown) => {
+          logPopupWarn('Unable to reload state after drops refresh:', error);
+          return null;
+        }));
       if (freshState) {
         setState(freshState);
       }
@@ -572,9 +575,6 @@ function App() {
       setQueueMessage('No campaigns detected.');
     } finally {
       setManualDropsRefreshLoading(false);
-      setState((prev) =>
-        prev.dropsPageRefreshInProgress ? { ...prev, dropsPageRefreshInProgress: false } : prev,
-      );
     }
   }, [dropsRefreshLoading]);
 

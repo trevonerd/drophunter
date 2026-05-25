@@ -125,6 +125,7 @@ export type RuntimeResponseByType = {
     opened?: boolean;
     refreshed?: boolean;
     gamesCount?: number;
+    appState?: AppState;
     error?: string;
   };
   REFRESH_DROPS: { success: boolean; error?: string };

@@ -693,20 +693,25 @@ describe('service worker message handlers', () => {
     };
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-open-page', currentMinutes: 0 }]);
 
+    const beforeRefresh = Date.now();
     const response = (await dispatchMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' })) as {
       success?: boolean;
       gamesCount?: number;
       opened?: boolean;
+      appState?: AppState;
     };
 
     expect(response.success).toBe(true);
     expect(response.opened).toBe(true);
     expect(response.gamesCount).toBe(1);
+    expect(response.appState?.dropsPageRefreshInProgress).toBe(false);
+    expect(response.appState?.lastSuccessfulRefreshAt).toBeGreaterThanOrEqual(beforeRefresh);
     expect(createCalls).toBe(1);
     expect(executeScriptCalls).toBe(1);
     const state = getAppStateFromStorage();
     expect(state.availableGames).toHaveLength(1);
     expect(state.availableGames[0].campaignId).toBe(demoGame.campaignId);
+    expect(state.lastSuccessfulRefreshAt).toBe(response.appState?.lastSuccessfulRefreshAt);
   });
 
   test('OPEN_DROPS_PAGE_AND_REFRESH can refresh through an inactive Twitch tab', async () => {

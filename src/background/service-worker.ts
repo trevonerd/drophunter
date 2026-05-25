@@ -771,8 +771,10 @@ async function refreshGamesCacheFromHiddenFetch(
   gamesCacheRefreshInFlight = (async () => {
     let fetchedGames: TwitchGame[] = [];
     const apiSnapshot = await fetchDropsSnapshotFromApi(Boolean(options.forceSessionRefresh));
-    if (apiSnapshot?.games?.length) {
-      fetchedGames = apiSnapshot.games;
+    if (apiSnapshot) {
+      if (apiSnapshot.games.length > 0) {
+        fetchedGames = apiSnapshot.games;
+      }
       appState.lastSuccessfulRefreshAt = Date.now();
       if (apiSnapshot.drops.length > 0) {
         cachedDropsSnapshot = apiSnapshot.drops;
