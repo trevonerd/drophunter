@@ -15,3 +15,10 @@ test('popup does not duplicate refresh loading state under the game selector', (
 
   expect(source).not.toContain("setQueueMessage('Refreshing campaigns from Twitch...')");
 });
+
+test('popup applies returned app state after drops page refresh', () => {
+  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+
+  expect(source).toContain('response?.appState ??');
+  expect(source).not.toContain('prev.dropsPageRefreshInProgress ? { ...prev, dropsPageRefreshInProgress: false }');
+});
