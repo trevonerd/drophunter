@@ -849,6 +849,37 @@ describe('advanceQueueIfCompleted', () => {
     expect(openStreamerCalled).toBe(true);
   });
 
+  test('advances when selected game is marked completed but drop split is empty', async () => {
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = createGame({ id: 'game-1', allDropsCompleted: true });
+    state.appState.allDrops = [];
+    state.appState.pendingDrops = [];
+    state.appState.currentDrop = null;
+    const nextGame = createGame({ id: 'game-2' });
+    state.appState.queue = [nextGame];
+    state.appState.availableGames = [
+      createGame({ id: 'game-1', allDropsCompleted: true }),
+      nextGame,
+    ];
+
+    let openStreamerCalled = false;
+    await advanceQueueIfCompleted(state, {
+      onOpenStreamer: async () => {
+        openStreamerCalled = true;
+        return true;
+      },
+      onRefreshDropsData: async () => {
+        state.appState.allDrops = [createDrop({ id: 'drop-2', gameId: 'game-2', gameName: 'Game Two' })];
+        state.appState.pendingDrops = [createDrop({ id: 'drop-2', gameId: 'game-2', gameName: 'Game Two' })];
+        state.appState.currentDrop = createDrop({ id: 'drop-2', gameId: 'game-2', gameName: 'Game Two' });
+      },
+    });
+
+    expect(state.appState.selectedGame?.id).toBe('game-2');
+    expect(openStreamerCalled).toBe(true);
+  });
+
   test('skips completed games in queue', async () => {
     const state = createMinimalState();
     state.appState.isRunning = true;

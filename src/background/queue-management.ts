@@ -110,6 +110,17 @@ function shouldKeepStreamerWhileDropProgresses(input: {
   );
 }
 
+function selectedGameMarkedCompleted(state: ServiceWorkerState): boolean {
+  const selectedGame = state.appState.selectedGame;
+  if (!selectedGame) {
+    return false;
+  }
+  if (selectedGame.allDropsCompleted === true) {
+    return true;
+  }
+  return findMatchingGame(selectedGame, state.appState.availableGames)?.allDropsCompleted === true;
+}
+
 // ============================================================================
 // Main Exported Functions
 // ============================================================================
@@ -399,14 +410,18 @@ export async function advanceQueueIfCompleted(
   }
 
   const hasFarmablePending = state.appState.pendingDrops.some((d) => d.dropType !== 'event-based');
+  const selectedMarkedCompleted = selectedGameMarkedCompleted(state);
   const knownCompletedCurrent =
-    state.appState.allDrops.length > 0 && !hasFarmablePending && state.appState.currentDrop === null;
+    (state.appState.allDrops.length > 0 || selectedMarkedCompleted) &&
+    !hasFarmablePending &&
+    state.appState.currentDrop === null;
   const campaignExpiredOrVanished = haveAllDropsExpiredOrVanished(
     state.appState.allDrops,
     state.previousAllDropsCount,
   );
   logDebug('advanceQueueIfCompleted result', {
     knownCompletedCurrent,
+    selectedMarkedCompleted,
     campaignExpiredOrVanished,
     shouldAdvance: knownCompletedCurrent || campaignExpiredOrVanished,
   });
@@ -461,8 +476,11 @@ export async function advanceQueueIfCompleted(
     }
 
     const hasFarmablePendingNext = state.appState.pendingDrops.some((d) => d.dropType !== 'event-based');
+    const nextMarkedCompleted = selectedGameMarkedCompleted(state);
     const knownCompletedNext =
-      state.appState.allDrops.length > 0 && !hasFarmablePendingNext && state.appState.currentDrop === null;
+      (state.appState.allDrops.length > 0 || nextMarkedCompleted) &&
+      !hasFarmablePendingNext &&
+      state.appState.currentDrop === null;
     const campaignExpiredNext = haveAllDropsExpiredOrVanished(
       state.appState.allDrops,
       state.previousAllDropsCount,
