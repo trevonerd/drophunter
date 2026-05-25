@@ -49,7 +49,13 @@ describe('drops page refresher', () => {
 
     const result = await refresher.openDropsPageAndRefresh();
 
-    expect(result).toEqual({ success: true, opened: false, refreshed: true, gamesCount: 1 });
+    expect(result).toEqual({
+      success: true,
+      opened: false,
+      refreshed: true,
+      gamesCount: 1,
+      appState: state.appState,
+    });
     expect(tabsApi.activated).toEqual([12]);
     expect(tabsApi.created).toEqual([]);
     expect(calls).toEqual(['activity', 'hydrate', 'save', 'broadcast', 'wait', 'refresh', 'save', 'broadcast']);
@@ -75,6 +81,7 @@ describe('drops page refresher', () => {
     const result = await refresher.openDropsPageAndRefresh();
 
     expect(result.success).toBe(true);
+    expect(result.appState?.dropsPageRefreshInProgress).toBe(false);
     expect(progressStates).toEqual([true, false]);
   });
 
@@ -255,6 +262,7 @@ describe('drops page refresher', () => {
       refreshed: false,
       gamesCount: 0,
       error: 'Error: session unavailable',
+      appState: state.appState,
     });
     expect(state.appState.dropsPageRefreshInProgress).toBe(false);
   });
