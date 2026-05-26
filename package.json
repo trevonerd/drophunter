@@ -63,11 +63,14 @@
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3",
     "vite": "8.0.13",
-    "wxt": "^0.20.26"
+    "wxt": "0.21.0"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,css}": [
       "biome check --write --no-errors-on-unmatched"
     ]
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }
