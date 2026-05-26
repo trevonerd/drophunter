@@ -21,6 +21,7 @@ const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: s
   { value: 'top-viewers', label: 'Top viewers' },
 ];
 const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = { permissions: ['notifications'] };
+const STALE_THRESHOLD_MS = 60 * 60 * 1000;
 
 const STREAMER_LANGUAGE_OPTIONS = [
   { value: '', label: 'Any' },
@@ -57,6 +58,28 @@ const STREAMER_LANGUAGE_OPTIONS = [
   { value: 'zh', label: 'ZH' },
   { value: 'zh_hk', label: 'ZH-HK' },
 ];
+
+type CampaignSyncStatus = 'empty' | 'fresh' | 'stale' | 'syncing' | 'failed';
+
+function formatLastUpdated(timestamp?: number): string {
+  if (!timestamp) {
+    return 'Never updated';
+  }
+  const elapsedMs = Date.now() - timestamp;
+  if (elapsedMs < 60_000) {
+    return 'Updated just now';
+  }
+  const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60_000));
+  if (elapsedMinutes < 60) {
+    return `Updated ${elapsedMinutes}m ago`;
+  }
+  const elapsedHours = Math.round(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `Updated ${elapsedHours}h ago`;
+  }
+  const elapsedDays = Math.round(elapsedHours / 24);
+  return `Updated ${elapsedDays}d ago`;
+}
 
 function expiryLabel(status?: ExpiryStatus) {
   switch (status) {
@@ -286,6 +309,8 @@ function CompactDropImage({ drop }: { drop: TwitchDrop }) {
     <img
       src={drop.imageUrl}
       alt={drop.name}
+      width={32}
+      height={32}
       className="w-8 h-8 rounded object-cover bg-gray-900/60 shrink-0"
       referrerPolicy="no-referrer"
       onError={() => setHasError(true)}
@@ -346,7 +371,7 @@ function CompactDropCard({ drop }: { drop: TwitchDrop }) {
         ) : (
           <div className="mt-1 h-1 w-full rounded-full bg-gray-800 overflow-hidden">
             <div
-              className={`h-1 rounded-full transition-all duration-500 ${
+              className={`h-1 rounded-full transition-[width] duration-500 ${
                 drop.claimable ? 'bg-yellow-400' : 'bg-gradient-to-r from-twitch-purple to-pink-500'
               }`}
               style={{ width: `${drop.progress}%` }}
@@ -358,6 +383,384 @@ function CompactDropCard({ drop }: { drop: TwitchDrop }) {
   );
 }
 
+interface PopupHeaderProps {
+  state: AppState;
+  actionLoading: boolean;
+  dropsRefreshLoading: boolean;
+  onMuteToggle: () => void;
+  onOpenDropsPage: () => void;
+  onOpenMonitor: () => void;
+  onOpenSettings: () => void;
+  onNotificationsToggle: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+}
+
+function PopupHeader({
+  state,
+  actionLoading,
+  dropsRefreshLoading,
+  onMuteToggle,
+  onOpenDropsPage,
+  onOpenMonitor,
+  onOpenSettings,
+  onNotificationsToggle,
+  onPause,
+  onResume,
+  onStop,
+}: PopupHeaderProps) {
+  return (
+    <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
+      <div className="flex items-center gap-2 min-w-0">
+        <h1 className="font-extrabold text-sm tracking-tight text-[#120B22]">DropHunter</h1>
+        {state.isRunning && (
+          <span
+            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+              state.isPaused
+                ? 'bg-yellow-400/20 text-yellow-200 border border-yellow-400/40'
+                : 'bg-green-400/20 text-green-200 border border-green-400/40'
+            }`}
+          >
+            {state.isPaused ? 'PAUSED' : 'RUNNING'}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-1">
+        {state.isRunning && (
+          <>
+            <button
+              type="button"
+              onClick={state.isPaused ? onResume : onPause}
+              disabled={actionLoading}
+              className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+              aria-label={state.isPaused ? 'Resume farming' : 'Pause farming'}
+              title={state.isPaused ? 'Resume' : 'Pause'}
+            >
+              {state.isPaused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button
+              type="button"
+              onClick={onStop}
+              disabled={actionLoading}
+              className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+              aria-label="Stop farming"
+              title="Stop"
+            >
+              <StopIcon />
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={onMuteToggle}
+          className={`inline-flex h-6 w-6 items-center justify-center rounded text-[#1B1030] transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
+            state.muteFarmingTab ? 'bg-[#1B1030]/10' : 'bg-white/25'
+          }`}
+          aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+          title={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+        >
+          <SpeakerIcon muted={state.muteFarmingTab} />
+        </button>
+        <button
+          type="button"
+          onClick={onOpenDropsPage}
+          disabled={dropsRefreshLoading}
+          className={`inline-flex h-6 items-center justify-center gap-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
+            dropsRefreshLoading ? 'px-1.5 text-[11px] font-semibold' : 'w-6'
+          }`}
+          aria-label={dropsRefreshLoading ? 'Refreshing Twitch Drops' : 'Open Twitch Drops'}
+          title={dropsRefreshLoading ? 'Refreshing Twitch Drops' : 'Twitch Drops'}
+        >
+          {dropsRefreshLoading ? (
+            <>
+              <span className="spinner h-3.5 w-3.5 rounded-full border-2 border-[#1B1030] border-t-transparent" />
+              <span>Refreshing…</span>
+            </>
+          ) : (
+            <DropsIcon />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onOpenMonitor}
+          className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+          aria-label="Open live monitor"
+          title="Live Monitor"
+        >
+          <MonitorIcon />
+        </button>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+          aria-label="Open settings"
+          title="Settings"
+        >
+          <SettingsIcon />
+        </button>
+        <button
+          type="button"
+          onClick={onNotificationsToggle}
+          className={`p-1 rounded hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
+            state.notificationsEnabled ? 'text-[#1B1030]' : 'text-[#1B1030]/55'
+          }`}
+          aria-label={state.notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
+          title={state.notificationsEnabled ? 'Notifications on' : 'Notifications off'}
+        >
+          <BellIcon muted={!state.notificationsEnabled} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface CampaignSyncPanelProps {
+  status: CampaignSyncStatus;
+  error: string | null;
+  lastUpdated?: number;
+  showFreshConfirmation: boolean;
+  onRefresh: () => void;
+}
+
+function CampaignSyncPanel({
+  status,
+  error,
+  lastUpdated,
+  showFreshConfirmation,
+  onRefresh,
+}: CampaignSyncPanelProps) {
+  if (status === 'fresh' && !showFreshConfirmation) {
+    return null;
+  }
+
+  const isSyncing = status === 'syncing';
+  const isEmpty = status === 'empty';
+  const panelTone =
+    status === 'failed'
+      ? 'border-red-500/35 bg-red-500/10'
+      : status === 'stale'
+        ? 'border-yellow-500/35 bg-yellow-500/10'
+        : status === 'fresh'
+          ? 'border-green-500/30 bg-green-500/10'
+          : 'border-blue-500/30 bg-blue-500/10';
+  const title =
+    status === 'failed'
+      ? 'Could not update campaigns'
+      : status === 'stale'
+        ? 'Campaign data may be outdated'
+        : status === 'syncing'
+          ? 'Updating campaigns'
+          : status === 'fresh'
+            ? 'Campaigns updated'
+            : 'Sync Twitch Drops';
+  const description =
+    status === 'failed'
+      ? 'Could not update. Old data is still shown.'
+      : status === 'stale'
+        ? 'Open Twitch Drops to fetch the latest campaigns and reward status.'
+        : status === 'syncing'
+          ? 'Opening Twitch Drops and updating campaigns…'
+          : status === 'fresh'
+            ? 'Updated just now.'
+            : 'Open Twitch Drops so DropHunter can detect available campaigns.';
+  const detail = status === 'failed' && error ? error : formatLastUpdated(lastUpdated);
+  const buttonLabel = isEmpty ? 'Open Twitch Drops' : 'Refresh from Twitch';
+
+  return (
+    <section
+      className={`glass rounded-lg p-3 border ${panelTone}`}
+      aria-live="polite"
+      aria-busy={isSyncing}
+      aria-label="Campaign sync status"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-white">{title}</p>
+          <p className="mt-1 text-xs text-gray-300">{description}</p>
+          <p className="mt-1 text-[11px] text-gray-500 break-words">{detail}</p>
+        </div>
+        {isSyncing ? (
+          <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent shrink-0 mt-0.5" />
+        ) : (
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+          >
+            <DropsIcon size={14} />
+            {buttonLabel}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+interface CampaignSelectorProps {
+  selectedGame: TwitchGame | null;
+  sortedGames: TwitchGame[];
+  isRunning: boolean;
+  actionLoading: boolean;
+  onSelect: (gameId: string) => void;
+  onAddToQueue: () => void;
+}
+
+function CampaignSelector({
+  selectedGame,
+  sortedGames,
+  isRunning,
+  actionLoading,
+  onSelect,
+  onAddToQueue,
+}: CampaignSelectorProps) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <select
+        aria-label="Campaign"
+        value={selectedGame?.id ?? ''}
+        onChange={(e) => onSelect(e.target.value)}
+        className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-2 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white"
+        disabled={isRunning}
+      >
+        <option value="">Select a campaign…</option>
+        {sortedGames.map((game) => (
+          <option key={game.id} value={game.id}>
+            {game.allDropsCompleted ? '\u2705 ' : game.isConnected === false ? '\u{1F512} ' : ''}
+            {getGameDisplayLabel(game)} · {expiryLabel(game.expiryStatus)}
+          </option>
+        ))}
+      </select>
+      {!isRunning && (
+        <button
+          type="button"
+          onClick={onAddToQueue}
+          disabled={!selectedGame || actionLoading}
+          className="shrink-0 rounded-lg bg-blue-600 px-2 py-1.5 text-[11px] font-semibold disabled:opacity-50 disabled:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+          aria-label="Add selected campaign to queue"
+        >
+          +Queue
+        </button>
+      )}
+    </div>
+  );
+}
+
+interface QueueChipsProps {
+  selectedGame: TwitchGame | null;
+  queueGames: TwitchGame[];
+  isRunning: boolean;
+  onRemove: (game: TwitchGame) => void;
+  onClear: () => void;
+}
+
+function QueueChips({ selectedGame, queueGames, isRunning, onRemove, onClear }: QueueChipsProps) {
+  const selectedNotInQueue =
+    !isRunning &&
+    !!selectedGame &&
+    queueGames.length > 0 &&
+    !queueGames.some((g) => g.id === selectedGame.id && g.campaignId === selectedGame.campaignId);
+
+  if (queueGames.length === 0 && !selectedNotInQueue) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1 items-center">
+      <span className="text-[11px] text-gray-500">Queue:</span>
+      {selectedNotInQueue && (
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-green-700/60 border border-green-500/40 px-2 py-0.5 text-[11px] text-green-200">
+          {selectedGame.allDropsCompleted ? '✅ ' : ''}
+          {getGameDisplayLabel(selectedGame)}
+          <span className="ml-1 text-green-400/80">↑ first</span>
+        </span>
+      )}
+      {queueGames.map((game) => (
+        <span
+          key={game.campaignId ? `campaign:${game.campaignId}` : `id:${game.id}`}
+          className="inline-flex items-center gap-0.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-200"
+        >
+          {game.allDropsCompleted ? '✅ ' : ''}
+          {getGameDisplayLabel(game)}
+          {!isRunning && (
+            <button
+              type="button"
+              onClick={() => onRemove(game)}
+              className="ml-0.5 rounded text-gray-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+              aria-label={`Remove ${getGameDisplayLabel(game)} from queue`}
+            >
+              ×
+            </button>
+          )}
+        </span>
+      ))}
+      {!isRunning && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="rounded text-[11px] text-red-400 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+          aria-label="Clear queue"
+        >
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+interface RewardListProps {
+  pendingDrops: TwitchDrop[];
+  completedDrops: TwitchDrop[];
+  rewardsLoading: boolean;
+  syncLoading: boolean;
+  claimableCount: number;
+}
+
+function RewardList({
+  pendingDrops,
+  completedDrops,
+  rewardsLoading,
+  syncLoading,
+  claimableCount,
+}: RewardListProps) {
+  const isLoading = rewardsLoading || syncLoading;
+  return (
+    <>
+      <div className={`glass rounded-lg border border-white/10 ${syncLoading ? 'opacity-75' : ''}`}>
+        <div className="px-3 py-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-gray-200">
+            Pending{!isLoading && ` (${pendingDrops.length})`}
+          </h3>
+          {!isLoading && claimableCount > 0 && (
+            <span className="text-[11px] text-yellow-300 font-medium">{claimableCount} claimable</span>
+          )}
+        </div>
+        {isLoading ? (
+          <div className="flex items-center gap-2 px-3 py-3" aria-live="polite">
+            <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
+            <p className="text-xs text-gray-400">{syncLoading ? 'Updating rewards…' : 'Loading…'}</p>
+          </div>
+        ) : pendingDrops.length > 0 ? (
+          <div className="max-h-[240px] overflow-y-auto divide-y divide-white/5">
+            {pendingDrops.map((drop) => (
+              <CompactDropCard key={drop.id} drop={drop} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500 px-3 py-3">No pending rewards.</p>
+        )}
+      </div>
+
+      {!syncLoading && completedDrops.length > 0 && (
+        <p className="text-[11px] text-gray-500 px-1">
+          <span className="font-semibold text-green-400">Completed ({completedDrops.length})</span>{' '}
+          {completedDrops.map((d) => `\u2713 ${d.name}`).join('  ')}
+        </p>
+      )}
+    </>
+  );
+}
+
 /* ── Main App ── */
 
 function App() {
@@ -365,7 +768,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [gamesLoading, setGamesLoading] = useState(true);
   const [manualDropsRefreshLoading, setManualDropsRefreshLoading] = useState(false);
-  const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [showFreshSync, setShowFreshSync] = useState(false);
   const dropsRefreshLoading = manualDropsRefreshLoading || state.dropsPageRefreshInProgress;
   const isStale =
     !state.isRunning &&
@@ -420,8 +824,32 @@ function App() {
     const fallbackById = new Map(sortedGames.map((g) => [g.id, g]));
     return state.queue.map((q) => fallbackById.get(q.id) ?? q);
   }, [state.queue, sortedGames]);
+  const campaignSyncStatus: CampaignSyncStatus = dropsRefreshLoading
+    ? 'syncing'
+    : syncError
+      ? 'failed'
+      : !gamesLoading && state.availableGames.length === 0
+        ? 'empty'
+        : isStale
+          ? 'stale'
+          : 'fresh';
   const runtimeMode = deriveRuntimeMode(state);
   const [recoveryNow, setRecoveryNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!showFreshSync) {
+      return;
+    }
+    const timer = window.setTimeout(() => setShowFreshSync(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [showFreshSync]);
+
+  useEffect(() => {
+    if (dropsRefreshLoading) {
+      setSyncError(null);
+      setShowFreshSync(false);
+    }
+  }, [dropsRefreshLoading]);
 
   useEffect(() => {
     if (runtimeMode !== 'recovering') {
@@ -553,6 +981,8 @@ function App() {
 
     setManualDropsRefreshLoading(true);
     setQueueMessage(null);
+    setSyncError(null);
+    setShowFreshSync(false);
     setState((prev) => ({ ...prev, dropsPageRefreshInProgress: true }));
 
     try {
@@ -581,23 +1011,23 @@ function App() {
       const errorMessage = response?.error ?? '';
       if (!response?.success) {
         if (/sign in|session/i.test(errorMessage)) {
-          setQueueMessage('Sign in to Twitch, then refresh campaigns again.');
+          setSyncError('Sign in to Twitch, then refresh campaigns again.');
           return;
         }
         if (gamesCount === 0 && /No active Twitch Drops campaigns/i.test(errorMessage)) {
-          setQueueMessage('No campaigns detected.');
+          setSyncError('No active Twitch Drops campaigns were detected.');
           return;
         }
-        setQueueMessage(errorMessage ? `Refresh failed: ${errorMessage}` : 'Refresh failed.');
+        setSyncError(errorMessage || 'Refresh failed.');
         return;
       }
 
       if (gamesCount > 0) {
-        setQueueMessage('Campaigns updated.');
+        setShowFreshSync(true);
         return;
       }
 
-      setQueueMessage('No campaigns detected.');
+      setShowFreshSync(true);
     } finally {
       setManualDropsRefreshLoading(false);
     }
@@ -1061,107 +1491,19 @@ function App() {
 
   const mainView = (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
-        <div className="flex items-center gap-2">
-          <h1 className="font-extrabold text-sm tracking-tight text-[#120B22]">DropHunter</h1>
-          {state.isRunning && (
-            <span
-              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                state.isPaused
-                  ? 'bg-yellow-400/20 text-yellow-200 border border-yellow-400/40'
-                  : 'bg-green-400/20 text-green-200 border border-green-400/40'
-              }`}
-            >
-              {state.isPaused ? 'PAUSED' : 'RUNNING'}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          {state.isRunning && (
-            <>
-              <button
-                type="button"
-                onClick={state.isPaused ? handleResume : handlePause}
-                disabled={actionLoading}
-                className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
-                aria-label={state.isPaused ? 'Resume farming' : 'Pause farming'}
-                title={state.isPaused ? 'Resume' : 'Pause'}
-              >
-                {state.isPaused ? <PlayIcon /> : <PauseIcon />}
-              </button>
-              <button
-                type="button"
-                onClick={handleStop}
-                disabled={actionLoading}
-                className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
-                aria-label="Stop farming"
-                title="Stop"
-              >
-                <StopIcon />
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => void handleMuteFarmingTabToggle()}
-            className={`inline-flex h-6 w-6 items-center justify-center rounded text-[#1B1030] transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
-              state.muteFarmingTab ? 'bg-[#1B1030]/10' : 'bg-white/25'
-            }`}
-            aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
-            title={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
-          >
-            <SpeakerIcon muted={state.muteFarmingTab} />
-          </button>
-          <button
-            type="button"
-            onClick={() => void openDropsPage()}
-            disabled={dropsRefreshLoading}
-            className={`inline-flex h-6 items-center justify-center gap-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
-              dropsRefreshLoading ? 'px-1.5 text-[11px] font-semibold' : 'w-6'
-            }`}
-            aria-label={dropsRefreshLoading ? 'Refreshing Twitch Drops' : 'Open Twitch Drops'}
-            title={dropsRefreshLoading ? 'Refreshing Twitch Drops' : 'Twitch Drops'}
-          >
-            {dropsRefreshLoading ? (
-              <>
-                <span className="spinner h-3.5 w-3.5 rounded-full border-2 border-[#1B1030] border-t-transparent" />
-                <span>Refreshing...</span>
-              </>
-            ) : (
-              <DropsIcon />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={openMiniDashboard}
-            className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
-            aria-label="Open live monitor"
-            title="Live Monitor"
-          >
-            <MonitorIcon />
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveView('settings')}
-            className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
-            aria-label="Open settings"
-            title="Settings"
-          >
-            <SettingsIcon />
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleNotificationsEnabledToggle()}
-            className={`p-1 rounded hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
-              state.notificationsEnabled ? 'text-[#1B1030]' : 'text-[#1B1030]/55'
-            }`}
-            aria-label={state.notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
-            title={state.notificationsEnabled ? 'Notifications on' : 'Notifications off'}
-          >
-            <BellIcon muted={!state.notificationsEnabled} />
-          </button>
-        </div>
-      </div>
+      <PopupHeader
+        state={state}
+        actionLoading={actionLoading}
+        dropsRefreshLoading={dropsRefreshLoading}
+        onMuteToggle={() => void handleMuteFarmingTabToggle()}
+        onOpenDropsPage={() => void openDropsPage()}
+        onOpenMonitor={openMiniDashboard}
+        onOpenSettings={() => setActiveView('settings')}
+        onNotificationsToggle={() => void handleNotificationsEnabledToggle()}
+        onPause={handlePause}
+        onResume={handleResume}
+        onStop={handleStop}
+      />
 
       {state.resumedFromCrash != null && (
         <div className="px-3 py-1.5 bg-yellow-500/20 border-b border-yellow-500/30 text-yellow-200 text-[11px] font-medium flex items-center gap-1.5">
@@ -1171,35 +1513,22 @@ function App() {
       )}
 
       <div className="px-3 py-2.5 space-y-2.5">
-        {/* Game selector + Queue button */}
-        <div className="flex items-center gap-1.5">
-          <select
-            aria-label="Campaign"
-            value={state.selectedGame?.id ?? ''}
-            onChange={(e) => void handleGameSelect(e.target.value)}
-            className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-2 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white"
-            disabled={state.isRunning}
-          >
-            <option value="">Select a campaign...</option>
-            {sortedGames.map((game) => (
-              <option key={game.id} value={game.id}>
-                {game.allDropsCompleted ? '\u2705 ' : game.isConnected === false ? '\u{1F512} ' : ''}
-                {getGameDisplayLabel(game)} · {expiryLabel(game.expiryStatus)}
-              </option>
-            ))}
-          </select>
-          {!state.isRunning && (
-            <button
-              type="button"
-              onClick={handleAddToQueue}
-              disabled={!state.selectedGame || actionLoading}
-              className="shrink-0 rounded-lg bg-blue-600 px-2 py-1.5 text-[11px] font-semibold disabled:opacity-50 disabled:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
-              aria-label="Add selected campaign to queue"
-            >
-              +Queue
-            </button>
-          )}
-        </div>
+        <CampaignSyncPanel
+          status={campaignSyncStatus}
+          error={syncError}
+          lastUpdated={state.lastSuccessfulRefreshAt}
+          showFreshConfirmation={showFreshSync}
+          onRefresh={() => void openDropsPage()}
+        />
+
+        <CampaignSelector
+          selectedGame={state.selectedGame}
+          sortedGames={sortedGames}
+          isRunning={state.isRunning}
+          actionLoading={actionLoading}
+          onSelect={(gameId) => void handleGameSelect(gameId)}
+          onAddToQueue={() => void handleAddToQueue()}
+        />
 
         {queueMessage && <p className="text-[11px] text-blue-300">{queueMessage}</p>}
 
@@ -1223,58 +1552,13 @@ function App() {
           </div>
         )}
 
-        {/* Queue chips */}
-        {(() => {
-          const selectedNotInQueue =
-            !state.isRunning &&
-            !!state.selectedGame &&
-            queueGames.length > 0 &&
-            !queueGames.some(
-              (g) => g.id === state.selectedGame!.id && g.campaignId === state.selectedGame!.campaignId,
-            );
-          if (queueGames.length === 0 && !selectedNotInQueue) return null;
-          return (
-            <div className="flex flex-wrap gap-1 items-center">
-              <span className="text-[11px] text-gray-500">Queue:</span>
-              {selectedNotInQueue && (
-                <span className="inline-flex items-center gap-0.5 rounded-full bg-green-700/60 border border-green-500/40 px-2 py-0.5 text-[11px] text-green-200">
-                  {state.selectedGame!.allDropsCompleted ? '✅ ' : ''}
-                  {getGameDisplayLabel(state.selectedGame!)}
-                  <span className="ml-1 text-green-400/80">↑ first</span>
-                </span>
-              )}
-              {queueGames.map((game) => (
-                <span
-                  key={game.campaignId ? `campaign:${game.campaignId}` : `id:${game.id}`}
-                  className="inline-flex items-center gap-0.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-200"
-                >
-                  {game.allDropsCompleted ? '✅ ' : ''}
-                  {getGameDisplayLabel(game)}
-                  {!state.isRunning && (
-                    <button
-                      type="button"
-                      onClick={() => void handleRemoveFromQueue(game)}
-                      className="ml-0.5 rounded text-gray-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
-                      aria-label={`Remove ${getGameDisplayLabel(game)} from queue`}
-                    >
-                      ×
-                    </button>
-                  )}
-                </span>
-              ))}
-              {!state.isRunning && (
-                <button
-                  type="button"
-                  onClick={handleClearQueue}
-                  className="rounded text-[11px] text-red-400 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
-                  aria-label="Clear queue"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          );
-        })()}
+        <QueueChips
+          selectedGame={state.selectedGame}
+          queueGames={queueGames}
+          isRunning={state.isRunning}
+          onRemove={(game) => void handleRemoveFromQueue(game)}
+          onClear={() => void handleClearQueue()}
+        />
 
         {/* Start button (only when not running) */}
         {!state.isRunning &&
@@ -1305,7 +1589,7 @@ function App() {
                   className="w-full rounded-lg bg-green-600 py-2 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50 hover:bg-green-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
                 >
                   {actionLoading
-                    ? 'Starting...'
+                    ? 'Starting…'
                     : effectiveCount > 0
                       ? `Start Queue (${effectiveCount})`
                       : 'Start Farming'}
@@ -1342,111 +1626,23 @@ function App() {
               </>
             )}
             {!state.activeStreamer && !state.currentDrop && (
-              <span className="text-gray-400">Searching for a streamer...</span>
+              <span className="text-gray-400">Searching for a streamer…</span>
             )}
           </p>
         )}
 
-        {/* Pending drops */}
-        <div className="glass rounded-lg border border-white/10">
-          <div className="px-3 py-2 flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-gray-200">
-              Pending{!rewardsLoading && ` (${pendingDrops.length})`}
-            </h3>
-            {!rewardsLoading && claimableCount > 0 && (
-              <span className="text-[11px] text-yellow-300 font-medium">{claimableCount} claimable</span>
-            )}
-          </div>
-          {rewardsLoading ? (
-            <div className="flex items-center gap-2 px-3 py-3">
-              <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
-              <p className="text-xs text-gray-400">Loading...</p>
-            </div>
-          ) : pendingDrops.length > 0 ? (
-            <div className="max-h-[240px] overflow-y-auto divide-y divide-white/5">
-              {pendingDrops.map((drop) => (
-                <CompactDropCard key={drop.id} drop={drop} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-gray-500 px-3 py-3">No pending rewards.</p>
-          )}
-        </div>
-
-        {/* Completed (inline summary) */}
-        {completedDrops.length > 0 && (
-          <p className="text-[11px] text-gray-500 px-1">
-            <span className="font-semibold text-green-400">Completed ({completedDrops.length})</span>{' '}
-            {completedDrops.map((d) => `\u2713 ${d.name}`).join('  ')}
-          </p>
-        )}
-
-        {/* Stale data — refresh prompt */}
-        {isStale && state.availableGames.length > 0 && (
-          <div className="glass rounded-lg p-3 border border-yellow-500/30">
-            <div className="space-y-2">
-              <p className="text-xs text-yellow-300 font-semibold">Campaign data may be outdated</p>
-              {dropsRefreshLoading ? (
-                <div className="flex items-center gap-2">
-                  <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
-                  <p className="text-xs text-yellow-200">Refreshing campaigns from Twitch...</p>
-                </div>
-              ) : (
-                <>
-                  <p className="text-xs text-gray-400">
-                    Open the Twitch Drops page so the extension can fetch the latest campaigns.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void openDropsPage()}
-                    disabled={dropsRefreshLoading}
-                    className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 disabled:hover:bg-twitch-purple/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
-                  >
-                    {dropsRefreshLoading ? (
-                      <span className="spinner h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent" />
-                    ) : (
-                      <DropsIcon size={14} />
-                    )}
-                    {dropsRefreshLoading ? 'Refreshing...' : 'Open Twitch Drops Page'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* No campaigns — first-launch guidance */}
-        {!state.isRunning && state.availableGames.length === 0 && (
-          <div className="glass rounded-lg p-3 border border-blue-500/30">
-            {gamesLoading || dropsRefreshLoading ? (
-              <div className="flex items-center gap-2">
-                <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent" />
-                <p className="text-xs text-blue-300">
-                  {dropsRefreshLoading ? 'Refreshing campaigns from Twitch...' : 'Loading campaigns...'}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-blue-300 font-semibold">No campaigns detected</p>
-                <p className="text-xs text-gray-400">
-                  Open the Twitch Drops page first so the extension can detect available campaigns.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void openDropsPage()}
-                  disabled={dropsRefreshLoading}
-                  className="flex items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 disabled:hover:bg-twitch-purple/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
-                >
-                  {dropsRefreshLoading ? (
-                    <span className="spinner h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent" />
-                  ) : (
-                    <DropsIcon size={14} />
-                  )}
-                  {dropsRefreshLoading ? 'Refreshing...' : 'Open Twitch Drops Page'}
-                </button>
-              </div>
-            )}
-          </div>
+        {(state.selectedGame ||
+          state.isRunning ||
+          pendingDrops.length > 0 ||
+          completedDrops.length > 0 ||
+          dropsRefreshLoading) && (
+          <RewardList
+            pendingDrops={pendingDrops}
+            completedDrops={state.selectedGame ? completedDrops : []}
+            rewardsLoading={rewardsLoading}
+            syncLoading={dropsRefreshLoading}
+            claimableCount={claimableCount}
+          />
         )}
       </div>
     </div>
