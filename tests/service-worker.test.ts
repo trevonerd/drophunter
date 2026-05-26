@@ -756,6 +756,68 @@ describe('service worker message handlers', () => {
     expect(getAppStateFromStorage().dropsPageRefreshInProgress).toBe(false);
   });
 
+  test('OPEN_DROPS_PAGE_AND_REFRESH clears stale campaign state after a successful empty refresh', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-before-empty-refresh', currentMinutes: 20 }]);
+    await syncTestSession();
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-before-empty-refresh', currentMinutes: 20 }]);
+    await dispatchMessage({ type: 'SET_SELECTED_GAME', payload: { game: demoGame } });
+    await addGameToQueue(nextGame);
+
+    const before = getAppStateFromStorage();
+    expect(before.availableGames).toHaveLength(1);
+    expect(before.selectedGame?.campaignId).toBe(demoGame.campaignId);
+    expect(before.pendingDrops.length).toBeGreaterThan(0);
+    expect(before.queue).toHaveLength(1);
+
+    snapshotQueue.length = 0;
+    activeSnapshotScenario = null;
+    chromeMocks.tabs.setTabsQueryResult([]);
+    chromeAny.tabs.create = async ({ url, active }: { url?: string; active?: boolean }) => ({
+      id: 765,
+      windowId: 1,
+      url,
+      active: Boolean(active),
+      status: 'complete',
+    });
+    chromeAny.tabs.get = async (tabId: number) => ({
+      id: tabId,
+      windowId: 1,
+      url: 'https://www.twitch.tv/drops/campaigns',
+      status: 'complete',
+    });
+    chromeAny.tabs.sendMessage = async (_tabId: number, message: { type?: string }) => {
+      if (message.type === 'GET_TWITCH_SESSION') {
+        return {
+          success: true,
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        };
+      }
+      return { success: false };
+    };
+    enqueueDropsSnapshot([]);
+
+    const response = (await dispatchMessage({
+      type: 'OPEN_DROPS_PAGE_AND_REFRESH',
+      payload: { waitForRefresh: true, active: false },
+    })) as { success?: boolean; gamesCount?: number; appState?: AppState };
+
+    expect(response.success).toBe(true);
+    expect(response.gamesCount).toBe(0);
+    expect(response.appState?.availableGames).toEqual([]);
+    expect(response.appState?.selectedGame).toBeNull();
+    expect(response.appState?.pendingDrops).toEqual([]);
+    expect(response.appState?.completedDrops).toEqual([]);
+    expect(response.appState?.allDrops).toEqual([]);
+    expect(response.appState?.queue).toEqual([]);
+    expect(response.appState?.dropsPageRefreshInProgress).toBe(false);
+  });
+
   test('OPEN_DROPS_PAGE_AND_REFRESH reuses an existing Twitch Drops tab', async () => {
     const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
     let createCalls = 0;
