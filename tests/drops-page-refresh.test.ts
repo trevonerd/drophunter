@@ -85,6 +85,28 @@ describe('drops page refresher', () => {
     expect(progressStates).toEqual([true, false]);
   });
 
+  test('waited refresh treats a signed-in zero-campaign result as a successful sync', async () => {
+    const state = { appState: createInitialState() };
+    const tabsApi = createTabsApi();
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => {},
+      ensureStateHydratedForCache: async () => {},
+      waitForTabComplete: async () => {},
+      persistSessionFromDropsPage: async () => ({ oauthToken: 'token', deviceId: 'device', uuid: 'uuid' }),
+      refreshGamesCacheFromHiddenFetch: async () => {},
+      saveState: async () => {},
+      broadcastStateUpdate: () => {},
+    });
+
+    const result = await refresher.openDropsPageAndRefresh();
+
+    expect(result.success).toBe(true);
+    expect(result.gamesCount).toBe(0);
+    expect(result.error).toBeUndefined();
+    expect(result.appState?.dropsPageRefreshInProgress).toBe(false);
+  });
+
   test('shares concurrent refresh work to avoid duplicate Twitch tabs', async () => {
     const state = { appState: createInitialState() };
     state.appState.availableGames = [{ id: 'g1', name: 'Game', imageUrl: '' }];

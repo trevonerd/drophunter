@@ -266,6 +266,26 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(state.apiConsecutiveFailures).toBe(0);
   });
 
+  test('returns an empty snapshot when Twitch reports no active campaigns', async () => {
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const session = createSession();
+
+    originalFetch = installFetchMock([
+      async () => buildDropsDashboardResponse([]),
+      async () => buildInventoryResponse(),
+    ]);
+
+    const result = await fetchDropsSnapshotFromApi(state, session);
+
+    expect(result).not.toBeNull();
+    expect(result?.games).toEqual([]);
+    expect(result?.drops).toEqual([]);
+    expect(state.apiConsecutiveFailures).toBe(0);
+    expect(state.apiBackoffUntil).toBe(0);
+  });
+
   test('ViewerDropsDashboard does not request reward campaigns', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 
@@ -1014,21 +1034,22 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(result?.drops).toHaveLength(1);
   });
 
-  test('returns null when snapshot has no games or drops', async () => {
+  test('returns an authoritative empty snapshot when refreshed campaign data has no games or drops', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 
     const state = createMinimalState();
     const session = createSession();
 
     originalFetch = installFetchMock([
-      async () => buildIntegrityResponse(),
       async () => ({ data: { currentUser: { dropCampaigns: [] } } }),
       async () => buildInventoryResponse(),
     ]);
 
     const result = await fetchDropsSnapshotFromApi(state, session);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result?.games).toEqual([]);
+    expect(result?.drops).toEqual([]);
   });
 
   test('increments apiConsecutiveFailures and sets apiBackoffUntil on network error', async () => {
