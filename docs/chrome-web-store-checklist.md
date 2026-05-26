@@ -39,7 +39,9 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 
 - Load the fresh production `.output/chrome-mv3/` build.
 - Verify popup load, campaign refresh, dropdown selection, start, pause, resume, stop, queue completion, and claim flows.
-- Verify the refresh UI has only the toolbar loader and bottom guidance loader, with no duplicate loading message under the dropdown.
+- Verify the Campaign Sync panel shows the correct state for no data, stale data, syncing, failed sync, and fresh data.
+- Verify stale campaign data remains clearly labeled as outdated until the Twitch Drops refresh succeeds.
+- Verify a successful zero-campaign refresh clears old selected campaign rewards instead of showing stale pending/completed drops.
 - Verify the monitor opens, updates, and closes cleanly.
 - Verify notifications stay off when optional permission is denied, then turn on and fire after permission is granted.
 - Verify no stale rotation reason is shown when a new farming session starts.
