@@ -89,15 +89,13 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
 
         const gamesCount = state.appState.availableGames.length;
         result = {
-          success: gamesCount > 0,
+          success: Boolean(sessionFromTab),
           opened,
           refreshed: true,
           gamesCount,
         };
-        if (gamesCount === 0) {
-          result.error = sessionFromTab
-            ? 'No active Twitch Drops campaigns were detected.'
-            : 'Open Twitch and sign in so DropHunter can detect your session.';
+        if (!sessionFromTab) {
+          result.error = 'Open Twitch and sign in so DropHunter can detect your session.';
         }
       } catch (error) {
         result = {

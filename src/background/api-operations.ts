@@ -21,9 +21,6 @@ export async function fetchDropsSnapshotFromApi(
   let client = new TwitchApiClient(sessionWithIntegrity);
   try {
     const snapshot = await client.fetchDropsSnapshot();
-    if (snapshot.games.length === 0 && snapshot.drops.length === 0) {
-      return null;
-    }
     state.apiConsecutiveFailures = 0;
     state.apiBackoffUntil = 0;
     return snapshot;
@@ -38,9 +35,6 @@ export async function fetchDropsSnapshotFromApi(
         try {
           client = new TwitchApiClient(refreshedIntegritySession);
           const retriedSnapshot = await client.fetchDropsSnapshot();
-          if (retriedSnapshot.games.length === 0 && retriedSnapshot.drops.length === 0) {
-            return null;
-          }
           state.apiConsecutiveFailures = 0;
           state.apiBackoffUntil = 0;
           return retriedSnapshot;
@@ -51,9 +45,6 @@ export async function fetchDropsSnapshotFromApi(
         const sessionWithoutIntegrity: TwitchSession = { ...session, clientIntegrity: undefined };
         client = new TwitchApiClient(sessionWithoutIntegrity);
         const fallbackSnapshot = await client.fetchDropsSnapshot();
-        if (fallbackSnapshot.games.length === 0 && fallbackSnapshot.drops.length === 0) {
-          return null;
-        }
         state.integrityFallbackActive = true;
         state.integrityFallbackActiveUntil = Date.now() + 30 * 60_000;
         state.apiConsecutiveFailures = 0;
