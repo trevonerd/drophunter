@@ -1439,6 +1439,8 @@ export async function refreshDropsData(
       drops = apiSnapshot.drops;
       if (apiSnapshot.drops.length > 0) {
         state.cachedDropsSnapshot = apiSnapshot.drops;
+      } else if (apiSnapshot.games.length === 0) {
+        state.cachedDropsSnapshot = [];
       } else if (state.cachedDropsSnapshot.length > 0) {
         drops = state.cachedDropsSnapshot;
       }
@@ -1475,7 +1477,7 @@ export async function refreshDropsData(
     drops = state.cachedDropsSnapshot;
   }
 
-  if (drops.length === 0 && state.appState.allDrops.length > 0) {
+  if (drops.length === 0 && state.appState.allDrops.length > 0 && !apiSnapshotUsed) {
     drops = state.appState.allDrops;
   }
 

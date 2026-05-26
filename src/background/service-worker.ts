@@ -681,6 +681,60 @@ function shouldRefreshCampaignsAfterSessionSync(): boolean {
   return sessionOrchestrator.shouldRefreshCampaignsAfterSessionSync(GAMES_STALE_THRESHOLD_MS);
 }
 
+function clearSelectedCompletedIdleCampaign() {
+  if (appState.isRunning || !appState.selectedGame || appState.queue.length > 0) {
+    return;
+  }
+
+  const selected = appState.selectedGame;
+  const selectedDrops = cachedDropsSnapshot.filter((drop) => dropMatchesSelectedGameExt(drop, selected));
+  const hasKnownDrops = selectedDrops.length > 0;
+  const hasFarmablePending = selectedDrops.some(
+    (drop) => !isDropCompleted(drop) && drop.dropType !== 'event-based',
+  );
+
+  if (!hasKnownDrops || hasFarmablePending) {
+    return;
+  }
+
+  appState.selectedGame = null;
+  appState.currentDrop = null;
+  appState.allDrops = [];
+  appState.pendingDrops = [];
+  appState.completedDrops = [];
+  appState.completionNotified = false;
+  previousAllDropsCount = 0;
+  resetStreamTrackingStateExt(state);
+}
+
+async function applyAuthoritativeEmptyCampaignRefresh(): Promise<void> {
+  const wasRunning = appState.isRunning;
+  if (wasRunning) {
+    await stopFarmingSession({
+      stopReason: 'no-active-campaigns',
+      stopMessage: 'No active Twitch Drops campaigns found.',
+    });
+  } else {
+    appState = clearTerminalStopStatus(clearRecoveryStatus(appState));
+  }
+
+  appState.availableGames = [];
+  appState.queue = [];
+  appState.selectedGame = null;
+  appState.currentDrop = null;
+  appState.allDrops = [];
+  appState.pendingDrops = [];
+  appState.completedDrops = [];
+  appState.completionNotified = false;
+  appState.lastSuccessfulRefreshAt = Date.now();
+  cachedDropsSnapshot = [];
+  cachedCampaignChannelsMap = {};
+  previousAllDropsCount = 0;
+  resetStreamTrackingStateExt(state);
+  lastGamesCacheRefreshAt = Date.now();
+  await saveStateExt(state);
+}
+
 async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<DropsSnapshot | null> {
   return fetchDropsSnapshotFromApiWrapper(
     state,
@@ -772,12 +826,18 @@ async function refreshGamesCacheFromHiddenFetch(
     let fetchedGames: TwitchGame[] = [];
     const apiSnapshot = await fetchDropsSnapshotFromApi(Boolean(options.forceSessionRefresh));
     if (apiSnapshot) {
+      if (apiSnapshot.games.length === 0 && apiSnapshot.drops.length === 0) {
+        await applyAuthoritativeEmptyCampaignRefresh();
+        return [];
+      }
       if (apiSnapshot.games.length > 0) {
         fetchedGames = apiSnapshot.games;
       }
       appState.lastSuccessfulRefreshAt = Date.now();
       if (apiSnapshot.drops.length > 0) {
         cachedDropsSnapshot = apiSnapshot.drops;
+      } else {
+        cachedDropsSnapshot = [];
       }
       if (apiSnapshot.campaignChannelsMap) {
         cachedCampaignChannelsMap = apiSnapshot.campaignChannelsMap;
@@ -789,11 +849,13 @@ async function refreshGamesCacheFromHiddenFetch(
     const annotatedGames = annotateGameCompletionExt(mergedGames, cachedDropsSnapshot);
     appState.availableGames = annotatedGames;
     normalizeGameSelectionExt(state, annotatedGames);
-    normalizeQueueSelectionExt(state, annotatedGames);
-    // If we have a selected game and fresh drops, update the drop split
-    if (appState.selectedGame && cachedDropsSnapshot.length > 0) {
+    normalizeQueueSelectionExt(state, annotatedGames, Boolean(apiSnapshot));
+    // If a campaign refresh succeeded, the selected campaign split should reflect it,
+    // including the valid "no rewards left" case.
+    if (appState.selectedGame && apiSnapshot) {
       splitDropsForSelectedGameExt(state, cachedDropsSnapshot);
     }
+    clearSelectedCompletedIdleCampaign();
     lastGamesCacheRefreshAt = Date.now();
     await saveStateExt(state);
     return mergedGames;
