@@ -29,7 +29,7 @@ body {
 ::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, #9146FF 0%, #772CE8 100%);
   border-radius: 10px;
-  transition: all 0.3s ease;
+  transition: background 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -59,4 +59,15 @@ body {
 
 .spinner {
   animation: spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
