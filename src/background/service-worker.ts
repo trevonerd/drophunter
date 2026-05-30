@@ -708,8 +708,7 @@ function clearSelectedCompletedIdleCampaign() {
 }
 
 async function applyAuthoritativeEmptyCampaignRefresh(): Promise<void> {
-  const wasRunning = appState.isRunning;
-  if (wasRunning) {
+  if (appState.isRunning) {
     await stopFarmingSession({
       stopReason: 'no-active-campaigns',
       stopMessage: 'No active Twitch Drops campaigns found.',
@@ -732,6 +731,7 @@ async function applyAuthoritativeEmptyCampaignRefresh(): Promise<void> {
   previousAllDropsCount = 0;
   resetStreamTrackingStateExt(state);
   lastGamesCacheRefreshAt = Date.now();
+  state.appState = appState;
   await saveStateExt(state);
 }
 

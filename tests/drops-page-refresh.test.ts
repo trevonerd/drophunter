@@ -85,7 +85,7 @@ describe('drops page refresher', () => {
     expect(progressStates).toEqual([true, false]);
   });
 
-  test('waited refresh treats a signed-in zero-campaign result as a successful sync', async () => {
+  test('waited refresh treats a signed-in zero-campaign result as unsuccessful sync', async () => {
     const state = { appState: createInitialState() };
     const tabsApi = createTabsApi();
     const refresher = createDropsPageRefresher(state, {
@@ -101,9 +101,61 @@ describe('drops page refresher', () => {
 
     const result = await refresher.openDropsPageAndRefresh();
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
     expect(result.gamesCount).toBe(0);
+    expect(result.error).toBe('No active Twitch Drops campaigns were detected.');
+    expect(result.appState?.dropsPageRefreshInProgress).toBe(false);
+  });
+
+  test('treats a hidden refresh as successful when games are found even without a session', async () => {
+    const state = { appState: createInitialState() };
+    const tabsApi = createTabsApi();
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => {},
+      ensureStateHydratedForCache: async () => {},
+      waitForTabComplete: async () => {},
+      persistSessionFromDropsPage: async () => null,
+      refreshGamesCacheFromHiddenFetch: async () => {
+        state.appState.availableGames = [{ id: 'g1', name: 'Game', imageUrl: '' }];
+      },
+      saveState: async () => {},
+      broadcastStateUpdate: () => {},
+    });
+
+    const result = await refresher.openDropsPageAndRefresh();
+
+    expect(result).toEqual({
+      success: true,
+      opened: true,
+      refreshed: true,
+      gamesCount: 1,
+      appState: state.appState,
+    });
     expect(result.error).toBeUndefined();
+  });
+
+  test('marks the refresh unsuccessful when the games cache stays empty', async () => {
+    const state = { appState: createInitialState() };
+    const tabsApi = createTabsApi();
+    const refresher = createDropsPageRefresher(state, {
+      tabsApi,
+      trackActivity: async () => {},
+      ensureStateHydratedForCache: async () => {},
+      waitForTabComplete: async () => {},
+      persistSessionFromDropsPage: async () => ({ oauthToken: 'token', deviceId: 'device', uuid: 'uuid' }),
+      refreshGamesCacheFromHiddenFetch: async () => {
+        state.appState.availableGames = [];
+      },
+      saveState: async () => {},
+      broadcastStateUpdate: () => {},
+    });
+
+    const result = await refresher.openDropsPageAndRefresh();
+
+    expect(result.success).toBe(false);
+    expect(result.gamesCount).toBe(0);
+    expect(result.error).toBe('No active Twitch Drops campaigns were detected.');
     expect(result.appState?.dropsPageRefreshInProgress).toBe(false);
   });
 
