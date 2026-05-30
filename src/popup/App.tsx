@@ -387,6 +387,7 @@ interface PopupHeaderProps {
   state: AppState;
   actionLoading: boolean;
   dropsRefreshLoading: boolean;
+  onboardingCompleted: boolean;
   onMuteToggle: () => void;
   onOpenDropsPage: () => void;
   onOpenMonitor: () => void;
@@ -401,6 +402,7 @@ function PopupHeader({
   state,
   actionLoading,
   dropsRefreshLoading,
+  onboardingCompleted,
   onMuteToggle,
   onOpenDropsPage,
   onOpenMonitor,
@@ -451,17 +453,23 @@ function PopupHeader({
             </button>
           </>
         )}
-        <button
-          type="button"
-          onClick={onMuteToggle}
-          className={`inline-flex h-6 w-6 items-center justify-center rounded text-[#1B1030] transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
-            state.muteFarmingTab ? 'bg-[#1B1030]/10' : 'bg-white/25'
-          }`}
-          aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
-          title={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+        <div
+          className={
+            onboardingCompleted || state.isRunning ? 'header-control-visible' : 'header-control-hidden'
+          }
         >
-          <SpeakerIcon muted={state.muteFarmingTab} />
-        </button>
+          <button
+            type="button"
+            onClick={onMuteToggle}
+            className={`inline-flex h-6 w-6 items-center justify-center rounded text-[#1B1030] transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
+              state.muteFarmingTab ? 'bg-[#1B1030]/10' : 'bg-white/25'
+            }`}
+            aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+            title={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+          >
+            <SpeakerIcon muted={state.muteFarmingTab} />
+          </button>
+        </div>
         <button
           type="button"
           onClick={onOpenDropsPage}
@@ -481,15 +489,21 @@ function PopupHeader({
             <DropsIcon />
           )}
         </button>
-        <button
-          type="button"
-          onClick={onOpenMonitor}
-          className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
-          aria-label="Open live monitor"
-          title="Live Monitor"
+        <div
+          className={
+            onboardingCompleted || state.isRunning ? 'header-control-visible' : 'header-control-hidden'
+          }
         >
-          <MonitorIcon />
-        </button>
+          <button
+            type="button"
+            onClick={onOpenMonitor}
+            className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            aria-label="Open live monitor"
+            title="Live Monitor"
+          >
+            <MonitorIcon />
+          </button>
+        </div>
         <button
           type="button"
           onClick={onOpenSettings}
@@ -602,6 +616,7 @@ interface CampaignSelectorProps {
   sortedGames: TwitchGame[];
   isRunning: boolean;
   actionLoading: boolean;
+  onboardingStep: 'selector' | 'start' | null;
   onSelect: (gameId: string) => void;
   onAddToQueue: () => void;
 }
@@ -611,6 +626,7 @@ function CampaignSelector({
   sortedGames,
   isRunning,
   actionLoading,
+  onboardingStep,
   onSelect,
   onAddToQueue,
 }: CampaignSelectorProps) {
@@ -620,10 +636,10 @@ function CampaignSelector({
         aria-label="Campaign"
         value={selectedGame?.id ?? ''}
         onChange={(e) => onSelect(e.target.value)}
-        className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-2 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white"
+        className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-2 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white ${onboardingStep === 'selector' ? 'onboarding-pulse' : ''}`}
         disabled={isRunning}
       >
-        <option value="">Select a campaign…</option>
+        <option value="">Select a game to start</option>
         {sortedGames.map((game) => (
           <option key={game.id} value={game.id}>
             {game.allDropsCompleted ? '\u2705 ' : game.isConnected === false ? '\u{1F512} ' : ''}
@@ -773,12 +789,16 @@ function App() {
   const dropsRefreshLoading = manualDropsRefreshLoading || state.dropsPageRefreshInProgress;
   const isStale =
     !state.isRunning &&
+    state.availableGames.length > 0 &&
     !gamesLoading &&
     Date.now() - (state.lastSuccessfulRefreshAt ?? 0) > STALE_THRESHOLD_MS;
   const [rewardsLoading, setRewardsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'main' | 'settings'>('main');
+  const [onboardingCompleted, setOnboardingCompleted] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState<'selector' | 'start' | null>(null);
+  const [firstSyncConfirmation, setFirstSyncConfirmation] = useState(false);
 
   const fetchAvailableGames = useCallback(async (force = false) => {
     await sendRuntimeMessage({ type: 'ENSURE_GAMES_CACHE', payload: { force } }).catch((err: unknown) =>
@@ -791,6 +811,10 @@ function App() {
     const loadState = async () => {
       try {
         setState(await loadStoredAppState());
+        const stored = await browser.storage.local.get('onboardingCompleted');
+        if (stored.onboardingCompleted === true) {
+          setOnboardingCompleted(true);
+        }
       } catch (error) {
         logPopupError('Error loading state:', error);
       } finally {
@@ -845,6 +869,14 @@ function App() {
   }, [showFreshSync]);
 
   useEffect(() => {
+    if (!firstSyncConfirmation) {
+      return;
+    }
+    const timer = window.setTimeout(() => setFirstSyncConfirmation(false), 30000);
+    return () => window.clearTimeout(timer);
+  }, [firstSyncConfirmation]);
+
+  useEffect(() => {
     if (dropsRefreshLoading) {
       setSyncError(null);
       setShowFreshSync(false);
@@ -863,8 +895,19 @@ function App() {
   const handleGameSelect = async (gameId: string) => {
     const selected = sortedGames.find((g) => g.id === gameId);
     if (selected) {
-      setState((prev) => ({ ...prev, selectedGame: selected }));
+      setState((prev) => ({
+        ...prev,
+        selectedGame: selected,
+        pendingDrops: [],
+        completedDrops: [],
+        currentDrop: null,
+        completionNotified: false,
+      }));
       setQueueMessage(null);
+      setFirstSyncConfirmation(false);
+      if (onboardingStep === 'selector') {
+        setOnboardingStep('start');
+      }
       setRewardsLoading(true);
       try {
         await sendRuntimeMessage({ type: 'SET_SELECTED_GAME', payload: { game: selected } }).catch(
@@ -947,6 +990,12 @@ function App() {
       });
       if (response && !response.success && response.error) {
         setQueueMessage(response.error);
+        return;
+      }
+      if (response?.success && !onboardingCompleted) {
+        setOnboardingCompleted(true);
+        setOnboardingStep(null);
+        await browser.storage.local.set({ onboardingCompleted: true }).catch(() => {});
       }
     });
 
@@ -1024,6 +1073,10 @@ function App() {
 
       if (gamesCount > 0) {
         setShowFreshSync(true);
+        if (!onboardingCompleted) {
+          setFirstSyncConfirmation(true);
+          setOnboardingStep('selector');
+        }
         return;
       }
 
@@ -1031,7 +1084,7 @@ function App() {
     } finally {
       setManualDropsRefreshLoading(false);
     }
-  }, [dropsRefreshLoading]);
+  }, [dropsRefreshLoading, onboardingCompleted]);
 
   const openMiniDashboard = async () => {
     await sendRuntimeMessage({ type: 'OPEN_MONITOR_DASHBOARD', payload: { toggle: true } }).catch(
@@ -1495,6 +1548,7 @@ function App() {
         state={state}
         actionLoading={actionLoading}
         dropsRefreshLoading={dropsRefreshLoading}
+        onboardingCompleted={onboardingCompleted}
         onMuteToggle={() => void handleMuteFarmingTabToggle()}
         onOpenDropsPage={() => void openDropsPage()}
         onOpenMonitor={openMiniDashboard}
@@ -1521,11 +1575,18 @@ function App() {
           onRefresh={() => void openDropsPage()}
         />
 
+        {firstSyncConfirmation && (
+          <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-200">
+            ✅ {state.availableGames.length} campaigns loaded — select a game below and press Start
+          </div>
+        )}
+
         <CampaignSelector
           selectedGame={state.selectedGame}
           sortedGames={sortedGames}
           isRunning={state.isRunning}
           actionLoading={actionLoading}
+          onboardingStep={onboardingStep}
           onSelect={(gameId) => void handleGameSelect(gameId)}
           onAddToQueue={() => void handleAddToQueue()}
         />
@@ -1586,7 +1647,7 @@ function App() {
                   disabled={
                     (!state.selectedGame && queueGames.length === 0) || actionLoading || allDropsClaimed
                   }
-                  className="w-full rounded-lg bg-green-600 py-2 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50 hover:bg-green-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+                  className={`w-full rounded-lg bg-green-600 py-2 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50 hover:bg-green-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${onboardingStep === 'start' ? 'onboarding-pulse' : ''}`}
                 >
                   {actionLoading
                     ? 'Starting…'
