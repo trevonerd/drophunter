@@ -1258,6 +1258,17 @@ export interface OpenBestStreamerCallbacks {
   onOpenForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;
 }
 
+function filterStreamersByAllowedChannels(
+  streamers: TwitchStreamer[],
+  allowed: string[] | null,
+): TwitchStreamer[] {
+  if (allowed == null || allowed.length === 0) {
+    return streamers;
+  }
+  const allowedSet = new Set(allowed.map((channel) => channel.toLowerCase()));
+  return streamers.filter((streamer) => allowedSet.has(streamer.name.toLowerCase()));
+}
+
 export async function openBestStreamerForSelectedGame(
   state: ServiceWorkerState,
   callbacks: OpenBestStreamerCallbacks,
@@ -1344,38 +1355,72 @@ export async function openBestStreamerForSelectedGame(
     directoryStreamers: streamers.map((s) => s.name),
     directoryCount: streamers.length,
   });
-  const candidates =
-    allowed != null && allowed.length > 0
-      ? streamers.filter((s) => allowed!.includes(s.name.toLowerCase()))
-      : streamers;
+  let candidates = filterStreamersByAllowedChannels(streamers, allowed);
+  let selectionLanguageFilterApplied = streamers.languageFilterApplied;
+  let selectionPreferences: StreamerSelectionPreferences = {
+    mode: state.appState.streamerSelectionMode,
+    preferredLanguage: state.appState.preferredStreamerLanguage,
+  };
+  let totalStreamersForNoAllowedWarning = streamers.length;
   if (allowed != null && allowed.length > 0) {
+    const allowedSet = new Set(allowed.map((channel) => channel.toLowerCase()));
     logDebug('Filtered streamers by allowedChannels', {
       game: deps.getGameDisplayLabel(state.appState.selectedGame),
       beforeFilter: streamers.length,
       afterFilter: candidates.length,
       candidateNames: candidates.map((s) => s.name),
-      rejected: streamers.filter((s) => !allowed!.includes(s.name.toLowerCase())).map((s) => s.name),
+      rejected: streamers.filter((s) => !allowedSet.has(s.name.toLowerCase())).map((s) => s.name),
+    });
+  }
+
+  if (candidates.length === 0 && allowed != null && allowed.length > 0 && streamers.languageFilterApplied) {
+    const unfilteredStreamers = await callbacks.onFetchDirectoryStreamersFromApi(
+      state.appState.selectedGame,
+      false,
+      '',
+    );
+    const unfilteredCandidates = filterStreamersByAllowedChannels(unfilteredStreamers, allowed);
+    logDebug('Retrying streamer selection without preferred language', {
+      game: deps.getGameDisplayLabel(state.appState.selectedGame),
+      preferredLanguage: state.appState.preferredStreamerLanguage,
+      beforeFilter: unfilteredStreamers.length,
+      afterFilter: unfilteredCandidates.length,
+      candidateNames: unfilteredCandidates.map((s) => s.name),
+    });
+    candidates = unfilteredCandidates;
+    selectionLanguageFilterApplied = unfilteredStreamers.languageFilterApplied;
+    totalStreamersForNoAllowedWarning = unfilteredStreamers.length;
+    if (candidates.length > 0) {
+      selectionPreferences = {
+        mode: 'random',
+        preferredLanguage: null,
+      };
+    }
+  }
+
+  if (candidates.length === 0 && allowed != null && allowed.length > 0 && streamers.length > 0) {
+    logWarn('No allowed streamers are live for selected game', {
+      game: deps.getGameDisplayLabel(state.appState.selectedGame),
+      allowedChannels: allowed.length,
+      totalStreamers: totalStreamersForNoAllowedWarning,
     });
   }
   const selection = deps.pickStreamerForPreferences(
     candidates,
-    {
-      mode: state.appState.streamerSelectionMode,
-      preferredLanguage: state.appState.preferredStreamerLanguage,
-    },
+    selectionPreferences,
     Math.random,
-    streamers.languageFilterApplied,
+    selectionLanguageFilterApplied,
   );
   const streamer = selection.streamer;
   if (streamer) {
     logInfo('Opening selected streamer', {
       game: deps.getGameDisplayLabel(state.appState.selectedGame),
-      selectionMode: state.appState.streamerSelectionMode,
-      preferredLanguage: deps.normalizePreferredStreamerLanguage(state.appState.preferredStreamerLanguage),
+      selectionMode: selectionPreferences.mode,
+      preferredLanguage: deps.normalizePreferredStreamerLanguage(selectionPreferences.preferredLanguage),
       preferredLanguageApplied: selection.preferredLanguageApplied,
       preferredLanguageMatches: selection.preferredLanguageMatches,
       activePoolSize: selection.activePoolSize,
-      serverLanguageFilterApplied: streamers.languageFilterApplied,
+      serverLanguageFilterApplied: selectionLanguageFilterApplied,
       streamer: streamer.name,
       viewers: streamer.viewerCount ?? null,
       broadcasterLanguage: streamer.broadcasterLanguage ?? null,
