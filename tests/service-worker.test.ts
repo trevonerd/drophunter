@@ -805,10 +805,11 @@ describe('service worker message handlers', () => {
     const response = (await dispatchMessage({
       type: 'OPEN_DROPS_PAGE_AND_REFRESH',
       payload: { waitForRefresh: true, active: false },
-    })) as { success?: boolean; gamesCount?: number; appState?: AppState };
+    })) as { success?: boolean; gamesCount?: number; error?: string; appState?: AppState };
 
-    expect(response.success).toBe(true);
+    expect(response.success).toBe(false);
     expect(response.gamesCount).toBe(0);
+    expect(response.error).toBe('No active Twitch Drops campaigns were detected.');
     expect(response.appState?.availableGames).toEqual([]);
     expect(response.appState?.selectedGame).toBeNull();
     expect(response.appState?.pendingDrops).toEqual([]);
@@ -865,6 +866,49 @@ describe('service worker message handlers', () => {
     expect(createCalls).toBe(0);
     expect(updateCalls).toBe(1);
     expect(getAppStateFromStorage().availableGames).toHaveLength(1);
+  });
+
+  test('OPEN_DROPS_PAGE_AND_REFRESH returns success true when hidden fetch finds games', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
+    chromeMocks.tabs.setTabsQueryResult([]);
+    chromeAny.tabs.create = async ({ url, active }: { url?: string; active?: boolean }) => ({
+      id: 888,
+      windowId: 1,
+      url,
+      active: Boolean(active),
+      status: 'complete',
+    });
+    chromeAny.tabs.get = async (tabId: number) => ({
+      id: tabId,
+      windowId: 1,
+      url: 'https://www.twitch.tv/drops/campaigns',
+      status: 'complete',
+    });
+    chromeAny.tabs.sendMessage = async (_tabId: number, message: { type?: string }) => {
+      if (message.type === 'GET_TWITCH_SESSION') {
+        return {
+          success: true,
+          session: {
+            oauthToken: 'oauth-token-with-valid-length-1234567890',
+            userId: '123456',
+            deviceId: 'device-12345678',
+            uuid: 'uuid-1',
+          },
+        };
+      }
+      return { success: false };
+    };
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-refresh-success', currentMinutes: 0 }]);
+
+    const response = (await dispatchMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' })) as {
+      success?: boolean;
+      gamesCount?: number;
+      appState?: AppState;
+    };
+
+    expect(response.success).toBe(true);
+    expect(response.gamesCount).toBe(1);
+    expect(response.appState?.availableGames).toHaveLength(1);
   });
 
   test('OPEN_DROPS_PAGE_AND_REFRESH shares concurrent refresh work', async () => {
@@ -930,6 +974,54 @@ describe('service worker message handlers', () => {
 
     expect(response).toEqual({ success: true });
     expect(getAppStateFromStorage().availableGames).toHaveLength(1);
+  });
+
+  test('ENSURE_GAMES_CACHE clears an idle selected campaign with only completed drops', async () => {
+    const completedGame: TwitchGame = {
+      ...demoGame,
+      id: 'completed-idle-game',
+      name: 'Completed Idle Game',
+      campaignId: 'completed-idle-campaign',
+      categorySlug: 'completed-idle-game',
+    };
+    const completedSnapshot = [
+      {
+        game: completedGame,
+        dropId: 'drop-completed-idle',
+        currentMinutes: 60,
+        requiredMinutes: 60,
+      },
+    ];
+
+    enqueueDropsSnapshot(completedSnapshot);
+    await syncTestSession();
+    enqueueDropsSnapshot(completedSnapshot);
+    await dispatchMessage({ type: 'SET_SELECTED_GAME', payload: { game: completedGame } });
+
+    const before = getAppStateFromStorage();
+    expect(before.isRunning).toBe(false);
+    expect(before.queue).toEqual([]);
+    expect(before.selectedGame?.campaignId).toBe(completedGame.campaignId);
+    expect(before.pendingDrops).toEqual([]);
+    expect(before.completedDrops).toHaveLength(1);
+    expect(before.allDrops).toHaveLength(1);
+
+    enqueueDropsSnapshot(completedSnapshot);
+    const response = (await dispatchMessage({
+      type: 'ENSURE_GAMES_CACHE',
+      payload: { force: true },
+    })) as { success?: boolean; gamesCount?: number };
+
+    expect(response.success).toBe(true);
+    expect(response.gamesCount).toBe(1);
+
+    const after = getAppStateFromStorage();
+    expect(after.availableGames).toHaveLength(1);
+    expect(after.selectedGame).toBeNull();
+    expect(after.currentDrop).toBeNull();
+    expect(after.pendingDrops).toEqual([]);
+    expect(after.completedDrops).toEqual([]);
+    expect(after.allDrops).toEqual([]);
   });
 
   test('rejects sensitive content-script sync from non-Twitch senders', async () => {
