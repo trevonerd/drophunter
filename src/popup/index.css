@@ -61,6 +61,33 @@ body {
   animation: spin 1s linear infinite;
 }
 
+/* Onboarding pulse animation for step highlights */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(145, 70, 255, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(145, 70, 255, 0);
+  }
+}
+
+.onboarding-pulse {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Progressive disclosure: hidden header controls */
+.header-control-hidden {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.header-control-visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
