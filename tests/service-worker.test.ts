@@ -2,7 +2,10 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:tes
 import { setupChromeMocks, type ChromeMocks } from './mocks/chrome';
 import type { RuntimeRequest } from '../src/shared/messages.ts';
 import type { AppState, TwitchGame } from '../src/types/index.ts';
-import { setTimingSaveDebounceMsForTests } from '../src/background/state-persistence.ts';
+import {
+  clearPendingTimingStateSaveForTests,
+  setTimingSaveDebounceMsForTests,
+} from '../src/background/state-persistence.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 
 const chromeMocks = setupChromeMocks();
@@ -531,6 +534,7 @@ describe('service worker message handlers', () => {
 
   afterAll(async () => {
     await sleepTick();
+    clearPendingTimingStateSaveForTests();
     setTimingSaveDebounceMsForTests(null);
     chromeMocks.teardown();
   });
