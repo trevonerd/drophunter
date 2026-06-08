@@ -2,6 +2,9 @@ import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 
 const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
+const DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS = 60_000;
+const DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS = 20;
+const DEFAULT_CAMPAIGN_REFRESH_RETRY_DELAY_MS = 3_000;
 
 interface DropsPageState {
   appState: AppState;
@@ -21,11 +24,18 @@ interface DropsPageRefreshOptions {
   tabsApi?: TabsApi;
   trackActivity: (reason: string) => Promise<unknown> | unknown;
   ensureStateHydratedForCache: () => Promise<unknown> | unknown;
-  waitForTabComplete: (tabId: number) => Promise<unknown> | unknown;
+  waitForTabComplete: (tabId: number, timeoutMs?: number) => Promise<unknown> | unknown;
   persistSessionFromDropsPage: (tabId: number) => Promise<unknown>;
-  refreshGamesCacheFromHiddenFetch: (options: { forceSessionRefresh?: boolean }) => Promise<unknown>;
+  refreshGamesCacheFromHiddenFetch: (options: {
+    forceSessionRefresh?: boolean;
+    acceptAuthoritativeEmpty?: boolean;
+    requireFreshSnapshot?: boolean;
+  }) => Promise<unknown>;
   saveState: () => Promise<unknown> | unknown;
   broadcastStateUpdate: (appState: AppState) => void;
+  dropsPageReadyTimeoutMs?: number;
+  campaignRefreshAttempts?: number;
+  campaignRefreshRetryDelayMs?: number;
 }
 
 export interface DropsPageRefreshResult {
@@ -46,6 +56,8 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
   const getTabsApi = () => options.tabsApi ?? browser.tabs;
   let openAndRefreshInFlight: Promise<DropsPageRefreshResult> | null = null;
   let refreshInFlight: Promise<DropsPageRefreshResult> | null = null;
+  const wait = (delayMs: number) =>
+    delayMs <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, delayMs));
 
   const findOrOpenDropsPageTab = async (
     active: boolean,
@@ -69,10 +81,78 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     return { tabId: created?.id ?? null, opened: true };
   };
 
-  const publishRefreshProgress = async (inProgress: boolean) => {
+  const publishRefreshState = async (
+    inProgress: boolean,
+    stateOptions: {
+      attemptAt?: number;
+      completedAt?: number | null;
+      campaignCount?: number | null;
+      error?: string | null;
+    } = {},
+  ) => {
     state.appState.dropsPageRefreshInProgress = inProgress;
+    if (stateOptions.attemptAt !== undefined) {
+      state.appState.lastDropsPageRefreshAttemptAt = stateOptions.attemptAt;
+    }
+    if (stateOptions.completedAt !== undefined) {
+      state.appState.lastDropsPageRefreshCompletedAt = stateOptions.completedAt;
+    }
+    if (stateOptions.campaignCount !== undefined) {
+      state.appState.lastDropsPageRefreshCampaignCount = stateOptions.campaignCount;
+    }
+    if ('error' in stateOptions) {
+      state.appState.lastDropsPageRefreshError = stateOptions.error;
+    }
     await options.saveState();
     options.broadcastStateUpdate(state.appState as AppState);
+  };
+
+  const refreshCampaignsUntilReady = async (
+    tabId: number,
+    startedAt: number,
+  ): Promise<{ gamesCount: number; sawSession: boolean }> => {
+    const attempts = Math.max(
+      1,
+      Math.floor(options.campaignRefreshAttempts ?? DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS),
+    );
+    const retryDelayMs = Math.max(
+      0,
+      options.campaignRefreshRetryDelayMs ?? DEFAULT_CAMPAIGN_REFRESH_RETRY_DELAY_MS,
+    );
+    const readyTimeoutMs = Math.max(
+      1,
+      options.dropsPageReadyTimeoutMs ?? DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS,
+    );
+    const deadline = startedAt + readyTimeoutMs;
+    let sawSession = false;
+    let gamesCount = 0;
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const isFinalAttemptByCount = attempt === attempts;
+      const isFinalAttemptByTime = Date.now() >= deadline;
+      const sessionFromTab = await options.persistSessionFromDropsPage(tabId);
+      sawSession = sawSession || Boolean(sessionFromTab);
+      const refreshedGames = await options.refreshGamesCacheFromHiddenFetch({
+        forceSessionRefresh: !sessionFromTab,
+        acceptAuthoritativeEmpty: isFinalAttemptByCount || isFinalAttemptByTime,
+        requireFreshSnapshot: true,
+      });
+
+      gamesCount = Array.isArray(refreshedGames)
+        ? refreshedGames.length
+        : state.appState.availableGames.length;
+      if (gamesCount > 0 || isFinalAttemptByCount || isFinalAttemptByTime) {
+        break;
+      }
+
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        break;
+      }
+      await wait(Math.min(retryDelayMs, remainingMs));
+    }
+
+    return { gamesCount, sawSession };
   };
 
   const refreshFromDropsPageTab = (tabId: number, opened: boolean): Promise<DropsPageRefreshResult> => {
@@ -83,11 +163,13 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     refreshInFlight = (async () => {
       let result: DropsPageRefreshResult;
       try {
-        await options.waitForTabComplete(tabId);
-        const sessionFromTab = await options.persistSessionFromDropsPage(tabId);
-        await options.refreshGamesCacheFromHiddenFetch({ forceSessionRefresh: !sessionFromTab });
+        const startedAt = Date.now();
+        await options.waitForTabComplete(
+          tabId,
+          options.dropsPageReadyTimeoutMs ?? DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS,
+        );
+        const { gamesCount, sawSession } = await refreshCampaignsUntilReady(tabId, startedAt);
 
-        const gamesCount = state.appState.availableGames.length;
         result = {
           success: gamesCount > 0,
           opened,
@@ -95,7 +177,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
           gamesCount,
         };
         if (gamesCount === 0) {
-          result.error = sessionFromTab
+          result.error = sawSession
             ? 'No active Twitch Drops campaigns were detected.'
             : 'Open Twitch and sign in so DropHunter can detect your session.';
         }
@@ -109,7 +191,11 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
         };
       }
 
-      await publishRefreshProgress(false);
+      await publishRefreshState(false, {
+        completedAt: result.success ? Date.now() : undefined,
+        campaignCount: result.success ? result.gamesCount : undefined,
+        error: result.success ? null : result.error || 'Refresh failed.',
+      });
       return {
         ...result,
         appState: state.appState,
@@ -130,16 +216,24 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
 
     const { tabId, opened } = await findOrOpenDropsPageTab(active);
     if (!tabId) {
+      const error = 'Unable to open the Twitch Drops page.';
+      await publishRefreshState(false, {
+        attemptAt: Date.now(),
+        error,
+      });
       return {
         success: false,
         opened: false,
         refreshed: false,
         gamesCount: state.appState.availableGames.length,
-        error: 'Unable to open the Twitch Drops page.',
+        error,
       };
     }
 
-    await publishRefreshProgress(true);
+    await publishRefreshState(true, {
+      attemptAt: Date.now(),
+      error: null,
+    });
 
     if (!waitForRefresh) {
       const refreshPromise = refreshFromDropsPageTab(tabId, opened);

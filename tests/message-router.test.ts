@@ -12,6 +12,7 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
   return {
     ensureGamesCache: missing,
     openDropsPageAndRefresh: missing,
+    markDropsRefreshNoticeSeen: missing,
     addToQueue: missing,
     removeFromQueue: missing,
     clearQueue: missing,

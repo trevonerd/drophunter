@@ -33,6 +33,21 @@ describe('runtime message protocol', () => {
     ).toBe(false);
   });
 
+  test('validates MARK_DROPS_REFRESH_NOTICE_SEEN payload', () => {
+    expect(
+      isRuntimeRequest({
+        type: 'MARK_DROPS_REFRESH_NOTICE_SEEN',
+        payload: { seenAt: 123 },
+      }),
+    ).toBe(true);
+    expect(
+      isRuntimeRequest({
+        type: 'MARK_DROPS_REFRESH_NOTICE_SEEN',
+        payload: { seenAt: 'later' },
+      }),
+    ).toBe(false);
+  });
+
   test('maps request types to response types at compile time', () => {
     type ResponseKeys = keyof RuntimeResponseByType;
     type RequestTypes = RuntimeRequest['type'];

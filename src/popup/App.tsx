@@ -387,7 +387,6 @@ interface PopupHeaderProps {
   state: AppState;
   actionLoading: boolean;
   dropsRefreshLoading: boolean;
-  onboardingCompleted: boolean;
   onMuteToggle: () => void;
   onOpenDropsPage: () => void;
   onOpenMonitor: () => void;
@@ -402,7 +401,6 @@ function PopupHeader({
   state,
   actionLoading,
   dropsRefreshLoading,
-  onboardingCompleted,
   onMuteToggle,
   onOpenDropsPage,
   onOpenMonitor,
@@ -412,13 +410,16 @@ function PopupHeader({
   onResume,
   onStop,
 }: PopupHeaderProps) {
+  const iconButtonClass =
+    'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/20 disabled:opacity-50 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70';
+
   return (
-    <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
+    <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
       <div className="flex items-center gap-2 min-w-0">
-        <h1 className="font-extrabold text-sm tracking-tight text-[#120B22]">DropHunter</h1>
+        <h1 className="shrink-0 font-extrabold text-sm tracking-tight text-[#120B22]">DropHunter</h1>
         {state.isRunning && (
           <span
-            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+            className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
               state.isPaused
                 ? 'bg-yellow-400/20 text-yellow-200 border border-yellow-400/40'
                 : 'bg-green-400/20 text-green-200 border border-green-400/40'
@@ -428,14 +429,14 @@ function PopupHeader({
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {state.isRunning && (
-          <>
+          <div className="flex shrink-0 items-center gap-1 border-r border-[#1B1030]/20 pr-1">
             <button
               type="button"
               onClick={state.isPaused ? onResume : onPause}
               disabled={actionLoading}
-              className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+              className={`${iconButtonClass} text-[#1B1030]`}
               aria-label={state.isPaused ? 'Resume farming' : 'Pause farming'}
               title={state.isPaused ? 'Resume' : 'Pause'}
             >
@@ -445,23 +446,19 @@ function PopupHeader({
               type="button"
               onClick={onStop}
               disabled={actionLoading}
-              className="p-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+              className={`${iconButtonClass} text-[#1B1030]`}
               aria-label="Stop farming"
               title="Stop"
             >
               <StopIcon />
             </button>
-          </>
+          </div>
         )}
-        <div
-          className={
-            onboardingCompleted || state.isRunning ? 'header-control-visible' : 'header-control-hidden'
-          }
-        >
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={onMuteToggle}
-            className={`inline-flex h-6 w-6 items-center justify-center rounded text-[#1B1030] transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
+            className={`${iconButtonClass} text-[#1B1030] ${
               state.muteFarmingTab ? 'bg-[#1B1030]/10' : 'bg-white/25'
             }`}
             aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
@@ -469,61 +466,46 @@ function PopupHeader({
           >
             <SpeakerIcon muted={state.muteFarmingTab} />
           </button>
-        </div>
-        <button
-          type="button"
-          onClick={onOpenDropsPage}
-          disabled={dropsRefreshLoading}
-          className={`inline-flex h-6 items-center justify-center gap-1 rounded hover:bg-white/20 text-[#1B1030] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
-            dropsRefreshLoading ? 'px-1.5 text-[11px] font-semibold' : 'w-6'
-          }`}
-          aria-label={dropsRefreshLoading ? 'Refreshing Twitch Drops' : 'Open Twitch Drops'}
-          title={dropsRefreshLoading ? 'Refreshing Twitch Drops' : 'Twitch Drops'}
-        >
-          {dropsRefreshLoading ? (
-            <>
-              <span className="spinner h-3.5 w-3.5 rounded-full border-2 border-[#1B1030] border-t-transparent" />
-              <span>Refreshing…</span>
-            </>
-          ) : (
+          <button
+            type="button"
+            onClick={onOpenDropsPage}
+            disabled={dropsRefreshLoading}
+            className={`${iconButtonClass} text-[#1B1030]`}
+            aria-label={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Open Twitch Drops'}
+            title={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Twitch Drops'}
+          >
             <DropsIcon />
-          )}
-        </button>
-        <div
-          className={
-            onboardingCompleted || state.isRunning ? 'header-control-visible' : 'header-control-hidden'
-          }
-        >
+          </button>
           <button
             type="button"
             onClick={onOpenMonitor}
-            className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            className={`${iconButtonClass} text-[#1B1030]`}
             aria-label="Open live monitor"
             title="Live Monitor"
           >
             <MonitorIcon />
           </button>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className={`${iconButtonClass} text-[#1B1030]`}
+            aria-label="Open settings"
+            title="Settings"
+          >
+            <SettingsIcon />
+          </button>
+          <button
+            type="button"
+            onClick={onNotificationsToggle}
+            className={`${iconButtonClass} ${
+              state.notificationsEnabled ? 'text-[#1B1030]' : 'text-[#1B1030]/55'
+            }`}
+            aria-label={state.notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
+            title={state.notificationsEnabled ? 'Notifications on' : 'Notifications off'}
+          >
+            <BellIcon muted={!state.notificationsEnabled} />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="p-1 rounded hover:bg-white/20 text-[#1B1030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
-          aria-label="Open settings"
-          title="Settings"
-        >
-          <SettingsIcon />
-        </button>
-        <button
-          type="button"
-          onClick={onNotificationsToggle}
-          className={`p-1 rounded hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70 ${
-            state.notificationsEnabled ? 'text-[#1B1030]' : 'text-[#1B1030]/55'
-          }`}
-          aria-label={state.notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
-          title={state.notificationsEnabled ? 'Notifications on' : 'Notifications off'}
-        >
-          <BellIcon muted={!state.notificationsEnabled} />
-        </button>
       </div>
     </div>
   );
@@ -532,19 +514,19 @@ function PopupHeader({
 interface CampaignSyncPanelProps {
   status: CampaignSyncStatus;
   error: string | null;
+  hasCachedCampaigns: boolean;
   lastUpdated?: number;
-  showFreshConfirmation: boolean;
   onRefresh: () => void;
 }
 
 function CampaignSyncPanel({
   status,
   error,
+  hasCachedCampaigns,
   lastUpdated,
-  showFreshConfirmation,
   onRefresh,
 }: CampaignSyncPanelProps) {
-  if (status === 'fresh' && !showFreshConfirmation) {
+  if (status === 'fresh') {
     return null;
   }
 
@@ -555,31 +537,32 @@ function CampaignSyncPanel({
       ? 'border-red-500/35 bg-red-500/10'
       : status === 'stale'
         ? 'border-yellow-500/35 bg-yellow-500/10'
-        : status === 'fresh'
-          ? 'border-green-500/30 bg-green-500/10'
-          : 'border-blue-500/30 bg-blue-500/10';
+        : 'border-blue-500/30 bg-blue-500/10';
   const title =
     status === 'failed'
       ? 'Could not update campaigns'
       : status === 'stale'
-        ? 'Campaign data may be outdated'
+        ? 'Updating campaigns'
         : status === 'syncing'
           ? 'Updating campaigns'
-          : status === 'fresh'
-            ? 'Campaigns updated'
-            : 'Sync Twitch Drops';
+          : 'Go to Twitch Drops';
   const description =
     status === 'failed'
-      ? 'Could not update. Old data is still shown.'
+      ? hasCachedCampaigns
+        ? 'Could not update. Old data is still shown.'
+        : 'Could not update yet. No campaign data is shown.'
       : status === 'stale'
-        ? 'Open Twitch Drops to fetch the latest campaigns and reward status.'
+        ? 'Checking Twitch for fresh campaigns…'
         : status === 'syncing'
-          ? 'Opening Twitch Drops and updating campaigns…'
-          : status === 'fresh'
-            ? 'Updated just now.'
-            : 'Open Twitch Drops so DropHunter can detect available campaigns.';
-  const detail = status === 'failed' && error ? error : formatLastUpdated(lastUpdated);
-  const buttonLabel = isEmpty ? 'Open Twitch Drops' : 'Refresh from Twitch';
+          ? 'Updating Twitch Drops and campaigns…'
+          : 'Open Twitch Drops so DropHunter can detect available campaigns.';
+  const detail =
+    status === 'failed' && error
+      ? error
+      : status === 'empty' && !lastUpdated
+        ? 'Not synced yet'
+        : formatLastUpdated(lastUpdated);
+  const buttonLabel = isEmpty ? 'Go to Drops' : 'Open Twitch Drops';
 
   return (
     <section
@@ -594,7 +577,7 @@ function CampaignSyncPanel({
           <p className="mt-1 text-xs text-gray-300">{description}</p>
           <p className="mt-1 text-[11px] text-gray-500 break-words">{detail}</p>
         </div>
-        {isSyncing ? (
+        {isSyncing || status === 'stale' ? (
           <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent shrink-0 mt-0.5" />
         ) : (
           <button
@@ -785,7 +768,6 @@ function App() {
   const [gamesLoading, setGamesLoading] = useState(true);
   const [manualDropsRefreshLoading, setManualDropsRefreshLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [showFreshSync, setShowFreshSync] = useState(false);
   const dropsRefreshLoading = manualDropsRefreshLoading || state.dropsPageRefreshInProgress;
   const isStale =
     !state.isRunning &&
@@ -799,13 +781,17 @@ function App() {
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState<'selector' | 'start' | null>(null);
   const [firstSyncConfirmation, setFirstSyncConfirmation] = useState(false);
-
-  const fetchAvailableGames = useCallback(async (force = false) => {
-    await sendRuntimeMessage({ type: 'ENSURE_GAMES_CACHE', payload: { force } }).catch((err: unknown) =>
-      logPopupWarn('ENSURE_GAMES_CACHE failed:', err),
-    );
-    setState(await loadStoredAppState());
-  }, []);
+  const [firstSyncCampaignCount, setFirstSyncCampaignCount] = useState<number | null>(null);
+  const [acknowledgedRefreshCompletedAt, setAcknowledgedRefreshCompletedAt] = useState<number | null>(null);
+  const [autoRefreshAttemptedFor, setAutoRefreshAttemptedFor] = useState<number | null>(null);
+  const activeSyncError = dropsRefreshLoading ? null : (syncError ?? state.lastDropsPageRefreshError ?? null);
+  const refreshCompletedAt = state.lastDropsPageRefreshCompletedAt ?? 0;
+  const refreshNoticeSeenAt = state.lastDropsPageRefreshNoticeSeenAt ?? 0;
+  const refreshCampaignCount = state.lastDropsPageRefreshCampaignCount ?? state.availableGames.length;
+  const hasUnseenRefreshSuccess =
+    refreshCompletedAt > refreshNoticeSeenAt &&
+    refreshCompletedAt !== acknowledgedRefreshCompletedAt &&
+    refreshCampaignCount > 0;
 
   useEffect(() => {
     const loadState = async () => {
@@ -819,8 +805,8 @@ function App() {
         logPopupError('Error loading state:', error);
       } finally {
         setLoading(false);
+        setGamesLoading(false);
       }
-      fetchAvailableGames().finally(() => setGamesLoading(false));
     };
 
     loadState();
@@ -829,7 +815,7 @@ function App() {
       setState(nextState);
       setRewardsLoading(false);
     });
-  }, [fetchAvailableGames]);
+  }, []);
 
   const pendingDrops = useMemo(() => sortPendingDrops(state.pendingDrops), [state.pendingDrops]);
   const completedDrops = state.completedDrops;
@@ -850,38 +836,55 @@ function App() {
   }, [state.queue, sortedGames]);
   const campaignSyncStatus: CampaignSyncStatus = dropsRefreshLoading
     ? 'syncing'
-    : syncError
+    : activeSyncError
       ? 'failed'
       : !gamesLoading && state.availableGames.length === 0
         ? 'empty'
         : isStale
-          ? 'stale'
+          ? 'syncing'
           : 'fresh';
   const runtimeMode = deriveRuntimeMode(state);
   const [recoveryNow, setRecoveryNow] = useState(Date.now());
 
   useEffect(() => {
-    if (!showFreshSync) {
-      return;
-    }
-    const timer = window.setTimeout(() => setShowFreshSync(false), 3000);
-    return () => window.clearTimeout(timer);
-  }, [showFreshSync]);
-
-  useEffect(() => {
     if (!firstSyncConfirmation) {
       return;
     }
-    const timer = window.setTimeout(() => setFirstSyncConfirmation(false), 30000);
+    const timer = window.setTimeout(() => {
+      setFirstSyncConfirmation(false);
+      setFirstSyncCampaignCount(null);
+    }, 30000);
     return () => window.clearTimeout(timer);
   }, [firstSyncConfirmation]);
 
   useEffect(() => {
     if (dropsRefreshLoading) {
       setSyncError(null);
-      setShowFreshSync(false);
     }
   }, [dropsRefreshLoading]);
+
+  useEffect(() => {
+    if (!hasUnseenRefreshSuccess || state.dropsPageRefreshInProgress) {
+      return;
+    }
+    const count = refreshCampaignCount;
+    setFirstSyncCampaignCount(count);
+    setFirstSyncConfirmation(true);
+    if (!onboardingCompleted) {
+      setOnboardingStep((current) => current ?? 'selector');
+    }
+    setAcknowledgedRefreshCompletedAt(refreshCompletedAt);
+    sendRuntimeMessage({
+      type: 'MARK_DROPS_REFRESH_NOTICE_SEEN',
+      payload: { seenAt: refreshCompletedAt },
+    }).catch((error: unknown) => logPopupWarn('MARK_DROPS_REFRESH_NOTICE_SEEN failed:', error));
+  }, [
+    hasUnseenRefreshSuccess,
+    onboardingCompleted,
+    refreshCampaignCount,
+    refreshCompletedAt,
+    state.dropsPageRefreshInProgress,
+  ]);
 
   useEffect(() => {
     if (runtimeMode !== 'recovering') {
@@ -905,6 +908,7 @@ function App() {
       }));
       setQueueMessage(null);
       setFirstSyncConfirmation(false);
+      setFirstSyncCampaignCount(null);
       if (onboardingStep === 'selector') {
         setOnboardingStep('start');
       }
@@ -1023,68 +1027,87 @@ function App() {
     [withAction],
   );
 
-  const openDropsPage = useCallback(async () => {
-    if (dropsRefreshLoading) {
+  const openDropsPage = useCallback(
+    async (options: { active?: boolean } = {}) => {
+      if (dropsRefreshLoading) {
+        return;
+      }
+      const active = options.active !== false;
+
+      setManualDropsRefreshLoading(true);
+      setQueueMessage(null);
+      setSyncError(null);
+      const attemptAt = Date.now();
+      setState((prev) => ({
+        ...prev,
+        dropsPageRefreshInProgress: true,
+        lastDropsPageRefreshAttemptAt: attemptAt,
+        lastDropsPageRefreshError: null,
+      }));
+
+      try {
+        const response = await sendRuntimeMessage({
+          type: 'OPEN_DROPS_PAGE_AND_REFRESH',
+          payload: { waitForRefresh: false, active },
+        }).catch((error: unknown) => ({
+          success: false as const,
+          opened: false,
+          refreshed: false,
+          gamesCount: 0,
+          appState: undefined,
+          error: String(error),
+        }));
+        const errorMessage = response?.error ?? '';
+        if (!response?.success) {
+          let visibleError = errorMessage || 'Refresh failed.';
+          if (/sign in|session/i.test(errorMessage)) {
+            visibleError = 'Sign in to Twitch, then refresh campaigns again.';
+          } else if (/No active Twitch Drops campaigns/i.test(errorMessage)) {
+            visibleError = 'No active Twitch Drops campaigns were detected.';
+          }
+          const freshState = await loadStoredAppState().catch((error: unknown) => {
+            logPopupWarn('Unable to reload state after drops refresh launch:', error);
+            return null;
+          });
+          if (freshState) {
+            setState(freshState);
+          }
+          setState((prev) => ({
+            ...prev,
+            dropsPageRefreshInProgress: false,
+            lastDropsPageRefreshAttemptAt: prev.lastDropsPageRefreshAttemptAt ?? attemptAt,
+            lastDropsPageRefreshError: visibleError,
+          }));
+          setSyncError(visibleError);
+        }
+      } finally {
+        setManualDropsRefreshLoading(false);
+      }
+    },
+    [dropsRefreshLoading],
+  );
+
+  useEffect(() => {
+    const refreshKey = state.lastSuccessfulRefreshAt ?? 0;
+    if (
+      !isStale ||
+      dropsRefreshLoading ||
+      activeSyncError ||
+      refreshKey === 0 ||
+      autoRefreshAttemptedFor === refreshKey
+    ) {
       return;
     }
-
-    setManualDropsRefreshLoading(true);
-    setQueueMessage(null);
-    setSyncError(null);
-    setShowFreshSync(false);
-    setState((prev) => ({ ...prev, dropsPageRefreshInProgress: true }));
-
-    try {
-      const response = await sendRuntimeMessage({
-        type: 'OPEN_DROPS_PAGE_AND_REFRESH',
-        payload: { waitForRefresh: true, active: false },
-      }).catch((error: unknown) => ({
-        success: false as const,
-        opened: false,
-        refreshed: false,
-        gamesCount: 0,
-        appState: undefined,
-        error: String(error),
-      }));
-      const freshState =
-        response?.appState ??
-        (await loadStoredAppState().catch((error: unknown) => {
-          logPopupWarn('Unable to reload state after drops refresh:', error);
-          return null;
-        }));
-      if (freshState) {
-        setState(freshState);
-      }
-
-      const gamesCount = response?.gamesCount ?? freshState?.availableGames.length ?? 0;
-      const errorMessage = response?.error ?? '';
-      if (!response?.success) {
-        if (/sign in|session/i.test(errorMessage)) {
-          setSyncError('Sign in to Twitch, then refresh campaigns again.');
-          return;
-        }
-        if (gamesCount === 0 && /No active Twitch Drops campaigns/i.test(errorMessage)) {
-          setSyncError('No active Twitch Drops campaigns were detected.');
-          return;
-        }
-        setSyncError(errorMessage || 'Refresh failed.');
-        return;
-      }
-
-      if (gamesCount > 0) {
-        setShowFreshSync(true);
-        if (!onboardingCompleted) {
-          setFirstSyncConfirmation(true);
-          setOnboardingStep('selector');
-        }
-        return;
-      }
-
-      setShowFreshSync(true);
-    } finally {
-      setManualDropsRefreshLoading(false);
-    }
-  }, [dropsRefreshLoading, onboardingCompleted]);
+    setAutoRefreshAttemptedFor(refreshKey);
+    void openDropsPage({ active: false });
+  }, [
+    activeSyncError,
+    autoRefreshAttemptedFor,
+    dropsRefreshLoading,
+    isStale,
+    openDropsPage,
+    state.lastSuccessfulRefreshAt,
+  ]);
 
   const openMiniDashboard = async () => {
     await sendRuntimeMessage({ type: 'OPEN_MONITOR_DASHBOARD', payload: { toggle: true } }).catch(
@@ -1548,7 +1571,6 @@ function App() {
         state={state}
         actionLoading={actionLoading}
         dropsRefreshLoading={dropsRefreshLoading}
-        onboardingCompleted={onboardingCompleted}
         onMuteToggle={() => void handleMuteFarmingTabToggle()}
         onOpenDropsPage={() => void openDropsPage()}
         onOpenMonitor={openMiniDashboard}
@@ -1569,15 +1591,15 @@ function App() {
       <div className="px-3 py-2.5 space-y-2.5">
         <CampaignSyncPanel
           status={campaignSyncStatus}
-          error={syncError}
+          error={activeSyncError}
+          hasCachedCampaigns={state.availableGames.length > 0}
           lastUpdated={state.lastSuccessfulRefreshAt}
-          showFreshConfirmation={showFreshSync}
           onRefresh={() => void openDropsPage()}
         />
 
-        {firstSyncConfirmation && (
+        {!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null && (
           <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-200">
-            ✅ {state.availableGames.length} campaigns loaded — select a game below and press Start
+            ✅ {firstSyncCampaignCount} campaigns loaded — select a game below and press Start
           </div>
         )}
 
@@ -1692,11 +1714,7 @@ function App() {
           </p>
         )}
 
-        {(state.selectedGame ||
-          state.isRunning ||
-          pendingDrops.length > 0 ||
-          completedDrops.length > 0 ||
-          dropsRefreshLoading) && (
+        {(state.selectedGame || state.isRunning || pendingDrops.length > 0 || completedDrops.length > 0) && (
           <RewardList
             pendingDrops={pendingDrops}
             completedDrops={state.selectedGame ? completedDrops : []}

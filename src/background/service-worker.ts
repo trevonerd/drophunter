@@ -816,7 +816,11 @@ async function fetchStreamContext(tabId: number): Promise<StreamContext | null> 
 }
 
 async function refreshGamesCacheFromHiddenFetch(
-  options: { forceSessionRefresh?: boolean } = {},
+  options: {
+    forceSessionRefresh?: boolean;
+    acceptAuthoritativeEmpty?: boolean;
+    requireFreshSnapshot?: boolean;
+  } = {},
 ): Promise<TwitchGame[]> {
   if (gamesCacheRefreshInFlight) {
     return gamesCacheRefreshInFlight;
@@ -825,9 +829,14 @@ async function refreshGamesCacheFromHiddenFetch(
   gamesCacheRefreshInFlight = (async () => {
     let fetchedGames: TwitchGame[] = [];
     const apiSnapshot = await fetchDropsSnapshotFromApi(Boolean(options.forceSessionRefresh));
+    if (!apiSnapshot && options.requireFreshSnapshot) {
+      return [];
+    }
     if (apiSnapshot) {
       if (apiSnapshot.games.length === 0 && apiSnapshot.drops.length === 0) {
-        await applyAuthoritativeEmptyCampaignRefresh();
+        if (options.acceptAuthoritativeEmpty !== false) {
+          await applyAuthoritativeEmptyCampaignRefresh();
+        }
         return [];
       }
       if (apiSnapshot.games.length > 0) {
@@ -1274,6 +1283,22 @@ async function handleRefreshDrops() {
   return { success: true };
 }
 
+async function handleMarkDropsRefreshNoticeSeen(payload?: { seenAt?: number }) {
+  if (initPromise) {
+    await initPromise;
+  }
+  const completedAt =
+    typeof appState.lastDropsPageRefreshCompletedAt === 'number'
+      ? appState.lastDropsPageRefreshCompletedAt
+      : 0;
+  const requestedSeenAt =
+    typeof payload?.seenAt === 'number' && Number.isFinite(payload.seenAt) ? payload.seenAt : completedAt;
+  const seenAt = Math.max(appState.lastDropsPageRefreshNoticeSeenAt ?? 0, requestedSeenAt, completedAt);
+  appState.lastDropsPageRefreshNoticeSeenAt = seenAt || Date.now();
+  await saveStateExt(state);
+  return { success: true, seenAt: appState.lastDropsPageRefreshNoticeSeenAt };
+}
+
 async function handleSetMonitorAutoOpen(payload?: { enabled?: boolean }) {
   await trackActivity('set-monitor-auto-open');
   appState.monitorAutoOpen = payload?.enabled !== false;
@@ -1547,6 +1572,7 @@ export function startServiceWorker(): void {
   registerRuntimeMessageRouter({
     ensureGamesCache: (message) => handleEnsureGamesCache(message.payload),
     openDropsPageAndRefresh: (message) => openDropsPageAndRefresh(message),
+    markDropsRefreshNoticeSeen: (message) => handleMarkDropsRefreshNoticeSeen(message.payload),
     addToQueue: (message) => handleAddToQueue(message.payload),
     removeFromQueue: (message) => handleRemoveFromQueue(message.payload),
     clearQueue: () => handleClearQueue(),
