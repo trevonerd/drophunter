@@ -18,7 +18,26 @@ const timingSaveDebounceMs = Math.max(0, TIMING_SAVE_DEBOUNCE_MS - 100);
 let timingSaveDebounceMsForTests: number | null = null;
 
 export function setTimingSaveDebounceMsForTests(delayMs: number | null) {
-  timingSaveDebounceMsForTests = delayMs === null ? null : Math.max(0, delayMs);
+  if (delayMs === null) {
+    clearPendingTimingStateSaveForTests();
+    timingSaveDebounceMsForTests = null;
+    return;
+  }
+  timingSaveDebounceMsForTests = Math.max(0, delayMs);
+}
+
+function resolvePendingTimingSaves() {
+  const resolvers = timingSaveResolvers;
+  timingSaveResolvers = [];
+  for (const pendingResolve of resolvers) pendingResolve();
+}
+
+export function clearPendingTimingStateSaveForTests() {
+  if (timingSaveDebounceTimer !== null) {
+    clearTimeout(timingSaveDebounceTimer);
+    timingSaveDebounceTimer = null;
+  }
+  resolvePendingTimingSaves();
 }
 
 export function sessionDebugSummary(session: TwitchSession | null) {
@@ -52,31 +71,34 @@ export async function saveTimingState(state: ServiceWorkerState) {
 
     timingSaveDebounceTimer = setTimeout(async () => {
       timingSaveDebounceTimer = null;
-      const timing: TimingState = {
-        lastStreamRotationAt: state.lastStreamRotationAt,
-        streamValidationGraceUntil: state.streamValidationGraceUntil,
-        invalidStreamChecks: state.invalidStreamChecks,
-        noProgressRotationAttempts: state.noProgressRotationAttempts,
-        twitchSessionLastAttemptAt: state.twitchSessionLastAttemptAt,
-        dropClaimRetryAtById: Object.fromEntries(state.dropClaimRetryAtById),
-        lastProgressAdvanceAt: state.lastProgressAdvanceAt,
-        lastTrackedProgress: state.lastTrackedProgress,
-        lastTrackedMinutes: state.lastTrackedMinutes,
-        lastTrackedDropKey: state.lastTrackedDropKey,
-        apiConsecutiveFailures: state.apiConsecutiveFailures,
-        apiBackoffUntil: state.apiBackoffUntil,
-        integrityFallbackActive: state.integrityFallbackActive,
-        integrityFallbackActiveUntil: state.integrityFallbackActiveUntil,
-        recoveryBackoffUntil: state.recoveryBackoffUntil,
-        lastRecoveryAttemptAt: state.lastRecoveryAttemptAt,
-        stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-        recoveryNotificationSent: state.recoveryNotificationSent,
-        lastHeartbeatAt: state.lastHeartbeatAt,
-      };
-      await browser.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
-      const resolvers = timingSaveResolvers;
-      timingSaveResolvers = [];
-      for (const pendingResolve of resolvers) pendingResolve();
+      try {
+        const timing: TimingState = {
+          lastStreamRotationAt: state.lastStreamRotationAt,
+          streamValidationGraceUntil: state.streamValidationGraceUntil,
+          invalidStreamChecks: state.invalidStreamChecks,
+          noProgressRotationAttempts: state.noProgressRotationAttempts,
+          twitchSessionLastAttemptAt: state.twitchSessionLastAttemptAt,
+          dropClaimRetryAtById: Object.fromEntries(state.dropClaimRetryAtById),
+          lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+          lastTrackedProgress: state.lastTrackedProgress,
+          lastTrackedMinutes: state.lastTrackedMinutes,
+          lastTrackedDropKey: state.lastTrackedDropKey,
+          apiConsecutiveFailures: state.apiConsecutiveFailures,
+          apiBackoffUntil: state.apiBackoffUntil,
+          integrityFallbackActive: state.integrityFallbackActive,
+          integrityFallbackActiveUntil: state.integrityFallbackActiveUntil,
+          recoveryBackoffUntil: state.recoveryBackoffUntil,
+          lastRecoveryAttemptAt: state.lastRecoveryAttemptAt,
+          stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+          recoveryNotificationSent: state.recoveryNotificationSent,
+          lastHeartbeatAt: state.lastHeartbeatAt,
+        };
+        await browser.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
+      } catch {
+        // Browser storage can be unavailable after extension/test teardown.
+      } finally {
+        resolvePendingTimingSaves();
+      }
     }, timingSaveDebounceMsForTests ?? timingSaveDebounceMs);
   });
 }

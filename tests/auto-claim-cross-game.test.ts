@@ -1,7 +1,10 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { setupChromeMocks, type ChromeMocks } from './mocks/chrome';
 import type { AppState, Message, TwitchGame } from '../src/types/index.ts';
-import { setTimingSaveDebounceMsForTests } from '../src/background/state-persistence.ts';
+import {
+  clearPendingTimingStateSaveForTests,
+  setTimingSaveDebounceMsForTests,
+} from '../src/background/state-persistence.ts';
 
 const chromeMocks = setupChromeMocks();
 setTimingSaveDebounceMsForTests(0);
@@ -558,6 +561,8 @@ describe('auto-claim cross-game alarm integration', () => {
   });
 
   afterAll(() => {
+    clearPendingTimingStateSaveForTests();
+    setTimingSaveDebounceMsForTests(null);
     chromeMocks.teardown();
   });
 

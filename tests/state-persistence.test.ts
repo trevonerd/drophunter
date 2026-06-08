@@ -12,6 +12,7 @@ import {
   saveState,
   resetStateForInactivity,
   setTimingSaveDebounceMsForTests,
+  clearPendingTimingStateSaveForTests,
 } from '../src/background/state-persistence.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
@@ -113,6 +114,8 @@ describe('markActivity', () => {
   });
 
   afterEach(() => {
+    clearPendingTimingStateSaveForTests();
+    setTimingSaveDebounceMsForTests(null);
     mocks.teardown();
   });
 
@@ -133,9 +136,12 @@ describe('loadState', () => {
 
   beforeEach(() => {
     mocks = setupChromeMocks();
+    setTimingSaveDebounceMsForTests(0);
   });
 
   afterEach(() => {
+    clearPendingTimingStateSaveForTests();
+    setTimingSaveDebounceMsForTests(null);
     mocks.teardown();
   });
 
@@ -175,13 +181,16 @@ describe('loadTimingState / saveTimingState', () => {
 
   beforeEach(() => {
     mocks = setupChromeMocks();
+    setTimingSaveDebounceMsForTests(0);
   });
 
   afterEach(() => {
+    clearPendingTimingStateSaveForTests();
+    setTimingSaveDebounceMsForTests(null);
     mocks.teardown();
   });
 
-    test('saveTimingState persists timing to local storage', async () => {
+  test('saveTimingState persists timing to local storage', async () => {
     const state = createMinimalState({
       lastStreamRotationAt: 1000,
       streamValidationGraceUntil: 2000,
@@ -360,6 +369,7 @@ describe('broadcastStateUpdate', () => {
   });
 
   afterEach(() => {
+    clearPendingTimingStateSaveForTests();
     mocks.teardown();
   });
 
@@ -427,6 +437,7 @@ describe('saveState', () => {
   });
 
   afterEach(() => {
+    clearPendingTimingStateSaveForTests();
     mocks.teardown();
   });
 
@@ -467,6 +478,7 @@ describe('resetStateForInactivity', () => {
   });
 
   afterEach(() => {
+    clearPendingTimingStateSaveForTests();
     mocks.teardown();
   });
 

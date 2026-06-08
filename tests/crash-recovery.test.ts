@@ -1,10 +1,11 @@
-import { describe, expect, test, beforeEach } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import type { ChromeMocks } from './mocks/chrome.ts';
 import {
   saveTimingState,
   loadTimingState,
   setTimingSaveDebounceMsForTests,
+  clearPendingTimingStateSaveForTests,
 } from '../src/background/state-persistence.ts';
 import { splitDropsForSelectedGame } from '../src/background/drop-processing.ts';
 import { createInitialState } from '../src/shared/utils.ts';
@@ -55,6 +56,12 @@ function makeState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerSt
 beforeEach(() => {
   mocks = setupChromeMocks();
   setTimingSaveDebounceMsForTests(0);
+});
+
+afterEach(() => {
+  clearPendingTimingStateSaveForTests();
+  setTimingSaveDebounceMsForTests(null);
+  mocks.teardown();
 });
 
 describe('saveTimingState debounce', () => {
