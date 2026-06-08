@@ -75,19 +75,6 @@ body {
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
-/* Progressive disclosure: hidden header controls */
-.header-control-hidden {
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.3s ease, visibility 0.3s ease;
-}
-
-.header-control-visible {
-  opacity: 1;
-  visibility: visible;
-  transition: opacity 0.3s ease, visibility 0.3s ease;
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

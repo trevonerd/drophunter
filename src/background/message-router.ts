@@ -23,6 +23,7 @@ type RuntimeMessageHandler<T extends RuntimeRequest['type']> = (
 export interface RuntimeMessageHandlers {
   ensureGamesCache: RuntimeMessageHandler<'ENSURE_GAMES_CACHE'>;
   openDropsPageAndRefresh: RuntimeMessageHandler<'OPEN_DROPS_PAGE_AND_REFRESH'>;
+  markDropsRefreshNoticeSeen: RuntimeMessageHandler<'MARK_DROPS_REFRESH_NOTICE_SEEN'>;
   addToQueue: RuntimeMessageHandler<'ADD_TO_QUEUE'>;
   removeFromQueue: RuntimeMessageHandler<'REMOVE_FROM_QUEUE'>;
   clearQueue: RuntimeMessageHandler<'CLEAR_QUEUE'>;
@@ -89,6 +90,8 @@ export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): 
         return respondAsync(() => handlers.ensureGamesCache(message, sender), sendResponse);
       case 'OPEN_DROPS_PAGE_AND_REFRESH':
         return respondAsync(() => handlers.openDropsPageAndRefresh(message, sender), sendResponse);
+      case 'MARK_DROPS_REFRESH_NOTICE_SEEN':
+        return respondAsync(() => handlers.markDropsRefreshNoticeSeen(message, sender), sendResponse);
       case 'ADD_TO_QUEUE':
         return respondAsync(() => handlers.addToQueue(message, sender), sendResponse);
       case 'REMOVE_FROM_QUEUE':

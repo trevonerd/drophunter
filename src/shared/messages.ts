@@ -34,6 +34,7 @@ export const RUNTIME_MESSAGE_TYPES = [
   'UPDATE_STATE',
   'ENSURE_GAMES_CACHE',
   'OPEN_DROPS_PAGE_AND_REFRESH',
+  'MARK_DROPS_REFRESH_NOTICE_SEEN',
   'REFRESH_DROPS',
   'UPDATE_GAMES',
   'SYNC_TWITCH_SESSION',
@@ -70,6 +71,7 @@ export type RuntimeRequest =
   | { type: 'UPDATE_STATE'; payload: AppState }
   | { type: 'ENSURE_GAMES_CACHE'; payload?: { force?: boolean } }
   | { type: 'OPEN_DROPS_PAGE_AND_REFRESH'; payload?: { waitForRefresh?: boolean; active?: boolean } }
+  | { type: 'MARK_DROPS_REFRESH_NOTICE_SEEN'; payload?: { seenAt?: number } }
   | { type: 'REFRESH_DROPS' }
   | { type: 'UPDATE_GAMES'; payload?: TwitchGame[] }
   | { type: 'SYNC_TWITCH_SESSION'; payload?: { session?: unknown } | unknown }
@@ -128,6 +130,7 @@ export type RuntimeResponseByType = {
     appState?: AppState;
     error?: string;
   };
+  MARK_DROPS_REFRESH_NOTICE_SEEN: { success: boolean; seenAt?: number | null; error?: string };
   REFRESH_DROPS: { success: boolean; error?: string };
   UPDATE_GAMES: { success: boolean; error?: string };
   SYNC_TWITCH_SESSION: { success: boolean; error?: string };
@@ -217,6 +220,11 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
       return (
         payload === undefined ||
         (isRecord(payload) && (payload.force === undefined || typeof payload.force === 'boolean'))
+      );
+    case 'MARK_DROPS_REFRESH_NOTICE_SEEN':
+      return (
+        payload === undefined ||
+        (isRecord(payload) && (payload.seenAt === undefined || typeof payload.seenAt === 'number'))
       );
     case 'OPEN_MONITOR_DASHBOARD':
       return (

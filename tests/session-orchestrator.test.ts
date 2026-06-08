@@ -77,4 +77,46 @@ describe('session orchestrator', () => {
     expect(injectedTabs).toEqual([77]);
     expect(persisted).toEqual([validSession]);
   });
+
+  test('retries session extraction when the Drops page is loaded before Twitch storage is ready', async () => {
+    const state = createState();
+    const sendAttempts: Array<number> = [];
+    const persisted: TwitchSession[] = [];
+    const orchestrator = createSessionOrchestrator(state, {
+      tabsApi: {
+        async query() {
+          return [];
+        },
+        async sendMessage() {
+          sendAttempts.push(1);
+          if (sendAttempts.length < 2) {
+            return { success: false };
+          }
+          return { success: true, session: validSession };
+        },
+      },
+      scriptingApi: {
+        async executeScript() {
+          return [];
+        },
+      },
+      sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
+      sessionDebugSummary: () => ({ available: true }),
+      readTwitchSessionViaExecuteScript: async () => null,
+      persistTwitchSession: async (session) => {
+        persisted.push(session);
+      },
+      sessionReadAttempts: 3,
+      sessionReadRetryDelayMs: 0,
+      logDebug: () => {},
+      logWarn: () => {},
+    });
+
+    const session = await orchestrator.persistSessionFromDropsPage(88);
+
+    expect(session).toBe(validSession);
+    expect(sendAttempts).toHaveLength(2);
+    expect(state.twitchSessionCache).toBe(validSession);
+    expect(persisted).toEqual([validSession]);
+  });
 });

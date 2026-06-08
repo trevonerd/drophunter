@@ -88,6 +88,11 @@ export interface AppState {
   completionNotified: boolean;
   lastSuccessfulRefreshAt?: number;
   dropsPageRefreshInProgress: boolean;
+  lastDropsPageRefreshAttemptAt?: number | null;
+  lastDropsPageRefreshCompletedAt?: number | null;
+  lastDropsPageRefreshCampaignCount?: number | null;
+  lastDropsPageRefreshNoticeSeenAt?: number | null;
+  lastDropsPageRefreshError?: string | null;
   lastRotationReason?: string | null;
   lastRotationAt?: number | null;
   recoveryReason?: string | null;

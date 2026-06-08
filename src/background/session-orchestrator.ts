@@ -2,6 +2,9 @@ import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 import type { TwitchSession } from './twitch-api/types';
 
+const DEFAULT_SESSION_READ_ATTEMPTS = 4;
+const DEFAULT_SESSION_READ_RETRY_DELAY_MS = 350;
+
 interface TwitchTab {
   id?: number;
   url?: string;
@@ -30,6 +33,8 @@ interface SessionOrchestratorOptions {
   sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
   readTwitchSessionViaExecuteScript: (tabId: number) => Promise<TwitchSession | null>;
   persistTwitchSession: (session: TwitchSession) => Promise<unknown> | unknown;
+  sessionReadAttempts?: number;
+  sessionReadRetryDelayMs?: number;
   logDebug: (...args: unknown[]) => void;
   logWarn: (...args: unknown[]) => void;
 }
@@ -45,6 +50,8 @@ export function createSessionOrchestrator(
 ) {
   const getTabsApi = () => options.tabsApi ?? browser.tabs;
   const getScriptingApi = () => options.scriptingApi ?? browser.scripting;
+  const wait = (delayMs: number) =>
+    delayMs <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, delayMs));
 
   const ensureContentScriptOnTab = async (tabId: number) => {
     try {
@@ -134,7 +141,21 @@ export function createSessionOrchestrator(
 
   const persistSessionFromDropsPage = async (tabId: number): Promise<TwitchSession | null> => {
     await ensureContentScriptOnTab(tabId);
-    const session = await readTwitchSessionFromTab(tabId).catch(() => null);
+    const attempts = Math.max(1, Math.floor(options.sessionReadAttempts ?? DEFAULT_SESSION_READ_ATTEMPTS));
+    const retryDelayMs = Math.max(0, options.sessionReadRetryDelayMs ?? DEFAULT_SESSION_READ_RETRY_DELAY_MS);
+    let session: TwitchSession | null = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      session = await readTwitchSessionFromTab(tabId).catch(() => null);
+      if (session || attempt === attempts) {
+        break;
+      }
+      options.logDebug('Retrying Twitch session extraction from Drops tab', {
+        tabId,
+        attempt,
+        attempts,
+      });
+      await wait(retryDelayMs);
+    }
     if (!session) {
       return null;
     }
