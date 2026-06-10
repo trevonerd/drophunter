@@ -14,19 +14,19 @@
     "still:promo:4k": "bunx remotion still src/index.ts Promo4K60 out/promo-frame-4k60.png --frame=400"
   },
   "dependencies": {
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "remotion": "4.0.463"
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "remotion": "4.0.474"
   },
   "devDependencies": {
-    "@remotion/cli": "4.0.463",
-    "@remotion/eslint-config": "4.0.463",
-    "@remotion/transitions": "4.0.463",
-    "@remotion/webcodecs": "4.0.463"
+    "@remotion/cli": "4.0.474",
+    "@remotion/eslint-config": "4.0.474",
+    "@remotion/transitions": "4.0.474",
+    "@remotion/webcodecs": "4.0.474"
   },
   "overrides": {
-    "@remotion/eslint-config": "4.0.463",
-    "@remotion/webcodecs": "4.0.463",
+    "@remotion/eslint-config": "4.0.474",
+    "@remotion/webcodecs": "4.0.474",
     "ws": "8.20.1"
   }
 }
