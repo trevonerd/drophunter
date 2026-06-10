@@ -115,7 +115,7 @@ function App() {
           (err: unknown) => logPopupWarn('SET_SELECTED_GAME failed:', err),
         );
       } finally {
-        setTimeout(() => setRewardsLoading(false), 350);
+        setTimeout(() => setRewardsLoading(false), 1500);
       }
     }
   };
@@ -153,16 +153,22 @@ function App() {
   };
 
   const handleRemoveFromQueue = async (game: TwitchGame) => {
-    await sendRuntimeMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } }).catch((err: unknown) =>
-      logPopupWarn('REMOVE_FROM_QUEUE failed:', err),
-    );
+    try {
+      await sendRuntimeMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } });
+    } catch (err: unknown) {
+      logPopupWarn('REMOVE_FROM_QUEUE failed:', err);
+      setQueueMessage('Unable to remove campaign from queue.');
+    }
   };
 
   const handleClearQueue = async () => {
-    await sendRuntimeMessage({ type: 'CLEAR_QUEUE' }).catch((err: unknown) =>
-      logPopupWarn('CLEAR_QUEUE failed:', err),
-    );
-    setQueueMessage('Queue cleared.');
+    try {
+      await sendRuntimeMessage({ type: 'CLEAR_QUEUE' });
+      setQueueMessage('Queue cleared.');
+    } catch (err: unknown) {
+      logPopupWarn('CLEAR_QUEUE failed:', err);
+      setQueueMessage('Unable to clear queue.');
+    }
   };
 
   const withAction = useCallback(

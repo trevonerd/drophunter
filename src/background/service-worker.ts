@@ -4,7 +4,7 @@ import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selec
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { createInitialState, toSlug } from '../shared/utils';
-import { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import {
   applyAutoClaimDropsSetting,
   autoClaimClaimableDrops as autoClaimClaimableDropsExt,
@@ -20,7 +20,10 @@ import { openMonitorDashboardWindow as openMonitorDashboardWindowController } fr
 import { createNotificationController } from './notifications.ts';
 import { needsPlaybackAttention } from './playback.ts';
 import { createPlaybackOrchestrator } from './playback-orchestrator.ts';
-import { applyStartupResumePolicy, clearRotationMetadata } from './runtime-state';
+import { applyStartupResumePolicy, clearRotationMetadata, createServiceWorkerState } from './runtime-state';
+
+export type { ServiceWorkerState } from './runtime-state';
+
 import { createSessionOrchestrator } from './session-orchestrator.ts';
 import {
   applyBestEffortAlwaysOnTop as applyBestEffortAlwaysOnTopExt,
@@ -39,12 +42,7 @@ import {
   fetchDropsSnapshotFromApiWrapper,
   fetchInventorySnapshotFromApiWrapper,
 } from './api-operations.ts';
-import {
-  CRASH_DETECTION_THRESHOLD_MS,
-  CRASH_RECOVERY_GRACE_MS,
-  PROGRESS_POLL_MS,
-  STREAM_VALIDATION_GRACE_MS,
-} from './constants.ts';
+import { CRASH_DETECTION_THRESHOLD_MS, PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
 import {
   annotateGameCompletion as annotateGameCompletionExt,
   dropMatchesSelectedGame as dropMatchesSelectedGameExt,
@@ -103,41 +101,6 @@ import {
 import { TwitchApiClient } from './twitch-api/client';
 import { isLikelyAuthError, sanitizeTwitchSession, TwitchSession } from './twitch-api/types';
 
-export interface ServiceWorkerState {
-  appState: AppState;
-  monitorTickInFlight: boolean;
-  invalidStreamChecks: number;
-  lastStreamRotationAt: number;
-  streamValidationGraceUntil: number;
-  lastTrackedProgress: number;
-  lastTrackedMinutes: number;
-  lastTrackedDropKey: string | null;
-  lastProgressAdvanceAt: number;
-  noProgressRotationAttempts: number;
-  playbackAttentionWarningSent: boolean;
-  gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null;
-  twitchSessionCache: TwitchSession | null;
-  twitchSessionFetchInFlight: Promise<TwitchSession | null> | null;
-  twitchSessionLastAttemptAt: number;
-  cachedDropsSnapshot: TwitchDrop[];
-  previousAllDropsCount: number;
-  cachedCampaignChannelsMap: Record<string, string[] | null>;
-  lastFullRefreshAt: number;
-  dropClaimInFlight: boolean;
-  dropClaimRetryAtById: Map<string, number>;
-  lastActivityAt: number;
-  apiConsecutiveFailures: number;
-  apiBackoffUntil: number;
-  integrityFallbackActive: boolean;
-  integrityFallbackActiveUntil: number;
-  recoveryBackoffUntil: number;
-  lastRecoveryAttemptAt: number;
-  stalledRecoveryAttempts: number;
-  recoveryNotificationSent: boolean;
-  lastHeartbeatAt: number;
-  lastGamesCacheRefreshAt: number;
-}
-
 export const FULL_REFRESH_INTERVAL_MS = 2 * 60_000;
 export const INVALID_STREAM_THRESHOLD = 8;
 export const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
@@ -170,239 +133,7 @@ function sameCampaignId(left?: string | null, right?: string | null): boolean {
 }
 
 let initPromise: Promise<void> | null = null;
-let appState: AppState = createInitialState();
-let monitorTickInFlight = false;
-let invalidStreamChecks = 0;
-let lastStreamRotationAt = 0;
-let streamValidationGraceUntil = 0;
-let lastTrackedProgress = -1;
-let lastTrackedMinutes = -1;
-let lastTrackedDropKey: string | null = null;
-let lastProgressAdvanceAt = 0;
-let noProgressRotationAttempts = 0;
-let playbackAttentionWarningSent = false;
-let gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null = null;
-let twitchSessionCache: TwitchSession | null = null;
-let twitchSessionFetchInFlight: Promise<TwitchSession | null> | null = null;
-let twitchSessionLastAttemptAt = 0;
-let cachedDropsSnapshot: TwitchDrop[] = [];
-let previousAllDropsCount = 0;
-let cachedCampaignChannelsMap: Record<string, string[] | null> = {};
-let lastFullRefreshAt = 0;
-let dropClaimInFlight = false;
-const dropClaimRetryAtById = new Map<string, number>();
-let lastActivityAt = 0;
-let apiConsecutiveFailures = 0;
-let apiBackoffUntil = 0;
-let integrityFallbackActive = false;
-let integrityFallbackActiveUntil = 0;
-let recoveryBackoffUntil = 0;
-let lastRecoveryAttemptAt = 0;
-let stalledRecoveryAttempts = 0;
-let recoveryNotificationSent = false;
-let lastHeartbeatAt = 0;
-let lastGamesCacheRefreshAt = 0;
-
-// State wrapper for extracted module functions (state-persistence.ts).
-// Uses getter/setter proxy so extracted functions can mutate state through
-// `state.xxx = value` while underlying `let` variables get updated.
-const state: ServiceWorkerState = {
-  get appState() {
-    return appState;
-  },
-  set appState(v) {
-    appState = v;
-  },
-  get monitorTickInFlight() {
-    return monitorTickInFlight;
-  },
-  set monitorTickInFlight(v) {
-    monitorTickInFlight = v;
-  },
-  get invalidStreamChecks() {
-    return invalidStreamChecks;
-  },
-  set invalidStreamChecks(v) {
-    invalidStreamChecks = v;
-  },
-  get lastStreamRotationAt() {
-    return lastStreamRotationAt;
-  },
-  set lastStreamRotationAt(v) {
-    lastStreamRotationAt = v;
-  },
-  get streamValidationGraceUntil() {
-    return streamValidationGraceUntil;
-  },
-  set streamValidationGraceUntil(v) {
-    streamValidationGraceUntil = v;
-  },
-  get lastTrackedProgress() {
-    return lastTrackedProgress;
-  },
-  set lastTrackedProgress(v) {
-    lastTrackedProgress = v;
-  },
-  get lastTrackedMinutes() {
-    return lastTrackedMinutes;
-  },
-  set lastTrackedMinutes(v) {
-    lastTrackedMinutes = v;
-  },
-  get lastTrackedDropKey() {
-    return lastTrackedDropKey;
-  },
-  set lastTrackedDropKey(v) {
-    lastTrackedDropKey = v;
-  },
-  get lastProgressAdvanceAt() {
-    return lastProgressAdvanceAt;
-  },
-  set lastProgressAdvanceAt(v) {
-    lastProgressAdvanceAt = v;
-  },
-  get noProgressRotationAttempts() {
-    return noProgressRotationAttempts;
-  },
-  set noProgressRotationAttempts(v) {
-    noProgressRotationAttempts = v;
-  },
-  get playbackAttentionWarningSent() {
-    return playbackAttentionWarningSent;
-  },
-  set playbackAttentionWarningSent(v) {
-    playbackAttentionWarningSent = v;
-  },
-  get gamesCacheRefreshInFlight() {
-    return gamesCacheRefreshInFlight;
-  },
-  set gamesCacheRefreshInFlight(v) {
-    gamesCacheRefreshInFlight = v;
-  },
-  get twitchSessionCache() {
-    return twitchSessionCache;
-  },
-  set twitchSessionCache(v) {
-    twitchSessionCache = v;
-  },
-  get twitchSessionFetchInFlight() {
-    return twitchSessionFetchInFlight;
-  },
-  set twitchSessionFetchInFlight(v) {
-    twitchSessionFetchInFlight = v;
-  },
-  get twitchSessionLastAttemptAt() {
-    return twitchSessionLastAttemptAt;
-  },
-  set twitchSessionLastAttemptAt(v) {
-    twitchSessionLastAttemptAt = v;
-  },
-  get cachedDropsSnapshot() {
-    return cachedDropsSnapshot;
-  },
-  set cachedDropsSnapshot(v) {
-    cachedDropsSnapshot = v;
-  },
-  get previousAllDropsCount() {
-    return previousAllDropsCount;
-  },
-  set previousAllDropsCount(v) {
-    previousAllDropsCount = v;
-  },
-  get cachedCampaignChannelsMap() {
-    return cachedCampaignChannelsMap;
-  },
-  set cachedCampaignChannelsMap(v) {
-    cachedCampaignChannelsMap = v;
-  },
-  get lastFullRefreshAt() {
-    return lastFullRefreshAt;
-  },
-  set lastFullRefreshAt(v) {
-    lastFullRefreshAt = v;
-  },
-  get dropClaimInFlight() {
-    return dropClaimInFlight;
-  },
-  set dropClaimInFlight(v) {
-    dropClaimInFlight = v;
-  },
-  get dropClaimRetryAtById() {
-    return dropClaimRetryAtById;
-  },
-  set dropClaimRetryAtById(v) {
-    dropClaimRetryAtById.clear();
-    if (v instanceof Map) {
-      for (const [k, val] of v) dropClaimRetryAtById.set(k, val);
-    }
-  },
-  get lastActivityAt() {
-    return lastActivityAt;
-  },
-  set lastActivityAt(v) {
-    lastActivityAt = v;
-  },
-  get apiConsecutiveFailures() {
-    return apiConsecutiveFailures;
-  },
-  set apiConsecutiveFailures(v) {
-    apiConsecutiveFailures = v;
-  },
-  get apiBackoffUntil() {
-    return apiBackoffUntil;
-  },
-  set apiBackoffUntil(v) {
-    apiBackoffUntil = v;
-  },
-  get integrityFallbackActive() {
-    return integrityFallbackActive;
-  },
-  set integrityFallbackActive(v) {
-    integrityFallbackActive = v;
-  },
-  get integrityFallbackActiveUntil() {
-    return integrityFallbackActiveUntil;
-  },
-  set integrityFallbackActiveUntil(v) {
-    integrityFallbackActiveUntil = v;
-  },
-  get recoveryBackoffUntil() {
-    return recoveryBackoffUntil;
-  },
-  set recoveryBackoffUntil(v) {
-    recoveryBackoffUntil = v;
-  },
-  get lastRecoveryAttemptAt() {
-    return lastRecoveryAttemptAt;
-  },
-  set lastRecoveryAttemptAt(v) {
-    lastRecoveryAttemptAt = v;
-  },
-  get stalledRecoveryAttempts() {
-    return stalledRecoveryAttempts;
-  },
-  set stalledRecoveryAttempts(v) {
-    stalledRecoveryAttempts = v;
-  },
-  get recoveryNotificationSent() {
-    return recoveryNotificationSent;
-  },
-  set recoveryNotificationSent(v) {
-    recoveryNotificationSent = v;
-  },
-  get lastHeartbeatAt() {
-    return lastHeartbeatAt;
-  },
-  set lastHeartbeatAt(v) {
-    lastHeartbeatAt = v;
-  },
-  get lastGamesCacheRefreshAt() {
-    return lastGamesCacheRefreshAt;
-  },
-  set lastGamesCacheRefreshAt(v) {
-    lastGamesCacheRefreshAt = v;
-  },
-};
+const state = createServiceWorkerState();
 
 const notificationController = createNotificationController(state, {
   saveState: () => saveStateExt(state),
@@ -440,8 +171,8 @@ async function resetStateForInactivity(trigger: string, idleForMs: number) {
   logInfo('Resetting state after inactivity', {
     trigger,
     idleForMs,
-    wasRunning: appState.isRunning,
-    wasPaused: appState.isPaused,
+    wasRunning: state.appState.isRunning,
+    wasPaused: state.appState.isPaused,
   });
   await resetStateForInactivityExt(
     state,
@@ -464,7 +195,7 @@ async function resetStateForInactivity(trigger: string, idleForMs: number) {
 }
 
 async function enforceInactivityReset(trigger: string): Promise<boolean> {
-  const reference = Math.max(lastActivityAt, appState.lastSuccessfulRefreshAt ?? 0);
+  const reference = Math.max(state.lastActivityAt, state.appState.lastSuccessfulRefreshAt ?? 0);
   if (!reference) {
     await markActivityExt(state, `${trigger}:bootstrap`);
     return false;
@@ -483,32 +214,44 @@ async function trackActivity(reason: string) {
 }
 
 async function handleExtensionUpdate() {
-  // Reset volatile farming state on update while preserving lifetime statistics.
-  const lifetimeStats = {
-    totalDropsClaimed: appState.totalDropsClaimed,
-    totalChannelPointsClaimed: appState.totalChannelPointsClaimed,
+  // Preserve lifetime stats, user settings, and active farming intent.
+  // Wipe volatile timing state and cached tokens (may have schema changes after update).
+  const preserved = {
+    totalDropsClaimed: state.appState.totalDropsClaimed,
+    totalChannelPointsClaimed: state.appState.totalChannelPointsClaimed,
+    monitorAutoOpen: state.appState.monitorAutoOpen,
+    autoResumeOnStartup: state.appState.autoResumeOnStartup,
+    muteFarmingTab: state.appState.muteFarmingTab,
+    notificationsEnabled: state.appState.notificationsEnabled,
+    autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus,
+    autoClaimDrops: state.appState.autoClaimDrops,
+    streamerSelectionMode: state.appState.streamerSelectionMode,
+    preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
+    queue: state.appState.queue,
+    selectedGame: state.appState.selectedGame,
+    isRunning: state.appState.isRunning,
   };
-  appState = clearRotationMetadata({
+  state.appState = clearRotationMetadata({
     ...createInitialState(),
-    ...lifetimeStats,
+    ...preserved,
   });
-  cachedDropsSnapshot = [];
+  state.cachedDropsSnapshot = [];
   await browser.storage.local.remove([DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, 'twitchIntegrity']);
   await browser.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
-  await browser.storage.local.set({ appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
-  broadcastStateUpdateExt(appState);
+  await browser.storage.local.set({ appState: state.appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
+  broadcastStateUpdateExt(state.appState);
 }
 
 function clearRecoveryState() {
-  recoveryBackoffUntil = 0;
-  lastRecoveryAttemptAt = 0;
-  stalledRecoveryAttempts = 0;
-  recoveryNotificationSent = false;
-  appState = clearRecoveryStatus(appState);
+  state.recoveryBackoffUntil = 0;
+  state.lastRecoveryAttemptAt = 0;
+  state.stalledRecoveryAttempts = 0;
+  state.recoveryNotificationSent = false;
+  state.appState = clearRecoveryStatus(state.appState);
 }
 
 function clearStopState() {
-  appState = clearTerminalStopStatus(appState);
+  state.appState = clearTerminalStopStatus(state.appState);
 }
 
 async function notify(title: string, message: string, priority = 2) {
@@ -613,12 +356,6 @@ async function handleStartupResumePolicy() {
     if (!keptExistingTab && state.appState.selectedGame) {
       await acquireStreamerForSelectedGame();
     }
-    setTimeout(() => {
-      if (state.appState.resumedFromCrash != null) {
-        state.appState.resumedFromCrash = null;
-        saveStateExt(state).catch(() => undefined);
-      }
-    }, CRASH_RECOVERY_GRACE_MS);
     startMonitoring();
     return true;
   }
@@ -630,10 +367,10 @@ export const GAMES_CACHE_TTL_MS = 5 * 60_000;
 
 async function ensureStateHydratedForCache() {
   const hasRuntimeState =
-    appState.availableGames.length > 0 ||
-    appState.queue.length > 0 ||
-    Boolean(appState.selectedGame) ||
-    appState.isRunning;
+    state.appState.availableGames.length > 0 ||
+    state.appState.queue.length > 0 ||
+    Boolean(state.appState.selectedGame) ||
+    state.appState.isRunning;
   if (hasRuntimeState) {
     return;
   }
@@ -682,12 +419,14 @@ function shouldRefreshCampaignsAfterSessionSync(): boolean {
 }
 
 function clearSelectedCompletedIdleCampaign() {
-  if (appState.isRunning || !appState.selectedGame || appState.queue.length > 0) {
+  if (state.appState.isRunning || !state.appState.selectedGame || state.appState.queue.length > 0) {
     return;
   }
 
-  const selected = appState.selectedGame;
-  const selectedDrops = cachedDropsSnapshot.filter((drop) => dropMatchesSelectedGameExt(drop, selected));
+  const selected = state.appState.selectedGame;
+  const selectedDrops = state.cachedDropsSnapshot.filter((drop) =>
+    dropMatchesSelectedGameExt(drop, selected),
+  );
   const hasKnownDrops = selectedDrops.length > 0;
   const hasFarmablePending = selectedDrops.some(
     (drop) => !isDropCompleted(drop) && drop.dropType !== 'event-based',
@@ -697,41 +436,40 @@ function clearSelectedCompletedIdleCampaign() {
     return;
   }
 
-  appState.selectedGame = null;
-  appState.currentDrop = null;
-  appState.allDrops = [];
-  appState.pendingDrops = [];
-  appState.completedDrops = [];
-  appState.completionNotified = false;
-  previousAllDropsCount = 0;
+  state.appState.selectedGame = null;
+  state.appState.currentDrop = null;
+  state.appState.allDrops = [];
+  state.appState.pendingDrops = [];
+  state.appState.completedDrops = [];
+  state.appState.completionNotified = false;
+  state.previousAllDropsCount = 0;
   resetStreamTrackingStateExt(state);
 }
 
 async function applyAuthoritativeEmptyCampaignRefresh(): Promise<void> {
-  if (appState.isRunning) {
+  if (state.appState.isRunning) {
     await stopFarmingSession({
       stopReason: 'no-active-campaigns',
       stopMessage: 'No active Twitch Drops campaigns found.',
     });
   } else {
-    appState = clearTerminalStopStatus(clearRecoveryStatus(appState));
+    state.appState = clearTerminalStopStatus(clearRecoveryStatus(state.appState));
   }
 
-  appState.availableGames = [];
-  appState.queue = [];
-  appState.selectedGame = null;
-  appState.currentDrop = null;
-  appState.allDrops = [];
-  appState.pendingDrops = [];
-  appState.completedDrops = [];
-  appState.completionNotified = false;
-  appState.lastSuccessfulRefreshAt = Date.now();
-  cachedDropsSnapshot = [];
-  cachedCampaignChannelsMap = {};
-  previousAllDropsCount = 0;
+  state.appState.availableGames = [];
+  state.appState.queue = [];
+  state.appState.selectedGame = null;
+  state.appState.currentDrop = null;
+  state.appState.allDrops = [];
+  state.appState.pendingDrops = [];
+  state.appState.completedDrops = [];
+  state.appState.completionNotified = false;
+  state.appState.lastSuccessfulRefreshAt = Date.now();
+  state.cachedDropsSnapshot = [];
+  state.cachedCampaignChannelsMap = {};
+  state.previousAllDropsCount = 0;
   resetStreamTrackingStateExt(state);
-  lastGamesCacheRefreshAt = Date.now();
-  state.appState = appState;
+  state.lastGamesCacheRefreshAt = Date.now();
   await saveStateExt(state);
 }
 
@@ -822,11 +560,11 @@ async function refreshGamesCacheFromHiddenFetch(
     requireFreshSnapshot?: boolean;
   } = {},
 ): Promise<TwitchGame[]> {
-  if (gamesCacheRefreshInFlight) {
-    return gamesCacheRefreshInFlight;
+  if (state.gamesCacheRefreshInFlight) {
+    return state.gamesCacheRefreshInFlight;
   }
 
-  gamesCacheRefreshInFlight = (async () => {
+  state.gamesCacheRefreshInFlight = (async () => {
     let fetchedGames: TwitchGame[] = [];
     const apiSnapshot = await fetchDropsSnapshotFromApi(Boolean(options.forceSessionRefresh));
     if (!apiSnapshot && options.requireFreshSnapshot) {
@@ -842,37 +580,37 @@ async function refreshGamesCacheFromHiddenFetch(
       if (apiSnapshot.games.length > 0) {
         fetchedGames = apiSnapshot.games;
       }
-      appState.lastSuccessfulRefreshAt = Date.now();
+      state.appState.lastSuccessfulRefreshAt = Date.now();
       if (apiSnapshot.drops.length > 0) {
-        cachedDropsSnapshot = apiSnapshot.drops;
+        state.cachedDropsSnapshot = apiSnapshot.drops;
       } else {
-        cachedDropsSnapshot = [];
+        state.cachedDropsSnapshot = [];
       }
       if (apiSnapshot.campaignChannelsMap) {
-        cachedCampaignChannelsMap = apiSnapshot.campaignChannelsMap;
+        state.cachedCampaignChannelsMap = apiSnapshot.campaignChannelsMap;
       }
     }
 
     const mergedGames =
-      fetchedGames.length > 0 ? replaceAvailableGames(fetchedGames) : appState.availableGames;
-    const annotatedGames = annotateGameCompletionExt(mergedGames, cachedDropsSnapshot);
-    appState.availableGames = annotatedGames;
+      fetchedGames.length > 0 ? replaceAvailableGames(fetchedGames) : state.appState.availableGames;
+    const annotatedGames = annotateGameCompletionExt(mergedGames, state.cachedDropsSnapshot);
+    state.appState.availableGames = annotatedGames;
     normalizeGameSelectionExt(state, annotatedGames);
     normalizeQueueSelectionExt(state, annotatedGames, Boolean(apiSnapshot));
     // If a campaign refresh succeeded, the selected campaign split should reflect it,
     // including the valid "no rewards left" case.
-    if (appState.selectedGame && apiSnapshot) {
-      splitDropsForSelectedGameExt(state, cachedDropsSnapshot);
+    if (state.appState.selectedGame && apiSnapshot) {
+      splitDropsForSelectedGameExt(state, state.cachedDropsSnapshot);
     }
     clearSelectedCompletedIdleCampaign();
-    lastGamesCacheRefreshAt = Date.now();
+    state.lastGamesCacheRefreshAt = Date.now();
     await saveStateExt(state);
     return mergedGames;
   })().finally(() => {
-    gamesCacheRefreshInFlight = null;
+    state.gamesCacheRefreshInFlight = null;
   });
 
-  return gamesCacheRefreshInFlight;
+  return state.gamesCacheRefreshInFlight;
 }
 
 async function openDropsPageAndRefresh(message?: {
@@ -900,7 +638,7 @@ function evaluateDropsForGame(
 
 async function resolveCategorySlug(game: TwitchGame): Promise<string> {
   // Prefer availableGames — may have the correct slug from content script
-  const updated = appState.availableGames.find(
+  const updated = state.appState.availableGames.find(
     (item) => item.id === game.id || sameCampaignId(item.campaignId, game.campaignId),
   );
   if (updated?.categorySlug) {
@@ -941,30 +679,31 @@ async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string
 }
 
 async function evaluateDropTransitions(previousCompletedIds: Set<string>) {
-  const nowCompleted = new Set(appState.completedDrops.map((drop) => drop.id));
-  const newlyCompleted = appState.completedDrops.filter((drop) => !previousCompletedIds.has(drop.id));
+  const nowCompleted = new Set(state.appState.completedDrops.map((drop) => drop.id));
+  const newlyCompleted = state.appState.completedDrops.filter((drop) => !previousCompletedIds.has(drop.id));
   const newlyClaimed = newlyCompleted.filter((drop) => drop.claimed);
 
   if (newlyClaimed.length > 0) {
-    appState.totalDropsClaimed += newlyClaimed.length;
+    state.appState.totalDropsClaimed += newlyClaimed.length;
   }
 
   for (const drop of newlyCompleted) {
     await sendAlert('drop-complete', `Reward unlocked: ${drop.name}`);
   }
 
-  const hasDrops = appState.allDrops.length > 0;
-  const allCompleted = hasDrops && appState.pendingDrops.length === 0 && appState.currentDrop === null;
-  if (allCompleted && !appState.completionNotified) {
+  const hasDrops = state.appState.allDrops.length > 0;
+  const allCompleted =
+    hasDrops && state.appState.pendingDrops.length === 0 && state.appState.currentDrop === null;
+  if (allCompleted && !state.appState.completionNotified) {
     await sendAlert(
       'all-complete',
-      `All rewards for ${appState.selectedGame ? getGameDisplayLabel(appState.selectedGame) : 'this campaign'} are complete.`,
+      `All rewards for ${state.appState.selectedGame ? getGameDisplayLabel(state.appState.selectedGame) : 'this campaign'} are complete.`,
     );
-    appState.completionNotified = true;
+    state.appState.completionNotified = true;
   }
 
   if (nowCompleted.size < previousCompletedIds.size) {
-    appState.completionNotified = false;
+    state.appState.completionNotified = false;
   }
 }
 
@@ -1023,7 +762,7 @@ async function checkDropProgress() {
 }
 
 function startMonitoring() {
-  browser.alarms.create(ALARM_NAME, { periodInMinutes: PROGRESS_POLL_MS / 60_000 });
+  browser.alarms.create(ALARM_NAME, { periodInMinutes: Math.max(0.5, PROGRESS_POLL_MS / 60_000) });
   checkDropProgress().catch((error) => logWarn('Initial monitoring error:', String(error)));
 }
 
@@ -1071,12 +810,12 @@ async function acquireStreamerForSelectedGame(): Promise<boolean> {
 }
 
 async function ensureWorkspaceForSelectedGame() {
-  if (!appState.selectedGame) {
+  if (!state.appState.selectedGame) {
     return;
   }
-  const resolvedSlug = await resolveCategorySlug(appState.selectedGame);
-  appState.selectedGame = {
-    ...appState.selectedGame,
+  const resolvedSlug = await resolveCategorySlug(state.appState.selectedGame);
+  state.appState.selectedGame = {
+    ...state.appState.selectedGame,
     categorySlug: resolvedSlug,
   };
 }
@@ -1105,7 +844,7 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
     onRefreshDropsData: refreshDropsData,
     onSaveState: () => saveStateExt(state),
     onSaveTimingState: saveTimingStateExt,
-    onBroadcastStateUpdate: () => broadcastStateUpdateExt(appState),
+    onBroadcastStateUpdate: () => broadcastStateUpdateExt(state.appState),
     onStopMonitoring: stopMonitoring,
     onTrackActivity: trackActivity,
     onApplyStopState: applyStopStateExt,
@@ -1119,10 +858,10 @@ async function handleStartFarming(payload: { game?: TwitchGame }) {
   if (!advanced) {
     return { success: false, error: 'Queue completed. No pending rewards left.' };
   }
-  if (!appState.tabId && appState.selectedGame) {
+  if (!state.appState.tabId && state.appState.selectedGame) {
     await acquireStreamerForSelectedGame();
   }
-  if (appState.monitorAutoOpen) {
+  if (state.appState.monitorAutoOpen) {
     await new Promise((resolve) => setTimeout(resolve, MONITOR_AUTO_OPEN_DELAY_MS));
     await openMonitorDashboardWindow({ toggle: false }).catch(() => undefined);
   }
@@ -1215,7 +954,7 @@ async function handleRemoveFromQueue(payload: { game?: TwitchGame; gameId?: stri
 
 async function handleClearQueue() {
   await trackActivity('clear-queue');
-  appState.queue = [];
+  state.appState.queue = [];
   await saveStateExt(state);
   return { success: true, queueLength: 0 };
 }
@@ -1230,25 +969,28 @@ async function handleEnsureGamesCache(payload?: { force?: boolean }) {
   const shouldRefresh = shouldRefreshGamesCacheExt(state, force);
   if (shouldRefresh) {
     await refreshGamesCacheFromHiddenFetch();
-  } else if (cachedDropsSnapshot.length > 0) {
+  } else if (state.cachedDropsSnapshot.length > 0) {
     // Cache is fresh — no API call needed. But the games persisted in storage may
     // pre-date the annotation logic (e.g. after an extension update or SW restart).
     // Re-annotate in-memory and persist so the popup reads correct allDropsCompleted flags.
-    appState.availableGames = annotateGameCompletionExt(appState.availableGames, cachedDropsSnapshot);
+    state.appState.availableGames = annotateGameCompletionExt(
+      state.appState.availableGames,
+      state.cachedDropsSnapshot,
+    );
     await saveStateExt(state);
   }
   return {
     success: true,
     refreshed: shouldRefresh,
-    gamesCount: appState.availableGames.length,
-    games: appState.availableGames,
+    gamesCount: state.appState.availableGames.length,
+    games: state.appState.availableGames,
   };
 }
 
 async function handlePauseFarming() {
   await trackActivity('pause-farming');
-  appState.isPaused = true;
-  playbackAttentionWarningSent = false;
+  state.appState.isPaused = true;
+  state.playbackAttentionWarningSent = false;
   stopMonitoring();
   await saveStateExt(state);
   await saveTimingStateExt(state);
@@ -1257,14 +999,14 @@ async function handlePauseFarming() {
 
 async function handleResumeFarming() {
   await trackActivity('resume-farming');
-  appState.isPaused = false;
-  invalidStreamChecks = 0;
-  noProgressRotationAttempts = 0;
+  state.appState.isPaused = false;
+  state.invalidStreamChecks = 0;
+  state.noProgressRotationAttempts = 0;
   clearStopState();
   // Re-issue grace window so the first tick after resume doesn't immediately run
   // full rotation validation against a stream that hasn't had time to respond.
-  if (appState.tabId) {
-    streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
+  if (state.appState.tabId) {
+    state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
   }
   clearRecoveryState();
   startMonitoring();
@@ -1277,7 +1019,7 @@ async function handleRefreshDrops() {
   await trackActivity('refresh-drops');
   await refreshDropsData({
     includeCampaignFetch: true,
-    includeInventoryFetch: Boolean(appState.selectedGame),
+    includeInventoryFetch: Boolean(state.appState.selectedGame),
     forceInventoryFetch: true,
   });
   return { success: true };
@@ -1288,22 +1030,22 @@ async function handleMarkDropsRefreshNoticeSeen(payload?: { seenAt?: number }) {
     await initPromise;
   }
   const completedAt =
-    typeof appState.lastDropsPageRefreshCompletedAt === 'number'
-      ? appState.lastDropsPageRefreshCompletedAt
+    typeof state.appState.lastDropsPageRefreshCompletedAt === 'number'
+      ? state.appState.lastDropsPageRefreshCompletedAt
       : 0;
   const requestedSeenAt =
     typeof payload?.seenAt === 'number' && Number.isFinite(payload.seenAt) ? payload.seenAt : completedAt;
-  const seenAt = Math.max(appState.lastDropsPageRefreshNoticeSeenAt ?? 0, requestedSeenAt, completedAt);
-  appState.lastDropsPageRefreshNoticeSeenAt = seenAt || Date.now();
+  const seenAt = Math.max(state.appState.lastDropsPageRefreshNoticeSeenAt ?? 0, requestedSeenAt, completedAt);
+  state.appState.lastDropsPageRefreshNoticeSeenAt = seenAt || Date.now();
   await saveStateExt(state);
-  return { success: true, seenAt: appState.lastDropsPageRefreshNoticeSeenAt };
+  return { success: true, seenAt: state.appState.lastDropsPageRefreshNoticeSeenAt };
 }
 
 async function handleSetMonitorAutoOpen(payload?: { enabled?: boolean }) {
   await trackActivity('set-monitor-auto-open');
-  appState.monitorAutoOpen = payload?.enabled !== false;
+  state.appState.monitorAutoOpen = payload?.enabled !== false;
   await saveStateExt(state);
-  return { success: true, monitorAutoOpen: appState.monitorAutoOpen };
+  return { success: true, monitorAutoOpen: state.appState.monitorAutoOpen };
 }
 
 async function handleSetAutoResumeOnStartup(payload?: { enabled?: boolean }) {
@@ -1311,88 +1053,88 @@ async function handleSetAutoResumeOnStartup(payload?: { enabled?: boolean }) {
     await initPromise;
   }
   await trackActivity('set-auto-resume-on-startup');
-  appState.autoResumeOnStartup = payload?.enabled === true;
+  state.appState.autoResumeOnStartup = payload?.enabled === true;
   await saveStateExt(state);
-  return { success: true, autoResumeOnStartup: appState.autoResumeOnStartup };
+  return { success: true, autoResumeOnStartup: state.appState.autoResumeOnStartup };
 }
 
 async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
   await trackActivity('set-mute-farming-tab');
-  appState.muteFarmingTab = payload?.enabled !== false;
+  state.appState.muteFarmingTab = payload?.enabled !== false;
   await Promise.all([saveStateExt(state), syncManagedTabMuteStateExt(state)]);
-  return { success: true, muteFarmingTab: appState.muteFarmingTab };
+  return { success: true, muteFarmingTab: state.appState.muteFarmingTab };
 }
 
 async function handleSetNotificationsEnabled(payload?: { enabled?: boolean }) {
   await trackActivity('set-notifications-enabled');
   const enabled = payload?.enabled !== false;
   if (!enabled) {
-    appState.notificationsEnabled = false;
+    state.appState.notificationsEnabled = false;
     await saveStateExt(state);
-    return { success: true, notificationsEnabled: appState.notificationsEnabled };
+    return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
   }
 
   if (!(await notificationController.hasNotificationPermission())) {
-    appState.notificationsEnabled = false;
+    state.appState.notificationsEnabled = false;
     await saveStateExt(state);
     return {
       success: false,
-      notificationsEnabled: appState.notificationsEnabled,
+      notificationsEnabled: state.appState.notificationsEnabled,
       error: 'Notification permission was not granted',
     };
   }
 
-  appState.notificationsEnabled = true;
+  state.appState.notificationsEnabled = true;
   await saveStateExt(state);
-  return { success: true, notificationsEnabled: appState.notificationsEnabled };
+  return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
 }
 
 async function handleSetAutoClaimChannelPointsBonus(payload?: { enabled?: boolean }) {
   await trackActivity('set-auto-claim-channel-points-bonus');
-  appState = applyAutoClaimChannelPointsBonusSetting(appState, payload?.enabled);
+  state.appState = applyAutoClaimChannelPointsBonusSetting(state.appState, payload?.enabled);
   await saveStateExt(state);
   return {
     success: true,
-    autoClaimChannelPointsBonus: appState.autoClaimChannelPointsBonus,
+    autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus,
   };
 }
 
 async function handleSetAutoClaimDrops(payload?: { enabled?: boolean }) {
   await trackActivity('set-auto-claim-drops');
-  appState = applyAutoClaimDropsSetting(appState, payload?.enabled);
+  state.appState = applyAutoClaimDropsSetting(state.appState, payload?.enabled);
   await saveStateExt(state);
   return {
     success: true,
-    autoClaimDrops: appState.autoClaimDrops,
+    autoClaimDrops: state.appState.autoClaimDrops,
   };
 }
 
 async function handleSetStreamerSelectionMode(payload?: { mode?: 'low-view' | 'random' | 'top-viewers' }) {
   await trackActivity('set-streamer-selection-mode');
-  appState = applyStreamerSelectionModeSetting(appState, payload?.mode);
+  state.appState = applyStreamerSelectionModeSetting(state.appState, payload?.mode);
   await saveStateExt(state);
   return {
     success: true,
-    streamerSelectionMode: appState.streamerSelectionMode,
+    streamerSelectionMode: state.appState.streamerSelectionMode,
   };
 }
 
 async function handleSetPreferredStreamerLanguage(payload?: { language?: string | null }) {
   await trackActivity('set-preferred-streamer-language');
-  appState = applyPreferredStreamerLanguageSetting(appState, payload?.language);
+  state.appState = applyPreferredStreamerLanguageSetting(state.appState, payload?.language);
   await saveStateExt(state);
   return {
     success: true,
-    preferredStreamerLanguage: appState.preferredStreamerLanguage,
+    preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
   };
 }
 
 async function attemptAutoClaimChannelPointsBonus() {
-  if (!shouldAttemptAutoClaimChannelPointsBonus(appState)) {
+  if (!shouldAttemptAutoClaimChannelPointsBonus(state.appState)) {
     return false;
   }
 
-  const tabId = appState.tabId;
+  const tabId = state.appState.tabId;
   if (tabId == null) {
     return false;
   }
@@ -1410,7 +1152,7 @@ async function attemptAutoClaimChannelPointsBonus() {
     .catch(() => null)) as ChannelPointsBonusClaimResponse | null;
 
   if (result?.success && result.claimed) {
-    const channelName = getChannelNameFromTab(tab.url) ?? appState.activeStreamer?.displayName ?? null;
+    const channelName = getChannelNameFromTab(tab.url) ?? state.appState.activeStreamer?.displayName ?? null;
     logDebug('Auto-claimed channel points bonus', { tabId: tab.id, channelName });
     await recordChannelPointsBonusClaimed(channelName);
     return true;
@@ -1444,20 +1186,23 @@ function isTrustedTwitchSender(sender: chrome.runtime.MessageSender): boolean {
 
 async function recordChannelPointsBonusClaimed(channelName?: string | null) {
   await ensureInitializedForStatsUpdate();
-  appState.totalChannelPointsClaimed = appState.totalChannelPointsClaimed + 1;
+  state.appState.totalChannelPointsClaimed = state.appState.totalChannelPointsClaimed + 1;
   await saveStateExt(state);
   const fromChannel = channelName ? ` from ${channelName}` : '';
   await notify('Channel points claimed', `Claimed${fromChannel}.`, 0);
 }
 
 async function handleUpdateGames(payload?: TwitchGame[]) {
-  appState.availableGames = replaceAvailableGames(payload ?? []);
-  appState.availableGames = annotateGameCompletionExt(appState.availableGames, cachedDropsSnapshot);
-  if (appState.availableGames.length > 0) {
-    appState.lastSuccessfulRefreshAt = Date.now();
+  state.appState.availableGames = replaceAvailableGames(payload ?? []);
+  state.appState.availableGames = annotateGameCompletionExt(
+    state.appState.availableGames,
+    state.cachedDropsSnapshot,
+  );
+  if (state.appState.availableGames.length > 0) {
+    state.appState.lastSuccessfulRefreshAt = Date.now();
   }
-  normalizeGameSelectionExt(state, appState.availableGames, true);
-  normalizeQueueSelectionExt(state, appState.availableGames, true);
+  normalizeGameSelectionExt(state, state.appState.availableGames, true);
+  normalizeQueueSelectionExt(state, state.appState.availableGames, true);
   await saveStateExt(state);
   saveTimingStateExt(state).catch(() => undefined);
   return { success: true };
@@ -1481,14 +1226,14 @@ async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.
   if (!incoming) {
     return { success: false, error: 'Invalid session payload' };
   }
-  twitchSessionCache = incoming;
-  twitchSessionLastAttemptAt = 0;
+  state.twitchSessionCache = incoming;
+  state.twitchSessionLastAttemptAt = 0;
   await persistTwitchSessionExt(incoming);
   logDebug('Twitch session synced from content script', sessionDebugSummaryExt(incoming));
   if (sender.tab?.id && shouldRefreshCampaignsAfterSessionSync()) {
     await refreshGamesCacheFromHiddenFetch();
     await saveStateExt(state);
-    broadcastStateUpdateExt(appState);
+    broadcastStateUpdateExt(state.appState);
   }
   return { success: true };
 }
@@ -1512,15 +1257,15 @@ async function handleSyncTwitchIntegrity(
   logDebug('Integrity token synced from content script', {
     hasToken: true,
     expiration,
-    hasSession: Boolean(twitchSessionCache),
+    hasSession: Boolean(state.twitchSessionCache),
   });
   // A fresh page-intercepted token means integrity is working — reset the fallback flag
   // so the next request re-attempts with integrity instead of staying in no-integrity mode.
-  integrityFallbackActive = false;
-  integrityFallbackActiveUntil = 0;
-  if (twitchSessionCache) {
-    twitchSessionCache = { ...twitchSessionCache, clientIntegrity: token };
-    persistTwitchSessionExt(twitchSessionCache).catch(() => undefined);
+  state.integrityFallbackActive = false;
+  state.integrityFallbackActiveUntil = 0;
+  if (state.twitchSessionCache) {
+    state.twitchSessionCache = { ...state.twitchSessionCache, clientIntegrity: token };
+    persistTwitchSessionExt(state.twitchSessionCache).catch(() => undefined);
   }
   // Also store the full integrity object separately for expiration tracking.
   browser.storage.local
@@ -1601,7 +1346,7 @@ export function startServiceWorker(): void {
 }
 
 async function handleManagedTabRemoved(removedTabId: number) {
-  if (appState.tabId === removedTabId) {
+  if (state.appState.tabId === removedTabId) {
     clearManagedTabOwnershipExt(state);
     await saveStateExt(state);
   }
@@ -1609,19 +1354,19 @@ async function handleManagedTabRemoved(removedTabId: number) {
 
 // Detect when the managed farming tab navigates away from Twitch
 async function handleManagedTabNavigatedAway(updatedTabId: number, url: string) {
-  if (updatedTabId !== appState.tabId) {
+  if (updatedTabId !== state.appState.tabId) {
     return;
   }
   logInfo('Managed tab navigated away from Twitch (onUpdated)', { url });
   // Release the tab so next rotation creates a new tab instead of hijacking this one.
   clearManagedTabOwnershipExt(state);
-  invalidStreamChecks = INVALID_STREAM_THRESHOLD;
+  state.invalidStreamChecks = INVALID_STREAM_THRESHOLD;
   await saveStateExt(state);
 }
 
 async function handleMonitorWindowRemoved(removedWindowId: number) {
-  if (appState.monitorWindowId === removedWindowId) {
-    appState.monitorWindowId = null;
+  if (state.appState.monitorWindowId === removedWindowId) {
+    state.appState.monitorWindowId = null;
     await saveStateExt(state);
   }
 }

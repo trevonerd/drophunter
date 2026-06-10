@@ -1277,6 +1277,9 @@ export async function checkDropProgress(
     if (inCrashGrace) {
       state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
     } else {
+      if (state.appState.resumedFromCrash != null) {
+        state.appState.resumedFromCrash = null;
+      }
       await callbacks.onRotateStreamerIfInvalid();
       if (!state.appState.isRunning || state.appState.isPaused) {
         return;

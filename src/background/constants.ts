@@ -7,7 +7,8 @@ export const ALARM_NAME = 'dropCheck';
 
 // Timing constants
 export const GAMES_CACHE_TTL_MS = 5 * 60_000;
-export const PROGRESS_POLL_MS = 15_000;
+// Chrome 120+ clamps alarm periods to a 30s minimum, so anything lower never fires faster.
+export const PROGRESS_POLL_MS = 30_000;
 export const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 export const TIMING_SAVE_DEBOUNCE_MS = 5_000;
 export const CRASH_DETECTION_THRESHOLD_MS = 30_000;
