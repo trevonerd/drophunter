@@ -25,6 +25,17 @@ export function canRetryDropClaim(state: ServiceWorkerState, claimId: string): b
   return Date.now() >= retryAt;
 }
 
+function asClaimedDrop(drop: TwitchDrop): TwitchDrop {
+  return {
+    ...drop,
+    claimed: true,
+    claimable: false,
+    progress: 100,
+    remainingMinutes: 0,
+    status: 'completed' as const,
+  };
+}
+
 export function markDropClaimedLocally(
   state: ServiceWorkerState,
   claimId: string,
@@ -35,14 +46,7 @@ export function markDropClaimedLocally(
     const isMatch = drop.claimId === claimId || (fallbackDropId ? drop.id === fallbackDropId : false);
     if (!isMatch) return drop;
     changed = true;
-    return {
-      ...drop,
-      claimed: true,
-      claimable: false,
-      progress: 100,
-      remainingMinutes: 0,
-      status: 'completed' as const,
-    };
+    return asClaimedDrop(drop);
   });
 
   if (changed) {
@@ -61,14 +65,7 @@ export function markDropClaimedInSnapshot(
     const drop = state.cachedDropsSnapshot[i];
     const isMatch = drop.claimId === claimId || (fallbackDropId ? drop.id === fallbackDropId : false);
     if (isMatch) {
-      state.cachedDropsSnapshot[i] = {
-        ...drop,
-        claimed: true,
-        claimable: false,
-        progress: 100,
-        remainingMinutes: 0,
-        status: 'completed' as const,
-      };
+      state.cachedDropsSnapshot[i] = asClaimedDrop(drop);
       return;
     }
   }
