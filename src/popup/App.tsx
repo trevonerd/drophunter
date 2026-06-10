@@ -1120,84 +1120,47 @@ function App() {
     );
   };
 
-  const handleMonitorAutoOpenToggle = async () => {
-    const next = !state.monitorAutoOpen;
-    setState((prev) => ({ ...prev, monitorAutoOpen: next }));
-    const response = await sendRuntimeMessage({
-      type: 'SET_MONITOR_AUTO_OPEN',
-      payload: { enabled: next },
-    });
-    if (!response?.success) {
-      setState((prev) => ({ ...prev, monitorAutoOpen: !next }));
-      return;
-    }
-    setState((prev) => ({ ...prev, monitorAutoOpen: response.monitorAutoOpen ?? next }));
-  };
+  const makeToggleHandler =
+    (
+      stateKey:
+        | 'monitorAutoOpen'
+        | 'autoResumeOnStartup'
+        | 'muteFarmingTab'
+        | 'autoClaimChannelPointsBonus'
+        | 'autoClaimDrops',
+      send: (enabled: boolean) => Promise<{ success: boolean; [key: string]: unknown } | undefined>,
+    ) =>
+    async () => {
+      const next = !state[stateKey];
+      setState((prev) => ({ ...prev, [stateKey]: next }));
+      const response = await send(next);
+      if (!response?.success) {
+        setState((prev) => ({ ...prev, [stateKey]: !next }));
+        return;
+      }
+      setState((prev) => ({ ...prev, [stateKey]: (response[stateKey] as boolean | undefined) ?? next }));
+    };
 
-  const handleAutoResumeOnStartupToggle = async () => {
-    const next = !state.autoResumeOnStartup;
-    setState((prev) => ({ ...prev, autoResumeOnStartup: next }));
-    const response = await sendRuntimeMessage({
-      type: 'SET_AUTO_RESUME_ON_STARTUP',
-      payload: { enabled: next },
-    });
-    if (!response?.success) {
-      setState((prev) => ({ ...prev, autoResumeOnStartup: !next }));
-      return;
-    }
-    setState((prev) => ({ ...prev, autoResumeOnStartup: response.autoResumeOnStartup ?? next }));
-  };
+  const handleMonitorAutoOpenToggle = makeToggleHandler('monitorAutoOpen', (enabled) =>
+    sendRuntimeMessage({ type: 'SET_MONITOR_AUTO_OPEN', payload: { enabled } }),
+  );
 
-  const handleAutoClaimChannelPointsBonusToggle = async () => {
-    const next = !state.autoClaimChannelPointsBonus;
-    setState((prev) => ({ ...prev, autoClaimChannelPointsBonus: next }));
-    const response = await sendRuntimeMessage({
-      type: 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
-      payload: { enabled: next },
-    });
-    if (!response?.success) {
-      setState((prev) => ({ ...prev, autoClaimChannelPointsBonus: !next }));
-      return;
-    }
-    setState((prev) => ({
-      ...prev,
-      autoClaimChannelPointsBonus: response.autoClaimChannelPointsBonus ?? next,
-    }));
-  };
+  const handleAutoResumeOnStartupToggle = makeToggleHandler('autoResumeOnStartup', (enabled) =>
+    sendRuntimeMessage({ type: 'SET_AUTO_RESUME_ON_STARTUP', payload: { enabled } }),
+  );
 
-  const handleAutoClaimDropsToggle = async () => {
-    const next = !state.autoClaimDrops;
-    setState((prev) => ({ ...prev, autoClaimDrops: next }));
-    const response = await sendRuntimeMessage({
-      type: 'SET_AUTO_CLAIM_DROPS',
-      payload: { enabled: next },
-    });
-    if (!response?.success) {
-      setState((prev) => ({ ...prev, autoClaimDrops: !next }));
-      return;
-    }
-    setState((prev) => ({
-      ...prev,
-      autoClaimDrops: response.autoClaimDrops ?? next,
-    }));
-  };
+  const handleAutoClaimChannelPointsBonusToggle = makeToggleHandler(
+    'autoClaimChannelPointsBonus',
+    (enabled) => sendRuntimeMessage({ type: 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS', payload: { enabled } }),
+  );
 
-  const handleMuteFarmingTabToggle = async () => {
-    const next = !state.muteFarmingTab;
-    setState((prev) => ({ ...prev, muteFarmingTab: next }));
-    const response = await sendRuntimeMessage({
-      type: 'SET_MUTE_FARMING_TAB',
-      payload: { enabled: next },
-    });
-    if (!response?.success) {
-      setState((prev) => ({ ...prev, muteFarmingTab: !next }));
-      return;
-    }
-    setState((prev) => ({
-      ...prev,
-      muteFarmingTab: response.muteFarmingTab ?? next,
-    }));
-  };
+  const handleAutoClaimDropsToggle = makeToggleHandler('autoClaimDrops', (enabled) =>
+    sendRuntimeMessage({ type: 'SET_AUTO_CLAIM_DROPS', payload: { enabled } }),
+  );
+
+  const handleMuteFarmingTabToggle = makeToggleHandler('muteFarmingTab', (enabled) =>
+    sendRuntimeMessage({ type: 'SET_MUTE_FARMING_TAB', payload: { enabled } }),
+  );
 
   const handleNotificationsEnabledToggle = async () => {
     const next = !state.notificationsEnabled;

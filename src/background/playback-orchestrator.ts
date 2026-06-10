@@ -112,10 +112,15 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
     return (prepared ?? {}) as PlaybackPrepResult;
   };
 
-  const warnIfPlaybackNeedsAttention = async (tabId: number, prepared: PlaybackPrepResult) => {
+  const warnIfPlaybackNeedsAttention = async (
+    tabId: number,
+    prepared: PlaybackPrepResult,
+    retryPrepOptions?: { unmuteTab?: boolean },
+  ) => {
     if (prepared?.gateDismissed) {
       await delay(700);
       const retried = await prepareStreamPlayback(tabId, {
+        ...retryPrepOptions,
         muteAfterPrep: options.shouldMuteManagedFarmingTab(),
       });
       if (options.needsPlaybackAttention(retried)) {
@@ -135,20 +140,7 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
       unmuteTab: true,
       muteAfterPrep: options.shouldMuteManagedFarmingTab(),
     });
-    if (prepared?.gateDismissed) {
-      await delay(700);
-      const retried = await prepareStreamPlayback(tabId, {
-        unmuteTab: true,
-        muteAfterPrep: options.shouldMuteManagedFarmingTab(),
-      });
-      if (options.needsPlaybackAttention(retried)) {
-        await sendPlaybackAttentionWarning();
-      }
-      return;
-    }
-    if (options.needsPlaybackAttention(prepared)) {
-      await sendPlaybackAttentionWarning();
-    }
+    await warnIfPlaybackNeedsAttention(tabId, prepared, { unmuteTab: true });
   };
 
   const openForegroundChannel = async (streamer: TwitchStreamer) => {
@@ -173,19 +165,7 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
         unmuteTab: true,
         muteAfterPrep: options.shouldMuteManagedFarmingTab(),
       });
-      if (prepared?.gateDismissed) {
-        await delay(700);
-        const retried = await prepareStreamPlayback(managedTabId, {
-          muteAfterPrep: options.shouldMuteManagedFarmingTab(),
-        });
-        if (options.needsPlaybackAttention(retried)) {
-          await sendPlaybackAttentionWarning();
-        }
-        return;
-      }
-      if (options.needsPlaybackAttention(prepared)) {
-        await sendPlaybackAttentionWarning();
-      }
+      await warnIfPlaybackNeedsAttention(managedTabId, prepared);
     };
 
     void prepareVisiblePlayback().catch(() => undefined);
