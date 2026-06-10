@@ -125,7 +125,14 @@ export function MainView({
           onAddToQueue={onAddToQueue}
         />
 
-        {queueMessage && <p className="text-[11px] text-blue-300">{queueMessage}</p>}
+        <p
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="text-[11px] text-blue-300 min-h-[1em]"
+        >
+          {queueMessage ?? ''}
+        </p>
 
         {runtimeMode === 'recovering' && state.recoveryReason && (
           <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">

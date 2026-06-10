@@ -195,3 +195,79 @@ export function applyStartupResumePolicy(
 export function shouldCloseManagedTab(windowTabCount: number | null | undefined): boolean {
   return typeof windowTabCount === 'number' && Number.isFinite(windowTabCount) && windowTabCount > 1;
 }
+
+import { createInitialState } from '../shared/utils.ts';
+import type { TwitchDrop, TwitchGame } from '../types/index.ts';
+import type { TwitchSession } from './twitch-api/types.ts';
+
+export interface ServiceWorkerState {
+  appState: AppState;
+  monitorTickInFlight: boolean;
+  invalidStreamChecks: number;
+  lastStreamRotationAt: number;
+  streamValidationGraceUntil: number;
+  lastTrackedProgress: number;
+  lastTrackedMinutes: number;
+  lastTrackedDropKey: string | null;
+  lastProgressAdvanceAt: number;
+  noProgressRotationAttempts: number;
+  playbackAttentionWarningSent: boolean;
+  gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null;
+  twitchSessionCache: TwitchSession | null;
+  twitchSessionFetchInFlight: Promise<TwitchSession | null> | null;
+  twitchSessionLastAttemptAt: number;
+  cachedDropsSnapshot: TwitchDrop[];
+  previousAllDropsCount: number;
+  cachedCampaignChannelsMap: Record<string, string[] | null>;
+  lastFullRefreshAt: number;
+  dropClaimInFlight: boolean;
+  dropClaimRetryAtById: Map<string, number>;
+  lastActivityAt: number;
+  apiConsecutiveFailures: number;
+  apiBackoffUntil: number;
+  integrityFallbackActive: boolean;
+  integrityFallbackActiveUntil: number;
+  recoveryBackoffUntil: number;
+  lastRecoveryAttemptAt: number;
+  stalledRecoveryAttempts: number;
+  recoveryNotificationSent: boolean;
+  lastHeartbeatAt: number;
+  lastGamesCacheRefreshAt: number;
+}
+
+export function createServiceWorkerState(): ServiceWorkerState {
+  return {
+    appState: createInitialState(),
+    monitorTickInFlight: false,
+    invalidStreamChecks: 0,
+    lastStreamRotationAt: 0,
+    streamValidationGraceUntil: 0,
+    lastTrackedProgress: -1,
+    lastTrackedMinutes: -1,
+    lastTrackedDropKey: null,
+    lastProgressAdvanceAt: 0,
+    noProgressRotationAttempts: 0,
+    playbackAttentionWarningSent: false,
+    gamesCacheRefreshInFlight: null,
+    twitchSessionCache: null,
+    twitchSessionFetchInFlight: null,
+    twitchSessionLastAttemptAt: 0,
+    cachedDropsSnapshot: [],
+    previousAllDropsCount: 0,
+    cachedCampaignChannelsMap: {},
+    lastFullRefreshAt: 0,
+    dropClaimInFlight: false,
+    dropClaimRetryAtById: new Map(),
+    lastActivityAt: 0,
+    apiConsecutiveFailures: 0,
+    apiBackoffUntil: 0,
+    integrityFallbackActive: false,
+    integrityFallbackActiveUntil: 0,
+    recoveryBackoffUntil: 0,
+    lastRecoveryAttemptAt: 0,
+    stalledRecoveryAttempts: 0,
+    recoveryNotificationSent: false,
+    lastHeartbeatAt: 0,
+    lastGamesCacheRefreshAt: 0,
+  };
+}

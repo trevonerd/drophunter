@@ -1,6 +1,6 @@
 # Agent Notes
 
-Fast path for future agents. Keep short; update only on workflow/domain rule change.
+Fast path for future agents. Keep this file short; update only when workflow or domain rules change.
 
 ## Project
 - WXT Chrome/Edge MV3 extension using React 19, TypeScript, Tailwind CSS, Bun.
@@ -8,10 +8,10 @@ Fast path for future agents. Keep short; update only on workflow/domain rule cha
 - Main code: `src/background/`, `src/popup/`, `src/shared/`, `src/content/`.
 
 ## Campaign Identity
-- Twitch campaigns not plain games. Prefer `campaignId` identity.
+- Twitch campaigns are not plain games. Prefer `campaignId` identity.
 - Use shared helpers in `src/shared/game-selection.ts`: `gameIdentity`, `isSameGameIdentity`, `gameKey`, `getGameDisplayLabel`.
 - Dropdown/queue/start/remove flows must not key only by `game.id`; duplicate campaigns can share game-ish IDs.
-- Real campaign titles display as `Game · Campaign Title`, even when only one campaign exists for that game.
+- Real campaign titles should display as `Game · Campaign Title`, even when only one campaign exists for that game.
 
 ## Work Rules
 - Preserve dirty worktree changes unless user explicitly asks to revert.
@@ -25,5 +25,5 @@ Fast path for future agents. Keep short; update only on workflow/domain rule cha
   - `bun audit`
 
 ## Stability Hotspots
-- Queue advancement/drop refresh regression-prone. Cover changes with `tests/queue-management.test.ts`, `tests/service-worker.test.ts`, `tests/queue-start.test.ts`.
-- Campaign labels regression-prone. Cover with `tests/replace-games.test.ts`, `tests/campaign-selection.test.ts`.
+- Queue advancement and drop refresh are regression-prone. Cover changes with `tests/queue-management.test.ts`, `tests/service-worker.test.ts`, and `tests/queue-start.test.ts`.
+- Campaign labels are regression-prone. Cover with `tests/replace-games.test.ts` and `tests/campaign-selection.test.ts`.

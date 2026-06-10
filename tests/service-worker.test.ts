@@ -1636,6 +1636,37 @@ describe('service worker message handlers', () => {
     expect(state.queue).toHaveLength(0);
   });
 
+  test('extension update preserves queue, selectedGame, settings, and isRunning', async () => {
+    const chromeAny = (globalThis as unknown as { chrome: Record<string, unknown> }).chrome;
+    const onInstalled = (chromeAny.runtime as Record<string, unknown>).onInstalled as ReturnType<
+      typeof createEventMock<{ reason: 'install' | 'update' | 'chrome_update' }>
+    >;
+
+    await dispatchMessage({ type: 'SET_MONITOR_AUTO_OPEN', payload: { enabled: true } });
+    await dispatchMessage({ type: 'SET_MUTE_FARMING_TAB', payload: { enabled: true } });
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame] });
+    await dispatchMessage({ type: 'ADD_TO_QUEUE', payload: { game: demoGame } });
+    await dispatchMessage({ type: 'SET_SELECTED_GAME', payload: { game: demoGame } });
+
+    const beforeUpdate = getAppStateFromStorage();
+    expect(beforeUpdate.queue).toHaveLength(1);
+    expect(beforeUpdate.selectedGame?.id).toBe('game-1');
+    expect(beforeUpdate.monitorAutoOpen).toBe(true);
+    expect(beforeUpdate.muteFarmingTab).toBe(true);
+
+    onInstalled.trigger({ reason: 'update' });
+    await sleepTick();
+    await sleepTick();
+
+    const afterUpdate = getAppStateFromStorage();
+    expect(afterUpdate.queue).toHaveLength(1);
+    expect(afterUpdate.queue[0].id).toBe('game-1');
+    expect(afterUpdate.selectedGame?.id).toBe('game-1');
+    expect(afterUpdate.monitorAutoOpen).toBe(true);
+    expect(afterUpdate.muteFarmingTab).toBe(true);
+    expect(afterUpdate.totalDropsClaimed).toBe(beforeUpdate.totalDropsClaimed);
+  });
+
   test('normalizeGameSelection does not fuzzy-match when campaign ID is explicit but different', async () => {
     const gameNamedDropsWithCampaignC: TwitchGame = {
       id: 'game-drops-c',
