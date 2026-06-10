@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { getGameToStartFromQueue } from '../src/popup/queue-start.ts';
+import { getGameToStartFromQueue, isSameQueuedGame } from '../src/popup/queue-start.ts';
 import type { TwitchGame } from '../src/types/index.ts';
 
 function createGame(overrides: Partial<TwitchGame> = {}): TwitchGame {
@@ -50,5 +50,21 @@ describe('getGameToStartFromQueue', () => {
     const gameToStart = getGameToStartFromQueue(null, []);
 
     expect(gameToStart).toBeNull();
+  });
+
+  test('matches queued games by campaign id even when canonical ids changed', () => {
+    const queuedGame = createGame({ id: 'legacy-game-id', campaignId: 'campaign-1' });
+    const selectedGame = createGame({ id: 'canonical-campaign-id', campaignId: 'campaign-1' });
+
+    expect(isSameQueuedGame(queuedGame, selectedGame)).toBe(true);
+    expect(getGameToStartFromQueue(selectedGame, [queuedGame])).toBe(queuedGame);
+  });
+
+  test('does not collapse duplicate campaigns that share a game id', () => {
+    const firstCampaign = createGame({ id: 'shared-game-id', campaignId: 'campaign-a' });
+    const selectedCampaign = createGame({ id: 'shared-game-id', campaignId: 'campaign-b' });
+
+    expect(isSameQueuedGame(firstCampaign, selectedCampaign)).toBe(false);
+    expect(getGameToStartFromQueue(selectedCampaign, [firstCampaign])).toBe(selectedCampaign);
   });
 });

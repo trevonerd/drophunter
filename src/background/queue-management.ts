@@ -5,7 +5,7 @@ import {
   findMatchingGame,
   gameKey,
   getGameDisplayLabel,
-  isSameGame,
+  isSameGameIdentity,
 } from '../shared/game-selection';
 import { normalizeToken } from '../shared/matching';
 import {
@@ -42,8 +42,46 @@ const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
 // Helper Functions (internal)
 // ============================================================================
 
+function isSameQueueIdentity(left: TwitchGame, right: TwitchGame): boolean {
+  return isSameGameIdentity(left, right);
+}
+
+function queueEntryMatchesGame(state: ServiceWorkerState, queuedGame: TwitchGame, game: TwitchGame): boolean {
+  if (isSameQueueIdentity(queuedGame, game)) {
+    return true;
+  }
+  const resolvedQueuedGame = resolveGameFromState(state, queuedGame);
+  return isSameQueueIdentity(resolvedQueuedGame, game);
+}
+
 function queueContainsGame(state: ServiceWorkerState, game: TwitchGame): boolean {
-  return state.appState.queue.some((queuedGame) => isSameGame(queuedGame, game));
+  return state.appState.queue.some((queuedGame) => queueEntryMatchesGame(state, queuedGame, game));
+}
+
+function removeQueueEntriesForGame(state: ServiceWorkerState, game: TwitchGame): number {
+  const before = state.appState.queue.length;
+  state.appState.queue = state.appState.queue.filter(
+    (queuedGame) => !queueEntryMatchesGame(state, queuedGame, game),
+  );
+  return before - state.appState.queue.length;
+}
+
+function removeQueueEntriesForHeadGame(state: ServiceWorkerState, game: TwitchGame): void {
+  const removed = removeQueueEntriesForGame(state, game);
+  if (removed === 0 && state.appState.queue.length > 0) {
+    state.appState.queue = state.appState.queue.slice(1);
+  }
+}
+
+function promoteQueueHead(state: ServiceWorkerState): TwitchGame | null {
+  const queuedGame = state.appState.queue[0];
+  if (!queuedGame) {
+    return null;
+  }
+  const nextGame = resolveGameFromState(state, queuedGame);
+  state.appState.queue[0] = nextGame;
+  state.appState.selectedGame = nextGame;
+  return nextGame;
 }
 
 function resetNoProgressRotationAttempts(state: ServiceWorkerState) {
@@ -158,7 +196,7 @@ export function normalizeQueueSelection(
 }
 
 export function removeGameFromQueue(state: ServiceWorkerState, game: TwitchGame) {
-  state.appState.queue = state.appState.queue.filter((queuedGame) => !isSameGame(queuedGame, game));
+  removeQueueEntriesForGame(state, game);
 }
 
 export function resolveGameFromState(state: ServiceWorkerState, game: TwitchGame): TwitchGame {
@@ -443,12 +481,14 @@ export async function advanceQueueIfCompleted(
     : 'current game';
 
   if (state.appState.selectedGame) {
-    removeGameFromQueue(state, state.appState.selectedGame);
+    removeQueueEntriesForGame(state, state.appState.selectedGame);
   }
 
   while (state.appState.queue.length > 0) {
-    const nextGame = resolveGameFromState(state, state.appState.queue[0]);
-    state.appState.selectedGame = nextGame;
+    const nextGame = promoteQueueHead(state);
+    if (!nextGame) {
+      break;
+    }
     state.appState.completionNotified = false;
     state.invalidStreamChecks = 0;
     state.lastTrackedProgress = -1;
@@ -487,7 +527,7 @@ export async function advanceQueueIfCompleted(
     );
     if (knownCompletedNext || campaignExpiredNext) {
       state.previousAllDropsCount = 0;
-      removeGameFromQueue(state, nextGame);
+      removeQueueEntriesForHeadGame(state, nextGame);
       continue;
     }
 
@@ -593,14 +633,16 @@ export async function skipCurrentGameAndAdvanceQueue(
   });
 
   if (skippedGame) {
-    removeGameFromQueue(state, skippedGame);
+    removeQueueEntriesForGame(state, skippedGame);
   }
 
   resetStreamTrackingState(state);
 
   while (state.appState.queue.length > 0) {
-    const nextGame = resolveGameFromState(state, state.appState.queue[0]);
-    state.appState.selectedGame = nextGame;
+    const nextGame = promoteQueueHead(state);
+    if (!nextGame) {
+      break;
+    }
     state.appState.completionNotified = false;
     state.invalidStreamChecks = 0;
     state.lastTrackedProgress = -1;
@@ -630,7 +672,7 @@ export async function skipCurrentGameAndAdvanceQueue(
     const knownCompletedNext =
       state.appState.allDrops.length > 0 && !hasFarmablePendingNext && state.appState.currentDrop === null;
     if (knownCompletedNext) {
-      removeGameFromQueue(state, nextGame);
+      removeQueueEntriesForHeadGame(state, nextGame);
       continue;
     }
 
@@ -696,7 +738,7 @@ export async function handleStartFarming(
   }
 
   const requestedGame = resolveGameFromState(state, payload.game);
-  removeGameFromQueue(state, requestedGame);
+  removeQueueEntriesForGame(state, requestedGame);
   state.appState.queue = [requestedGame, ...state.appState.queue];
   normalizeQueueSelection(state, state.appState.availableGames);
   state.appState.selectedGame = state.appState.queue[0] ?? requestedGame;
@@ -1219,6 +1261,16 @@ export async function checkDropProgress(
       await callbacks.onRefreshDropsData();
     }
 
+    const selectedBeforeAdvance = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+    const advancedBeforeValidation = await callbacks.onAdvanceQueueIfCompleted();
+    if (!advancedBeforeValidation || !state.appState.isRunning || state.appState.isPaused) {
+      return;
+    }
+    const selectedAfterAdvance = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+    if (selectedBeforeAdvance !== selectedAfterAdvance) {
+      return;
+    }
+
     const inCrashGrace =
       state.appState.resumedFromCrash != null &&
       Date.now() - state.appState.resumedFromCrash < CRASH_RECOVERY_GRACE_MS;
@@ -1669,7 +1721,7 @@ export async function handleAddToQueue(
   }
 
   const targetGame = deps.resolveGameFromState(state, payload.game);
-  if (state.appState.queue.some((g) => g.id === targetGame.id)) {
+  if (queueContainsGame(state, targetGame)) {
     return { success: true, added: false, reason: 'already-queued', game: targetGame };
   }
 
@@ -1716,7 +1768,7 @@ export async function handleRemoveFromQueue(
   if (
     state.appState.selectedGame &&
     !state.appState.isRunning &&
-    !state.appState.queue.some((g) => g.id === state.appState.selectedGame?.id)
+    !state.appState.queue.some((g) => queueEntryMatchesGame(state, g, state.appState.selectedGame!))
   ) {
     state.appState.selectedGame = state.appState.queue[0] ?? null;
   }

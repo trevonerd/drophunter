@@ -1,7 +1,12 @@
+import { gameIdentity, isSameGameIdentity } from '../shared/game-selection';
 import type { TwitchGame } from '../types';
 
-function isSameQueuedGame(left: TwitchGame, right: TwitchGame): boolean {
-  return left.id === right.id && left.campaignId === right.campaignId;
+export function queueGameIdentity(game: TwitchGame): string {
+  return gameIdentity(game);
+}
+
+export function isSameQueuedGame(left: TwitchGame, right: TwitchGame): boolean {
+  return isSameGameIdentity(left, right);
 }
 
 export function getGameToStartFromQueue(

@@ -196,8 +196,7 @@ describe('applyGameDisplayNames', () => {
     expect(s11?.displayName).toBe('Overwatch · Season 11');
   });
 
-  test('RED: single campaign game should display just game name without campaign suffix', () => {
-    // Single game should not get subtitle, even if campaignName exists
+  test('single campaign game keeps its real campaign title in the display label', () => {
     const games = [
       createGame({
         name: 'Fortnite',
@@ -209,6 +208,36 @@ describe('applyGameDisplayNames', () => {
     const result = applyGameDisplayNames(games);
 
     expect(result).toHaveLength(1);
-    expect(result[0].displayName).toBe('Fortnite');
+    expect(result[0].displayName).toBe('Fortnite · Chapter 1');
+  });
+
+  test('single titled Overwatch campaign uses Twitch campaign title', () => {
+    const result = replaceAvailableGames([
+      createGame({
+        id: 'owwc-owcs-s2-campaign-2',
+        name: 'Overwatch',
+        campaignId: 'owwc-owcs-s2-campaign-2',
+        campaignName: 'OWWC + OWCS S2 Campaign 2',
+        displayName: 'Overwatch',
+      }),
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].displayName).toBe('Overwatch · OWWC + OWCS S2 Campaign 2');
+  });
+
+  test('single titled GOALS campaign uses Twitch campaign title', () => {
+    const result = replaceAvailableGames([
+      createGame({
+        id: 'goals-june-9',
+        name: 'GOALS',
+        campaignId: 'goals-june-9',
+        campaignName: 'GOALS - 9th of June',
+        displayName: 'GOALS',
+      }),
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].displayName).toBe('GOALS · GOALS - 9th of June');
   });
 });

@@ -38,11 +38,20 @@ test('popup clears game switch state in handleGameSelect', () => {
   const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
 
   expect(source).toContain('const handleGameSelect = async (gameId: string) => {');
+  expect(source).toContain('const selected = sortedGames.find((g) => queueGameIdentity(g) === gameId);');
   expect(source).toContain('selectedGame: selected,');
   expect(source).toContain('pendingDrops: [],');
   expect(source).toContain('completedDrops: [],');
   expect(source).toContain('currentDrop: null,');
   expect(source).toContain('completionNotified: false,');
+});
+
+test('popup campaign selector uses campaign-aware option identities', () => {
+  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+
+  expect(source).toContain("value={selectedGame ? queueGameIdentity(selectedGame) : ''}");
+  expect(source).toContain('<option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>');
+  expect(source).not.toContain('value={selectedGame?.id ??');
 });
 
 test('popup uses a single campaign sync panel for empty, stale, syncing, failed, and fresh states', () => {

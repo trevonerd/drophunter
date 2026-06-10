@@ -1360,6 +1360,49 @@ describe('service worker message handlers', () => {
     expect(advanced.queue.map((game) => game.name)).toEqual([nextGame.name]);
   });
 
+  test('advances queued game when the current campaign completes mid-farming', async () => {
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
+    enqueueDirectoryResult('streamer-current');
+    enqueueDropsSnapshot([
+      {
+        game: demoGame,
+        dropId: 'drop-current',
+        currentMinutes: 60,
+        requiredMinutes: 60,
+      },
+    ]);
+    enqueueDropsSnapshot([{ game: nextGame, dropId: 'drop-next', currentMinutes: 5 }]);
+    enqueueDirectoryResult('streamer-next');
+
+    await syncTestSession();
+    await addGameToQueue(nextGame);
+
+    const startResponse = await dispatchMessage({
+      type: 'START_FARMING',
+      payload: { game: demoGame },
+    });
+
+    expect(startResponse).toEqual({ success: true });
+    await waitForAppState(
+      (state) => state.isRunning && state.selectedGame?.campaignId === demoGame.campaignId,
+      'start farming did not stabilize on the current game',
+    );
+
+    await triggerMonitorAlarm();
+
+    const advanced = await waitForAppState(
+      (state) =>
+        state.isRunning &&
+        state.selectedGame?.campaignId === nextGame.campaignId &&
+        state.activeStreamer?.name === 'streamer-next',
+      'queue did not advance to the next game after current campaign completed',
+    );
+
+    expect(advanced.queue.map((game) => game.campaignId)).toEqual([nextGame.campaignId]);
+    expect(advanced.completedDrops).toEqual([]);
+    expect(advanced.pendingDrops[0]?.campaignId).toBe(nextGame.campaignId);
+  });
+
   test('does not advance queue during normal farming when active drops still exist', async () => {
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
     enqueueDirectoryResult('streamer-current');
