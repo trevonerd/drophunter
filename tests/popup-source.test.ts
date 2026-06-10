@@ -1,23 +1,36 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const repoRoot = resolve(import.meta.dir, '..');
 
+// The popup UI used to live entirely in App.tsx. It is now split across
+// src/popup (components, hooks, format/constants helpers), so these source
+// assertions read the concatenation of every popup .ts/.tsx file.
+function readPopupSource(): string {
+  const popupDir = join(repoRoot, 'src/popup');
+  return readdirSync(popupDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+    .map((entry) => join(entry.parentPath ?? entry.path, entry.name))
+    .sort()
+    .map((filePath) => readFileSync(filePath, 'utf-8'))
+    .join('\n');
+}
+
 test('popup keeps the account-link lock indicator in the game selector', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("game.isConnected === false ? '\\u{1F512} ' : ''");
 });
 
 test('popup does not duplicate refresh loading state under the game selector', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).not.toContain("setQueueMessage('Refreshing campaigns from Twitch...')");
 });
 
 test('popup treats Drops page refresh response as an async launch acknowledgement', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('const active = options.active !== false;');
   expect(source).toContain('payload: { waitForRefresh: false, active }');
@@ -28,14 +41,14 @@ test('popup treats Drops page refresh response as an async launch acknowledgemen
 });
 
 test('popup does not silently refresh campaigns on mount', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).not.toContain('ENSURE_GAMES_CACHE');
   expect(source).not.toContain('fetchAvailableGames');
 });
 
 test('popup clears game switch state in handleGameSelect', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('const handleGameSelect = async (gameId: string) => {');
   expect(source).toContain('const selected = sortedGames.find((g) => queueGameIdentity(g) === gameId);');
@@ -47,7 +60,7 @@ test('popup clears game switch state in handleGameSelect', () => {
 });
 
 test('popup campaign selector uses campaign-aware option identities', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("value={selectedGame ? queueGameIdentity(selectedGame) : ''}");
   expect(source).toContain('<option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>');
@@ -55,7 +68,7 @@ test('popup campaign selector uses campaign-aware option identities', () => {
 });
 
 test('popup uses a single campaign sync panel for empty, stale, syncing, failed, and fresh states', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("type CampaignSyncStatus = 'empty' | 'fresh' | 'stale' | 'syncing' | 'failed'");
   expect(source).toContain('function CampaignSyncPanel');
@@ -69,7 +82,7 @@ test('popup uses a single campaign sync panel for empty, stale, syncing, failed,
 });
 
 test('popup splits the main campaign UI into focused components', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('function PopupHeader');
   expect(source).toContain('function CampaignSelector');
@@ -78,7 +91,7 @@ test('popup splits the main campaign UI into focused components', () => {
 });
 
 test('popup async copy uses ellipsis glyphs instead of three-dot loading text', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).not.toContain('Loading...');
   expect(source).not.toContain('Refreshing...');
@@ -88,7 +101,7 @@ test('popup async copy uses ellipsis glyphs instead of three-dot loading text', 
 });
 
 test('popup exposes a quick audio toggle for the farming tab', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('Turn stream audio on');
   expect(source).toContain('Mute stream audio');
@@ -97,14 +110,14 @@ test('popup exposes a quick audio toggle for the farming tab', () => {
 });
 
 test('popup campaign selector uses improved placeholder text', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('<option value="">Select a game to start</option>');
   expect(source).not.toContain('<option value="">Select a campaign…</option>');
 });
 
 test('popup renders first-sync confirmation banner with campaign count', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('{!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null &&');
   expect(source).toContain('campaigns loaded — select a game below and press Start');
@@ -114,7 +127,7 @@ test('popup renders first-sync confirmation banner with campaign count', () => {
 });
 
 test('popup auto-dismisses first-sync confirmation after 30 seconds', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('setFirstSyncConfirmation(false);');
   expect(source).toContain('setFirstSyncCampaignCount(null);');
@@ -122,19 +135,19 @@ test('popup auto-dismisses first-sync confirmation after 30 seconds', () => {
 });
 
 test('popup applies onboarding-pulse class to campaign selector when step is selector', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("onboardingStep === 'selector' ? 'onboarding-pulse' : ''");
 });
 
 test('popup applies onboarding-pulse class to start button when step is start', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("onboardingStep === 'start' ? 'onboarding-pulse' : ''");
 });
 
 test('popup saves onboardingCompleted to chrome.storage.local after first start', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("await browser.storage.local.set({ onboardingCompleted: true })");
   expect(source).toContain('setOnboardingStep(null)');
@@ -142,14 +155,14 @@ test('popup saves onboardingCompleted to chrome.storage.local after first start'
 });
 
 test('popup loads onboardingCompleted from chrome.storage.local on mount', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("browser.storage.local.get('onboardingCompleted')");
   expect(source).toContain('stored.onboardingCompleted === true');
 });
 
 test('popup advances onboarding step on game select', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("setFirstSyncConfirmation(false)");
   expect(source).toContain("onboardingStep === 'selector'");
@@ -157,7 +170,7 @@ test('popup advances onboarding step on game select', () => {
 });
 
 test('popup header keeps utility icons stable instead of using progressive disclosure', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('const iconButtonClass =');
   expect(source).toContain('inline-flex h-6 w-6 shrink-0');
@@ -166,7 +179,7 @@ test('popup header keeps utility icons stable instead of using progressive discl
 });
 
 test('popup Drops header button stays icon-only while sync feedback lives outside the toolbar', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("aria-label={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Open Twitch Drops'}");
   expect(source).toContain('<DropsIcon />');
@@ -175,7 +188,7 @@ test('popup Drops header button stays icon-only while sync feedback lives outsid
 });
 
 test('popup opens Twitch Drops in the foreground from the header Drops action', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('onOpenDropsPage={() => void openDropsPage()}');
   expect(source).toContain('const active = options.active !== false;');
@@ -184,14 +197,14 @@ test('popup opens Twitch Drops in the foreground from the header Drops action', 
 });
 
 test('popup auto-refreshes stale campaign data without focusing Twitch', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain('autoRefreshAttemptedFor');
   expect(source).toContain('void openDropsPage({ active: false })');
 });
 
 test('popup does not mount reward loading UI just because Drops refresh is running', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toMatch(
     /\(state\.selectedGame\s*\|\|\s*state\.isRunning\s*\|\|\s*pendingDrops\.length > 0\s*\|\|\s*completedDrops\.length > 0\)\s*&&\s*\(/,
@@ -200,7 +213,7 @@ test('popup does not mount reward loading UI just because Drops refresh is runni
 });
 
 test('popup shows stale warning for idle cached campaigns', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   const isStaleMatch = source.match(/const isStale\s*=\s*\n\s*([\s\S]*?)\s*STALE_THRESHOLD_MS;/);
   expect(isStaleMatch).toBeTruthy();
@@ -213,14 +226,14 @@ test('popup shows stale warning for idle cached campaigns', () => {
 });
 
 test('popup onboardingCompleted stays out of PopupHeader progressive disclosure props', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).not.toContain('onboardingCompleted: boolean;');
   expect(source).not.toContain('onboardingCompleted={onboardingCompleted}');
 });
 
 test('popup onboarding step state tracks selector and start modes', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/App.tsx'), 'utf-8');
+  const source = readPopupSource();
 
   expect(source).toContain("useState<'selector' | 'start' | null>(null)");
 });
