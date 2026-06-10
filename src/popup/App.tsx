@@ -13,7 +13,7 @@ import {
 import { createInitialState, isExpiredGame } from '../shared/utils';
 import { AppState, ExpiryStatus, StreamerSelectionMode, TwitchDrop, TwitchGame } from '../types';
 import { logPopupError, logPopupWarn } from './logging';
-import { getGameToStartFromQueue } from './queue-start';
+import { getGameToStartFromQueue, isSameQueuedGame, queueGameIdentity } from './queue-start';
 
 const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: string }> = [
   { value: 'low-view', label: 'Low view' },
@@ -617,14 +617,14 @@ function CampaignSelector({
     <div className="flex items-center gap-1.5">
       <select
         aria-label="Campaign"
-        value={selectedGame?.id ?? ''}
+        value={selectedGame ? queueGameIdentity(selectedGame) : ''}
         onChange={(e) => onSelect(e.target.value)}
         className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-2 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white ${onboardingStep === 'selector' ? 'onboarding-pulse' : ''}`}
         disabled={isRunning}
       >
         <option value="">Select a game to start</option>
         {sortedGames.map((game) => (
-          <option key={game.id} value={game.id}>
+          <option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>
             {game.allDropsCompleted ? '\u2705 ' : game.isConnected === false ? '\u{1F512} ' : ''}
             {getGameDisplayLabel(game)} · {expiryLabel(game.expiryStatus)}
           </option>
@@ -658,7 +658,7 @@ function QueueChips({ selectedGame, queueGames, isRunning, onRemove, onClear }: 
     !isRunning &&
     !!selectedGame &&
     queueGames.length > 0 &&
-    !queueGames.some((g) => g.id === selectedGame.id && g.campaignId === selectedGame.campaignId);
+    !queueGames.some((g) => isSameQueuedGame(g, selectedGame));
 
   if (queueGames.length === 0 && !selectedNotInQueue) {
     return null;
@@ -676,7 +676,7 @@ function QueueChips({ selectedGame, queueGames, isRunning, onRemove, onClear }: 
       )}
       {queueGames.map((game) => (
         <span
-          key={game.campaignId ? `campaign:${game.campaignId}` : `id:${game.id}`}
+          key={queueGameIdentity(game)}
           className="inline-flex items-center gap-0.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-200"
         >
           {game.allDropsCompleted ? '✅ ' : ''}
@@ -831,8 +831,13 @@ function App() {
     [state.availableGames],
   );
   const queueGames = useMemo(() => {
-    const fallbackById = new Map(sortedGames.map((g) => [g.id, g]));
-    return state.queue.map((q) => fallbackById.get(q.id) ?? q);
+    const fallbackByCampaignId = new Map(
+      sortedGames.filter((g) => g.campaignId).map((g) => [g.campaignId, g]),
+    );
+    const fallbackById = new Map(sortedGames.filter((g) => !g.campaignId).map((g) => [g.id, g]));
+    return state.queue.map((q) =>
+      q.campaignId ? (fallbackByCampaignId.get(q.campaignId) ?? q) : (fallbackById.get(q.id) ?? q),
+    );
   }, [state.queue, sortedGames]);
   const campaignSyncStatus: CampaignSyncStatus = dropsRefreshLoading
     ? 'syncing'
@@ -896,7 +901,7 @@ function App() {
   }, [runtimeMode]);
 
   const handleGameSelect = async (gameId: string) => {
-    const selected = sortedGames.find((g) => g.id === gameId);
+    const selected = sortedGames.find((g) => queueGameIdentity(g) === gameId);
     if (selected) {
       setState((prev) => ({
         ...prev,
@@ -1649,9 +1654,7 @@ function App() {
             const selectedNotInQueue =
               !!state.selectedGame &&
               queueGames.length > 0 &&
-              !queueGames.some(
-                (g) => g.id === state.selectedGame!.id && g.campaignId === state.selectedGame!.campaignId,
-              );
+              !queueGames.some((g) => isSameQueuedGame(g, state.selectedGame!));
             const effectiveCount = selectedNotInQueue ? queueGames.length + 1 : queueGames.length;
 
             const selectedGameCompleted =

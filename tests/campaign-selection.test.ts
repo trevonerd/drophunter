@@ -6,6 +6,7 @@ import {
   findMatchingGame,
   getGameDisplayLabel,
   isSameGame,
+  isSameGameIdentity,
 } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
@@ -65,6 +66,25 @@ describe('campaign-aware game selection', () => {
 
     expect(getGameDisplayLabel(games[0])).toBe('Overwatch · OW S1 Midseason Drops');
     expect(getGameDisplayLabel(games[1])).toBe('Overwatch · OWCS Stage 1 Campaign 1');
+  });
+
+  test('repairs stale plain display names when campaign title is present', () => {
+    const staleOverwatch = createGame({
+      id: 'owwc-owcs-s2-campaign-2',
+      campaignId: 'owwc-owcs-s2-campaign-2',
+      displayName: 'Overwatch',
+      campaignName: 'OWWC + OWCS S2 Campaign 2',
+    });
+    const staleGoals = createGame({
+      id: 'goals-june-9',
+      name: 'GOALS',
+      campaignId: 'goals-june-9',
+      displayName: 'GOALS',
+      campaignName: 'GOALS - 9th of June',
+    });
+
+    expect(getGameDisplayLabel(staleOverwatch)).toBe('Overwatch · OWWC + OWCS S2 Campaign 2');
+    expect(getGameDisplayLabel(staleGoals)).toBe('GOALS · GOALS - 9th of June');
   });
 
   test('falls back to deterministic campaign numbering when titles are missing', () => {
@@ -141,5 +161,14 @@ describe('campaign-aware game selection', () => {
     const second = createGame({ id: 'campaign-2', campaignId: 'campaign-2' });
 
     expect(isSameGame(first, second)).toBe(false);
+    expect(isSameGameIdentity(first, second)).toBe(false);
+  });
+
+  test('treats shared game ids with different campaign ids as distinct identities', () => {
+    const first = createGame({ id: 'shared-game-id', campaignId: 'campaign-a' });
+    const second = createGame({ id: 'shared-game-id', campaignId: 'campaign-b' });
+
+    expect(isSameGame(first, second)).toBe(true);
+    expect(isSameGameIdentity(first, second)).toBe(false);
   });
 });

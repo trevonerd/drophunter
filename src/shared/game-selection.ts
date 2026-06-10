@@ -27,7 +27,12 @@ function normalizedCampaignTitle(game: TwitchGame): string {
 }
 
 function fallbackDisplayName(game: TwitchGame): string {
-  return game.displayName?.trim() || game.name;
+  const displayName = game.displayName?.trim();
+  if (displayName && displayName !== game.name) {
+    return displayName;
+  }
+  const normalizedTitle = normalizedCampaignTitle(game);
+  return normalizedTitle ? `${game.name} · ${normalizedTitle}` : displayName || game.name;
 }
 
 export function gameKey(game: TwitchGame): string {
@@ -38,6 +43,14 @@ export function gameKey(game: TwitchGame): string {
     return `id:${game.id}`;
   }
   return `name:${normalizedGameName(game)}::${game.endsAt ?? ''}`;
+}
+
+export function gameIdentity(game: TwitchGame): string {
+  return gameKey(game);
+}
+
+export function isSameGameIdentity(left: TwitchGame, right: TwitchGame): boolean {
+  return gameIdentity(left) === gameIdentity(right);
 }
 
 export function getGameDisplayLabel(game: TwitchGame): string {
@@ -74,7 +87,8 @@ export function applyGameDisplayNames(games: TwitchGame[]): TwitchGame[] {
   groups.forEach((group) => {
     if (group.length === 1) {
       const [game] = group;
-      labels.set(gameKey(game), game.name);
+      const normalizedTitle = normalizedCampaignTitle(game);
+      labels.set(gameKey(game), normalizedTitle ? `${game.name} · ${normalizedTitle}` : game.name);
       return;
     }
 

@@ -892,6 +892,61 @@ describe('advanceQueueIfCompleted', () => {
     expect(openStreamerCalled).toBe(true);
   });
 
+  test('skips a stale queued copy that resolves back to the completed campaign', async () => {
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    const completedGame = createGame({
+      id: 'canonical-completed-id',
+      name: 'Same Game',
+      campaignId: 'campaign-completed',
+      allDropsCompleted: true,
+    });
+    const staleQueuedCopy = createGame({
+      id: 'legacy-same-game-id',
+      name: 'Same Game',
+      campaignId: undefined,
+    });
+    const nextGame = createGame({
+      id: 'game-next',
+      name: 'Next Game',
+      campaignId: 'campaign-next',
+    });
+    state.appState.selectedGame = completedGame;
+    state.appState.availableGames = [completedGame, nextGame];
+    state.appState.queue = [staleQueuedCopy, nextGame];
+    state.appState.allDrops = [];
+    state.appState.pendingDrops = [];
+    state.appState.currentDrop = null;
+
+    let refreshCallCount = 0;
+    let openStreamerCalled = false;
+    await advanceQueueIfCompleted(state, {
+      onRefreshDropsData: async () => {
+        refreshCallCount += 1;
+        if (refreshCallCount === 1) {
+          const nextDrop = createDrop({
+            id: 'drop-next',
+            gameId: nextGame.id,
+            gameName: nextGame.name,
+            campaignId: nextGame.campaignId,
+          });
+          state.appState.allDrops = [nextDrop];
+          state.appState.pendingDrops = [nextDrop];
+          state.appState.currentDrop = nextDrop;
+        }
+      },
+      onOpenStreamer: async () => {
+        openStreamerCalled = true;
+        return true;
+      },
+    });
+
+    expect(refreshCallCount).toBe(1);
+    expect(state.appState.selectedGame?.campaignId).toBe('campaign-next');
+    expect(state.appState.queue.map((game) => game.campaignId)).toEqual(['campaign-next']);
+    expect(openStreamerCalled).toBe(true);
+  });
+
   test('skips completed games in queue', async () => {
     const state = createMinimalState();
     state.appState.isRunning = true;
