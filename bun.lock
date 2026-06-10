@@ -5,28 +5,29 @@
     "": {
       "name": "drophunter",
       "dependencies": {
-        "react": "^19.2.7",
-        "react-dom": "^19.2.7",
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
       },
       "devDependencies": {
-        "@biomejs/biome": "^2.4.16",
+        "@biomejs/biome": "2.4.16",
         "@tailwindcss/postcss": "4.3.0",
-        "@types/chrome": "^0.1.43",
-        "@types/react": "^19.2.17",
+        "@types/chrome": "0.1.43",
+        "@types/react": "19.2.17",
         "@types/react-dom": "19.2.3",
         "@vitejs/plugin-react": "6.0.2",
         "autoprefixer": "10.5.0",
         "husky": "9.1.7",
-        "lint-staged": "^17.0.7",
+        "lint-staged": "17.0.7",
         "postcss": "8.5.15",
         "tailwindcss": "4.3.0",
         "typescript": "6.0.3",
-        "vite": "^8.0.16",
+        "vite": "8.0.16",
         "wxt": "0.21.0",
       },
     },
   },
   "overrides": {
+    "shell-quote": "^1.8.4",
     "tmp": "^0.2.6",
     "uuid": "^11.1.1",
   },
@@ -821,7 +822,7 @@
 
     "setimmediate": ["setimmediate@1.0.5", "", {}, "sha512-MATJdZp8sLqDl/68LfQmbP8zKPLQNV6BIZoIgrscFDQ+RsvK/BxeDQOgyxKKoh0y/8h3BqVFnCqQ/gd+reiIXA=="],
 
-    "shell-quote": ["shell-quote@1.7.3", "", {}, "sha512-Vpfqwm4EnqGdlsBFNmHhxhElJYrdfcxPThu+ryKS5J8L/fhAwLazFZtq+S+TWZ9ANj2piSQLGj6NQg+lKPmxrw=="],
+    "shell-quote": ["shell-quote@1.8.4", "", {}, "sha512-VsC6n6vz1ihYYyZZwX7YZSF5l5x36ca17OC+a69h94YqB7X6XLwf+5MOgynYir2SLFUbl8gIYvBo8K8RoNQ6bQ=="],
 
     "shellwords": ["shellwords@0.1.1", "", {}, "sha512-vFwSUfQvqybiICwZY5+DAWIPLKsWO31Q91JSKl3UYv+K5c2QRPzn0qzec6QPu1Qc9eHYItiP3NdJqNVqetYAww=="],
 
