@@ -246,3 +246,54 @@ test('popup CSS defines pulse-glow animation for onboarding highlights', () => {
   expect(source).not.toContain('header-control-hidden');
   expect(source).not.toContain('header-control-visible');
 });
+
+test('popup has drop & campaign log view wired into the view switcher', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain("'main' | 'settings' | 'log'");
+  expect(source).toContain('function ClaimLogView');
+  expect(source).toContain("activeView === 'log'");
+  expect(source).toContain("setActiveView('log')");
+  expect(source).toContain("setActiveView('settings')");
+});
+
+test('popup claim log view uses virtualized list with absolute positioning', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain('useVirtualRows');
+  expect(source).toContain("position: 'relative'");
+  expect(source).toContain("position: 'absolute'");
+  expect(source).toContain('totalHeight');
+});
+
+test('popup claim log view sends GET_CLAIM_LOG and CLEAR_CLAIM_LOG messages', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain("type: 'GET_CLAIM_LOG'");
+  expect(source).toContain("type: 'CLEAR_CLAIM_LOG'");
+});
+
+test('popup settings statistics panel has claim log icon button', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain('aria-label="View drop claim log"');
+  expect(source).toContain('HistoryIcon');
+  expect(source).toContain('onOpenClaimLog');
+});
+
+test('popup claim log view has accessible empty state', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain('No drops claimed yet.');
+  expect(source).toContain('Claimed drops will appear here.');
+  expect(source).toContain('aria-label="Claimed drops by campaign"');
+  expect(source).toContain("listStyle: 'none'");
+});
+
+test('popup claim log entry row shows drop image with initials fallback', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain('RewardThumb');
+  expect(source).toContain('entry.imageUrl');
+  expect(source).toContain('onError');
+});
