@@ -1,4 +1,5 @@
 import { AppState, TwitchDrop } from '../types/index.ts';
+import { recordClaimedDrops } from './claim-log.ts';
 import { DROP_CLAIM_RETRY_COOLDOWN_MS } from './constants.ts';
 import { splitDropsForSelectedGame } from './drop-processing.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
@@ -36,15 +37,31 @@ function asClaimedDrop(drop: TwitchDrop): TwitchDrop {
   };
 }
 
+function matchesClaimedDrop(
+  drop: TwitchDrop,
+  claimId: string,
+  fallbackDropId?: string,
+  fallbackCampaignId?: string,
+): boolean {
+  if (drop.claimId === claimId) return true;
+  if (!fallbackDropId || drop.id !== fallbackDropId) return false;
+  // When campaignId is provided by the caller, require an exact campaign match to
+  // prevent claiming the wrong drop when Twitch reuses drop ids across campaigns.
+  if (fallbackCampaignId !== undefined) {
+    return (drop.campaignId ?? '') === fallbackCampaignId;
+  }
+  return true;
+}
+
 export function markDropClaimedLocally(
   state: ServiceWorkerState,
   claimId: string,
   fallbackDropId?: string,
+  fallbackCampaignId?: string,
 ): boolean {
   let changed = false;
   state.appState.allDrops = state.appState.allDrops.map((drop) => {
-    const isMatch = drop.claimId === claimId || (fallbackDropId ? drop.id === fallbackDropId : false);
-    if (!isMatch) return drop;
+    if (!matchesClaimedDrop(drop, claimId, fallbackDropId, fallbackCampaignId)) return drop;
     changed = true;
     return asClaimedDrop(drop);
   });
@@ -60,11 +77,11 @@ export function markDropClaimedInSnapshot(
   state: ServiceWorkerState,
   claimId: string,
   fallbackDropId?: string,
+  fallbackCampaignId?: string,
 ): void {
   for (let i = 0; i < state.cachedDropsSnapshot.length; i++) {
     const drop = state.cachedDropsSnapshot[i];
-    const isMatch = drop.claimId === claimId || (fallbackDropId ? drop.id === fallbackDropId : false);
-    if (isMatch) {
+    if (matchesClaimedDrop(drop, claimId, fallbackDropId, fallbackCampaignId)) {
       state.cachedDropsSnapshot[i] = asClaimedDrop(drop);
       return;
     }
@@ -162,20 +179,22 @@ export async function autoClaimClaimableDrops(
 
   state.dropClaimInFlight = true;
   let claimedAny = false;
+  const claimedDrops: TwitchDrop[] = [];
   try {
     for (const drop of claimTargets) {
       const claimed = await claimDropViaApi(state, drop, getSession);
       if (!claimed || !drop.claimId) {
         continue;
       }
-      markDropClaimedLocally(state, drop.claimId, drop.id);
-      markDropClaimedInSnapshot(state, drop.claimId, drop.id);
-      state.appState.totalDropsClaimed += 1;
+      markDropClaimedLocally(state, drop.claimId, drop.id, drop.campaignId);
+      markDropClaimedInSnapshot(state, drop.claimId, drop.id, drop.campaignId);
+      claimedDrops.push(drop);
       claimedAny = true;
       if (onDropClaimed) await onDropClaimed(drop);
     }
 
     if (claimedAny) {
+      await recordClaimedDrops(state, claimedDrops);
       await saveState(state);
     }
 
