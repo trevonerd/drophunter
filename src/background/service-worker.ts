@@ -14,6 +14,7 @@ import {
   ChannelPointsBonusClaimResponse,
   shouldAttemptAutoClaimChannelPointsBonus,
 } from './channel-points';
+import { clearClaimLog, loadClaimLog } from './claim-log.ts';
 import { logDebug, logInfo, logWarn } from './logging';
 import { registerRuntimeMessageRouter } from './message-router.ts';
 import { openMonitorDashboardWindow as openMonitorDashboardWindowController } from './monitor-dashboard.ts';
@@ -45,7 +46,9 @@ import {
 import { CRASH_DETECTION_THRESHOLD_MS, PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
 import {
   annotateGameCompletion as annotateGameCompletionExt,
+  completedDropKeys,
   dropMatchesSelectedGame as dropMatchesSelectedGameExt,
+  dropStateKey,
   normalizeGameSelection as normalizeGameSelectionExt,
   splitDropsForSelectedGame as splitDropsForSelectedGameExt,
   updateStateFromSnapshot as updateStateFromSnapshotExt,
@@ -678,14 +681,11 @@ async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string
   );
 }
 
-async function evaluateDropTransitions(previousCompletedIds: Set<string>) {
-  const nowCompleted = new Set(state.appState.completedDrops.map((drop) => drop.id));
-  const newlyCompleted = state.appState.completedDrops.filter((drop) => !previousCompletedIds.has(drop.id));
-  const newlyClaimed = newlyCompleted.filter((drop) => drop.claimed);
-
-  if (newlyClaimed.length > 0) {
-    state.appState.totalDropsClaimed += newlyClaimed.length;
-  }
+async function evaluateDropTransitions(previousCompletedKeys: Set<string>) {
+  const nowCompletedKeys = completedDropKeys(state.appState.completedDrops);
+  const newlyCompleted = state.appState.completedDrops.filter(
+    (drop) => !previousCompletedKeys.has(dropStateKey(drop)),
+  );
 
   for (const drop of newlyCompleted) {
     await sendAlert('drop-complete', `Reward unlocked: ${drop.name}`);
@@ -702,7 +702,7 @@ async function evaluateDropTransitions(previousCompletedIds: Set<string>) {
     state.appState.completionNotified = true;
   }
 
-  if (nowCompleted.size < previousCompletedIds.size) {
+  if (nowCompletedKeys.size < previousCompletedKeys.size) {
     state.appState.completionNotified = false;
   }
 }
@@ -1109,6 +1109,23 @@ async function handleSetAutoClaimDrops(payload?: { enabled?: boolean }) {
   };
 }
 
+async function handleGetClaimLog() {
+  try {
+    return { success: true, entries: await loadClaimLog() };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+}
+
+async function handleClearClaimLog() {
+  try {
+    await clearClaimLog();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+}
+
 async function handleSetStreamerSelectionMode(payload?: { mode?: 'low-view' | 'random' | 'top-viewers' }) {
   await trackActivity('set-streamer-selection-mode');
   state.appState = applyStreamerSelectionModeSetting(state.appState, payload?.mode);
@@ -1340,6 +1357,8 @@ export function startServiceWorker(): void {
     setStreamerSelectionMode: (message) => handleSetStreamerSelectionMode(message.payload),
     setPreferredStreamerLanguage: (message) => handleSetPreferredStreamerLanguage(message.payload),
     openMonitorDashboard: (message) => openMonitorDashboardWindow(message.payload ?? {}),
+    getClaimLog: () => handleGetClaimLog(),
+    clearClaimLog: () => handleClearClaimLog(),
   });
 
   logDebug('DropHunter service worker loaded');

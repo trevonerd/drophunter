@@ -16,7 +16,9 @@ import {
 } from '../shared/runtime-status';
 import { isExpiredGame } from '../shared/utils';
 import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { detectNewlyClaimedDrops, recordClaimedDrops } from './claim-log.ts';
 import { CRASH_RECOVERY_GRACE_MS, STREAM_VALIDATION_GRACE_MS } from './constants';
+import { completedDropKeys } from './drop-processing.ts';
 import { logDebug, logInfo, logWarn } from './logging';
 import type { ServiceWorkerState } from './service-worker';
 import { saveTimingState as saveTimingStateExt } from './state-persistence';
@@ -1499,7 +1501,7 @@ export interface RefreshDropsDataCallbacks {
     baseDrops: TwitchDrop[],
     force?: boolean,
   ) => Promise<DropsSnapshot | null>;
-  onEvaluateDropTransitions: (previousCompletedIds: Set<string>) => Promise<void>;
+  onEvaluateDropTransitions: (previousCompletedKeys: Set<string>) => Promise<void>;
   onSaveState: (state: ServiceWorkerState) => Promise<void>;
 }
 
@@ -1523,7 +1525,9 @@ export async function refreshDropsData(
 ): Promise<void> {
   const includeCampaignFetch = options.includeCampaignFetch ?? false;
   const includeInventoryFetch = options.includeInventoryFetch ?? state.appState.isRunning;
-  const previousCompletedIds = new Set(state.appState.completedDrops.map((drop) => drop.id));
+  const previousCompletedKeys = completedDropKeys(state.appState.completedDrops);
+  const previousSnapshotForClaims =
+    state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : state.appState.allDrops;
   let games = state.appState.availableGames;
   let drops = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : state.appState.allDrops;
   let apiSnapshotUsed = false;
@@ -1588,8 +1592,13 @@ export async function refreshDropsData(
   });
   deps.normalizeQueueSelection(state, state.appState.availableGames);
 
+  const newlyClaimed = detectNewlyClaimedDrops(drops, previousSnapshotForClaims);
+  if (newlyClaimed.length > 0) {
+    await recordClaimedDrops(state, newlyClaimed);
+  }
+
   if (!options.suppressNotifications) {
-    await callbacks.onEvaluateDropTransitions(previousCompletedIds);
+    await callbacks.onEvaluateDropTransitions(previousCompletedKeys);
   }
   await callbacks.onSaveState(state);
 }
