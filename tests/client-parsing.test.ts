@@ -3,15 +3,18 @@ import {
   buildClaimedRewardLookup,
   buildGlobalClaimedRewardEntry,
   buildGlobalClaimedIdCounts,
+  buildInventoryDropMaps,
   computeExpiry,
   extractBroadcasterLanguage,
   extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
+  findInventoryStateForDrop,
   matchClaimedReward,
   normalizeImageUrl,
   normalizeStreamerLanguage,
   normalizeText,
+  parseCampaignDrops,
   toIsoDate,
   toNumber,
   normalizeLanguageForApi,
@@ -668,5 +671,97 @@ describe('normalizeLanguageForApi', () => {
 
   test('returns empty string for empty input (any/no preference)', () => {
     expect(normalizeLanguageForApi('')).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildInventoryDropMaps / findInventoryStateForDrop — duplicate drop ids
+// ---------------------------------------------------------------------------
+
+function makeTwoOverwatchCampaignsInventory() {
+  // Same drop id "d1" in both campaigns; camp-1 is claimed, camp-2 is in progress.
+  const mkCampaign = (id: string, claimed: boolean, minutes: number) => ({
+    id,
+    timeBasedDrops: [
+      {
+        id: 'd1',
+        requiredMinutesWatched: 480,
+        self: { currentMinutesWatched: minutes, isClaimed: claimed, isClaimable: false },
+      },
+    ],
+  });
+  return { dropCampaignsInProgress: [mkCampaign('camp-1', true, 480), mkCampaign('camp-2', false, 296)] };
+}
+
+function makeDropShape(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'd1',
+    name: 'Test Drop',
+    gameId: 'g',
+    gameName: 'Overwatch',
+    imageUrl: '',
+    progress: 0,
+    currentMinutes: 0,
+    claimed: false,
+    ...overrides,
+  };
+}
+
+describe('findInventoryStateForDrop — campaign isolation', () => {
+  test('returns camp-2 state for camp-2 drop, not camp-1 state', () => {
+    const maps = buildInventoryDropMaps(makeTwoOverwatchCampaignsInventory());
+    const drop = makeDropShape({ campaignId: 'camp-2' });
+    const state = findInventoryStateForDrop(drop as never, maps);
+    expect(state?.campaignId).toBe('camp-2');
+    expect(state?.claimed).toBe(false);
+    expect(state?.currentMinutes).toBe(296);
+  });
+
+  test('drop with campaignId absent from inventory returns undefined (no cross-campaign bleed)', () => {
+    const maps = buildInventoryDropMaps(makeTwoOverwatchCampaignsInventory());
+    const drop = makeDropShape({ campaignId: 'camp-3' });
+    expect(findInventoryStateForDrop(drop as never, maps)).toBeUndefined();
+  });
+
+  test('byDropId fallback still works for drops without campaignId', () => {
+    const maps = buildInventoryDropMaps(makeTwoOverwatchCampaignsInventory());
+    const drop = makeDropShape(); // no campaignId
+    expect(findInventoryStateForDrop(drop as never, maps)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseCampaignDrops — duplicate benefit names across concurrent campaigns
+// ---------------------------------------------------------------------------
+
+describe('parseCampaignDrops — inventory authoritative over game-event name match', () => {
+  test('does not mark camp-2 drop as claimed when only camp-1 benefit was claimed', () => {
+    const maps = buildInventoryDropMaps(makeTwoOverwatchCampaignsInventory());
+    const campaign = {
+      id: 'camp-2',
+      timeBasedDrops: [
+        {
+          id: 'd1',
+          name: '100 Comp Points',
+          requiredMinutesWatched: 480,
+          benefitEdges: [{ benefit: { id: 'benefit-comp', name: '100 Comp Points' } }],
+          self: { currentMinutesWatched: 296, isClaimed: false, isClaimable: false },
+        },
+      ],
+    };
+    const game = { id: 'g-ow', name: 'Overwatch', imageUrl: '', campaignId: 'camp-2' };
+    // claimedRewards simulates camp-1's claimed "100 Comp Points" appearing in the game events
+    const claimedRewards = buildClaimedRewardLookup({
+      gameEventDrops: [
+        { id: 'benefit-comp', name: '100 Comp Points', game: { displayName: 'Overwatch' } },
+      ],
+    });
+    const globalClaimedRewards = buildGlobalClaimedRewardEntry({ gameEventDrops: [] });
+
+    const drops = parseCampaignDrops(campaign, game as never, maps, claimedRewards, globalClaimedRewards);
+    expect(drops[0]?.claimed).toBe(false);
+    expect(drops[0]?.progress).toBeLessThan(100);
+    expect(drops[0]?.status).not.toBe('completed');
+    expect(drops[0]?.remainingMinutes).toBeGreaterThan(0);
   });
 });

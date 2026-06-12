@@ -122,7 +122,7 @@ interface InventoryDropMaps {
   byDropId: Map<string, InventoryDropState>;
 }
 
-function buildInventoryDropMaps(inventoryRaw: unknown): InventoryDropMaps {
+export function buildInventoryDropMaps(inventoryRaw: unknown): InventoryDropMaps {
   const byCampaignDrop = new Map<string, InventoryDropState>();
   const byDropId = new Map<string, InventoryDropState>();
 
@@ -191,7 +191,7 @@ function buildInventoryDropMaps(inventoryRaw: unknown): InventoryDropMaps {
   return { byCampaignDrop, byDropId };
 }
 
-function findInventoryStateForDrop(
+export function findInventoryStateForDrop(
   drop: TwitchDrop,
   inventoryMaps: InventoryDropMaps,
 ): InventoryDropState | undefined {
@@ -201,10 +201,12 @@ function findInventoryStateForDrop(
   }
 
   const campaignId = normalizeText(drop.campaignId);
-  return (
-    (campaignId ? inventoryMaps.byCampaignDrop.get(`${campaignId}::${dropId}`) : undefined) ??
-    inventoryMaps.byDropId.get(dropId)
-  );
+  if (campaignId) {
+    // Never fall back across campaigns: Twitch reuses drop ids between
+    // concurrent campaigns of the same game.
+    return inventoryMaps.byCampaignDrop.get(`${campaignId}::${dropId}`);
+  }
+  return inventoryMaps.byDropId.get(dropId);
 }
 
 function applyInventoryStateToDrop(drop: TwitchDrop, inventoryMaps: InventoryDropMaps): TwitchDrop {
@@ -379,7 +381,7 @@ function parseGameFromCampaign(campaign: Record<string, unknown>): TwitchGame | 
   };
 }
 
-function parseCampaignDrops(
+export function parseCampaignDrops(
   campaign: Record<string, unknown>,
   game: TwitchGame,
   inventoryMaps: InventoryDropMaps,
@@ -405,9 +407,11 @@ function parseCampaignDrops(
     // Guard: validate drop object structure before casting
     const self = (drop.self && typeof drop.self === 'object' ? drop.self : {}) as Record<string, unknown>;
     const parsedDropId = normalizeText(drop.id);
-    const inventoryState =
-      inventoryMaps.byCampaignDrop.get(`${campaignId}::${parsedDropId}`) ??
-      (parsedDropId ? inventoryMaps.byDropId.get(parsedDropId) : undefined);
+    const inventoryState = campaignId
+      ? inventoryMaps.byCampaignDrop.get(`${campaignId}::${parsedDropId}`)
+      : parsedDropId
+        ? inventoryMaps.byDropId.get(parsedDropId)
+        : undefined;
     const claimId =
       inventoryState?.claimId || normalizeText(self.dropInstanceID) || normalizeText(self.dropInstanceId);
     const requiredMinutes =
@@ -432,7 +436,9 @@ function parseCampaignDrops(
     );
     const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
     const claimedFromInventory = inventoryState?.claimed ?? Boolean(self.isClaimed ?? drop.isClaimed);
-    const claimed = claimedFromGameEvents || claimedFromInventory;
+    // Inventory state is authoritative when present: don't let a same-named benefit
+    // claimed in a sibling campaign mark this drop as done.
+    const claimed = inventoryState ? claimedFromInventory : claimedFromInventory || claimedFromGameEvents;
     const claimableFromApi =
       !claimed && (inventoryState?.claimable ?? Boolean(self.isClaimable ?? self.canClaim));
     const earnedFromProgress = Boolean(
