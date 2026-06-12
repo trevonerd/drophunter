@@ -35,6 +35,8 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
     setStreamerSelectionMode: missing,
     setPreferredStreamerLanguage: missing,
     openMonitorDashboard: missing,
+    getClaimLog: missing,
+    clearClaimLog: missing,
     ...overrides,
   };
 }
@@ -98,6 +100,22 @@ describe('runtime message router', () => {
 
     expect(result.keepChannelOpen).toBe(true);
     expect(result.response).toEqual({ success: false, error: 'Unsupported message target' });
+  });
+
+  test('dispatches GET_CLAIM_LOG and CLEAR_CLAIM_LOG to the correct handlers', async () => {
+    const fakeEntries = [{ id: 'e1', dropId: 'd1', dropName: 'Drop', gameId: 'g1', gameName: 'Game', campaignLabel: 'Game', claimedAt: 1000 }];
+    const listener = createRuntimeMessageListener(
+      createHandlers({
+        getClaimLog: async () => ({ success: true, entries: fakeEntries }),
+        clearClaimLog: async () => ({ success: true }),
+      }),
+    );
+
+    const get = await callListener(listener, { type: 'GET_CLAIM_LOG' });
+    const clear = await callListener(listener, { type: 'CLEAR_CLAIM_LOG' });
+
+    expect(get.response).toEqual({ success: true, entries: fakeEntries });
+    expect(clear.response).toEqual({ success: true });
   });
 
   test('returns async handler results and converts thrown errors into response errors', async () => {

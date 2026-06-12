@@ -61,4 +61,10 @@ describe('runtime message protocol', () => {
   test('assertNever throws for unreachable runtime branches', () => {
     expect(() => assertNever('unexpected' as never)).toThrow('Unhandled runtime message');
   });
+
+  test('accepts GET_CLAIM_LOG and CLEAR_CLAIM_LOG as valid runtime requests', () => {
+    expect(isRuntimeRequest({ type: 'GET_CLAIM_LOG' })).toBe(true);
+    expect(isRuntimeRequest({ type: 'CLEAR_CLAIM_LOG' })).toBe(true);
+    expect(isRuntimeRequest({ type: 'GET_CLAIM_LOG', payload: { unexpected: true } })).toBe(true);
+  });
 });

@@ -6,6 +6,7 @@ import { sendRuntimeMessage } from '../shared/messages';
 import { deriveRuntimeMode } from '../shared/runtime-status';
 import { isExpiredGame } from '../shared/utils';
 import type { TwitchGame } from '../types';
+import { ClaimLogView } from './components/ClaimLogView';
 import { MainView } from './components/MainView';
 import { SettingsView } from './components/SettingsView';
 import { type CampaignSyncStatus, STALE_THRESHOLD_MS } from './constants';
@@ -21,7 +22,7 @@ function App() {
   const { state, setState, loading, gamesLoading, rewardsLoading, setRewardsLoading } = useAppState();
   const [actionLoading, setActionLoading] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'main' | 'settings'>('main');
+  const [activeView, setActiveView] = useState<'main' | 'settings' | 'log'>('main');
 
   const isStale =
     !state.isRunning &&
@@ -246,10 +247,13 @@ function App() {
 
   return (
     <div className="w-[400px] bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light text-white">
-      {activeView === 'settings' ? (
+      {activeView === 'log' ? (
+        <ClaimLogView onBack={() => setActiveView('settings')} />
+      ) : activeView === 'settings' ? (
         <SettingsView
           state={state}
           onBack={() => setActiveView('main')}
+          onOpenClaimLog={() => setActiveView('log')}
           onMonitorAutoOpenToggle={() => void handleMonitorAutoOpenToggle()}
           onMuteFarmingTabToggle={() => void handleMuteFarmingTabToggle()}
           onNotificationsEnabledToggle={() => void handleNotificationsEnabledToggle()}

@@ -13,6 +13,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Open and validate an eligible Twitch stream for the selected campaign
 - Rotate to a new streamer only when the current stream becomes invalid or progress stalls
 - Auto-claim completed drops across all campaigns when Twitch marks them claimable
+- Keep a local claim log so you can review recently claimed drops grouped by campaign
 - Pause and resume farming without losing your place in the queue
 - Optionally auto-resume farming after a browser restart instead of coming back paused
 - Choose how DropHunter picks streamers: lowest viewers, random, or most viewers
@@ -82,6 +83,7 @@ DropHunter includes a few runtime controls in the popup so you can tune how aggr
 - choose whether farming should auto-resume after a browser restart
 - toggle auto-claim for channel points bonuses
 - toggle auto-claim for completed drops
+- review and clear the local drop claim log
 - switch between low-view, random, and top-viewer streamer selection
 - prefer a specific streamer language when one is available
 - choose whether the farming tab stays muted
