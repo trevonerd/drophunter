@@ -46,6 +46,8 @@ export interface RuntimeMessageHandlers {
   setStreamerSelectionMode: RuntimeMessageHandler<'SET_STREAMER_SELECTION_MODE'>;
   setPreferredStreamerLanguage: RuntimeMessageHandler<'SET_PREFERRED_STREAMER_LANGUAGE'>;
   openMonitorDashboard: RuntimeMessageHandler<'OPEN_MONITOR_DASHBOARD'>;
+  getClaimLog: RuntimeMessageHandler<'GET_CLAIM_LOG'>;
+  clearClaimLog: RuntimeMessageHandler<'CLEAR_CLAIM_LOG'>;
 }
 
 function respondAsync(handler: () => MaybePromise<unknown>, sendResponse: RuntimeSendResponse) {
@@ -136,6 +138,10 @@ export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): 
         return respondAsync(() => handlers.setPreferredStreamerLanguage(message, sender), sendResponse);
       case 'OPEN_MONITOR_DASHBOARD':
         return respondAsync(() => handlers.openMonitorDashboard(message, sender), sendResponse);
+      case 'GET_CLAIM_LOG':
+        return respondAsync(() => handlers.getClaimLog(message, sender), sendResponse);
+      case 'CLEAR_CLAIM_LOG':
+        return respondAsync(() => handlers.clearClaimLog(message, sender), sendResponse);
 
       default:
         assertNever(message);

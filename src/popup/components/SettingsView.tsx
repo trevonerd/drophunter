@@ -2,11 +2,12 @@
 import { browser } from '../../shared/browser-api.ts';
 import type { AppState, StreamerSelectionMode } from '../../types';
 import { STREAMER_LANGUAGE_OPTIONS, STREAMER_SELECTION_OPTIONS } from '../constants';
-import { BackIcon, CoffeeIcon, GitHubIcon } from './icons';
+import { BackIcon, CoffeeIcon, GitHubIcon, HistoryIcon } from './icons';
 
 export interface SettingsViewProps {
   state: AppState;
   onBack: () => void;
+  onOpenClaimLog: () => void;
   onMonitorAutoOpenToggle: () => void;
   onMuteFarmingTabToggle: () => void;
   onNotificationsEnabledToggle: () => void;
@@ -20,6 +21,7 @@ export interface SettingsViewProps {
 export function SettingsView({
   state,
   onBack,
+  onOpenClaimLog,
   onMonitorAutoOpenToggle,
   onMuteFarmingTabToggle,
   onNotificationsEnabledToggle,
@@ -51,7 +53,18 @@ export function SettingsView({
 
       <div className="px-4 py-3 space-y-2 bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light">
         <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-          <p className="text-xs font-semibold text-white mb-2">Statistics</p>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-white">Statistics</p>
+            <button
+              type="button"
+              onClick={onOpenClaimLog}
+              aria-label="View drop claim log"
+              title="Drop claim log"
+              className="rounded p-1 text-gray-400 hover:text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+            >
+              <HistoryIcon />
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-md bg-black/20 px-2.5 py-2">
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Drops claimed</p>

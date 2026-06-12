@@ -1,6 +1,7 @@
 import type { TwitchSession } from '../background/twitch-api/types';
 import type {
   AppState,
+  ClaimLogEntry,
   PlaybackPrepResult,
   StreamerSelectionMode,
   TwitchGame,
@@ -41,6 +42,8 @@ export const RUNTIME_MESSAGE_TYPES = [
   'SYNC_TWITCH_INTEGRITY',
   'PLAY_ALERT',
   'OPEN_STREAMER',
+  'GET_CLAIM_LOG',
+  'CLEAR_CLAIM_LOG',
 ] as const;
 
 export type RuntimeMessageType = (typeof RUNTIME_MESSAGE_TYPES)[number];
@@ -77,7 +80,9 @@ export type RuntimeRequest =
   | { type: 'SYNC_TWITCH_SESSION'; payload?: { session?: unknown } | unknown }
   | { type: 'SYNC_TWITCH_INTEGRITY'; payload?: { token?: string; expiration?: number; request_id?: string } }
   | { type: 'PLAY_ALERT'; payload?: { kind?: 'all-complete' | 'drop-complete'; message?: string } }
-  | { type: 'OPEN_STREAMER'; payload?: { streamer?: TwitchStreamer; game?: TwitchGame } };
+  | { type: 'OPEN_STREAMER'; payload?: { streamer?: TwitchStreamer; game?: TwitchGame } }
+  | { type: 'GET_CLAIM_LOG' }
+  | { type: 'CLEAR_CLAIM_LOG' };
 
 export type RuntimeResponseByType = {
   GET_TWITCH_SESSION: { success: boolean; session?: TwitchSession | null; error?: string };
@@ -137,6 +142,8 @@ export type RuntimeResponseByType = {
   SYNC_TWITCH_INTEGRITY: { success: boolean; error?: string };
   PLAY_ALERT: { success: boolean; error?: string };
   OPEN_STREAMER: { success: boolean; error?: string };
+  GET_CLAIM_LOG: { success: boolean; entries?: ClaimLogEntry[]; error?: string };
+  CLEAR_CLAIM_LOG: { success: boolean; error?: string };
 };
 
 const runtimeMessageTypeSet = new Set<string>(RUNTIME_MESSAGE_TYPES);
@@ -281,6 +288,8 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
     case 'STOP_FARMING':
     case 'REFRESH_DROPS':
     case 'UPDATE_STATE':
+    case 'GET_CLAIM_LOG':
+    case 'CLEAR_CLAIM_LOG':
       return true;
     default:
       return true;

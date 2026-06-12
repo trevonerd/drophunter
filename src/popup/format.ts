@@ -68,6 +68,16 @@ export function formatEtaMinutes(value?: number | null): string | null {
   return `${hours}h ${rem}m`;
 }
 
+export function formatClaimedAt(timestamp: number): string {
+  if (!Number.isFinite(timestamp)) return 'Unknown time';
+  return new Date(timestamp).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function statusReasonLabel(reason: string | null | undefined): string | null {
   return formatRecoveryReason(reason);
 }
