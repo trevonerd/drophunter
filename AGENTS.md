@@ -10,11 +10,12 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - Builds/zips in `.output/`; don't hand-edit generated files.
 
 ## Architecture Map
-- `src/background/service-worker.ts` wires controllers, runtime messages, alarms, lifecycle, tab orchestration, Twitch API calls, queue advancement, persistence.
+- `src/background/service-worker.ts` wires controllers, runtime messages, alarms, lifecycle, tab orchestration, Twitch API calls, cache refresh, persistence. Farming session behavior goes through `src/background/farming-session.ts`.
 - Background modules take `ServiceWorkerState` and mutate it. Add behavior to focused modules before growing `service-worker.ts`.
+- `src/background/farming-session.ts` owns farming session interface: start/stop/pause/resume, monitoring ticks, streamer acquisition, queue advancement, recovery orchestration.
 - `src/background/runtime-state.ts` owns `ServiceWorkerState`, `createServiceWorkerState()`, timing normalization, crash/startup resume policy, rotation metadata clearing.
 - `src/background/state-persistence.ts` = storage boundary for `appState`, snapshot cache, timing state, activity timestamps, badge updates, state broadcasts.
-- `src/background/queue-management.ts` owns queue/start/stop/pause/resume, stream acquisition, campaign completion, recovery, queue advancement.
+- `src/background/queue-management.ts` owns queue algorithms, stream health/recovery helpers, campaign completion checks, queue advancement implementation used by farming session.
 - `src/background/drops-page-refresh.ts`, `api-operations.ts`, `session-management.ts`, `twitch-api/` own Twitch session, inventory, campaign, integrity, hidden refresh flows.
 - `src/content/` inspects Twitch pages, prepares playback; keep DOM parsing defensive—Twitch markup changes often.
 - `src/popup/` = user control UI; hooks own app state, settings toggles, onboarding, recovery clocks, Drops refresh state.
