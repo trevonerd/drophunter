@@ -21,7 +21,7 @@ import {
   checkDropProgress,
   openBestStreamerForSelectedGame,
 } from '../src/background/queue-management.ts';
-import { splitDropsForSelectedGame, updateStateFromSnapshot } from '../src/background/drop-processing.ts';
+import { projectDropsSnapshot, splitDropsForSelectedGame } from '../src/background/drops-projection.ts';
 import { replaceAvailableGames } from '../src/shared/game-selection.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import { createInitialState } from '../src/shared/utils.ts';
@@ -2229,7 +2229,7 @@ describe('refreshDropsData light refresh', () => {
       {
         replaceAvailableGames,
         getGameDisplayLabel: (game) => game.displayName ?? game.name,
-        updateStateFromSnapshot,
+        projectDropsSnapshot,
         normalizeQueueSelection,
       },
     );
@@ -2301,7 +2301,7 @@ describe('refreshDropsData light refresh', () => {
       {
         replaceAvailableGames,
         getGameDisplayLabel: (game) => game.displayName ?? game.name,
-        updateStateFromSnapshot,
+        projectDropsSnapshot,
         normalizeQueueSelection,
       },
     );

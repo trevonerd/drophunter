@@ -47,13 +47,13 @@ import {
   RESUME_RECOVERY_GRACE_MS,
   STREAM_VALIDATION_GRACE_MS,
 } from './constants.ts';
+import { createDropsPageRefresher } from './drops-page-refresh.ts';
 import {
   annotateGameCompletion as annotateGameCompletionExt,
   dropMatchesSelectedGame as dropMatchesSelectedGameExt,
   normalizeGameSelection as normalizeGameSelectionExt,
   splitDropsForSelectedGame as splitDropsForSelectedGameExt,
-} from './drop-processing.ts';
-import { createDropsPageRefresher } from './drops-page-refresh.ts';
+} from './drops-projection.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import { createFarmingSession, type StreamContext } from './farming-session.ts';
 import {

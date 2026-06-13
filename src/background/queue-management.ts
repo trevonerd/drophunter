@@ -18,7 +18,7 @@ import { isExpiredGame } from '../shared/utils';
 import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { detectNewlyClaimedDrops, recordClaimedDrops } from './claim-log.ts';
 import { CRASH_RECOVERY_GRACE_MS, STREAM_VALIDATION_GRACE_MS } from './constants';
-import { completedDropKeys } from './drop-processing.ts';
+import { completedDropKeys } from './drops-projection.ts';
 import { logDebug, logInfo, logWarn } from './logging';
 import type { ServiceWorkerState } from './service-worker';
 import { saveTimingState as saveTimingStateExt } from './state-persistence';
@@ -1507,7 +1507,7 @@ export interface RefreshDropsDataCallbacks {
 export interface RefreshDropsDataDeps {
   replaceAvailableGames: (games: TwitchGame[]) => TwitchGame[];
   getGameDisplayLabel: (game: TwitchGame) => string;
-  updateStateFromSnapshot: (state: ServiceWorkerState, snapshot: DropsSnapshot) => void;
+  projectDropsSnapshot: (state: ServiceWorkerState, snapshot: DropsSnapshot) => void;
   normalizeQueueSelection: (state: ServiceWorkerState, games: TwitchGame[], dropVanished?: boolean) => void;
 }
 
@@ -1584,7 +1584,7 @@ export async function refreshDropsData(
     drops = state.appState.allDrops;
   }
 
-  deps.updateStateFromSnapshot(state, {
+  deps.projectDropsSnapshot(state, {
     games,
     drops,
     updatedAt: Date.now(),

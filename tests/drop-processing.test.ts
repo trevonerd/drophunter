@@ -8,9 +8,9 @@ import {
   dropMatchesSelectedGame,
   normalizeGameSelection,
   annotateGameCompletion,
-  updateStateFromSnapshot,
+  projectDropsSnapshot,
   splitDropsForSelectedGame,
-} from '../src/background/drop-processing.ts';
+} from '../src/background/drops-projection.ts';
 import { dropMatchesGame } from '../src/shared/game-selection.ts';
 import { isDropCompleted, mergeDropProgressMonotonic } from '../src/shared/drops.ts';
 import { detectRecoveryProof, didDropMinutesAdvance } from '../src/background/stream-rotation.ts';
@@ -238,11 +238,11 @@ describe('annotateGameCompletion', () => {
   });
 });
 
-describe('updateStateFromSnapshot', () => {
+describe('projectDropsSnapshot', () => {
   test('handles empty snapshot', () => {
     const state = makeState();
     const snapshot = { games: [], drops: [], updatedAt: Date.now() };
-    updateStateFromSnapshot(state, snapshot);
+    projectDropsSnapshot(state, snapshot);
     expect(state.appState.availableGames).toEqual([]);
     expect(state.appState.allDrops).toEqual([]);
   });
@@ -262,7 +262,7 @@ describe('updateStateFromSnapshot', () => {
     } as TwitchDrop;
     const snapshot = { games: [game], drops: [drop], updatedAt: Date.now() };
 
-    updateStateFromSnapshot(state, snapshot);
+    projectDropsSnapshot(state, snapshot);
 
     expect(state.appState.availableGames).toHaveLength(1);
     expect(state.appState.availableGames[0].name).toBe('Destiny 2');
@@ -278,7 +278,7 @@ describe('updateStateFromSnapshot', () => {
     const newGame = { id: 'new', name: 'New Game', imageUrl: '' };
     const snapshot = { games: [newGame], drops: [], updatedAt: Date.now() };
 
-    updateStateFromSnapshot(state, snapshot);
+    projectDropsSnapshot(state, snapshot);
 
     expect(state.appState.availableGames).toHaveLength(1);
     expect(state.appState.availableGames[0].id).toBe('new');
