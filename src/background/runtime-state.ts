@@ -144,7 +144,12 @@ export function clearRotationMetadata(state: AppState): AppState {
   };
 }
 
-export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'paused-on-startup';
+export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'paused-on-startup' | 'resume-recovery';
+
+// Recovery reasons that can leave no managed tab open, making the SW dormant during
+// the retry backoff. A routine SW recycle in this state must not be misclassified as
+// a crash — preserve recovery state and let the next tick continue retry→skip→advance.
+const ACTIVE_NO_TAB_RECOVERY_REASONS = new Set(['no-streamers', 'offline', 'open-failed']);
 
 export interface StartupResumePolicyState {
   appState: AppState;
@@ -159,6 +164,7 @@ export function applyStartupResumePolicy(
   state: StartupResumePolicyState,
   now: number,
   staleThresholdMs: number,
+  resumeRecoveryGraceMs: number,
 ): StartupResumePolicyResult {
   const shouldApplyStartupPolicy =
     state.appState.isRunning &&
@@ -168,6 +174,16 @@ export function applyStartupResumePolicy(
 
   if (!shouldApplyStartupPolicy) {
     return 'not-stale';
+  }
+
+  const heartbeatGap = now - state.lastHeartbeatAt;
+  const hasActiveNoTabRecovery =
+    typeof state.appState.recoveryReason === 'string' &&
+    ACTIVE_NO_TAB_RECOVERY_REASONS.has(state.appState.recoveryReason);
+  if (hasActiveNoTabRecovery && heartbeatGap < resumeRecoveryGraceMs) {
+    // Routine SW recycle during a no-tab recovery backoff — do NOT pause/wipe.
+    // Let the next checkDropProgress tick continue retry → skip → advance.
+    return 'resume-recovery';
   }
 
   if (state.appState.autoResumeOnStartup) {
