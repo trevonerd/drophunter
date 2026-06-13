@@ -1,14 +1,11 @@
 import { browser } from '../shared/browser-api.ts';
 import { isDropCompleted } from '../shared/drops';
-import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection';
+import { replaceAvailableGames } from '../shared/game-selection';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { createInitialState, toSlug } from '../shared/utils';
 import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
-import {
-  applyAutoClaimDropsSetting,
-  autoClaimClaimableDrops as autoClaimClaimableDropsExt,
-} from './auto-claim.ts';
+import { applyAutoClaimDropsSetting } from './auto-claim.ts';
 import {
   applyAutoClaimChannelPointsBonusSetting,
   ChannelPointsBonusClaimResponse,
@@ -23,6 +20,7 @@ import { needsPlaybackAttention } from './playback.ts';
 import { createPlaybackOrchestrator } from './playback-orchestrator.ts';
 import { applyStartupResumePolicy, clearRotationMetadata, createServiceWorkerState } from './runtime-state';
 
+export type { RefreshDropsOptions, StreamContext } from './farming-session.ts';
 export type { ServiceWorkerState } from './runtime-state';
 
 import { createSessionOrchestrator } from './session-orchestrator.ts';
@@ -51,36 +49,16 @@ import {
 } from './constants.ts';
 import {
   annotateGameCompletion as annotateGameCompletionExt,
-  completedDropKeys,
   dropMatchesSelectedGame as dropMatchesSelectedGameExt,
-  dropStateKey,
   normalizeGameSelection as normalizeGameSelectionExt,
   splitDropsForSelectedGame as splitDropsForSelectedGameExt,
-  updateStateFromSnapshot as updateStateFromSnapshotExt,
 } from './drop-processing.ts';
 import { createDropsPageRefresher } from './drops-page-refresh.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
+import { createFarmingSession, type StreamContext } from './farming-session.ts';
 import {
-  acquireStreamerForSelectedGame as acquireStreamerForSelectedGameExt,
-  advanceQueueIfCompleted as advanceQueueIfCompletedExt,
-  applyStopState as applyStopStateExt,
-  checkDropProgress as checkDropProgressExt,
-  enterPersistentRecovery as enterPersistentRecoveryExt,
-  handleAddToQueue as handleAddToQueueExt,
-  handleRemoveFromQueue as handleRemoveFromQueueExt,
-  handleSetSelectedGame as handleSetSelectedGameExt,
-  handleStartFarming as handleStartFarmingExt,
   normalizeQueueSelection as normalizeQueueSelectionExt,
-  openBestStreamerForSelectedGame as openBestStreamerForSelectedGameExt,
-  refreshDropsData as refreshDropsDataExt,
-  removeGameFromQueue as removeGameFromQueueExt,
   resetStreamTrackingState as resetStreamTrackingStateExt,
-  resolveGameFromState as resolveGameFromStateExt,
-  rotateStreamer as rotateStreamerExt,
-  rotateStreamerIfInvalid as rotateStreamerIfInvalidExt,
-  skipCurrentGameAndAdvanceQueue as skipCurrentGameAndAdvanceQueueExt,
-  skipCurrentGameDueToStall as skipCurrentGameDueToStallExt,
-  stopFarmingSession as stopFarmingSessionExt,
 } from './queue-management.ts';
 import {
   clearTwitchSessionCache as clearTwitchSessionCacheExt,
@@ -103,8 +81,6 @@ import {
 import {
   applyPreferredStreamerLanguageSetting,
   applyStreamerSelectionModeSetting,
-  normalizePreferredStreamerLanguage,
-  pickStreamerForPreferences,
 } from './streamer-selection';
 import { TwitchApiClient } from './twitch-api/client';
 import { isLikelyAuthError, sanitizeTwitchSession, TwitchSession } from './twitch-api/types';
@@ -124,17 +100,6 @@ export const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000; // 3 days
 export const INTEGRITY_FALLBACK_TTL_MS = 30 * 60_000; // 30 minutes
 export const TICK_WATCHDOG_TIMEOUT_MS = 60_000;
 export const STREAM_CONTEXT_TIMEOUT_MS = 12_000;
-
-export interface StreamContext {
-  channelName: string;
-  categorySlug: string;
-  categoryLabel: string;
-  streamTitle: string;
-  titleContainsDrops: boolean;
-  hasDropsSignal: boolean;
-  isLive: boolean;
-  pageUrl: string;
-}
 
 function sameCampaignId(left?: string | null, right?: string | null): boolean {
   return Boolean(left && right && left === right);
@@ -172,6 +137,29 @@ const playbackOrchestrator = createPlaybackOrchestrator(state, {
   notify,
   streamerWatchUrl: streamerWatchUrlExt,
 });
+const farmingSession = createFarmingSession(state, {
+  getInitPromise: () => initPromise,
+  trackActivity,
+  ensureTwitchSession,
+  fetchDropsSnapshotFromApi,
+  fetchInventorySnapshotFromApi,
+  fetchDirectoryStreamersFromApi,
+  fetchStreamContext,
+  resolveCategorySlug,
+  openForegroundChannel,
+  enforcePlaybackPolicyOnStreamTab,
+  attemptPlaybackSelfHeal,
+  attemptAutoClaimChannelPointsBonus,
+  closeManagedTabIfSafe: closeManagedTabIfSafeExt,
+  clearManagedTabOwnership: () => clearManagedTabOwnershipExt(state),
+  openMonitorDashboardWindow,
+  sendAlert,
+  notify,
+  saveState: saveStateExt,
+  saveTimingState: saveTimingStateExt,
+  broadcastStateUpdate: broadcastStateUpdateExt,
+  monitorAutoOpenDelayMs: MONITOR_AUTO_OPEN_DELAY_MS,
+});
 
 const GAMES_STALE_THRESHOLD_MS = 60 * 60_000;
 
@@ -187,7 +175,7 @@ async function resetStateForInactivity(trigger: string, idleForMs: number) {
     trigger,
     idleForMs,
     {
-      onStopMonitoring: stopMonitoring,
+      onStopMonitoring: farmingSession.stopMonitoring,
       onClearRotationMetadata: clearRotationMetadata,
       onResetStreamTrackingState: resetStreamTrackingStateExt,
       onSaveTimingState: saveTimingStateExt,
@@ -250,41 +238,8 @@ async function handleExtensionUpdate() {
   broadcastStateUpdateExt(state.appState);
 }
 
-function clearRecoveryState() {
-  state.recoveryBackoffUntil = 0;
-  state.lastRecoveryAttemptAt = 0;
-  state.stalledRecoveryAttempts = 0;
-  state.recoveryNotificationSent = false;
-  state.appState = clearRecoveryStatus(state.appState);
-}
-
-function clearStopState() {
-  state.appState = clearTerminalStopStatus(state.appState);
-}
-
 async function notify(title: string, message: string, priority = 2) {
   await notificationController.notify(title, message, priority);
-}
-
-async function stopFarmingSession(options?: {
-  notification?: { title: string; message: string };
-  stopReason?: string;
-  stopMessage?: string | null;
-}) {
-  await stopFarmingSessionExt(state, {
-    ...options,
-    onStopMonitoring: stopMonitoring,
-    onCloseManagedTab: async (tabId: number | null) => {
-      await closeManagedTabIfSafeExt(tabId);
-    },
-    onClearRotationMetadata: clearRotationMetadata,
-    onApplyStopState: applyStopStateExt,
-    onNotify: async (title: string, message: string) => {
-      await notify(title, message);
-    },
-    onSaveState: () => saveStateExt(state),
-    onSaveTimingState: saveTimingStateExt,
-  });
 }
 
 async function attemptPlaybackSelfHeal(tabId: number): Promise<void> {
@@ -313,7 +268,7 @@ async function loadState() {
 
   const handledStartupPolicy = await handleStartupResumePolicy();
   if (!handledStartupPolicy && state.appState.isRunning && !state.appState.isPaused) {
-    startMonitoring();
+    farmingSession.startMonitoring();
   }
 }
 
@@ -340,7 +295,7 @@ async function handleStartupResumePolicy() {
       recoveryAttempts: state.appState.recoveryAttempts,
       secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
     });
-    startMonitoring();
+    farmingSession.startMonitoring();
     return true;
   }
 
@@ -348,7 +303,7 @@ async function handleStartupResumePolicy() {
     logInfo('Long browser restart detected; leaving farming paused', {
       secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
     });
-    stopMonitoring();
+    farmingSession.stopMonitoring();
     await saveStateExt(state);
     await saveTimingStateExt(state);
     return true;
@@ -377,9 +332,9 @@ async function handleStartupResumePolicy() {
     await saveStateExt(state);
     await saveTimingStateExt(state);
     if (!keptExistingTab && state.appState.selectedGame) {
-      await acquireStreamerForSelectedGame();
+      await farmingSession.acquireStreamerForSelectedGame();
     }
-    startMonitoring();
+    farmingSession.startMonitoring();
     return true;
   }
 
@@ -471,7 +426,7 @@ function clearSelectedCompletedIdleCampaign() {
 
 async function applyAuthoritativeEmptyCampaignRefresh(): Promise<void> {
   if (state.appState.isRunning) {
-    await stopFarmingSession({
+    await farmingSession.stop({
       stopReason: 'no-active-campaigns',
       stopMessage: 'No active Twitch Drops campaigns found.',
     });
@@ -504,7 +459,7 @@ async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<D
       onEnsureTwitchSession: ensureTwitchSession,
       onEnsureSessionIntegrity: ensureSessionIntegrityExt,
       onPersistTwitchSession: persistTwitchSessionExt,
-      onStopFarmingSession: stopFarmingSession,
+      onStopFarmingSession: farmingSession.stop,
       onIsLikelyAuthError: isLikelyAuthError,
       onClearTwitchSessionCache: clearTwitchSessionCacheExt,
     },
@@ -531,7 +486,7 @@ async function fetchInventorySnapshotFromApi(
       onEnsureTwitchSession: ensureTwitchSession,
       onIsLikelyAuthError: isLikelyAuthError,
       onClearTwitchSessionCache: clearTwitchSessionCacheExt,
-      onStopFarmingSession: stopFarmingSession,
+      onStopFarmingSession: farmingSession.stop,
     },
     { logWarn },
   );
@@ -648,17 +603,6 @@ async function openDropsPageAndRefresh(message?: {
   });
 }
 
-function evaluateDropsForGame(
-  game: TwitchGame,
-  drops: TwitchDrop[],
-): { allDrops: TwitchDrop[]; pendingDrops: TwitchDrop[]; hasFarmableDrops: boolean } {
-  const relevantDrops = drops.filter((drop) => dropMatchesSelectedGameExt(drop, game));
-  const allDrops = relevantDrops;
-  const pendingDrops = allDrops.filter((drop) => !isDropCompleted(drop));
-  const hasFarmableDrops = pendingDrops.some((drop) => drop.dropType !== 'event-based');
-  return { allDrops, pendingDrops, hasFarmableDrops };
-}
-
 async function resolveCategorySlug(game: TwitchGame): Promise<string> {
   // Prefer availableGames — may have the correct slug from content script
   const updated = state.appState.availableGames.find(
@@ -701,284 +645,6 @@ async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string
   );
 }
 
-async function evaluateDropTransitions(previousCompletedKeys: Set<string>) {
-  const nowCompletedKeys = completedDropKeys(state.appState.completedDrops);
-  const newlyCompleted = state.appState.completedDrops.filter(
-    (drop) => !previousCompletedKeys.has(dropStateKey(drop)),
-  );
-
-  for (const drop of newlyCompleted) {
-    await sendAlert('drop-complete', `Reward unlocked: ${drop.name}`);
-  }
-
-  const hasDrops = state.appState.allDrops.length > 0;
-  const allCompleted =
-    hasDrops && state.appState.pendingDrops.length === 0 && state.appState.currentDrop === null;
-  if (allCompleted && !state.appState.completionNotified) {
-    await sendAlert(
-      'all-complete',
-      `All rewards for ${state.appState.selectedGame ? getGameDisplayLabel(state.appState.selectedGame) : 'this campaign'} are complete.`,
-    );
-    state.appState.completionNotified = true;
-  }
-
-  if (nowCompletedKeys.size < previousCompletedKeys.size) {
-    state.appState.completionNotified = false;
-  }
-}
-
-async function autoClaimClaimableDrops(): Promise<boolean> {
-  return autoClaimClaimableDropsExt(
-    state,
-    (force) => ensureTwitchSession(force),
-    async (drop) => {
-      await sendAlert('drop-complete', `Claimed: ${drop.name} (${drop.gameName})`);
-    },
-  );
-}
-
-export interface RefreshDropsOptions {
-  includeCampaignFetch?: boolean;
-  includeInventoryFetch?: boolean;
-  forceInventoryFetch?: boolean;
-  suppressNotifications?: boolean;
-}
-
-async function refreshDropsData(options: RefreshDropsOptions = {}) {
-  await refreshDropsDataExt(
-    state,
-    options,
-    {
-      onFetchDropsSnapshotFromApi: fetchDropsSnapshotFromApi,
-      onFetchInventorySnapshotFromApi: fetchInventorySnapshotFromApi,
-      onEvaluateDropTransitions: evaluateDropTransitions,
-      onSaveState: saveStateExt,
-    },
-    {
-      replaceAvailableGames,
-      getGameDisplayLabel,
-      updateStateFromSnapshot: updateStateFromSnapshotExt,
-      normalizeQueueSelection: normalizeQueueSelectionExt,
-    },
-  );
-}
-
-async function checkDropProgress() {
-  // Ensure SW initialization has completed before processing any alarm tick.
-  if (initPromise) {
-    await initPromise;
-  }
-
-  await checkDropProgressExt(state, {
-    onEnforcePlaybackPolicy: enforcePlaybackPolicyOnStreamTab,
-    onRotateStreamerIfInvalid: rotateStreamerIfInvalid,
-    onAcquireStreamerForSelectedGame: acquireStreamerForSelectedGame,
-    onAttemptAutoClaimChannelPointsBonus: attemptAutoClaimChannelPointsBonus,
-    onRefreshDropsData: refreshDropsData,
-    onAutoClaimClaimableDrops: autoClaimClaimableDrops,
-    onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
-    onSaveTimingState: saveTimingStateExt,
-  });
-}
-
-function startMonitoring() {
-  browser.alarms.create(ALARM_NAME, { periodInMinutes: Math.max(0.5, PROGRESS_POLL_MS / 60_000) });
-  checkDropProgress().catch((error) => logWarn('Initial monitoring error:', String(error)));
-}
-
-function stopMonitoring() {
-  browser.alarms.clear(ALARM_NAME).catch(() => undefined);
-}
-
-async function openBestStreamerForSelectedGame(): Promise<boolean> {
-  return openBestStreamerForSelectedGameExt(
-    state,
-    {
-      onFetchDirectoryStreamersFromApi: fetchDirectoryStreamersFromApi,
-      onOpenForegroundChannel: openForegroundChannel,
-    },
-    {
-      dropMatchesSelectedGame: dropMatchesSelectedGameExt,
-      isDropCompleted,
-      getGameDisplayLabel,
-      resolveCategorySlug,
-      pickStreamerForPreferences,
-      normalizePreferredStreamerLanguage,
-    },
-  );
-}
-
-async function skipCurrentGameDueToNoStreamers() {
-  await skipCurrentGameAndAdvanceQueueExt(state, 'no-streamers', {
-    onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-    onRefreshDropsData: refreshDropsData,
-    onOpenStreamer: acquireStreamerForSelectedGame,
-    onSaveState: () => saveStateExt(state),
-    onSaveTimingState: saveTimingStateExt,
-    onStopFarmingSession: stopFarmingSession,
-    onNotify: notify,
-  });
-}
-
-async function acquireStreamerForSelectedGame(): Promise<boolean> {
-  return acquireStreamerForSelectedGameExt(state, {
-    onOpenStreamer: openBestStreamerForSelectedGame,
-    onSkipCurrentGame: skipCurrentGameDueToNoStreamers,
-    onSaveState: () => saveStateExt(state),
-    onSaveTimingState: saveTimingStateExt,
-  });
-}
-
-async function ensureWorkspaceForSelectedGame() {
-  if (!state.appState.selectedGame) {
-    return;
-  }
-  const resolvedSlug = await resolveCategorySlug(state.appState.selectedGame);
-  state.appState.selectedGame = {
-    ...state.appState.selectedGame,
-    categorySlug: resolvedSlug,
-  };
-}
-
-async function advanceQueueIfCompleted(): Promise<boolean> {
-  return advanceQueueIfCompletedExt(state, {
-    onOpenStreamer: acquireStreamerForSelectedGame,
-    onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-    onSendAlert: sendAlert,
-    onStopMonitoring: stopMonitoring,
-    onCloseManagedTabIfSafe: closeManagedTabIfSafeExt,
-    onClearManagedTabOwnership: () => clearManagedTabOwnershipExt(state),
-    onApplyStopState: applyStopStateExt,
-    onNotify: async (title: string, message: string) => {
-      await notify(title, message);
-    },
-    onRefreshDropsData: refreshDropsData,
-    onSaveState: () => saveStateExt(state),
-    onSaveTimingState: saveTimingStateExt,
-  });
-}
-
-async function handleStartFarming(payload: { game?: TwitchGame }) {
-  const result = await handleStartFarmingExt(state, payload, {
-    onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-    onRefreshDropsData: refreshDropsData,
-    onSaveState: () => saveStateExt(state),
-    onSaveTimingState: saveTimingStateExt,
-    onBroadcastStateUpdate: () => broadcastStateUpdateExt(state.appState),
-    onStopMonitoring: stopMonitoring,
-    onTrackActivity: trackActivity,
-    onApplyStopState: applyStopStateExt,
-  });
-
-  if (!result.success) {
-    return result;
-  }
-
-  const advanced = await advanceQueueIfCompleted();
-  if (!advanced) {
-    return { success: false, error: 'Queue completed. No pending rewards left.' };
-  }
-  if (!state.appState.tabId && state.appState.selectedGame) {
-    await acquireStreamerForSelectedGame();
-  }
-  if (state.appState.monitorAutoOpen) {
-    await new Promise((resolve) => setTimeout(resolve, MONITOR_AUTO_OPEN_DELAY_MS));
-    await openMonitorDashboardWindow({ toggle: false }).catch(() => undefined);
-  }
-
-  await saveStateExt(state);
-  await saveTimingStateExt(state);
-  startMonitoring();
-  return { success: true };
-}
-
-async function skipCurrentGameDueToOfflineRecovery() {
-  await skipCurrentGameDueToStallExt(state, {
-    onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-    onRefreshDropsData: refreshDropsData,
-    onOpenStreamer: acquireStreamerForSelectedGame,
-    onSaveState: () => saveStateExt(state),
-    onSaveTimingState: saveTimingStateExt,
-    onStopFarmingSession: stopFarmingSession,
-    onNotify: notify,
-  });
-}
-
-async function rotateStreamerIfInvalid() {
-  await rotateStreamerIfInvalidExt(state, {
-    onFetchStreamContext: fetchStreamContext,
-    onResolveCategorySlug: resolveCategorySlug,
-    onAttemptPlaybackSelfHeal: attemptPlaybackSelfHeal,
-    onSaveState: () => saveStateExt(state),
-    onSaveTimingState: saveTimingStateExt,
-    onRotateStreamer: rotateStreamerExt,
-    onOpenStreamer: acquireStreamerForSelectedGame,
-    onEnterPersistentRecovery: async (nextState, reason, message, recoveryOpts) =>
-      enterPersistentRecoveryExt(nextState, reason, message, {
-        ...recoveryOpts,
-        onNotify: notify,
-      }),
-    onSkipCurrentGame: skipCurrentGameDueToOfflineRecovery,
-  });
-}
-
-async function handleStopFarming() {
-  await trackActivity('stop-farming');
-  await stopFarmingSession({
-    stopReason: 'user-stop',
-    stopMessage: 'Stopped by user.',
-  });
-  return { success: true };
-}
-
-async function handleSetSelectedGame(payload: { game: TwitchGame }) {
-  return handleSetSelectedGameExt(
-    state,
-    payload,
-    {
-      onTrackActivity: trackActivity,
-      onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-      onRefreshDropsData: refreshDropsData,
-      onOpenBestStreamer: acquireStreamerForSelectedGame,
-      onSaveState: saveStateExt,
-      onSaveTimingState: saveTimingStateExt,
-    },
-    {
-      resolveGameFromState: resolveGameFromStateExt,
-      removeGameFromQueue: removeGameFromQueueExt,
-      splitDropsForSelectedGame: splitDropsForSelectedGameExt,
-      getGameDisplayLabel,
-      logDebug,
-      logWarn,
-    },
-  );
-}
-
-async function handleAddToQueue(payload: { game?: TwitchGame }) {
-  return handleAddToQueueExt(
-    state,
-    payload,
-    { onTrackActivity: trackActivity, onSaveState: saveStateExt },
-    { resolveGameFromState: resolveGameFromStateExt, evaluateDropsForGame, getGameDisplayLabel },
-  );
-}
-
-async function handleRemoveFromQueue(payload: { game?: TwitchGame; gameId?: string; campaignId?: string }) {
-  return handleRemoveFromQueueExt(
-    state,
-    payload,
-    { onTrackActivity: trackActivity, onSaveState: saveStateExt },
-    { removeGameFromQueue: removeGameFromQueueExt, sameCampaignId },
-  );
-}
-
-async function handleClearQueue() {
-  await trackActivity('clear-queue');
-  state.appState.queue = [];
-  await saveStateExt(state);
-  return { success: true, queueLength: 0 };
-}
-
 async function handleEnsureGamesCache(payload?: { force?: boolean }) {
   if (initPromise) {
     await initPromise;
@@ -1005,44 +671,6 @@ async function handleEnsureGamesCache(payload?: { force?: boolean }) {
     gamesCount: state.appState.availableGames.length,
     games: state.appState.availableGames,
   };
-}
-
-async function handlePauseFarming() {
-  await trackActivity('pause-farming');
-  state.appState.isPaused = true;
-  state.playbackAttentionWarningSent = false;
-  stopMonitoring();
-  await saveStateExt(state);
-  await saveTimingStateExt(state);
-  return { success: true };
-}
-
-async function handleResumeFarming() {
-  await trackActivity('resume-farming');
-  state.appState.isPaused = false;
-  state.invalidStreamChecks = 0;
-  state.noProgressRotationAttempts = 0;
-  clearStopState();
-  // Re-issue grace window so the first tick after resume doesn't immediately run
-  // full rotation validation against a stream that hasn't had time to respond.
-  if (state.appState.tabId) {
-    state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
-  }
-  clearRecoveryState();
-  startMonitoring();
-  await saveStateExt(state);
-  await saveTimingStateExt(state);
-  return { success: true };
-}
-
-async function handleRefreshDrops() {
-  await trackActivity('refresh-drops');
-  await refreshDropsData({
-    includeCampaignFetch: true,
-    includeInventoryFetch: Boolean(state.appState.selectedGame),
-    forceInventoryFetch: true,
-  });
-  return { success: true };
 }
 
 async function handleMarkDropsRefreshNoticeSeen(payload?: { seenAt?: number }) {
@@ -1344,7 +972,7 @@ export function startServiceWorker(): void {
     alarmName: ALARM_NAME,
     getInitPromise: () => initPromise,
     onExtensionUpdate: handleExtensionUpdate,
-    onAlarm: () => checkDropProgress(),
+    onAlarm: () => farmingSession.checkDropProgress(),
     onManagedTabRemoved: (removedTabId) => handleManagedTabRemoved(removedTabId),
     onManagedTabNavigatedAway: (updatedTabId, url) => handleManagedTabNavigatedAway(updatedTabId, url),
     onMonitorWindowRemoved: (removedWindowId) => handleMonitorWindowRemoved(removedWindowId),
@@ -1355,19 +983,19 @@ export function startServiceWorker(): void {
     ensureGamesCache: (message) => handleEnsureGamesCache(message.payload),
     openDropsPageAndRefresh: (message) => openDropsPageAndRefresh(message),
     markDropsRefreshNoticeSeen: (message) => handleMarkDropsRefreshNoticeSeen(message.payload),
-    addToQueue: (message) => handleAddToQueue(message.payload),
-    removeFromQueue: (message) => handleRemoveFromQueue(message.payload),
-    clearQueue: () => handleClearQueue(),
-    startFarming: (message) => handleStartFarming(message.payload),
-    setSelectedGame: (message) => handleSetSelectedGame(message.payload),
-    pauseFarming: () => handlePauseFarming(),
+    addToQueue: (message) => farmingSession.handleAddToQueue(message.payload),
+    removeFromQueue: (message) => farmingSession.handleRemoveFromQueue(message.payload),
+    clearQueue: () => farmingSession.handleClearQueue(),
+    startFarming: (message) => farmingSession.handleStartFarming(message.payload),
+    setSelectedGame: (message) => farmingSession.handleSetSelectedGame(message.payload),
+    pauseFarming: () => farmingSession.handlePauseFarming(),
     setAutoResumeOnStartup: (message) => handleSetAutoResumeOnStartup(message.payload),
-    resumeFarming: () => handleResumeFarming(),
-    stopFarming: () => handleStopFarming(),
+    resumeFarming: () => farmingSession.handleResumeFarming(),
+    stopFarming: () => farmingSession.handleStopFarming(),
     updateGames: (message) => handleUpdateGames(message.payload),
     syncTwitchSession: (message, sender) => handleSyncTwitchSession(message.payload, sender),
     syncTwitchIntegrity: (message, sender) => handleSyncTwitchIntegrity(message.payload, sender),
-    refreshDrops: () => handleRefreshDrops(),
+    refreshDrops: () => farmingSession.handleRefreshDrops(),
     setMonitorAutoOpen: (message) => handleSetMonitorAutoOpen(message.payload),
     setMuteFarmingTab: (message) => handleSetMuteFarmingTab(message.payload),
     setNotificationsEnabled: (message) => handleSetNotificationsEnabled(message.payload),
