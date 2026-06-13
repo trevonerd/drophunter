@@ -43,7 +43,12 @@ import {
   fetchDropsSnapshotFromApiWrapper,
   fetchInventorySnapshotFromApiWrapper,
 } from './api-operations.ts';
-import { CRASH_DETECTION_THRESHOLD_MS, PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
+import {
+  CRASH_DETECTION_THRESHOLD_MS,
+  PROGRESS_POLL_MS,
+  RESUME_RECOVERY_GRACE_MS,
+  STREAM_VALIDATION_GRACE_MS,
+} from './constants.ts';
 import {
   annotateGameCompletion as annotateGameCompletionExt,
   completedDropKeys,
@@ -322,7 +327,22 @@ async function canResumeWithExistingManagedTab(): Promise<boolean> {
 
 async function handleStartupResumePolicy() {
   const now = Date.now();
-  const startupResumePolicy = applyStartupResumePolicy(state, now, CRASH_DETECTION_THRESHOLD_MS);
+  const startupResumePolicy = applyStartupResumePolicy(
+    state,
+    now,
+    CRASH_DETECTION_THRESHOLD_MS,
+    RESUME_RECOVERY_GRACE_MS,
+  );
+
+  if (startupResumePolicy === 'resume-recovery') {
+    logInfo('SW recycled during active no-tab recovery; resuming monitoring without reset', {
+      recoveryReason: state.appState.recoveryReason,
+      recoveryAttempts: state.appState.recoveryAttempts,
+      secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
+    });
+    startMonitoring();
+    return true;
+  }
 
   if (startupResumePolicy === 'paused-on-startup') {
     logInfo('Long browser restart detected; leaving farming paused', {

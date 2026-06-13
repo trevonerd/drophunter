@@ -1237,8 +1237,7 @@ export async function checkDropProgress(
       return;
     }
 
-    const noStreamersRecoveryActive =
-      state.appState.recoveryReason === 'no-streamers' && state.recoveryBackoffUntil > 0;
+    const noStreamersRecoveryActive = state.appState.recoveryReason === 'no-streamers';
     if (noStreamersRecoveryActive) {
       if (Date.now() >= state.recoveryBackoffUntil) {
         await callbacks.onAcquireStreamerForSelectedGame();
