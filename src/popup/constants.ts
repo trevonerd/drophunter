@@ -11,6 +11,10 @@ export const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = { permiss
 
 export const STALE_THRESHOLD_MS = 60 * 60 * 1000;
 
+// Safety-net: loader normally cleared by UPDATE_STATE broadcast once background
+// projects drops for the new game. This guards against indefinite spinner on error.
+export const REWARDS_LOADING_FALLBACK_MS = 8000;
+
 export const STREAMER_LANGUAGE_OPTIONS = [
   { value: '', label: 'Any' },
   { value: 'ar', label: 'AR' },

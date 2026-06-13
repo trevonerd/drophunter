@@ -9,7 +9,7 @@ import type { TwitchGame } from '../types';
 import { ClaimLogView } from './components/ClaimLogView';
 import { MainView } from './components/MainView';
 import { SettingsView } from './components/SettingsView';
-import { type CampaignSyncStatus, STALE_THRESHOLD_MS } from './constants';
+import { type CampaignSyncStatus, REWARDS_LOADING_FALLBACK_MS, STALE_THRESHOLD_MS } from './constants';
 import { useAppState } from './hooks/useAppState';
 import { useDropsRefresh } from './hooks/useDropsRefresh';
 import { useOnboarding } from './hooks/useOnboarding';
@@ -19,7 +19,8 @@ import { logPopupWarn } from './logging';
 import { getGameToStartFromQueue, queueGameIdentity } from './queue-start';
 
 function App() {
-  const { state, setState, loading, gamesLoading, rewardsLoading, setRewardsLoading } = useAppState();
+  const { state, setState, loading, gamesLoading, rewardsLoading, setRewardsLoading, beginRewardsLoad } =
+    useAppState();
   const [actionLoading, setActionLoading] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'main' | 'settings' | 'log'>('main');
@@ -110,13 +111,15 @@ function App() {
       if (onboardingStep === 'selector') {
         setOnboardingStep('start');
       }
-      setRewardsLoading(true);
+      beginRewardsLoad(queueGameIdentity(selected));
       try {
         await sendRuntimeMessage({ type: 'SET_SELECTED_GAME', payload: { game: selected } }).catch(
           (err: unknown) => logPopupWarn('SET_SELECTED_GAME failed:', err),
         );
       } finally {
-        setTimeout(() => setRewardsLoading(false), 1500);
+        // Loader cleared by UPDATE_STATE broadcast in useAppState once background
+        // projects drops for the new game. This is only a safety net.
+        setTimeout(() => setRewardsLoading(false), REWARDS_LOADING_FALLBACK_MS);
       }
     }
   };
@@ -189,7 +192,7 @@ function App() {
     withAction(async () => {
       const gameToStart = getGameToStartFromQueue(state.selectedGame, queueGames);
       if (!gameToStart) {
-        setQueueMessage('Select a game to start farming.');
+        setQueueMessage('Select a campaign to start farming.');
         return;
       }
       const response = await sendRuntimeMessage({
@@ -239,14 +242,18 @@ function App() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-300">
+      <div
+        className="dh-view flex items-center justify-center py-12 text-[color:var(--dh-text-soft)]"
+        role="status"
+        aria-live="polite"
+      >
         <div className="spinner rounded-full h-8 w-8 border-[3px] border-twitch-purple border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="w-[400px] bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light text-white">
+    <div className="dh-view w-[400px] text-[color:var(--dh-text)]">
       {activeView === 'log' ? (
         <ClaimLogView onBack={() => setActiveView('settings')} />
       ) : activeView === 'settings' ? (

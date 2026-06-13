@@ -51,7 +51,7 @@ function getRowHeight(row: ClaimLogRow): number {
 
 function CampaignHeaderRow({ label, count }: { label: string; count: number }) {
   return (
-    <div className="flex items-center justify-between px-3 h-full bg-black/30">
+    <div className="flex items-center justify-between px-3 h-full bg-[color:var(--dh-surface-3)]">
       <span className="text-[11px] font-semibold text-purple-300/90 truncate">{label}</span>
       <span className="ml-2 shrink-0 rounded-full bg-purple-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-purple-300">
         {count}
@@ -86,11 +86,11 @@ function ClaimLogEntryRow({ entry }: { entry: ClaimLogEntry }) {
     <div className="flex items-center gap-2.5 px-3 h-full">
       <RewardThumb imageUrl={entry.imageUrl} name={entry.dropName} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs text-white leading-tight">
+        <p className="truncate text-xs text-[color:var(--dh-text)] leading-tight">
           {entry.dropName}
-          {showBenefit && <span className="text-gray-400"> · {entry.benefitName}</span>}
+          {showBenefit && <span className="text-[color:var(--dh-muted)]"> · {entry.benefitName}</span>}
         </p>
-        <p className="text-[10px] text-gray-500 leading-tight mt-0.5">{formatClaimedAt(entry.claimedAt)}</p>
+        <p className="dh-faint text-[10px] leading-tight mt-0.5">{formatClaimedAt(entry.claimedAt)}</p>
       </div>
     </div>
   );
@@ -158,29 +158,31 @@ export function ClaimLogView({ onBack }: ClaimLogViewProps) {
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
+      <div className="dh-header flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onBack}
-            className="rounded p-1 text-[#1B1030] hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            className="dh-icon-button dh-focus text-[color:var(--dh-accent-ink)]"
             aria-label="Back to settings"
             title="Back"
           >
             <BackIcon />
           </button>
-          <h1 className="font-extrabold text-sm tracking-tight text-[#120B22]">Drop &amp; Campaign Log</h1>
+          <h1 className="font-extrabold text-sm text-[color:var(--dh-accent-ink)]">
+            Drop &amp; Campaign Log
+          </h1>
         </div>
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#24133D]/80">
+        <span className="dh-header-label text-[10px] font-semibold uppercase tracking-[0.14em]">
           DropHunter
         </span>
       </div>
 
-      <div className="px-4 py-3 bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light">
-        <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
+      <div className="dh-view dh-page dh-page--wide">
+        <div className="dh-panel dh-contain overflow-hidden">
           {entries !== null && entries.length > 0 && (
-            <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-              <p className="text-[11px] text-gray-400">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[color:var(--dh-border)]">
+              <p className="dh-copy text-[11px]">
                 {entries.length} {entries.length === 1 ? 'drop' : 'drops'} · {campaignCount}{' '}
                 {campaignCount === 1 ? 'campaign' : 'campaigns'}
               </p>
@@ -189,10 +191,11 @@ export function ClaimLogView({ onBack }: ClaimLogViewProps) {
                 <button
                   type="button"
                   onClick={() => void handleClear()}
-                  className={`text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 rounded px-1.5 py-0.5 ${
+                  aria-label={clearPending ? 'Confirm clearing claim log' : 'Clear claim log'}
+                  className={`dh-focus rounded px-1.5 py-0.5 text-[11px] font-semibold transition-colors ${
                     clearPending
                       ? 'text-red-400 hover:text-red-300 bg-red-500/10'
-                      : 'text-gray-400 hover:text-white'
+                      : 'text-[color:var(--dh-muted)] hover:text-[color:var(--dh-text)]'
                   }`}
                 >
                   {clearPending ? 'Confirm clear' : 'Clear'}
@@ -205,7 +208,7 @@ export function ClaimLogView({ onBack }: ClaimLogViewProps) {
             <div
               role="status"
               aria-live="polite"
-              className="flex items-center justify-center py-10 gap-2 text-gray-400 text-xs"
+              className="dh-copy flex items-center justify-center py-10 gap-2 text-xs"
             >
               <div className="spinner rounded-full h-4 w-4 border-[2px] border-twitch-purple border-t-transparent" />
               Loading…
@@ -228,8 +231,8 @@ export function ClaimLogView({ onBack }: ClaimLogViewProps) {
               aria-live="polite"
               className="flex flex-col items-center justify-center py-10 gap-1 px-4 text-center"
             >
-              <p className="text-sm text-gray-300 font-semibold">No drops claimed yet.</p>
-              <p className="text-[11px] text-gray-500">Claimed drops will appear here.</p>
+              <p className="text-sm text-[color:var(--dh-text-soft)] font-semibold">No drops claimed yet.</p>
+              <p className="dh-faint text-[11px]">Claimed drops will appear here.</p>
             </div>
           )}
 

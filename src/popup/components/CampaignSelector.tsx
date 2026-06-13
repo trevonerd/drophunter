@@ -29,10 +29,10 @@ export function CampaignSelector({
         aria-label="Campaign"
         value={selectedGame ? queueGameIdentity(selectedGame) : ''}
         onChange={(e) => onSelect(e.target.value)}
-        className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs text-white bg-[#1F1F23] focus:outline-none focus:ring-2 focus:ring-twitch-purple [&>option]:bg-[#1F1F23] [&>option]:text-white ${onboardingStep === 'selector' ? 'onboarding-pulse' : ''}`}
+        className={`dh-input min-h-8 min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs [&>option]:bg-twitch-dark [&>option]:text-[color:var(--dh-text)] ${onboardingStep === 'selector' ? 'onboarding-pulse' : ''}`}
         disabled={isRunning}
       >
-        <option value="">Select a game to start</option>
+        <option value="">Select a campaign to start</option>
         {sortedGames.map((game) => (
           <option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>
             {game.allDropsCompleted ? '\u2705 ' : game.isConnected === false ? '\u{1F512} ' : ''}
@@ -45,10 +45,10 @@ export function CampaignSelector({
           type="button"
           onClick={onAddToQueue}
           disabled={!selectedGame || actionLoading}
-          className="shrink-0 rounded-lg bg-blue-600 px-2 py-1.5 text-[11px] font-semibold disabled:opacity-50 disabled:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+          className="dh-action-secondary dh-focus min-h-8 shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-55"
           aria-label="Add selected campaign to queue"
         >
-          +Queue
+          Queue
         </button>
       )}
     </div>

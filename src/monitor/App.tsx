@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
 import { pickNearestDrop } from '../shared/drop-order';
+import { getGameDisplayLabel } from '../shared/game-selection';
 import {
   deriveRuntimeMode,
   formatRecoveryAttemptLabel,
@@ -70,6 +71,7 @@ function App() {
   }, []);
 
   const nearestDrop = useMemo(() => pickNearestDrop(state.pendingDrops), [state.pendingDrops]);
+  const selectedCampaignLabel = state.selectedGame ? getGameDisplayLabel(state.selectedGame) : null;
   const runtimeMode = deriveRuntimeMode(state);
   useEffect(() => {
     if (runtimeMode !== 'recovering') {
@@ -104,7 +106,7 @@ function App() {
         <div className="monitor-header">
           <div>
             <h1 className="monitor-title">DropHunter Live</h1>
-            <p className="monitor-subtitle">{state.selectedGame?.name ?? 'No campaign selected'}</p>
+            <p className="monitor-subtitle">{selectedCampaignLabel ?? 'No campaign selected'}</p>
           </div>
           <span className={runStateClass}>{runStateLabel}</span>
         </div>
@@ -116,7 +118,9 @@ function App() {
             <div className="monitor-progress-track">
               <div
                 className="monitor-progress-fill"
-                style={{ width: `${Math.max(0, Math.min(100, nearestDrop.progress))}%` }}
+                style={
+                  { '--dh-progress': Math.max(0, Math.min(100, nearestDrop.progress)) / 100 } as CSSProperties
+                }
               />
             </div>
             <div className="monitor-progress-row">
@@ -125,7 +129,7 @@ function App() {
             </div>
           </div>
         ) : (
-          <div className="monitor-empty">No pending rewards for the selected campaign.</div>
+          <div className="monitor-empty">No pending campaign rewards.</div>
         )}
 
         {runtimeMode === 'recovering' && state.recoveryReason && (

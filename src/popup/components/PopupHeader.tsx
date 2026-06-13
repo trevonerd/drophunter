@@ -39,32 +39,34 @@ export function PopupHeader({
   onStop,
 }: PopupHeaderProps) {
   const iconButtonClass =
-    'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/20 disabled:opacity-50 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70';
+    'dh-icon-button shrink-0 disabled:opacity-45 disabled:hover:bg-transparent dh-focus';
 
   return (
-    <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
-      <div className="flex items-center gap-2 min-w-0">
-        <h1 className="shrink-0 font-extrabold text-sm tracking-tight text-[#120B22]">DropHunter</h1>
+    <div className="dh-header dh-popup-header px-3 py-2">
+      <div className="dh-popup-header-brand">
+        <h1 className="min-w-0 truncate font-extrabold text-sm text-[color:var(--dh-accent-ink)]">
+          DropHunter
+        </h1>
         {state.isRunning && (
           <span
-            className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+            className={`dh-runtime-badge ${
               state.isPaused
-                ? 'bg-yellow-400/20 text-yellow-200 border border-yellow-400/40'
-                : 'bg-green-400/20 text-green-200 border border-green-400/40'
+                ? 'border-yellow-700/35 bg-yellow-950/20 text-yellow-950'
+                : 'border-green-900/30 bg-green-950/15 text-green-950'
             }`}
           >
             {state.isPaused ? 'PAUSED' : 'RUNNING'}
           </span>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="dh-popup-header-actions">
         {state.isRunning && (
-          <div className="flex shrink-0 items-center gap-1 border-r border-[#1B1030]/20 pr-1">
+          <div className="dh-header-divider flex shrink-0 items-center gap-1 border-r pr-1">
             <button
               type="button"
               onClick={state.isPaused ? onResume : onPause}
               disabled={actionLoading}
-              className={`${iconButtonClass} text-[#1B1030]`}
+              className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
               aria-label={state.isPaused ? 'Resume farming' : 'Pause farming'}
               title={state.isPaused ? 'Resume' : 'Pause'}
             >
@@ -74,7 +76,7 @@ export function PopupHeader({
               type="button"
               onClick={onStop}
               disabled={actionLoading}
-              className={`${iconButtonClass} text-[#1B1030]`}
+              className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
               aria-label="Stop farming"
               title="Stop"
             >
@@ -86,8 +88,8 @@ export function PopupHeader({
           <button
             type="button"
             onClick={onMuteToggle}
-            className={`${iconButtonClass} text-[#1B1030] ${
-              state.muteFarmingTab ? 'bg-[#1B1030]/10' : 'bg-white/25'
+            className={`${iconButtonClass} text-[color:var(--dh-accent-ink)] ${
+              state.muteFarmingTab ? 'dh-header-button-on' : 'dh-header-button-off'
             }`}
             aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
             title={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
@@ -98,7 +100,7 @@ export function PopupHeader({
             type="button"
             onClick={onOpenDropsPage}
             disabled={dropsRefreshLoading}
-            className={`${iconButtonClass} text-[#1B1030]`}
+            className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
             aria-label={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Open Twitch Drops'}
             title={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Twitch Drops'}
           >
@@ -107,7 +109,7 @@ export function PopupHeader({
           <button
             type="button"
             onClick={onOpenMonitor}
-            className={`${iconButtonClass} text-[#1B1030]`}
+            className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
             aria-label="Open live monitor"
             title="Live Monitor"
           >
@@ -116,7 +118,7 @@ export function PopupHeader({
           <button
             type="button"
             onClick={onOpenSettings}
-            className={`${iconButtonClass} text-[#1B1030]`}
+            className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
             aria-label="Open settings"
             title="Settings"
           >
@@ -126,7 +128,7 @@ export function PopupHeader({
             type="button"
             onClick={onNotificationsToggle}
             className={`${iconButtonClass} ${
-              state.notificationsEnabled ? 'text-[#1B1030]' : 'text-[#1B1030]/55'
+              state.notificationsEnabled ? 'text-[color:var(--dh-accent-ink)]' : 'dh-header-muted'
             }`}
             aria-label={state.notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
             title={state.notificationsEnabled ? 'Notifications on' : 'Notifications off'}

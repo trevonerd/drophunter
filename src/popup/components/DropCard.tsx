@@ -1,5 +1,5 @@
 // Extracted from src/popup/App.tsx (Compact Drop Image + Compact Drop Card).
-import { useState } from 'react';
+import { type CSSProperties, useState } from 'react';
 import type { TwitchDrop } from '../../types';
 import { formatEtaMinutes, rewardInitials } from '../format';
 import { SubIcon } from './icons';
@@ -8,7 +8,7 @@ function CompactDropImage({ drop }: { drop: TwitchDrop }) {
   const [hasError, setHasError] = useState(false);
   if (!drop.imageUrl || hasError) {
     return (
-      <div className="w-8 h-8 rounded border border-white/10 bg-gray-800/70 flex items-center justify-center text-[9px] font-bold text-gray-300 shrink-0">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] text-[9px] font-bold text-[color:var(--dh-text-soft)]">
         {rewardInitials(drop.name)}
       </div>
     );
@@ -19,7 +19,7 @@ function CompactDropImage({ drop }: { drop: TwitchDrop }) {
       alt={drop.name}
       width={32}
       height={32}
-      className="w-8 h-8 rounded object-cover bg-gray-900/60 shrink-0"
+      className="h-8 w-8 shrink-0 rounded object-cover bg-[color:var(--dh-surface-3)]"
       referrerPolicy="no-referrer"
       onError={() => setHasError(true)}
     />
@@ -36,17 +36,17 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
     statusText = 'Claimed';
     statusClass = 'text-green-400';
   } else if (drop.claimable) {
-    statusText = 'Claim!';
+    statusText = 'Claimable';
     statusClass = 'text-yellow-300 font-bold';
   } else if (isEventBased) {
-    statusText = 'Sub Only';
+    statusText = 'Sub only';
     statusClass = 'text-orange-400';
   } else if (drop.status === 'active') {
     statusText = 'Active';
     statusClass = 'text-blue-300';
   } else {
     statusText = 'Pending';
-    statusClass = 'text-gray-400';
+    statusClass = 'dh-copy';
   }
 
   return (
@@ -55,8 +55,8 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
     >
       <CompactDropImage drop={drop} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1">
-          <p className="text-xs font-medium text-white truncate">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 truncate text-xs font-medium text-[color:var(--dh-text)]">
             {isEventBased && (
               <span className="text-orange-400 inline-flex align-middle mr-1">
                 <SubIcon />
@@ -64,23 +64,23 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
             )}
             {drop.name}
           </p>
-          <span className="text-[11px] whitespace-nowrap shrink-0">
+          <span className="shrink-0 whitespace-nowrap text-right text-[11px]">
             <span className={statusClass}>{statusText}</span>
-            {!isEventBased && <span className="text-gray-500"> · {drop.progress}%</span>}
+            {!isEventBased && <span className="dh-faint"> · {drop.progress}%</span>}
             {!isEventBased && eta && !drop.claimed && !drop.claimable && (
-              <span className="text-gray-500"> · ETA {eta}</span>
+              <span className="dh-faint"> · ETA {eta}</span>
             )}
           </span>
         </div>
         {isEventBased ? (
           <p className="mt-1 text-[10px] text-orange-400/70">Subscribe to redeem</p>
         ) : (
-          <div className="mt-1 h-1 w-full rounded-full bg-gray-800 overflow-hidden">
+          <div className="dh-progress-track mt-1 h-1 w-full overflow-hidden rounded-full">
             <div
-              className={`h-1 rounded-full transition-[width] duration-500 ${
-                drop.claimable ? 'bg-yellow-400' : 'bg-gradient-to-r from-twitch-purple to-pink-500'
+              className={`dh-progress-fill h-1 w-full rounded-full ${
+                drop.claimable ? 'dh-progress-fill--claimable' : ''
               }`}
-              style={{ width: `${drop.progress}%` }}
+              style={{ '--dh-progress': Math.max(0, Math.min(100, drop.progress)) / 100 } as CSSProperties}
             />
           </div>
         )}

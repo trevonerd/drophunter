@@ -24,26 +24,26 @@ export function QueueChips({ selectedGame, queueGames, isRunning, onRemove, onCl
 
   return (
     <div className="flex flex-wrap gap-1 items-center">
-      <span className="text-[11px] text-gray-500">Queue:</span>
+      <span className="dh-faint text-[11px]">Queue</span>
       {selectedNotInQueue && (
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-green-700/60 border border-green-500/40 px-2 py-0.5 text-[11px] text-green-200">
+        <span className="inline-flex max-w-full items-center gap-0.5 rounded-full border border-green-500/40 bg-green-700/45 px-2 py-0.5 text-[11px] text-green-200">
           {selectedGame.allDropsCompleted ? '✅ ' : ''}
-          {getGameDisplayLabel(selectedGame)}
+          <span className="truncate">{getGameDisplayLabel(selectedGame)}</span>
           <span className="ml-1 text-green-400/80">↑ first</span>
         </span>
       )}
       {queueGames.map((game) => (
         <span
           key={queueGameIdentity(game)}
-          className="inline-flex items-center gap-0.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-200"
+          className="inline-flex max-w-full items-center gap-0.5 rounded-full bg-[color:var(--dh-surface-3)] px-2 py-0.5 text-[11px] text-[color:var(--dh-text-soft)]"
         >
           {game.allDropsCompleted ? '✅ ' : ''}
-          {getGameDisplayLabel(game)}
+          <span className="truncate">{getGameDisplayLabel(game)}</span>
           {!isRunning && (
             <button
               type="button"
               onClick={() => onRemove(game)}
-              className="ml-0.5 rounded text-gray-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+              className="dh-focus ml-0.5 rounded text-[color:var(--dh-muted)] hover:text-[color:var(--dh-text)]"
               aria-label={`Remove ${getGameDisplayLabel(game)} from queue`}
             >
               ×
@@ -55,7 +55,7 @@ export function QueueChips({ selectedGame, queueGames, isRunning, onRemove, onCl
         <button
           type="button"
           onClick={onClear}
-          className="rounded text-[11px] text-red-400 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+          className="dh-focus rounded px-1 text-[11px] text-red-400 hover:text-red-300"
           aria-label="Clear queue"
         >
           Clear
