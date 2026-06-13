@@ -133,7 +133,7 @@ describe('applyStartupResumePolicy', () => {
 
   test('pauses stale startup sessions when auto-resume is disabled', () => {
     const state = makePolicyState();
-    const result = applyStartupResumePolicy(state, 40_000, 30_000);
+    const result = applyStartupResumePolicy(state, 40_000, 30_000, 300_000);
 
     expect(result).toBe('paused-on-startup');
     expect(state.appState.isRunning).toBe(true);
@@ -152,7 +152,7 @@ describe('applyStartupResumePolicy', () => {
     const state = makePolicyState();
     state.appState.autoResumeOnStartup = true;
 
-    const result = applyStartupResumePolicy(state, 40_000, 30_000);
+    const result = applyStartupResumePolicy(state, 40_000, 30_000, 300_000);
 
     expect(result).toBe('auto-resume');
     expect(state.appState.isPaused).toBe(false);
@@ -163,17 +163,94 @@ describe('applyStartupResumePolicy', () => {
   test('does not treat paused, stopped, or recent heartbeat states as stale startup resumes', () => {
     const paused = makePolicyState();
     paused.appState.isPaused = true;
-    expect(applyStartupResumePolicy(paused, 40_000, 30_000)).toBe('not-stale');
+    expect(applyStartupResumePolicy(paused, 40_000, 30_000, 300_000)).toBe('not-stale');
     expect(paused.appState.isPaused).toBe(true);
 
     const stopped = makePolicyState();
     stopped.appState.isRunning = false;
-    expect(applyStartupResumePolicy(stopped, 40_000, 30_000)).toBe('not-stale');
+    expect(applyStartupResumePolicy(stopped, 40_000, 30_000, 300_000)).toBe('not-stale');
     expect(stopped.appState.isRunning).toBe(false);
 
     const recent = makePolicyState();
     recent.lastHeartbeatAt = 35_000;
-    expect(applyStartupResumePolicy(recent, 40_000, 30_000)).toBe('not-stale');
+    expect(applyStartupResumePolicy(recent, 40_000, 30_000, 300_000)).toBe('not-stale');
     expect(recent.appState.isPaused).toBe(false);
+  });
+
+  describe('resume-recovery', () => {
+    function makeNoStreamersState() {
+      return {
+        appState: {
+          ...createInitialState(),
+          selectedGame: { id: 'game-1', name: 'Game', imageUrl: '' },
+          isRunning: true,
+          isPaused: false,
+          tabId: null,
+          activeStreamer: null,
+          queue: [{ id: 'game-2', name: 'Next Game', imageUrl: '' }],
+          recoveryReason: 'no-streamers' as const,
+          recoveryBackoffUntil: 90_000,
+          recoveryAttempts: 1,
+        },
+        lastHeartbeatAt: 1_000,
+        recoveryBackoffUntil: 90_000,
+        lastRecoveryAttemptAt: 80_000,
+        stalledRecoveryAttempts: 0,
+        recoveryNotificationSent: false,
+      };
+    }
+
+    test('returns resume-recovery within grace and preserves all recovery state', () => {
+      const state = makeNoStreamersState();
+      const result = applyStartupResumePolicy(state, 40_000, 30_000, 300_000);
+
+      expect(result).toBe('resume-recovery');
+      expect(state.appState.isPaused).toBe(false);
+      expect(state.appState.recoveryReason).toBe('no-streamers');
+      expect(state.appState.recoveryAttempts).toBe(1);
+      expect(state.recoveryBackoffUntil).toBe(90_000);
+    });
+
+    test('falls through to paused-on-startup when gap exceeds grace (auto-resume off)', () => {
+      const state = makeNoStreamersState();
+      // Gap 400s > 300s grace
+      const result = applyStartupResumePolicy(state, 401_000, 30_000, 300_000);
+
+      expect(result).toBe('paused-on-startup');
+      expect(state.appState.isPaused).toBe(true);
+      expect(state.appState.recoveryReason).toBeNull();
+    });
+
+    test('falls through to auto-resume when gap exceeds grace (auto-resume on)', () => {
+      const state = makeNoStreamersState();
+      state.appState.autoResumeOnStartup = true;
+      const result = applyStartupResumePolicy(state, 401_000, 30_000, 300_000);
+
+      expect(result).toBe('auto-resume');
+    });
+
+    test('resume-recovery takes precedence over auto-resume within grace', () => {
+      const state = makeNoStreamersState();
+      state.appState.autoResumeOnStartup = true;
+      const result = applyStartupResumePolicy(state, 40_000, 30_000, 300_000);
+
+      expect(result).toBe('resume-recovery');
+    });
+
+    test('offline and open-failed within grace return resume-recovery', () => {
+      for (const reason of ['offline', 'open-failed'] as const) {
+        const state = makeNoStreamersState();
+        state.appState.recoveryReason = reason;
+        expect(applyStartupResumePolicy(state, 40_000, 30_000, 300_000)).toBe('resume-recovery');
+      }
+    });
+
+    test('stalled-progress within grace still pauses (has a tab; excluded from no-tab set)', () => {
+      const state = makeNoStreamersState();
+      state.appState.recoveryReason = 'stalled-progress';
+      const result = applyStartupResumePolicy(state, 40_000, 30_000, 300_000);
+
+      expect(result).toBe('paused-on-startup');
+    });
   });
 });
