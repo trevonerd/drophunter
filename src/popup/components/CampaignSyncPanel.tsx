@@ -23,7 +23,6 @@ export function CampaignSyncPanel({
   }
 
   const isSyncing = status === 'syncing';
-  const isEmpty = status === 'empty';
   const panelTone =
     status === 'failed'
       ? 'border-red-500/35 bg-red-500/10'
@@ -54,20 +53,20 @@ export function CampaignSyncPanel({
       : status === 'empty' && !lastUpdated
         ? 'Not synced yet'
         : formatLastUpdated(lastUpdated);
-  const buttonLabel = isEmpty ? 'Go to Drops' : 'Open Twitch Drops';
+  const buttonLabel = 'Open Twitch Drops';
 
   return (
     <section
-      className={`glass rounded-lg p-3 border ${panelTone}`}
+      className={`dh-contain rounded-lg p-3 border ${panelTone}`}
       aria-live="polite"
       aria-busy={isSyncing}
       aria-label="Campaign sync status"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-white">{title}</p>
-          <p className="mt-1 text-xs text-gray-300">{description}</p>
-          <p className="mt-1 text-[11px] text-gray-500 break-words">{detail}</p>
+          <p className="dh-title text-xs">{title}</p>
+          <p className="mt-1 text-xs text-[color:var(--dh-text-soft)]">{description}</p>
+          <p className="dh-faint mt-1 break-words text-[11px]">{detail}</p>
         </div>
         {isSyncing || status === 'stale' ? (
           <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent shrink-0 mt-0.5" />
@@ -75,7 +74,7 @@ export function CampaignSyncPanel({
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-twitch-purple/80 hover:bg-twitch-purple px-3 py-1.5 text-xs font-semibold text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+            className="dh-focus inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg bg-twitch-purple/80 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-twitch-purple"
           >
             <DropsIcon size={14} />
             {buttonLabel}
