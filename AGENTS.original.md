@@ -13,6 +13,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - `src/background/service-worker.ts` wires controllers, runtime messages, alarms, lifecycle, tab orchestration, Twitch API calls, cache refresh, and persistence. Farming session behavior should go through `src/background/farming-session.ts`.
 - Extracted background modules take `ServiceWorkerState` and mutate that passed state object. Prefer adding behavior to focused modules before growing `service-worker.ts`.
 - `src/background/farming-session.ts` owns the farming session interface: start/stop/pause/resume, monitoring ticks, streamer acquisition, queue advancement, and recovery orchestration.
+- `src/background/drops-projection.ts` owns Drops snapshot projection: campaign-aware drop matching, game completion annotation, selected-game drop splitting, monotonic progress preservation, and progress-recovery proof.
 - `src/background/runtime-state.ts` owns `ServiceWorkerState`, `createServiceWorkerState()`, timing normalization, crash/startup resume policy, and rotation metadata clearing.
 - `src/background/state-persistence.ts` is the storage boundary for `appState`, drops snapshot cache, timing state, activity timestamps, badge updates, and state broadcasts.
 - `src/background/queue-management.ts` owns queue algorithms, stream health/recovery helpers, campaign completion checks, and queue advancement implementation used by the farming session.
