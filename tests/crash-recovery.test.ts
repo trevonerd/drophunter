@@ -7,7 +7,7 @@ import {
   setTimingSaveDebounceMsForTests,
   clearPendingTimingStateSaveForTests,
 } from '../src/background/state-persistence.ts';
-import { splitDropsForSelectedGame } from '../src/background/drop-processing.ts';
+import { splitDropsForSelectedGame } from '../src/background/drops-projection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import { CRASH_DETECTION_THRESHOLD_MS, TIMING_SAVE_DEBOUNCE_MS } from '../src/background/constants.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';

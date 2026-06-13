@@ -2,7 +2,7 @@ import { browser } from '../shared/browser-api.ts';
 import { getGameDisplayLabel } from '../shared/game-selection.ts';
 import type { AppState, ClaimLogEntry, TwitchDrop, TwitchGame } from '../types/index.ts';
 import { CLAIM_LOG_KEY } from './constants.ts';
-import { dropStateKey } from './drop-processing.ts';
+import { dropStateKey } from './drops-projection.ts';
 import { logDebug, logWarn } from './logging.ts';
 
 export const CLAIM_LOG_MAX_ENTRIES = 5000;

@@ -9,9 +9,9 @@ import {
   completedDropKeys,
   dropMatchesSelectedGame as dropMatchesSelectedGameExt,
   dropStateKey,
+  projectDropsSnapshot as projectDropsSnapshotExt,
   splitDropsForSelectedGame as splitDropsForSelectedGameExt,
-  updateStateFromSnapshot as updateStateFromSnapshotExt,
-} from './drop-processing.ts';
+} from './drops-projection.ts';
 import { logDebug, logWarn } from './logging';
 import {
   acquireStreamerForSelectedGame as acquireStreamerForSelectedGameExt,
@@ -164,7 +164,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
       {
         replaceAvailableGames,
         getGameDisplayLabel,
-        updateStateFromSnapshot: updateStateFromSnapshotExt,
+        projectDropsSnapshot: projectDropsSnapshotExt,
         normalizeQueueSelection: normalizeQueueSelectionExt,
       },
     );

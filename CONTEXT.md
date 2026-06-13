@@ -15,3 +15,7 @@ _Avoid_: Monitor loop, queue runner, farming service
 **Managed farming tab**:
 The browser tab DropHunter owns for watching the current farming session stream.
 _Avoid_: Stream tab, player tab
+
+**Drops snapshot projection**:
+The state projection that turns Twitch campaign, inventory, hidden refresh, or cached Drops snapshots into DropHunter's campaign-aware app state.
+_Avoid_: Drop processing, drops mapper
