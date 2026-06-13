@@ -94,13 +94,13 @@ export function MainView({
       />
 
       {state.resumedFromCrash != null && (
-        <div className="px-3 py-1.5 bg-yellow-500/20 border-b border-yellow-500/30 text-yellow-200 text-[11px] font-medium flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 border-b border-yellow-500/30 bg-yellow-500/20 px-3 py-1.5 text-[11px] font-medium text-yellow-200">
           <span>⚡</span>
-          <span>Resumed after unexpected shutdown — re-syncing…</span>
+          <span>Resumed after unexpected shutdown, re-syncing…</span>
         </div>
       )}
 
-      <div className="px-3 py-2.5 space-y-2.5">
+      <div className="dh-page">
         <CampaignSyncPanel
           status={campaignSyncStatus}
           error={activeSyncError}
@@ -110,8 +110,8 @@ export function MainView({
         />
 
         {!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null && (
-          <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-200">
-            ✅ {firstSyncCampaignCount} campaigns loaded — select a game below and press Start
+          <div className="dh-contain rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-200">
+            ✅ {firstSyncCampaignCount} campaigns loaded. Select a campaign below and press Start.
           </div>
         )}
 
@@ -135,7 +135,7 @@ export function MainView({
         </p>
 
         {runtimeMode === 'recovering' && state.recoveryReason && (
-          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
+          <div className="dh-contain rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
             <p className="text-[11px] font-semibold text-yellow-300">
               {statusReasonLabel(state.recoveryReason)}
               {recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)
@@ -149,8 +149,8 @@ export function MainView({
         )}
 
         {runtimeMode === 'stopped-terminal' && state.lastStopMessage && (
-          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-            <p className="text-[11px] text-gray-300">{state.lastStopMessage}</p>
+          <div className="dh-panel dh-contain px-3 py-2">
+            <p className="text-[11px] text-[color:var(--dh-text-soft)]">{state.lastStopMessage}</p>
           </div>
         )}
 
@@ -186,7 +186,7 @@ export function MainView({
                   disabled={
                     (!state.selectedGame && queueGames.length === 0) || actionLoading || allDropsClaimed
                   }
-                  className={`w-full rounded-lg bg-green-600 py-2 text-sm font-semibold disabled:bg-gray-700 disabled:opacity-50 hover:bg-green-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${onboardingStep === 'start' ? 'onboarding-pulse' : ''}`}
+                  className={`dh-action-primary dh-focus w-full rounded-lg py-2 text-sm font-semibold disabled:opacity-70 ${onboardingStep === 'start' ? 'onboarding-pulse' : ''}`}
                 >
                   {actionLoading
                     ? 'Starting…'
@@ -195,7 +195,7 @@ export function MainView({
                       : 'Start Farming'}
                 </button>
                 {allDropsClaimed && (
-                  <p className="text-center text-[11px] text-gray-400 mt-1">All rewards already claimed</p>
+                  <p className="dh-copy mt-1 text-center text-[11px]">All rewards already claimed</p>
                 )}
               </>
             );
@@ -203,11 +203,13 @@ export function MainView({
 
         {/* Status line (only when running) */}
         {state.isRunning && (
-          <p className="text-xs text-gray-300">
+          <p className="text-xs text-[color:var(--dh-text-soft)]">
             {state.activeStreamer && (
               <>
-                <span className="text-white font-medium">{state.activeStreamer.displayName}</span>
-                <span className="text-gray-500">
+                <span className="font-medium text-[color:var(--dh-text)]">
+                  {state.activeStreamer.displayName}
+                </span>
+                <span className="dh-faint">
                   {' '}
                   · {state.activeStreamer.viewerCount?.toLocaleString() ?? '?'} viewers
                 </span>
@@ -215,18 +217,18 @@ export function MainView({
             )}
             {state.currentDrop && (
               <>
-                {state.activeStreamer && <span className="text-gray-500"> · </span>}
+                {state.activeStreamer && <span className="dh-faint"> · </span>}
                 <span className="text-purple-300">
                   {state.currentDrop.name} {state.currentDrop.progress}%
                 </span>
                 {(() => {
                   const eta = formatEtaMinutes(state.currentDrop.remainingMinutes);
-                  return eta ? <span className="text-gray-500"> · ETA {eta}</span> : null;
+                  return eta ? <span className="dh-faint"> · ETA {eta}</span> : null;
                 })()}
               </>
             )}
             {!state.activeStreamer && !state.currentDrop && (
-              <span className="text-gray-400">Searching for a streamer…</span>
+              <span className="dh-copy">Searching for a streamer…</span>
             )}
           </p>
         )}

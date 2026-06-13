@@ -112,15 +112,17 @@ test('popup exposes a quick audio toggle for the farming tab', () => {
 test('popup campaign selector uses improved placeholder text', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('<option value="">Select a game to start</option>');
+  expect(source).toContain('<option value="">Select a campaign to start</option>');
+  expect(source).toContain("setQueueMessage('Select a campaign to start farming.')");
   expect(source).not.toContain('<option value="">Select a campaign…</option>');
+  expect(source).not.toContain('<option value="">Select a game to start</option>');
 });
 
 test('popup renders first-sync confirmation banner with campaign count', () => {
   const source = readPopupSource();
 
   expect(source).toContain('{!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null &&');
-  expect(source).toContain('campaigns loaded — select a game below and press Start');
+  expect(source).toContain('campaigns loaded. Select a campaign below and press Start.');
   expect(source).toContain('firstSyncCampaignCount');
   expect(source).toContain('hasUnseenRefreshSuccess');
   expect(source).toContain('MARK_DROPS_REFRESH_NOTICE_SEEN');
@@ -173,7 +175,7 @@ test('popup header keeps utility icons stable instead of using progressive discl
   const source = readPopupSource();
 
   expect(source).toContain('const iconButtonClass =');
-  expect(source).toContain('inline-flex h-6 w-6 shrink-0');
+  expect(source).toContain('dh-icon-button shrink-0');
   expect(source).not.toContain('header-control-hidden');
   expect(source).not.toContain('header-control-visible');
 });

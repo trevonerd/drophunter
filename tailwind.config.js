@@ -8,12 +8,12 @@ export default {
     extend: {
       colors: {
         twitch: {
-          purple: '#9146FF',
-          'purple-dark': '#772CE8',
-          'purple-darker': '#5C16C5',
-          dark: '#18181B',
-          'dark-light': '#1F1F23',
-          'dark-lighter': '#26262C',
+          purple: 'oklch(0.66 0.24 302)',
+          'purple-dark': 'oklch(0.56 0.25 302)',
+          'purple-darker': 'oklch(0.45 0.24 302)',
+          dark: 'oklch(0.18 0.014 292)',
+          'dark-light': 'oklch(0.22 0.018 292)',
+          'dark-lighter': 'oklch(0.27 0.022 292)',
         }
       }
     },

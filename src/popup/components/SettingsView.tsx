@@ -18,6 +18,37 @@ export interface SettingsViewProps {
   onPreferredStreamerLanguageChange: (language: string) => void;
 }
 
+interface SettingRowProps {
+  title: string;
+  description: string;
+  checked: boolean;
+  ariaLabel: string;
+  onToggle: () => void;
+}
+
+function SettingRow({ title, description, checked, ariaLabel, onToggle }: SettingRowProps) {
+  return (
+    <div className="dh-panel dh-contain px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="dh-title text-xs">{title}</p>
+          <p className="dh-copy mt-1 text-[11px] leading-snug">{description}</p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          aria-label={ariaLabel}
+          onClick={onToggle}
+          className={`dh-switch shrink-0 dh-focus ${checked ? 'dh-switch--on' : ''}`}
+        >
+          <span className="dh-switch__thumb" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsView({
   state,
   onBack,
@@ -33,211 +64,100 @@ export function SettingsView({
 }: SettingsViewProps) {
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#B286FF] via-[#A970FF] to-[#8F4CFF]">
+      <div className="dh-header flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onBack}
-            className="rounded p-1 text-[#1B1030] hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B1030]/70"
+            className="dh-icon-button dh-focus text-[color:var(--dh-accent-ink)]"
             aria-label="Back to main view"
             title="Back"
           >
             <BackIcon />
           </button>
-          <h1 className="font-extrabold text-sm tracking-tight text-[#120B22]">Settings</h1>
+          <h1 className="font-extrabold text-sm text-[color:var(--dh-accent-ink)]">Settings</h1>
         </div>
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#24133D]/80">
+        <span className="dh-header-label text-[10px] font-semibold uppercase tracking-[0.14em]">
           DropHunter
         </span>
       </div>
 
-      <div className="px-4 py-3 space-y-2 bg-gradient-to-br from-[#0E0E10] via-twitch-dark to-twitch-dark-light">
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+      <div className="dh-view dh-page dh-page--wide">
+        <div className="dh-panel dh-contain px-3 py-2.5">
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-white">Statistics</p>
+            <p className="dh-title text-xs">Statistics</p>
             <button
               type="button"
               onClick={onOpenClaimLog}
               aria-label="View drop claim log"
               title="Drop claim log"
-              className="rounded p-1 text-gray-400 hover:text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+              className="dh-icon-button dh-focus text-[color:var(--dh-muted)] hover:text-[color:var(--dh-text)]"
             >
               <HistoryIcon />
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-md bg-black/20 px-2.5 py-2">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Drops claimed</p>
-              <p className="mt-0.5 text-lg font-bold text-white leading-none">{state.totalDropsClaimed}</p>
+            <div className="dh-subpanel px-2.5 py-2">
+              <p className="dh-copy text-[10px] uppercase tracking-wide">Drops claimed</p>
+              <p className="mt-0.5 text-lg font-bold text-[color:var(--dh-text)] leading-none">
+                {state.totalDropsClaimed}
+              </p>
             </div>
-            <div className="rounded-md bg-black/20 px-2.5 py-2">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Channel points claimed</p>
-              <p className="mt-0.5 text-lg font-bold text-white leading-none">
+            <div className="dh-subpanel px-2.5 py-2">
+              <p className="dh-copy text-[10px] uppercase tracking-wide">Channel points claimed</p>
+              <p className="mt-0.5 text-lg font-bold text-[color:var(--dh-text)] leading-none">
                 {state.totalChannelPointsClaimed}
               </p>
             </div>
           </div>
         </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-white">Auto-open monitor</p>
-              <p className="mt-1 text-[11px] text-gray-400">
-                Open the Drop Hunter Monitor shortly after farming starts.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={state.monitorAutoOpen}
-              aria-label="Auto-open monitor"
-              onClick={onMonitorAutoOpenToggle}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
-                state.monitorAutoOpen ? 'bg-green-500/90' : 'bg-white/15'
-              }`}
-            >
-              <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  state.monitorAutoOpen ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
+        <div className="dh-group">
+          <SettingRow
+            title="Auto-open monitor"
+            description="Open the DropHunter monitor shortly after farming starts."
+            checked={state.monitorAutoOpen}
+            ariaLabel="Auto-open monitor"
+            onToggle={onMonitorAutoOpenToggle}
+          />
+          <SettingRow
+            title="Mute farming tab"
+            description="Keep the Twitch farming tab muted."
+            checked={state.muteFarmingTab}
+            ariaLabel="Mute farming tab"
+            onToggle={onMuteFarmingTabToggle}
+          />
+          <SettingRow
+            title="Notifications"
+            description="Show desktop alerts for channel points and farming events."
+            checked={state.notificationsEnabled}
+            ariaLabel="Notifications"
+            onToggle={onNotificationsEnabledToggle}
+          />
+          <SettingRow
+            title="Auto-resume after restart"
+            description="After 30 seconds away, resume farming instead of returning paused."
+            checked={state.autoResumeOnStartup}
+            ariaLabel="Auto-resume after restart"
+            onToggle={onAutoResumeOnStartupToggle}
+          />
+          <SettingRow
+            title="Auto-claim channel points"
+            description="Claim free channel points bonuses on open Twitch channel tabs."
+            checked={state.autoClaimChannelPointsBonus}
+            ariaLabel="Auto-claim channel points"
+            onToggle={onAutoClaimChannelPointsBonusToggle}
+          />
+          <SettingRow
+            title="Auto-claim Twitch Drops"
+            description="Automatically claim completed Drops across all campaigns."
+            checked={state.autoClaimDrops}
+            ariaLabel="Auto-claim Twitch Drops"
+            onToggle={onAutoClaimDropsToggle}
+          />
         </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-white">Mute farming tab</p>
-              <p className="mt-1 text-[11px] text-gray-400">
-                Keep the Twitch tab used for farming muted. Disable this if you want to listen to the live
-                stream.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={state.muteFarmingTab}
-              aria-label="Mute farming tab"
-              onClick={onMuteFarmingTabToggle}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
-                state.muteFarmingTab ? 'bg-green-500/90' : 'bg-white/15'
-              }`}
-            >
-              <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  state.muteFarmingTab ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-white">Notifications</p>
-              <p className="mt-1 text-[11px] text-gray-400">
-                Show desktop alerts for channel points and farming events.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={state.notificationsEnabled}
-              aria-label="Notifications"
-              onClick={onNotificationsEnabledToggle}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
-                state.notificationsEnabled ? 'bg-green-500/90' : 'bg-white/15'
-              }`}
-            >
-              <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  state.notificationsEnabled ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-white">Auto-resume after restart</p>
-              <p className="mt-1 text-[11px] text-gray-400">
-                After 30 seconds away, resume farming automatically instead of returning paused.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={state.autoResumeOnStartup}
-              aria-label="Auto-resume after restart"
-              onClick={onAutoResumeOnStartupToggle}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
-                state.autoResumeOnStartup ? 'bg-green-500/90' : 'bg-white/15'
-              }`}
-            >
-              <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  state.autoResumeOnStartup ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-white">Auto-claim channel points bonus</p>
-              <p className="mt-1 text-[11px] text-gray-400">
-                Claim free bonus points on every open Twitch channel tab.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={state.autoClaimChannelPointsBonus}
-              aria-label="Auto-claim channel points bonus"
-              onClick={onAutoClaimChannelPointsBonusToggle}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
-                state.autoClaimChannelPointsBonus ? 'bg-green-500/90' : 'bg-white/15'
-              }`}
-            >
-              <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  state.autoClaimChannelPointsBonus ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-white">Auto-claim drops</p>
-              <p className="mt-1 text-[11px] text-gray-400">
-                Automatically claim completed drops across all campaigns.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={state.autoClaimDrops}
-              aria-label="Auto-claim drops"
-              onClick={onAutoClaimDropsToggle}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
-                state.autoClaimDrops ? 'bg-green-500/90' : 'bg-white/15'
-              }`}
-            >
-              <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  state.autoClaimDrops ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-          <p className="text-xs font-semibold text-white">Streamer selection</p>
-          <p className="mt-1 text-[11px] text-gray-400">
+        <div className="dh-panel dh-contain px-3 py-2.5">
+          <p className="dh-title text-xs">Streamer selection</p>
+          <p className="dh-copy mt-1 text-[11px] leading-snug">
             Prefer smaller channels, rotate randomly, or prioritize the biggest live channels.
           </p>
           <div className="mt-2 grid grid-cols-3 gap-1.5">
@@ -247,10 +167,10 @@ export function SettingsView({
                 type="button"
                 aria-pressed={state.streamerSelectionMode === option.value}
                 onClick={() => onStreamerSelectionModeChange(option.value)}
-                className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 ${
+                className={`dh-focus rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors ${
                   state.streamerSelectionMode === option.value
-                    ? 'border-purple-300/70 bg-purple-400/20 text-white'
-                    : 'border-white/10 bg-black/20 text-gray-300 hover:border-white/20 hover:text-white'
+                    ? 'border-purple-300/70 bg-purple-400/20 text-[color:var(--dh-text)]'
+                    : 'border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] text-[color:var(--dh-text-soft)] hover:border-[color:var(--dh-border-strong)] hover:text-[color:var(--dh-text)]'
                 }`}
               >
                 {option.label}
@@ -258,11 +178,11 @@ export function SettingsView({
             ))}
           </div>
         </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+        <div className="dh-panel dh-contain px-3 py-2.5">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-white">Preferred streamer language</p>
-              <p className="mt-1 text-[11px] text-gray-400">
+            <div className="min-w-0">
+              <p className="dh-title text-xs">Preferred streamer language</p>
+              <p className="dh-copy mt-1 text-[11px] leading-snug">
                 If available, prefer streamers in this language. If none are live, DropHunter falls back
                 automatically.
               </p>
@@ -271,10 +191,14 @@ export function SettingsView({
               aria-label="Preferred streamer language"
               value={state.preferredStreamerLanguage ?? ''}
               onChange={(event) => onPreferredStreamerLanguageChange(event.target.value)}
-              className="min-w-[84px] rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-[11px] font-semibold text-white outline-none transition-colors hover:border-white/20 focus-visible:ring-2 focus-visible:ring-purple-300"
+              className="dh-input min-w-[92px] shrink-0 rounded-md px-2 py-1.5 text-[11px] font-semibold"
             >
               {STREAMER_LANGUAGE_OPTIONS.map((option) => (
-                <option key={option.value || 'any'} value={option.value} className="bg-[#0E0E10] text-white">
+                <option
+                  key={option.value || 'any'}
+                  value={option.value}
+                  className="bg-twitch-dark text-[color:var(--dh-text)]"
+                >
                   {option.label}
                 </option>
               ))}
@@ -285,17 +209,17 @@ export function SettingsView({
         <div className="pt-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-purple-300/80">About</p>
         </div>
-        <p className="text-sm font-bold text-white">
+        <p className="text-sm font-bold text-[color:var(--dh-text)]">
           DropHunter{' '}
           <span className="text-purple-300 font-normal">v{browser.runtime.getManifest().version}</span>
         </p>
-        <p className="text-[11px] text-gray-400">
+        <p className="dh-copy text-[11px]">
           by{' '}
           <a
             href="https://www.marcotrevisani.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-200 cursor-pointer no-underline hover:text-white transition-colors"
+            className="cursor-pointer text-[color:var(--dh-text-soft)] no-underline transition-colors hover:text-[color:var(--dh-text)]"
           >
             Marco Trevisani
           </a>{' '}
@@ -304,7 +228,7 @@ export function SettingsView({
             href="https://github.com/trevonerd"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-200 cursor-pointer no-underline hover:text-white transition-colors"
+            className="cursor-pointer text-[color:var(--dh-text-soft)] no-underline transition-colors hover:text-[color:var(--dh-text)]"
           >
             trevonerd
           </a>
@@ -314,7 +238,7 @@ export function SettingsView({
           href="https://trevisoft.dev"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[11px] text-purple-300 font-semibold tracking-wide cursor-pointer no-underline hover:text-purple-100 transition-colors"
+          className="cursor-pointer text-[11px] font-semibold tracking-wide text-purple-300 no-underline transition-colors hover:text-purple-100"
         >
           TREVISOFT
         </a>
@@ -324,7 +248,7 @@ export function SettingsView({
             onClick={() =>
               void browser.tabs.create({ url: 'https://github.com/trevonerd/drophunter' }).catch(() => {})
             }
-            className="flex items-center gap-1.5 text-[11px] text-gray-300 hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 rounded"
+            className="dh-focus flex cursor-pointer items-center gap-1.5 rounded text-[11px] text-[color:var(--dh-text-soft)] transition-colors hover:text-[color:var(--dh-text)]"
             aria-label="Open DropHunter GitHub repository"
           >
             <GitHubIcon />
@@ -335,7 +259,7 @@ export function SettingsView({
             onClick={() =>
               void browser.tabs.create({ url: 'https://buymeacoffee.com/trevonerd' }).catch(() => {})
             }
-            className="flex items-center gap-1.5 rounded-full bg-[#FFDD00]/90 hover:bg-[#FFDD00] px-2.5 py-1 text-[11px] font-semibold text-[#1a1a1a] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+            className="dh-coffee-button dh-focus flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors"
             aria-label="Open Buy Me a Coffee"
           >
             <CoffeeIcon />
