@@ -10,11 +10,12 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Generated builds and release zips live under `.output/`; do not hand-edit generated files.
 
 ## Architecture Map
-- `src/background/service-worker.ts` wires controllers, runtime messages, alarms, lifecycle, tab orchestration, Twitch API calls, queue advancement, and persistence.
+- `src/background/service-worker.ts` wires controllers, runtime messages, alarms, lifecycle, tab orchestration, Twitch API calls, cache refresh, and persistence. Farming session behavior should go through `src/background/farming-session.ts`.
 - Extracted background modules take `ServiceWorkerState` and mutate that passed state object. Prefer adding behavior to focused modules before growing `service-worker.ts`.
+- `src/background/farming-session.ts` owns the farming session interface: start/stop/pause/resume, monitoring ticks, streamer acquisition, queue advancement, and recovery orchestration.
 - `src/background/runtime-state.ts` owns `ServiceWorkerState`, `createServiceWorkerState()`, timing normalization, crash/startup resume policy, and rotation metadata clearing.
 - `src/background/state-persistence.ts` is the storage boundary for `appState`, drops snapshot cache, timing state, activity timestamps, badge updates, and state broadcasts.
-- `src/background/queue-management.ts` owns queue/start/stop/pause/resume, stream acquisition, campaign completion, recovery, and queue advancement.
+- `src/background/queue-management.ts` owns queue algorithms, stream health/recovery helpers, campaign completion checks, and queue advancement implementation used by the farming session.
 - `src/background/drops-page-refresh.ts`, `api-operations.ts`, `session-management.ts`, and `twitch-api/` own Twitch session, inventory, campaign, integrity, and hidden refresh flows.
 - `src/content/` inspects Twitch pages and prepares playback; keep DOM parsing defensive because Twitch markup changes often.
 - `src/popup/` is user control UI; hooks own app state, settings toggles, onboarding, recovery clocks, and Drops refresh state.
