@@ -1,3 +1,4 @@
+import type { TwitchDrop } from '../../types/index.ts';
 import { normalizeText, toIsoDate } from './parsing.ts';
 
 export type ClaimedRewardAwardedAt =
@@ -167,4 +168,84 @@ export function matchClaimedReward(
     entryHasAwardedBenefit(globalClaimedRewards, benefitIds, window, allowMissingGlobalAwardedAt);
 
   return { idMatch, nameMatch, globalIdMatch };
+}
+
+export function isEarlyAwardableTwitchReward(rewardDistributionTypes?: string[]): boolean {
+  return (rewardDistributionTypes ?? []).some((type) => type === 'BADGE' || type === 'EMOTE');
+}
+
+export function hasClaimedGameEventReward(
+  benefitIds: string[],
+  gameName: string,
+  claimedRewards: ClaimedRewardLookup,
+  globalClaimedRewards: ClaimedRewardEntry,
+  window: { startsAt: string | null; endsAt: string | null },
+): boolean {
+  const gameClaimedRewards = claimedRewards.get(gameName.toLowerCase());
+  const { idMatch, nameMatch, globalIdMatch } = matchClaimedReward(
+    benefitIds,
+    [],
+    gameClaimedRewards,
+    globalClaimedRewards,
+    window,
+    true,
+    true,
+  );
+  return idMatch || nameMatch || globalIdMatch;
+}
+
+export function resolveDropClaimedStatus(
+  claimedFromInventory: boolean,
+  claimedFromGameEvents: boolean,
+  hasInventoryState: boolean,
+  isEarlyAwardable: boolean,
+): boolean {
+  if (hasInventoryState) {
+    return claimedFromInventory || (isEarlyAwardable && claimedFromGameEvents);
+  }
+  return claimedFromInventory || claimedFromGameEvents;
+}
+
+export function applyEarlyTwitchRewardClaimsToDrops(
+  drops: TwitchDrop[],
+  inventoryRaw: unknown,
+): TwitchDrop[] {
+  if (!inventoryRaw || typeof inventoryRaw !== 'object') {
+    return drops;
+  }
+
+  const claimedRewards = buildClaimedRewardLookup(inventoryRaw);
+  const globalClaimedRewards = buildGlobalClaimedRewardEntry(inventoryRaw);
+
+  return drops.map((drop) => {
+    if (drop.claimed || !isEarlyAwardableTwitchReward(drop.rewardDistributionTypes)) {
+      return drop;
+    }
+
+    const benefitIds = drop.benefitIds ?? [];
+    if (benefitIds.length === 0) {
+      return drop;
+    }
+
+    const claimedFromGameEvents = hasClaimedGameEventReward(
+      benefitIds,
+      drop.gameName,
+      claimedRewards,
+      globalClaimedRewards,
+      { startsAt: drop.startsAt ?? null, endsAt: drop.endsAt ?? null },
+    );
+
+    if (!claimedFromGameEvents) {
+      return drop;
+    }
+
+    return {
+      ...drop,
+      claimed: true,
+      claimable: false,
+      progress: 100,
+      remainingMinutes: 0,
+      status: 'completed',
+    };
+  });
 }
