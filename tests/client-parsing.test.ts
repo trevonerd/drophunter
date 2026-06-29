@@ -764,4 +764,66 @@ describe('parseCampaignDrops — inventory authoritative over game-event name ma
     expect(drops[0]?.status).not.toBe('completed');
     expect(drops[0]?.remainingMinutes).toBeGreaterThan(0);
   });
+
+  test('marks emote drops claimed from gameEventDrops when inventory still shows partial progress', () => {
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const benefit = {
+      id: 'benefit-twitch-emote',
+      name: 'Twitch Emote',
+      distributionType: 'EMOTE',
+    };
+    const inventory = {
+      dropCampaignsInProgress: [
+        {
+          id: 'campaign-twitch-emote',
+          timeBasedDrops: [
+            {
+              id: 'twitch-emote-drop',
+              requiredMinutesWatched: 60,
+              self: {
+                currentMinutesWatched: 58,
+                isClaimed: false,
+                isClaimable: false,
+              },
+            },
+          ],
+        },
+      ],
+      gameEventDrops: [
+        {
+          id: benefit.id,
+          name: benefit.name,
+          lastAwardedAt: '2026-05-19T08:00:00.000Z',
+          game: { displayName: 'IRL' },
+        },
+      ],
+    };
+    const maps = buildInventoryDropMaps(inventory);
+    const campaign = {
+      id: 'campaign-twitch-emote',
+      startAt: startsAt,
+      endAt: endsAt,
+      timeBasedDrops: [
+        {
+          id: 'twitch-emote-drop',
+          name: 'Twitch Emote',
+          startAt: startsAt,
+          endAt: endsAt,
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit }],
+          self: { currentMinutesWatched: 58, isClaimed: false, isClaimable: false },
+        },
+      ],
+    };
+    const game = { id: 'g-irl', name: 'IRL', imageUrl: '', campaignId: 'campaign-twitch-emote' };
+    const claimedRewards = buildClaimedRewardLookup(inventory);
+    const globalClaimedRewards = buildGlobalClaimedRewardEntry(inventory);
+
+    const drops = parseCampaignDrops(campaign, game as never, maps, claimedRewards, globalClaimedRewards);
+    expect(drops[0]?.claimed).toBe(true);
+    expect(drops[0]?.progress).toBe(100);
+    expect(drops[0]?.status).toBe('completed');
+    expect(drops[0]?.rewardDistributionTypes).toContain('EMOTE');
+  });
 });
