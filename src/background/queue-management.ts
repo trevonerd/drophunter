@@ -29,8 +29,10 @@ import {
   MAX_NO_STREAMERS_RETRIES,
   MAX_PERSISTENT_RECOVERY_CYCLES,
   MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+  NO_DROPS_SIGNAL_STALL_THRESHOLD_MS,
   NO_STREAMERS_RETRY_MS,
   nextNoProgressRotationAttempts,
+  OFFLINE_CONFIRMATION_CHECKS,
   STALLED_PROGRESS_RETRY_MS,
   StreamRotationReason,
 } from './stream-rotation';
@@ -255,6 +257,8 @@ export function resetStreamTrackingState(state: ServiceWorkerState) {
   state.lastTrackedMinutes = -1;
   state.lastTrackedDropKey = null;
   state.lastProgressAdvanceAt = 0;
+  state.offlineChecks = 0;
+  state.avoidStreamerName = null;
   resetNoProgressRotationAttempts(state);
   state.playbackAttentionWarningSent = false;
   clearRecoveryState(state);
@@ -816,7 +820,13 @@ export async function rotateStreamer(
   state.appState.lastRotationReason = reason;
   state.appState.lastRotationAt = Date.now();
   state.lastStreamRotationAt = Date.now();
+  // Give the next streamer a fresh stall window so it is not judged against the old timeline.
   state.lastProgressAdvanceAt = Date.now();
+  state.offlineChecks = 0;
+  // Remember the channel we are leaving so the next selection picks a different one.
+  if (state.appState.activeStreamer?.name) {
+    state.avoidStreamerName = state.appState.activeStreamer.name;
+  }
   state.appState.activeStreamer = null;
 
   let opened = false;
@@ -1008,10 +1018,16 @@ export async function rotateStreamerIfInvalid(
     farmablePending: state.appState.pendingDrops.some((d) => d.dropType !== 'event-based'),
   });
 
+  // A stream that expects but shows no Drops signal is likely the wrong channel; shorten its
+  // stall window so we abandon it sooner instead of wasting the full threshold on it.
+  const noDropsSignal = expectsDropsSignal && !hasDropsSignal;
+  const stallThreshold = noDropsSignal
+    ? Math.min(effectiveThreshold, NO_DROPS_SIGNAL_STALL_THRESHOLD_MS)
+    : effectiveThreshold;
   const progressStalled =
     state.lastProgressAdvanceAt > 0 &&
     state.appState.currentDrop != null &&
-    now - state.lastProgressAdvanceAt >= effectiveThreshold;
+    now - state.lastProgressAdvanceAt >= stallThreshold;
 
   const health = classifyStreamHealth({
     isLive: context.isLive,
@@ -1022,12 +1038,29 @@ export async function rotateStreamerIfInvalid(
     expectsDropsSignal,
   });
 
+  // A live reading clears any pending offline confirmation streak.
+  if (context.isLive) {
+    state.offlineChecks = 0;
+  }
+
   if (health.isHealthy) {
     state.invalidStreamChecks = 0;
     return;
   }
 
   if (health.forceImmediateRotation && health.reason === 'offline') {
+    // Require consecutive offline readings before reloading — a single one is usually a
+    // transient ad break or player re-render, not a real outage. Reloading then would be
+    // the "tab reloads for no reason while the drop is still advancing" bug.
+    state.offlineChecks += 1;
+    if (state.offlineChecks < OFFLINE_CONFIRMATION_CHECKS) {
+      logDebug('Offline reading not yet confirmed; keeping current streamer', {
+        offlineChecks: state.offlineChecks,
+        required: OFFLINE_CONFIRMATION_CHECKS,
+        channel: state.appState.activeStreamer?.name ?? context.channelName,
+      });
+      return;
+    }
     if (state.appState.recoveryReason === 'stalled-progress') {
       clearRecoveryState(state);
     }
@@ -1117,11 +1150,10 @@ export async function rotateStreamerIfInvalid(
     ) {
       return;
     }
-    if (state.lastRecoveryAttemptAt < state.lastProgressAdvanceAt || state.stalledRecoveryAttempts === 0) {
-      state.stalledRecoveryAttempts = Math.min(
-        MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-        Math.max(1, state.stalledRecoveryAttempts + 1),
-      );
+    if (state.stalledRecoveryAttempts === 0) {
+      // Attempt 1: in-place playback self-heal before giving up the streamer (handles a
+      // stuck player or ad without losing a good Drops channel).
+      state.stalledRecoveryAttempts = 1;
       state.lastRecoveryAttemptAt = now;
       state.recoveryBackoffUntil = now + STALLED_PROGRESS_RETRY_MS;
       applyRecoveryState(state, 'stalled-progress', state.recoveryBackoffUntil);
@@ -1141,21 +1173,36 @@ export async function rotateStreamerIfInvalid(
       }
       return;
     }
+    // Attempts 2+: self-heal did not help — rotate to a DIFFERENT streamer. The stall
+    // threshold plus the self-heal backoff already rate-limit this, so the generic rotation
+    // cooldown does not apply; advance the attempt counter only when we actually rotate.
     state.stalledRecoveryAttempts = Math.min(
       MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
       state.stalledRecoveryAttempts + 1,
     );
+    state.lastRecoveryAttemptAt = now;
+    state.recoveryBackoffUntil = 0;
+    state.invalidStreamChecks = 0;
     applyRecoveryState(state, 'stalled-progress', null);
-    logInfo('Drop progress stalled, triggering stream rotation', {
+    logInfo('Drop progress stalled, rotating to a different streamer', {
       stalledRecoveryAttempts: state.stalledRecoveryAttempts,
       maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
       progress: state.appState.currentDrop?.progress ?? null,
       currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
       requiredMinutes: state.appState.currentDrop?.requiredMinutes ?? null,
-      effectiveThresholdMs: effectiveThreshold,
+      effectiveThresholdMs: stallThreshold,
       stalledForMs: now - state.lastProgressAdvanceAt,
     });
-    state.invalidStreamChecks = INVALID_STREAM_THRESHOLD;
+    if (opts?.onRotateStreamer) {
+      await opts.onRotateStreamer(state, 'stalled-progress', {
+        onOpenStreamer: opts?.onOpenStreamer,
+        onSaveState: opts?.onSaveState,
+        onSaveTimingState: opts?.onSaveTimingState,
+        onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
+        onSkipCurrentGame: opts?.onSkipCurrentGame,
+      });
+    }
+    return;
   } else {
     state.invalidStreamChecks += health.invalidIncrement;
   }
@@ -1460,6 +1507,23 @@ export async function openBestStreamerForSelectedGame(
       allowedChannels: allowed.length,
       totalStreamers: totalStreamersForNoAllowedWarning,
     });
+  }
+  // Skip the channel we just rotated away from, so a rotation actually changes streamer
+  // instead of re-opening the same failing one. Never empty the pool over it.
+  const avoidName = state.avoidStreamerName;
+  state.avoidStreamerName = null;
+  if (avoidName) {
+    const withoutAvoided = candidates.filter(
+      (candidate) => candidate.name.toLowerCase() !== avoidName.toLowerCase(),
+    );
+    if (withoutAvoided.length > 0 && withoutAvoided.length < candidates.length) {
+      logDebug('Excluding previously failing streamer from selection', {
+        avoid: avoidName,
+        before: candidates.length,
+        after: withoutAvoided.length,
+      });
+      candidates = withoutAvoided;
+    }
   }
   const selection = deps.pickStreamerForPreferences(
     candidates,
