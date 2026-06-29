@@ -36,6 +36,9 @@ export interface TwitchDrop {
   remainingMinutes?: number | null;
   progressSource?: DropProgressSource;
   dropType?: DropType;
+  benefitIds?: string[];
+  rewardDistributionTypes?: string[];
+  startsAt?: string | null;
 }
 
 export interface TwitchStreamer {

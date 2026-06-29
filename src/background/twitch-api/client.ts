@@ -2,12 +2,15 @@ import { toSlug } from '../../shared/utils';
 import { DropStatus, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../../types';
 import { logDebug, logVerboseWarn, logWarn } from '../logging';
 import {
+  applyEarlyTwitchRewardClaimsToDrops,
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
   buildGlobalClaimedRewardEntry,
   ClaimedRewardEntry,
   ClaimedRewardLookup,
+  isEarlyAwardableTwitchReward,
   matchClaimedReward,
+  resolveDropClaimedStatus,
 } from './claimed-rewards';
 import { TwitchGqlTransport } from './gql';
 import {
@@ -79,6 +82,7 @@ const CLAIM_DROP_REWARD_QUERY = {
 
 export type { ClaimedRewardEntry, ClaimedRewardLookup };
 export {
+  applyEarlyTwitchRewardClaimsToDrops,
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
   buildGlobalClaimedRewardEntry,
@@ -86,9 +90,11 @@ export {
   extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
+  isEarlyAwardableTwitchReward,
   matchClaimedReward,
   normalizeImageUrl,
   normalizeText,
+  resolveDropClaimedStatus,
   toIsoDate,
   toNumber,
 };
@@ -422,6 +428,7 @@ export function parseCampaignDrops(
       0;
     const benefitNames = extractBenefitNames(drop);
     const benefitIds = extractBenefitIds(drop);
+    const rewardDistributionTypes = extractBenefitDistributionTypes(drop);
     const dropStartsAt = toIsoDate(drop.startAt) ?? campaignStartsAt;
     const dropEndsAt = toIsoDate(drop.endAt) ?? campaignEndsAt;
     const allowMissingGlobalAwardedAt = isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign);
@@ -436,9 +443,13 @@ export function parseCampaignDrops(
     );
     const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
     const claimedFromInventory = inventoryState?.claimed ?? Boolean(self.isClaimed ?? drop.isClaimed);
-    // Inventory state is authoritative when present: don't let a same-named benefit
-    // claimed in a sibling campaign mark this drop as done.
-    const claimed = inventoryState ? claimedFromInventory : claimedFromInventory || claimedFromGameEvents;
+    const isEarlyAwardable = isEarlyAwardableTwitchReward(rewardDistributionTypes);
+    const claimed = resolveDropClaimedStatus(
+      claimedFromInventory,
+      claimedFromGameEvents,
+      inventoryState != null,
+      isEarlyAwardable,
+    );
     const claimableFromApi =
       !claimed && (inventoryState?.claimable ?? Boolean(self.isClaimable ?? self.canClaim));
     const earnedFromProgress = Boolean(
@@ -481,12 +492,15 @@ export function parseCampaignDrops(
       claimed,
       claimable,
       campaignId: campaignId || undefined,
+      startsAt: dropStartsAt,
       endsAt,
       expiresInMs: computeExpiry(endsAt).expiresInMs,
       status: normalizeDropStatus(progress, claimed, claimable),
       requiredMinutes,
       remainingMinutes,
       progressSource: 'campaign',
+      benefitIds,
+      rewardDistributionTypes,
       ...(!isFarmable && { dropType: 'event-based' as const }),
     } satisfies TwitchDrop;
   });
@@ -512,6 +526,7 @@ function parseEventBasedDrops(
     const parsedDropId = normalizeText(drop.id);
     const benefitNames = extractBenefitNames(drop);
     const benefitIds = extractBenefitIds(drop);
+    const rewardDistributionTypes = extractBenefitDistributionTypes(drop);
     const dropStartsAt = toIsoDate(drop.startAt) ?? campaignStartsAt;
     const dropEndsAt = toIsoDate(drop.endAt) ?? campaignEndsAt;
     const allowMissingGlobalAwardedAt = isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign);
@@ -543,12 +558,15 @@ function parseEventBasedDrops(
       claimed,
       claimable: false,
       campaignId: campaignId || undefined,
+      startsAt: dropStartsAt,
       endsAt,
       expiresInMs: computeExpiry(endsAt).expiresInMs,
       status: normalizeDropStatus(progress, claimed, false),
       requiredMinutes: null,
       remainingMinutes: null,
       progressSource: 'campaign',
+      benefitIds,
+      rewardDistributionTypes,
       dropType: 'event-based',
     } satisfies TwitchDrop;
   });
@@ -781,7 +799,10 @@ export class TwitchApiClient {
       logVerboseWarn('[DropHunter] Expected dropCampaignsInProgress field in inventory response');
     }
 
-    const drops = applyInventoryToDrops(baseDrops, inventoryRaw);
+    const drops = applyEarlyTwitchRewardClaimsToDrops(
+      applyInventoryToDrops(baseDrops, inventoryRaw),
+      inventoryRaw,
+    );
     return {
       games: [],
       drops,
