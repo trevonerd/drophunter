@@ -273,3 +273,85 @@ describe('playback prep policy', () => {
     expect(isExpectedTwitchPlaybackInterruption(new Error('boom'))).toBe(false);
   });
 });
+
+// Mirrors the decision branches of detectStreamLiveStatus in src/content/content-script.ts.
+// The content script reads the live DOM and is not importable under bun test, so the
+// branching logic is kept in sync here by hand to guard the offline-detection contract.
+function decideLiveStatus(input: {
+  hasLiveIndicator: boolean;
+  hasPlayerScope: boolean;
+  contentGateText: string | null;
+  playerText: string | null;
+}): boolean {
+  if (input.hasLiveIndicator) {
+    return true;
+  }
+  if (input.contentGateText && normalizeForCompare(input.contentGateText).includes('offline')) {
+    return false;
+  }
+  if (input.hasPlayerScope && input.playerText) {
+    const text = normalizeForCompare(input.playerText);
+    if (text.includes('this channel is offline') || text.includes('channel is offline')) {
+      return false;
+    }
+  }
+  return true;
+}
+
+describe('detectStreamLiveStatus decision logic', () => {
+  test('a live viewer-count indicator means live regardless of stray offline text', () => {
+    expect(
+      decideLiveStatus({
+        hasLiveIndicator: true,
+        hasPlayerScope: true,
+        contentGateText: null,
+        playerText: 'this channel is offline somewhere in recommendations',
+      }),
+    ).toBe(true);
+  });
+
+  test('an offline content-gate overlay inside the player means offline', () => {
+    expect(
+      decideLiveStatus({
+        hasLiveIndicator: false,
+        hasPlayerScope: true,
+        contentGateText: 'Channel is offline',
+        playerText: '',
+      }),
+    ).toBe(false);
+  });
+
+  test('offline text in the player scope means offline', () => {
+    expect(
+      decideLiveStatus({
+        hasLiveIndicator: false,
+        hasPlayerScope: true,
+        contentGateText: null,
+        playerText: 'This channel is offline. Check out these channels instead.',
+      }),
+    ).toBe(false);
+  });
+
+  test('no decisive signal (mid-ad / player re-render) stays live instead of reloading', () => {
+    expect(
+      decideLiveStatus({
+        hasLiveIndicator: false,
+        hasPlayerScope: true,
+        contentGateText: null,
+        playerText: 'Loading…',
+      }),
+    ).toBe(true);
+  });
+
+  test('offline text outside the player scope never flags the watched stream as offline', () => {
+    // Sidebar/chat content is not part of the player scope, so it must be ignored.
+    expect(
+      decideLiveStatus({
+        hasLiveIndicator: false,
+        hasPlayerScope: false,
+        contentGateText: null,
+        playerText: 'this channel is offline (sidebar recommendation)',
+      }),
+    ).toBe(true);
+  });
+});

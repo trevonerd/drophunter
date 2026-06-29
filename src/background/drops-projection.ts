@@ -164,6 +164,8 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
   if (recoveryProof) {
     state.lastProgressAdvanceAt = Date.now();
     state.noProgressRotationAttempts = 0;
+    state.offlineChecks = 0;
+    state.avoidStreamerName = null;
     state.recoveryBackoffUntil = 0;
     state.lastRecoveryAttemptAt = 0;
     state.stalledRecoveryAttempts = 0;
@@ -176,6 +178,8 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
   if (minuteAdvance) {
     state.lastProgressAdvanceAt = Date.now();
     state.noProgressRotationAttempts = 0;
+    state.offlineChecks = 0;
+    state.avoidStreamerName = null;
     state.recoveryBackoffUntil = 0;
     state.lastRecoveryAttemptAt = 0;
     state.stalledRecoveryAttempts = 0;
