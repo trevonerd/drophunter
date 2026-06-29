@@ -227,6 +227,10 @@ export interface ServiceWorkerState {
   lastTrackedDropKey: string | null;
   lastProgressAdvanceAt: number;
   noProgressRotationAttempts: number;
+  // Consecutive offline readings for the active stream; confirms a real outage before rotating.
+  offlineChecks: number;
+  // Channel to skip on the next streamer selection (the one we are rotating away from).
+  avoidStreamerName: string | null;
   playbackAttentionWarningSent: boolean;
   gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null;
   twitchSessionCache: TwitchSession | null;
@@ -263,6 +267,8 @@ export function createServiceWorkerState(): ServiceWorkerState {
     lastTrackedDropKey: null,
     lastProgressAdvanceAt: 0,
     noProgressRotationAttempts: 0,
+    offlineChecks: 0,
+    avoidStreamerName: null,
     playbackAttentionWarningSent: false,
     gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,

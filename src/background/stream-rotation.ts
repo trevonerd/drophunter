@@ -9,6 +9,12 @@ export const MAX_NO_STREAMERS_RETRIES = 1;
 
 export const PROGRESS_STALL_THRESHOLD_MS = 5 * 60_000;
 export const MAX_PROGRESS_STALL_THRESHOLD_MS = 20 * 60_000;
+// When the watched stream shows no Drops signal, treat a non-advancing drop as stalled
+// sooner — we are more confident it is the wrong channel and should rotate away faster.
+export const NO_DROPS_SIGNAL_STALL_THRESHOLD_MS = 3 * 60_000;
+// Number of consecutive "offline" readings required before forcing an immediate rotation.
+// A single reading can be a transient ad break or player re-render, not a real outage.
+export const OFFLINE_CONFIRMATION_CHECKS = 2;
 
 export type StreamRotationReason =
   | 'missing-context'

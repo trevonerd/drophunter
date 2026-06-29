@@ -131,15 +131,40 @@ function hasDropsInStreamScope(streamTitle: string): boolean {
   );
 }
 
+function findPlayerScope(): Element | null {
+  return document.querySelector(
+    '.persistent-player, [data-a-target="video-player"], .video-player, [data-a-player-state]',
+  );
+}
+
 function detectStreamLiveStatus(): boolean {
-  const hasVideo = document.querySelector('video') !== null;
-  if (!hasVideo) {
+  // Strong positive: Twitch renders a live viewer count / uptime only while the channel is live.
+  if (document.querySelector('[data-a-target="animated-channel-viewers-count"], .live-time')) {
+    return true;
+  }
+
+  const playerScope = findPlayerScope();
+
+  // Explicit offline content-gate overlay inside the player.
+  const contentGate = (playerScope ?? document).querySelector(
+    '[data-a-target^="player-overlay-content-gate"]',
+  );
+  if (contentGate && normalizeForCompare(contentGate.textContent ?? '').includes('offline')) {
     return false;
   }
-  const pageText = normalizeForCompare(document.body?.textContent ?? '');
-  if (pageText.includes('this channel is offline') || pageText.includes('channel is offline')) {
-    return false;
+
+  // Offline text, scoped to the player only — never the whole page. A "channel is offline"
+  // string in the sidebar recommendations or chat must not flag the watched stream as down.
+  if (playerScope) {
+    const playerText = normalizeForCompare(playerScope.textContent ?? '');
+    if (playerText.includes('this channel is offline') || playerText.includes('channel is offline')) {
+      return false;
+    }
   }
+
+  // No decisive offline signal (mid-ad, player re-init, transient DOM shift): assume still
+  // live and let the background's offline confirmation + stall detection decide, instead of
+  // reloading the tab on a single ambiguous reading.
   return true;
 }
 

@@ -27,7 +27,10 @@ import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchGame, TwitchDrop } from '../src/types/index.ts';
 import type { StreamRotationReason } from '../src/background/stream-rotation.ts';
-import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from '../src/background/stream-rotation.ts';
+import {
+  MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+  OFFLINE_CONFIRMATION_CHECKS,
+} from '../src/background/stream-rotation.ts';
 
 function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
@@ -41,6 +44,8 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastTrackedDropKey: null,
     lastProgressAdvanceAt: 0,
     noProgressRotationAttempts: 0,
+    offlineChecks: 0,
+    avoidStreamerName: null,
     playbackAttentionWarningSent: false,
     gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,
@@ -1444,6 +1449,17 @@ describe('rotateStreamer', () => {
     expect(state.noProgressRotationAttempts).toBe(1);
   });
 
+  test('records the current channel as the one to avoid on the next selection', async () => {
+    const state = createMinimalState();
+    state.appState.activeStreamer = { id: 'alpha', name: 'alpha', displayName: 'Alpha', isLive: true };
+
+    await rotateStreamer(state, 'stalled-progress', { onOpenStreamer: async () => true });
+
+    expect(state.avoidStreamerName).toBe('alpha');
+    expect(state.appState.activeStreamer).toBeNull();
+    expect(state.offlineChecks).toBe(0);
+  });
+
   test('does not increment noProgressRotationAttempts for open-failed reason', async () => {
     const state = createMinimalState({ noProgressRotationAttempts: 0 });
     await rotateStreamer(state, 'open-failed', {});
@@ -2155,6 +2171,81 @@ describe('openBestStreamerForSelectedGame', () => {
     expect(state.appState.tabId).toBe(123);
     expect(state.appState.activeStreamer).toBeNull();
   });
+
+  test('excludes the channel we just rotated away from so rotation changes streamer', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.avoidStreamerName = 'alpha';
+
+    const streamers = [createStreamer({ id: 'alpha', name: 'alpha' }), createStreamer({ id: 'beta', name: 'beta' })];
+    let seenCandidates: string[] = [];
+
+    const opened = await openBestStreamerForSelectedGame(
+      state,
+      {
+        onFetchDirectoryStreamersFromApi: async () =>
+          Object.assign([...streamers], { languageFilterApplied: false }) as never,
+        onOpenForegroundChannel: async () => undefined,
+      },
+      {
+        dropMatchesSelectedGame: () => false,
+        isDropCompleted: () => false,
+        getGameDisplayLabel: (item) => item.name,
+        resolveCategorySlug: async () => 'test-game',
+        pickStreamerForPreferences: (candidates) => {
+          seenCandidates = candidates.map((item) => item.name);
+          return {
+            streamer: candidates[0] ?? null,
+            activePoolSize: candidates.length,
+            preferredLanguageApplied: false,
+            preferredLanguageMatches: 0,
+          };
+        },
+        normalizePreferredStreamerLanguage: () => null,
+      },
+    );
+
+    expect(opened).toBe(true);
+    expect(seenCandidates).toEqual(['beta']);
+    expect(state.avoidStreamerName).toBeNull();
+  });
+
+  test('keeps the avoided channel when it is the only live candidate', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.avoidStreamerName = 'alpha';
+
+    const streamers = [createStreamer({ id: 'alpha', name: 'alpha' })];
+    let seenCandidates: string[] = [];
+
+    const opened = await openBestStreamerForSelectedGame(
+      state,
+      {
+        onFetchDirectoryStreamersFromApi: async () =>
+          Object.assign([...streamers], { languageFilterApplied: false }) as never,
+        onOpenForegroundChannel: async () => undefined,
+      },
+      {
+        dropMatchesSelectedGame: () => false,
+        isDropCompleted: () => false,
+        getGameDisplayLabel: (item) => item.name,
+        resolveCategorySlug: async () => 'test-game',
+        pickStreamerForPreferences: (candidates) => {
+          seenCandidates = candidates.map((item) => item.name);
+          return {
+            streamer: candidates[0] ?? null,
+            activePoolSize: candidates.length,
+            preferredLanguageApplied: false,
+            preferredLanguageMatches: 0,
+          };
+        },
+        normalizePreferredStreamerLanguage: () => null,
+      },
+    );
+
+    expect(opened).toBe(true);
+    expect(seenCandidates).toEqual(['alpha']);
+  });
 });
 
 describe('refreshDropsData light refresh', () => {
@@ -2549,7 +2640,7 @@ describe('rotateStreamerIfInvalid', () => {
     expect(state.invalidStreamChecks).toBe(0);
   });
 
-  test('rotates immediately when stream is offline', async () => {
+  test('rotates only after consecutive offline readings are confirmed', async () => {
     const state = createMinimalState();
     state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     state.appState.tabId = 123;
@@ -2558,25 +2649,76 @@ describe('rotateStreamerIfInvalid', () => {
 
     mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
+    const offlineContext = {
+      channelName: 'streamer',
+      categorySlug: 'test-game',
+      categoryLabel: 'Test Game',
+      streamTitle: 'Stream Title',
+      titleContainsDrops: true,
+      hasDropsSignal: true,
+      isLive: false,
+      pageUrl: 'https://twitch.tv/streamer',
+    };
+
     let rotateReason: StreamRotationReason | null = null;
-    await rotateStreamerIfInvalid(state, {
-      onFetchStreamContext: async () => ({
-        channelName: 'streamer',
-        categorySlug: 'test-game',
-        categoryLabel: 'Test Game',
-        streamTitle: 'Stream Title',
-        titleContainsDrops: true,
-        hasDropsSignal: true,
-        isLive: false,
-        pageUrl: 'https://twitch.tv/streamer',
-      }),
+    const opts = {
+      onFetchStreamContext: async () => offlineContext,
       onResolveCategorySlug: async () => 'test-game',
       onRotateStreamer: async (_, reason) => {
         rotateReason = reason;
       },
-    });
+    };
 
+    // First offline reading is not enough — a single one is usually a transient ad break.
+    await rotateStreamerIfInvalid(state, opts);
+    expect(rotateReason).toBeNull();
+    expect(state.offlineChecks).toBe(1);
+
+    // Second consecutive offline reading confirms the outage and rotates.
+    await rotateStreamerIfInvalid(state, opts);
     expect(rotateReason).toBe('offline');
+  });
+
+  test('a single offline reading does not rotate while a live reading resets the streak', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop();
+    state.lastProgressAdvanceAt = Date.now();
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    const baseContext = {
+      channelName: 'streamer',
+      categorySlug: 'test-game',
+      categoryLabel: 'Test Game',
+      streamTitle: 'Stream Title',
+      titleContainsDrops: true,
+      hasDropsSignal: true,
+      pageUrl: 'https://twitch.tv/streamer',
+    };
+
+    let isLive = false;
+    let rotateReason: StreamRotationReason | null = null;
+    const opts = {
+      onFetchStreamContext: async () => ({ ...baseContext, isLive }),
+      onResolveCategorySlug: async () => 'test-game',
+      onRotateStreamer: async (_, reason) => {
+        rotateReason = reason;
+      },
+    };
+
+    await rotateStreamerIfInvalid(state, opts); // offline #1 -> defer
+    expect(state.offlineChecks).toBe(1);
+
+    isLive = true;
+    await rotateStreamerIfInvalid(state, opts); // live -> reset streak
+    expect(state.offlineChecks).toBe(0);
+
+    isLive = false;
+    await rotateStreamerIfInvalid(state, opts); // offline #1 again -> defer, no rotation
+    expect(rotateReason).toBeNull();
+    expect(state.offlineChecks).toBe(1);
   });
 
   test('enters recovery mode when progress is stalled', async () => {
@@ -2687,6 +2829,45 @@ describe('rotateStreamerIfInvalid', () => {
     expect(state.appState.recoveryAttempts).toBe(3);
   });
 
+  test('rotates on the second stall even when a rotation happened within the cooldown window', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 60 });
+    state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
+    // Self-heal already happened once, and a recent rotation would block the generic cooldown.
+    state.stalledRecoveryAttempts = 1;
+    state.lastStreamRotationAt = Date.now();
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let rotateReason: StreamRotationReason | null = null;
+    let selfHealCalled = false;
+    await rotateStreamerIfInvalid(state, {
+      onFetchStreamContext: async () => ({
+        channelName: 'streamer',
+        categorySlug: 'test-game',
+        categoryLabel: 'Test Game',
+        streamTitle: 'Stream Title',
+        titleContainsDrops: true,
+        hasDropsSignal: true,
+        isLive: true,
+        pageUrl: 'https://twitch.tv/streamer',
+      }),
+      onResolveCategorySlug: async () => 'test-game',
+      onAttemptPlaybackSelfHeal: async () => {
+        selfHealCalled = true;
+      },
+      onRotateStreamer: async (_, reason) => {
+        rotateReason = reason;
+      },
+    });
+
+    expect(selfHealCalled).toBe(false);
+    expect(rotateReason).toBe('stalled-progress');
+    expect(state.stalledRecoveryAttempts).toBe(2);
+  });
+
   test('skips current game when stalled progress reaches the human attempt cap', async () => {
     const state = createMinimalState();
     state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
@@ -2794,6 +2975,8 @@ describe('rotateStreamerIfInvalid', () => {
     state.appState.recoveryReason = 'stalled-progress';
     state.stalledRecoveryAttempts = 2;
     state.lastProgressAdvanceAt = Date.now();
+    // One prior offline reading already on record so this one confirms the outage.
+    state.offlineChecks = OFFLINE_CONFIRMATION_CHECKS - 1;
 
     mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
