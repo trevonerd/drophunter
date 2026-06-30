@@ -30,6 +30,7 @@ export const RUNTIME_MESSAGE_TYPES = [
   'SET_PREFERRED_STREAMER_LANGUAGE',
   'ADD_TO_QUEUE',
   'REMOVE_FROM_QUEUE',
+  'REORDER_QUEUE',
   'CLEAR_QUEUE',
   'START_FARMING',
   'SET_SELECTED_GAME',
@@ -76,6 +77,7 @@ export type RuntimeRequest =
   | { type: 'SET_PREFERRED_STREAMER_LANGUAGE'; payload?: { language?: string | null } }
   | { type: 'ADD_TO_QUEUE'; payload: { game?: TwitchGame } }
   | { type: 'REMOVE_FROM_QUEUE'; payload: { game?: TwitchGame; gameId?: string; campaignId?: string } }
+  | { type: 'REORDER_QUEUE'; payload: { fromIndex: number; toIndex: number } }
   | { type: 'CLEAR_QUEUE' }
   | { type: 'START_FARMING'; payload: { game?: TwitchGame } }
   | { type: 'SET_SELECTED_GAME'; payload: { game: TwitchGame } }
@@ -133,6 +135,7 @@ export type RuntimeResponseByType = {
   };
   ADD_TO_QUEUE: { success: boolean; added?: boolean; reason?: string; error?: string };
   REMOVE_FROM_QUEUE: { success: boolean; removed?: boolean; error?: string };
+  REORDER_QUEUE: { success: boolean; reordered?: boolean; error?: string };
   CLEAR_QUEUE: { success: boolean; error?: string };
   START_FARMING: { success: boolean; error?: string };
   SET_SELECTED_GAME: { success: boolean; selectedGame?: TwitchGame | null; error?: string };
@@ -235,6 +238,15 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
         (payload.game === undefined || isTwitchGameLike(payload.game)) &&
         (payload.gameId === undefined || typeof payload.gameId === 'string') &&
         (payload.campaignId === undefined || typeof payload.campaignId === 'string')
+      );
+    case 'REORDER_QUEUE':
+      return (
+        isRecord(payload) &&
+        Number.isInteger(payload.fromIndex) &&
+        Number.isInteger(payload.toIndex) &&
+        (payload.fromIndex as number) >= 0 &&
+        (payload.toIndex as number) >= 0 &&
+        payload.fromIndex !== payload.toIndex
       );
     case 'OPEN_DROPS_PAGE_AND_REFRESH':
       return (

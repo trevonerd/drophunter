@@ -1121,6 +1121,7 @@ export function startServiceWorker(): void {
     markDropsRefreshNoticeSeen: (message) => handleMarkDropsRefreshNoticeSeen(message.payload),
     addToQueue: (message) => farmingSession.handleAddToQueue(message.payload),
     removeFromQueue: (message) => farmingSession.handleRemoveFromQueue(message.payload),
+    reorderQueue: (message) => farmingSession.handleReorderQueue(message.payload),
     clearQueue: () => farmingSession.handleClearQueue(),
     startFarming: (message) => farmingSession.handleStartFarming(message.payload),
     setSelectedGame: (message) => farmingSession.handleSetSelectedGame(message.payload),

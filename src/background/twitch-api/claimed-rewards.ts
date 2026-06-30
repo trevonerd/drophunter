@@ -174,34 +174,31 @@ export function isEarlyAwardableTwitchReward(rewardDistributionTypes?: string[])
   return (rewardDistributionTypes ?? []).some((type) => type === 'BADGE' || type === 'EMOTE');
 }
 
+// Strict match used when inventory state already exists for a drop (a specific campaign
+// is already known): only trust a same-game benefit award with a real timestamp inside
+// this drop's own campaign window. No cross-game fallback, no missing-timestamp bypass —
+// those are reserved for matchClaimedReward's looser pass, used when there is no
+// inventory state to be authoritative over. This is what keeps a badge/emote claimed in
+// one campaign from marking a sibling campaign's drop for the same game as done.
 export function hasClaimedGameEventReward(
   benefitIds: string[],
   gameName: string,
   claimedRewards: ClaimedRewardLookup,
-  globalClaimedRewards: ClaimedRewardEntry,
   window: { startsAt: string | null; endsAt: string | null },
 ): boolean {
   const gameClaimedRewards = claimedRewards.get(gameName.toLowerCase());
-  const { idMatch, nameMatch, globalIdMatch } = matchClaimedReward(
-    benefitIds,
-    [],
-    gameClaimedRewards,
-    globalClaimedRewards,
-    window,
-    true,
-    true,
-  );
-  return idMatch || nameMatch || globalIdMatch;
+  return entryHasAwardedBenefit(gameClaimedRewards, benefitIds, window, false);
 }
 
 export function resolveDropClaimedStatus(
   claimedFromInventory: boolean,
   claimedFromGameEvents: boolean,
+  strictClaimedFromGameEvents: boolean,
   hasInventoryState: boolean,
   isEarlyAwardable: boolean,
 ): boolean {
   if (hasInventoryState) {
-    return claimedFromInventory || (isEarlyAwardable && claimedFromGameEvents);
+    return claimedFromInventory || (isEarlyAwardable && strictClaimedFromGameEvents);
   }
   return claimedFromInventory || claimedFromGameEvents;
 }
@@ -215,7 +212,6 @@ export function applyEarlyTwitchRewardClaimsToDrops(
   }
 
   const claimedRewards = buildClaimedRewardLookup(inventoryRaw);
-  const globalClaimedRewards = buildGlobalClaimedRewardEntry(inventoryRaw);
 
   return drops.map((drop) => {
     if (drop.claimed || !isEarlyAwardableTwitchReward(drop.rewardDistributionTypes)) {
@@ -227,13 +223,12 @@ export function applyEarlyTwitchRewardClaimsToDrops(
       return drop;
     }
 
-    const claimedFromGameEvents = hasClaimedGameEventReward(
-      benefitIds,
-      drop.gameName,
-      claimedRewards,
-      globalClaimedRewards,
-      { startsAt: drop.startsAt ?? null, endsAt: drop.endsAt ?? null },
-    );
+    // Drops already carry inventory-derived state by this point (applyInventoryToDrops
+    // ran first), so the strict, campaign-window-scoped match is always the right one here.
+    const claimedFromGameEvents = hasClaimedGameEventReward(benefitIds, drop.gameName, claimedRewards, {
+      startsAt: drop.startsAt ?? null,
+      endsAt: drop.endsAt ?? null,
+    });
 
     if (!claimedFromGameEvents) {
       return drop;

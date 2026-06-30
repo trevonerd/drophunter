@@ -92,6 +92,8 @@ export async function saveTimingState(state: ServiceWorkerState) {
           stalledRecoveryAttempts: state.stalledRecoveryAttempts,
           recoveryNotificationSent: state.recoveryNotificationSent,
           lastHeartbeatAt: state.lastHeartbeatAt,
+          offlineChecks: state.offlineChecks,
+          avoidStreamerName: state.avoidStreamerName,
         };
         await browser.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
       } catch {
@@ -131,6 +133,8 @@ export async function loadTimingState(state: ServiceWorkerState) {
     state.stalledRecoveryAttempts = saved.stalledRecoveryAttempts;
     state.recoveryNotificationSent = saved.recoveryNotificationSent;
     state.lastHeartbeatAt = saved.lastHeartbeatAt ?? 0;
+    state.offlineChecks = saved.offlineChecks;
+    state.avoidStreamerName = saved.avoidStreamerName;
   } catch (error) {
     logWarn('Failed to load timing state from local storage:', String(error));
   }

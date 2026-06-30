@@ -26,6 +26,7 @@ export interface RuntimeMessageHandlers {
   markDropsRefreshNoticeSeen: RuntimeMessageHandler<'MARK_DROPS_REFRESH_NOTICE_SEEN'>;
   addToQueue: RuntimeMessageHandler<'ADD_TO_QUEUE'>;
   removeFromQueue: RuntimeMessageHandler<'REMOVE_FROM_QUEUE'>;
+  reorderQueue: RuntimeMessageHandler<'REORDER_QUEUE'>;
   clearQueue: RuntimeMessageHandler<'CLEAR_QUEUE'>;
   startFarming: RuntimeMessageHandler<'START_FARMING'>;
   setSelectedGame: RuntimeMessageHandler<'SET_SELECTED_GAME'>;
@@ -102,6 +103,8 @@ export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): 
         return respondAsync(() => handlers.addToQueue(message, sender), sendResponse);
       case 'REMOVE_FROM_QUEUE':
         return respondAsync(() => handlers.removeFromQueue(message, sender), sendResponse);
+      case 'REORDER_QUEUE':
+        return respondAsync(() => handlers.reorderQueue(message, sender), sendResponse);
       case 'CLEAR_QUEUE':
         return respondAsync(() => handlers.clearQueue(message, sender), sendResponse);
       case 'START_FARMING':

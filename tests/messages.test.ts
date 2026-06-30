@@ -85,4 +85,31 @@ describe('runtime message protocol', () => {
       }),
     ).toBe(false);
   });
+
+  test('validates REORDER_QUEUE payload', () => {
+    expect(
+      isRuntimeRequest({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex: 0, toIndex: 2 },
+      }),
+    ).toBe(true);
+    expect(
+      isRuntimeRequest({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex: -1, toIndex: 0 },
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeRequest({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex: 0, toIndex: 0 },
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeRequest({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex: 1.5, toIndex: 0 },
+      }),
+    ).toBe(false);
+  });
 });

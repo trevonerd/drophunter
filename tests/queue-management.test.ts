@@ -6,6 +6,7 @@ import {
   removeGameFromQueue,
   resolveGameFromState,
   pushGameToQueue,
+  reorderQueue,
   resetStreamTrackingState,
   applyStopState,
   acquireStreamerForSelectedGame,
@@ -15,6 +16,7 @@ import {
   skipCurrentGameAndAdvanceQueue,
   skipCurrentGameDueToStall,
   handleStartFarming,
+  handleReorderQueue,
   refreshDropsData,
   rotateStreamer,
   rotateStreamerIfInvalid,
@@ -260,6 +262,70 @@ describe('pushGameToQueue', () => {
     pushGameToQueue(state, game);
     expect(state.appState.queue).toHaveLength(1);
     expect(state.appState.queue[0].id).toBe('game-1');
+  });
+});
+
+describe('reorderQueue', () => {
+  test('moves a queue item forward', () => {
+    const state = createMinimalState();
+    const game1 = createGame({ id: 'game-1', campaignId: 'campaign-1' });
+    const game2 = createGame({ id: 'game-2', campaignId: 'campaign-2' });
+    const game3 = createGame({ id: 'game-3', campaignId: 'campaign-3' });
+    state.appState.queue = [game1, game2, game3];
+
+    expect(reorderQueue(state, 2, 0)).toBe(true);
+    expect(state.appState.queue.map((game) => game.campaignId)).toEqual([
+      'campaign-3',
+      'campaign-1',
+      'campaign-2',
+    ]);
+  });
+
+  test('moves a queue item backward', () => {
+    const state = createMinimalState();
+    const game1 = createGame({ id: 'game-1', campaignId: 'campaign-1' });
+    const game2 = createGame({ id: 'game-2', campaignId: 'campaign-2' });
+    state.appState.queue = [game1, game2];
+
+    expect(reorderQueue(state, 0, 1)).toBe(true);
+    expect(state.appState.queue.map((game) => game.campaignId)).toEqual(['campaign-2', 'campaign-1']);
+  });
+
+  test('rejects invalid indices and no-op reorders', () => {
+    const state = createMinimalState();
+    const game1 = createGame({ id: 'game-1' });
+    const game2 = createGame({ id: 'game-2' });
+    state.appState.queue = [game1, game2];
+
+    expect(reorderQueue(state, -1, 0)).toBe(false);
+    expect(reorderQueue(state, 0, 2)).toBe(false);
+    expect(reorderQueue(state, 0, 0)).toBe(false);
+    expect(state.appState.queue.map((game) => game.id)).toEqual(['game-1', 'game-2']);
+  });
+});
+
+describe('handleReorderQueue', () => {
+  test('rejects reorder while farming is active', async () => {
+    const state = createMinimalState();
+    const game1 = createGame({ id: 'game-1' });
+    const game2 = createGame({ id: 'game-2' });
+    state.appState.queue = [game1, game2];
+    state.appState.isRunning = true;
+
+    const result = await handleReorderQueue(
+      state,
+      { fromIndex: 0, toIndex: 1 },
+      {
+        onTrackActivity: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Cannot reorder queue while farming is active.',
+    });
+    expect(state.appState.queue.map((game) => game.id)).toEqual(['game-1', 'game-2']);
   });
 });
 
@@ -2245,6 +2311,37 @@ describe('openBestStreamerForSelectedGame', () => {
 
     expect(opened).toBe(true);
     expect(seenCandidates).toEqual(['alpha']);
+  });
+
+  test('keeps avoidStreamerName set when no streamer is opened, so a retry still excludes it', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.avoidStreamerName = 'alpha';
+
+    const opened = await openBestStreamerForSelectedGame(
+      state,
+      {
+        onFetchDirectoryStreamersFromApi: async () =>
+          Object.assign([], { languageFilterApplied: false }) as never,
+        onOpenForegroundChannel: async () => undefined,
+      },
+      {
+        dropMatchesSelectedGame: () => false,
+        isDropCompleted: () => false,
+        getGameDisplayLabel: (item) => item.name,
+        resolveCategorySlug: async () => 'test-game',
+        pickStreamerForPreferences: () => ({
+          streamer: null,
+          activePoolSize: 0,
+          preferredLanguageApplied: false,
+          preferredLanguageMatches: 0,
+        }),
+        normalizePreferredStreamerLanguage: () => null,
+      },
+    );
+
+    expect(opened).toBe(false);
+    expect(state.avoidStreamerName).toBe('alpha');
   });
 });
 

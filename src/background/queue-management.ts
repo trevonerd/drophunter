@@ -249,6 +249,22 @@ export function pushGameToQueue(state: ServiceWorkerState, game: TwitchGame) {
   state.appState.queue = [...state.appState.queue, game];
 }
 
+export function reorderQueue(state: ServiceWorkerState, fromIndex: number, toIndex: number): boolean {
+  const queue = state.appState.queue;
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= queue.length || toIndex >= queue.length) {
+    return false;
+  }
+  if (fromIndex === toIndex) {
+    return false;
+  }
+
+  const next = [...queue];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  state.appState.queue = next;
+  return true;
+}
+
 export function resetStreamTrackingState(state: ServiceWorkerState) {
   state.invalidStreamChecks = 0;
   state.lastStreamRotationAt = 0;
@@ -1509,9 +1525,10 @@ export async function openBestStreamerForSelectedGame(
     });
   }
   // Skip the channel we just rotated away from, so a rotation actually changes streamer
-  // instead of re-opening the same failing one. Never empty the pool over it.
+  // instead of re-opening the same failing one. Never empty the pool over it. Only cleared
+  // once a streamer is actually opened below, so a retry after an empty candidate pool
+  // still avoids the same channel.
   const avoidName = state.avoidStreamerName;
-  state.avoidStreamerName = null;
   if (avoidName) {
     const withoutAvoided = candidates.filter(
       (candidate) => candidate.name.toLowerCase() !== avoidName.toLowerCase(),
@@ -1546,6 +1563,7 @@ export async function openBestStreamerForSelectedGame(
       broadcasterLanguage: streamer.broadcasterLanguage ?? null,
       candidates: candidates.length,
     });
+    state.avoidStreamerName = null;
     await callbacks.onOpenForegroundChannel(streamer);
     return true;
   }
@@ -1850,4 +1868,38 @@ export async function handleRemoveFromQueue(
 
   await callbacks.onSaveState(state);
   return { success: true, removed, queueLength: state.appState.queue.length };
+}
+
+export async function handleReorderQueue(
+  state: ServiceWorkerState,
+  payload: { fromIndex?: number; toIndex?: number },
+  callbacks: {
+    onTrackActivity: (reason: string) => Promise<void>;
+    onSaveState: (state: ServiceWorkerState) => Promise<void>;
+  },
+): Promise<{ success: boolean; reordered?: boolean; error?: string; queueLength?: number }> {
+  await callbacks.onTrackActivity('reorder-queue');
+
+  if (state.appState.isRunning) {
+    return { success: false, error: 'Cannot reorder queue while farming is active.' };
+  }
+
+  const fromIndex = payload?.fromIndex;
+  const toIndex = payload?.toIndex;
+  if (
+    typeof fromIndex !== 'number' ||
+    typeof toIndex !== 'number' ||
+    !Number.isInteger(fromIndex) ||
+    !Number.isInteger(toIndex)
+  ) {
+    return { success: false, error: 'Invalid queue indices.' };
+  }
+
+  const reordered = reorderQueue(state, fromIndex, toIndex);
+  if (!reordered) {
+    return { success: false, error: 'Invalid queue indices.' };
+  }
+
+  await callbacks.onSaveState(state);
+  return { success: true, reordered: true, queueLength: state.appState.queue.length };
 }
