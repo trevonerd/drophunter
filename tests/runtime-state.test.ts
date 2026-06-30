@@ -80,6 +80,33 @@ describe('normalizeTimingState', () => {
     expect(state.stalledRecoveryAttempts).toBe(2);
     expect(state.recoveryNotificationSent).toBe(false);
   });
+
+  test('restores offlineChecks and avoidStreamerName so they survive a service worker restart', () => {
+    const state = normalizeTimingState({
+      offlineChecks: 1,
+      avoidStreamerName: 'bad-streamer',
+    });
+
+    expect(state.offlineChecks).toBe(1);
+    expect(state.avoidStreamerName).toBe('bad-streamer');
+  });
+
+  test('defaults offlineChecks and avoidStreamerName when missing from saved input', () => {
+    const state = normalizeTimingState({});
+
+    expect(state.offlineChecks).toBe(0);
+    expect(state.avoidStreamerName).toBeNull();
+  });
+
+  test('discards a non-string or empty avoidStreamerName', () => {
+    expect(normalizeTimingState({ avoidStreamerName: '' }).avoidStreamerName).toBeNull();
+    expect(normalizeTimingState({ avoidStreamerName: 42 }).avoidStreamerName).toBeNull();
+  });
+
+  test('discards a non-finite offlineChecks', () => {
+    expect(normalizeTimingState({ offlineChecks: Number.NaN }).offlineChecks).toBe(0);
+    expect(normalizeTimingState({ offlineChecks: 'two' }).offlineChecks).toBe(0);
+  });
 });
 
 describe('clearRotationMetadata', () => {
