@@ -41,6 +41,7 @@ export interface MainViewProps {
   onAddToQueue: () => void;
   onRemoveFromQueue: (game: TwitchGame) => void;
   onClearQueue: () => void;
+  onReorderQueue: (fromIndex: number, toIndex: number) => void;
   onStart: () => void;
 }
 
@@ -75,6 +76,7 @@ export function MainView({
   onAddToQueue,
   onRemoveFromQueue,
   onClearQueue,
+  onReorderQueue,
   onStart,
 }: MainViewProps) {
   return (
@@ -160,6 +162,7 @@ export function MainView({
           isRunning={state.isRunning}
           onRemove={onRemoveFromQueue}
           onClear={onClearQueue}
+          onReorder={onReorderQueue}
         />
 
         {/* Start button (only when not running) */}
