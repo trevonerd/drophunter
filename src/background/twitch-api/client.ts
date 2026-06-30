@@ -8,6 +8,7 @@ import {
   buildGlobalClaimedRewardEntry,
   ClaimedRewardEntry,
   ClaimedRewardLookup,
+  hasClaimedGameEventReward,
   isEarlyAwardableTwitchReward,
   matchClaimedReward,
   resolveDropClaimedStatus,
@@ -90,6 +91,7 @@ export {
   extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
+  hasClaimedGameEventReward,
   isEarlyAwardableTwitchReward,
   matchClaimedReward,
   normalizeImageUrl,
@@ -444,9 +446,19 @@ export function parseCampaignDrops(
     const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
     const claimedFromInventory = inventoryState?.claimed ?? Boolean(self.isClaimed ?? drop.isClaimed);
     const isEarlyAwardable = isEarlyAwardableTwitchReward(rewardDistributionTypes);
+    // When inventory state already pins this drop to a specific campaign, only a
+    // same-game, timestamp-in-window game-event match may override it — a same-named
+    // or same-ID benefit claimed by a sibling campaign must not count.
+    const strictClaimedFromGameEvents = isEarlyAwardable
+      ? hasClaimedGameEventReward(benefitIds, game.name, claimedRewards, {
+          startsAt: dropStartsAt,
+          endsAt: dropEndsAt,
+        })
+      : false;
     const claimed = resolveDropClaimedStatus(
       claimedFromInventory,
       claimedFromGameEvents,
+      strictClaimedFromGameEvents,
       inventoryState != null,
       isEarlyAwardable,
     );

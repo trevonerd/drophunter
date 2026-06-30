@@ -827,3 +827,109 @@ describe('parseCampaignDrops — inventory authoritative over game-event name ma
     expect(drops[0]?.rewardDistributionTypes).toContain('EMOTE');
   });
 });
+
+// ---------------------------------------------------------------------------
+// parseCampaignDrops — early-award badge/emote isolation across sibling campaigns
+// ---------------------------------------------------------------------------
+
+describe('parseCampaignDrops — early-award badge/emote does not bleed across sibling campaigns', () => {
+  test('does not mark camp-2 badge drop claimed from a same-game-ID camp-1 award with no timestamp', () => {
+    // Twitch can report a gameEventDrops entry with a duplicate benefit id and no
+    // lastAwardedAt (AGENTS.md: data can have missing fields / duplicate benefit IDs).
+    // The badge/emote early-award path must not treat that as proof camp-2's own drop
+    // — which has its own inventory state showing partial progress — was claimed.
+    const sharedBenefit = { id: 'badge-shared-id', name: 'Shared Badge', distributionType: 'BADGE' };
+    const inventory = {
+      dropCampaignsInProgress: [
+        {
+          id: 'camp-badge-2',
+          timeBasedDrops: [
+            {
+              id: 'd1',
+              requiredMinutesWatched: 60,
+              self: { currentMinutesWatched: 58, isClaimed: false, isClaimable: false },
+            },
+          ],
+        },
+      ],
+      gameEventDrops: [{ id: sharedBenefit.id, name: sharedBenefit.name, game: { displayName: 'Overwatch' } }],
+    };
+    const maps = buildInventoryDropMaps(inventory);
+    const campaign = {
+      id: 'camp-badge-2',
+      timeBasedDrops: [
+        {
+          id: 'd1',
+          name: 'Shared Badge',
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit: sharedBenefit }],
+          self: { currentMinutesWatched: 58, isClaimed: false, isClaimable: false },
+        },
+      ],
+    };
+    const game = { id: 'g-ow', name: 'Overwatch', imageUrl: '', campaignId: 'camp-badge-2' };
+    const claimedRewards = buildClaimedRewardLookup(inventory);
+    const globalClaimedRewards = buildGlobalClaimedRewardEntry(inventory);
+
+    const drops = parseCampaignDrops(campaign, game as never, maps, claimedRewards, globalClaimedRewards);
+    expect(drops[0]?.claimed).toBe(false);
+    expect(drops[0]?.progress).toBeLessThan(100);
+    expect(drops[0]?.status).not.toBe('completed');
+    expect(drops[0]?.remainingMinutes).toBeGreaterThan(0);
+  });
+
+  test('does not mark camp-2 emote drop claimed when camp-1 award timestamp falls outside camp-2 window', () => {
+    const sharedBenefit = { id: 'emote-shared-id', name: 'Shared Emote', distributionType: 'EMOTE' };
+    const camp2StartsAt = '2026-05-15T00:00:00.000Z';
+    const camp2EndsAt = '2026-05-25T00:00:00.000Z';
+    const inventory = {
+      dropCampaignsInProgress: [
+        {
+          id: 'camp-emote-2',
+          timeBasedDrops: [
+            {
+              id: 'd1',
+              requiredMinutesWatched: 60,
+              self: { currentMinutesWatched: 58, isClaimed: false, isClaimable: false },
+            },
+          ],
+        },
+      ],
+      gameEventDrops: [
+        {
+          id: sharedBenefit.id,
+          name: sharedBenefit.name,
+          // Awarded during camp-1's window (May 1-10), well outside camp-2's window below.
+          lastAwardedAt: '2026-05-05T00:00:00.000Z',
+          game: { displayName: 'Overwatch' },
+        },
+      ],
+    };
+    const maps = buildInventoryDropMaps(inventory);
+    const campaign = {
+      id: 'camp-emote-2',
+      startAt: camp2StartsAt,
+      endAt: camp2EndsAt,
+      timeBasedDrops: [
+        {
+          id: 'd1',
+          name: 'Shared Emote',
+          startAt: camp2StartsAt,
+          endAt: camp2EndsAt,
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit: sharedBenefit }],
+          self: { currentMinutesWatched: 58, isClaimed: false, isClaimable: false },
+        },
+      ],
+    };
+    const game = { id: 'g-ow', name: 'Overwatch', imageUrl: '', campaignId: 'camp-emote-2' };
+    const claimedRewards = buildClaimedRewardLookup(inventory);
+    const globalClaimedRewards = buildGlobalClaimedRewardEntry(inventory);
+
+    const drops = parseCampaignDrops(campaign, game as never, maps, claimedRewards, globalClaimedRewards);
+    expect(drops[0]?.claimed).toBe(false);
+    expect(drops[0]?.progress).toBeLessThan(100);
+    expect(drops[0]?.status).not.toBe('completed');
+    expect(drops[0]?.remainingMinutes).toBeGreaterThan(0);
+  });
+});
