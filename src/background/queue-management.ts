@@ -249,6 +249,22 @@ export function pushGameToQueue(state: ServiceWorkerState, game: TwitchGame) {
   state.appState.queue = [...state.appState.queue, game];
 }
 
+export function reorderQueue(state: ServiceWorkerState, fromIndex: number, toIndex: number): boolean {
+  const queue = state.appState.queue;
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= queue.length || toIndex >= queue.length) {
+    return false;
+  }
+  if (fromIndex === toIndex) {
+    return false;
+  }
+
+  const next = [...queue];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  state.appState.queue = next;
+  return true;
+}
+
 export function resetStreamTrackingState(state: ServiceWorkerState) {
   state.invalidStreamChecks = 0;
   state.lastStreamRotationAt = 0;
@@ -1852,4 +1868,38 @@ export async function handleRemoveFromQueue(
 
   await callbacks.onSaveState(state);
   return { success: true, removed, queueLength: state.appState.queue.length };
+}
+
+export async function handleReorderQueue(
+  state: ServiceWorkerState,
+  payload: { fromIndex?: number; toIndex?: number },
+  callbacks: {
+    onTrackActivity: (reason: string) => Promise<void>;
+    onSaveState: (state: ServiceWorkerState) => Promise<void>;
+  },
+): Promise<{ success: boolean; reordered?: boolean; error?: string; queueLength?: number }> {
+  await callbacks.onTrackActivity('reorder-queue');
+
+  if (state.appState.isRunning) {
+    return { success: false, error: 'Cannot reorder queue while farming is active.' };
+  }
+
+  const fromIndex = payload?.fromIndex;
+  const toIndex = payload?.toIndex;
+  if (
+    typeof fromIndex !== 'number' ||
+    typeof toIndex !== 'number' ||
+    !Number.isInteger(fromIndex) ||
+    !Number.isInteger(toIndex)
+  ) {
+    return { success: false, error: 'Invalid queue indices.' };
+  }
+
+  const reordered = reorderQueue(state, fromIndex, toIndex);
+  if (!reordered) {
+    return { success: false, error: 'Invalid queue indices.' };
+  }
+
+  await callbacks.onSaveState(state);
+  return { success: true, reordered: true, queueLength: state.appState.queue.length };
 }

@@ -67,4 +67,31 @@ describe('runtime message protocol', () => {
     expect(isRuntimeRequest({ type: 'CLEAR_CLAIM_LOG' })).toBe(true);
     expect(isRuntimeRequest({ type: 'GET_CLAIM_LOG', payload: { unexpected: true } })).toBe(true);
   });
+
+  test('validates REORDER_QUEUE payload', () => {
+    expect(
+      isRuntimeRequest({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex: 0, toIndex: 2 },
+      }),
+    ).toBe(true);
+    expect(
+      isRuntimeRequest({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex: -1, toIndex: 0 },
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeRequest({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex: 0, toIndex: 0 },
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeRequest({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex: 1.5, toIndex: 0 },
+      }),
+    ).toBe(false);
+  });
 });

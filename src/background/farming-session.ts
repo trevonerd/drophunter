@@ -21,6 +21,7 @@ import {
   enterPersistentRecovery as enterPersistentRecoveryExt,
   handleAddToQueue as handleAddToQueueExt,
   handleRemoveFromQueue as handleRemoveFromQueueExt,
+  handleReorderQueue as handleReorderQueueExt,
   handleSetSelectedGame as handleSetSelectedGameExt,
   handleStartFarming as handleStartFarmingExt,
   normalizeQueueSelection as normalizeQueueSelectionExt,
@@ -400,6 +401,13 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     );
   }
 
+  async function handleReorderQueue(payload: { fromIndex?: number; toIndex?: number }) {
+    return handleReorderQueueExt(state, payload, {
+      onTrackActivity: adapters.trackActivity,
+      onSaveState: adapters.saveState,
+    });
+  }
+
   async function handleClearQueue() {
     await adapters.trackActivity('clear-queue');
     state.appState.queue = [];
@@ -451,6 +459,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     handlePauseFarming,
     handleRefreshDrops,
     handleRemoveFromQueue,
+    handleReorderQueue,
     handleResumeFarming,
     handleSetSelectedGame,
     handleStartFarming,
