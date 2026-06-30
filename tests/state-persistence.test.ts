@@ -31,6 +31,8 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastTrackedDropKey: null,
     lastProgressAdvanceAt: 0,
     noProgressRotationAttempts: 0,
+    offlineChecks: 0,
+    avoidStreamerName: null,
     playbackAttentionWarningSent: false,
     gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,
@@ -210,6 +212,8 @@ describe('loadTimingState / saveTimingState', () => {
       stalledRecoveryAttempts: 1,
       recoveryNotificationSent: true,
       dropClaimRetryAtById: new Map([['drop1', 999]]),
+      offlineChecks: 1,
+      avoidStreamerName: 'bad-streamer',
     });
 
     await saveTimingState(state);
@@ -233,6 +237,8 @@ describe('loadTimingState / saveTimingState', () => {
     expect(saved.stalledRecoveryAttempts).toBe(1);
     expect(saved.recoveryNotificationSent).toBe(true);
     expect((saved.dropClaimRetryAtById as Record<string, number>)).toEqual({ drop1: 999 });
+    expect(saved.offlineChecks).toBe(1);
+    expect(saved.avoidStreamerName).toBe('bad-streamer');
   });
 
   test('loadTimingState restores timing from local storage', async () => {
@@ -257,6 +263,8 @@ describe('loadTimingState / saveTimingState', () => {
       lastRecoveryAttemptAt: 101010,
       stalledRecoveryAttempts: 2,
       recoveryNotificationSent: false,
+      offlineChecks: 1,
+      avoidStreamerName: 'bad-streamer',
     });
 
     await loadTimingState(state);
@@ -280,6 +288,18 @@ describe('loadTimingState / saveTimingState', () => {
     expect(state.lastRecoveryAttemptAt).toBe(101010);
     expect(state.stalledRecoveryAttempts).toBe(2);
     expect(state.recoveryNotificationSent).toBe(false);
+    expect(state.offlineChecks).toBe(1);
+    expect(state.avoidStreamerName).toBe('bad-streamer');
+  });
+
+  test('loadTimingState resets offlineChecks and avoidStreamerName when absent from storage', async () => {
+    const state = createMinimalState({ offlineChecks: 1, avoidStreamerName: 'stale-streamer' });
+    mocks.storage.local._store.set('timingState', {});
+
+    await loadTimingState(state);
+
+    expect(state.offlineChecks).toBe(0);
+    expect(state.avoidStreamerName).toBeNull();
   });
 
   test('loadTimingState clears and repopulates dropClaimRetryAtById', async () => {
@@ -317,6 +337,8 @@ describe('loadTimingState / saveTimingState', () => {
       stalledRecoveryAttempts: 3,
       recoveryNotificationSent: true,
       dropClaimRetryAtById: new Map([['dropX', 98765]]),
+      offlineChecks: 1,
+      avoidStreamerName: 'round-trip-streamer',
     });
 
     await saveTimingState(original);
@@ -341,6 +363,8 @@ describe('loadTimingState / saveTimingState', () => {
     expect(restored.stalledRecoveryAttempts).toBe(original.stalledRecoveryAttempts);
     expect(restored.recoveryNotificationSent).toBe(original.recoveryNotificationSent);
     expect(restored.dropClaimRetryAtById.get('dropX')).toBe(98765);
+    expect(restored.offlineChecks).toBe(original.offlineChecks);
+    expect(restored.avoidStreamerName).toBe(original.avoidStreamerName);
   });
 });
 

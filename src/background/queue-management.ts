@@ -1509,9 +1509,10 @@ export async function openBestStreamerForSelectedGame(
     });
   }
   // Skip the channel we just rotated away from, so a rotation actually changes streamer
-  // instead of re-opening the same failing one. Never empty the pool over it.
+  // instead of re-opening the same failing one. Never empty the pool over it. Only cleared
+  // once a streamer is actually opened below, so a retry after an empty candidate pool
+  // still avoids the same channel.
   const avoidName = state.avoidStreamerName;
-  state.avoidStreamerName = null;
   if (avoidName) {
     const withoutAvoided = candidates.filter(
       (candidate) => candidate.name.toLowerCase() !== avoidName.toLowerCase(),
@@ -1546,6 +1547,7 @@ export async function openBestStreamerForSelectedGame(
       broadcasterLanguage: streamer.broadcasterLanguage ?? null,
       candidates: candidates.length,
     });
+    state.avoidStreamerName = null;
     await callbacks.onOpenForegroundChannel(streamer);
     return true;
   }

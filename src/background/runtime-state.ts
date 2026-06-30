@@ -20,6 +20,10 @@ export interface TimingState {
   stalledRecoveryAttempts: number;
   recoveryNotificationSent: boolean;
   lastHeartbeatAt: number;
+  // Consecutive offline readings for the active stream; confirms a real outage before rotating.
+  offlineChecks: number;
+  // Channel to skip on the next streamer selection (the one we are rotating away from).
+  avoidStreamerName: string | null;
 }
 
 export function createInitialTimingState(): TimingState {
@@ -43,6 +47,8 @@ export function createInitialTimingState(): TimingState {
     stalledRecoveryAttempts: 0,
     recoveryNotificationSent: false,
     lastHeartbeatAt: 0,
+    offlineChecks: 0,
+    avoidStreamerName: null,
   };
 }
 
@@ -133,6 +139,14 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
       typeof source.lastHeartbeatAt === 'number' && Number.isFinite(source.lastHeartbeatAt)
         ? source.lastHeartbeatAt
         : initial.lastHeartbeatAt,
+    offlineChecks:
+      typeof source.offlineChecks === 'number' && Number.isFinite(source.offlineChecks)
+        ? source.offlineChecks
+        : initial.offlineChecks,
+    avoidStreamerName:
+      typeof source.avoidStreamerName === 'string' && source.avoidStreamerName.length > 0
+        ? source.avoidStreamerName
+        : initial.avoidStreamerName,
   };
 }
 
