@@ -175,6 +175,21 @@ function App() {
     }
   };
 
+  const handleReorderQueue = async (fromIndex: number, toIndex: number) => {
+    try {
+      const response = await sendRuntimeMessage({
+        type: 'REORDER_QUEUE',
+        payload: { fromIndex, toIndex },
+      });
+      if (!response?.success) {
+        setQueueMessage(response?.error ?? 'Unable to reorder queue.');
+      }
+    } catch (err: unknown) {
+      logPopupWarn('REORDER_QUEUE failed:', err);
+      setQueueMessage('Unable to reorder queue.');
+    }
+  };
+
   const withAction = useCallback(
     async (action: () => Promise<void>) => {
       if (actionLoading) return;
@@ -304,6 +319,7 @@ function App() {
           onAddToQueue={() => void handleAddToQueue()}
           onRemoveFromQueue={(game) => void handleRemoveFromQueue(game)}
           onClearQueue={() => void handleClearQueue()}
+          onReorderQueue={(fromIndex, toIndex) => void handleReorderQueue(fromIndex, toIndex)}
           onStart={handleStart}
         />
       )}

@@ -90,6 +90,16 @@ test('popup splits the main campaign UI into focused components', () => {
   expect(source).toContain('function RewardList');
 });
 
+test('popup queue chips support drag-and-drop reordering', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain("type: 'REORDER_QUEUE'");
+  expect(source).toContain('role="list"');
+  expect(source).toContain('draggable');
+  expect(source).toContain('useQueueDragReorder');
+  expect(source).toContain('onReorder={onReorderQueue}');
+});
+
 test('popup async copy uses ellipsis glyphs instead of three-dot loading text', () => {
   const source = readPopupSource();
 
