@@ -1884,7 +1884,12 @@ export async function handleReorderQueue(
 
   const fromIndex = payload?.fromIndex;
   const toIndex = payload?.toIndex;
-  if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) {
+  if (
+    typeof fromIndex !== 'number' ||
+    typeof toIndex !== 'number' ||
+    !Number.isInteger(fromIndex) ||
+    !Number.isInteger(toIndex)
+  ) {
     return { success: false, error: 'Invalid queue indices.' };
   }
 

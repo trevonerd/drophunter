@@ -94,7 +94,7 @@ test('popup queue chips support drag-and-drop reordering', () => {
   const source = readPopupSource();
 
   expect(source).toContain("type: 'REORDER_QUEUE'");
-  expect(source).toContain('role="list"');
+  expect(source).toContain('<ul className="contents">');
   expect(source).toContain('draggable');
   expect(source).toContain('useQueueDragReorder');
   expect(source).toContain('onReorder={onReorderQueue}');

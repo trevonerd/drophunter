@@ -1,4 +1,4 @@
-import { useCallback, useState, type DragEvent } from 'react';
+import { type DragEvent, useCallback, useState } from 'react';
 
 export function useQueueDragReorder(onReorder: (fromIndex: number, toIndex: number) => void) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -18,7 +18,7 @@ export function useQueueDragReorder(onReorder: (fromIndex: number, toIndex: numb
   }, []);
 
   const handleDragOver = useCallback((index: number) => {
-    return (event: React.DragEvent<HTMLSpanElement>) => {
+    return (event: DragEvent<HTMLSpanElement>) => {
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       setDropIndex(index);
@@ -27,7 +27,7 @@ export function useQueueDragReorder(onReorder: (fromIndex: number, toIndex: numb
 
   const handleDrop = useCallback(
     (toIndex: number) => {
-      return (event: React.DragEvent<HTMLSpanElement>) => {
+      return (event: DragEvent<HTMLSpanElement>) => {
         event.preventDefault();
         const fromIndex = Number(event.dataTransfer.getData('text/plain'));
         setDragIndex(null);

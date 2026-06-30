@@ -45,16 +45,15 @@ export function QueueChips({
           <span className="ml-1 text-green-400/80">↑ first</span>
         </span>
       )}
-      <div role="list" className="contents">
+      <ul className="contents">
         {queueGames.map((game, index) => {
           const label = getGameDisplayLabel(game);
           const isDragging = dragIndex === index;
           const isDropTarget = dropIndex === index && dragIndex !== null && dragIndex !== index;
 
           return (
-            <span
+            <li
               key={queueGameIdentity(game)}
-              role="listitem"
               onDragOver={canReorder ? handleDragOver(index) : undefined}
               onDrop={canReorder ? handleDrop(index) : undefined}
               className={`inline-flex max-w-full items-center gap-0.5 rounded-full bg-[color:var(--dh-surface-3)] px-2 py-0.5 text-[11px] text-[color:var(--dh-text-soft)] ${
@@ -85,10 +84,10 @@ export function QueueChips({
                   ×
                 </button>
               )}
-            </span>
+            </li>
           );
         })}
-      </div>
+      </ul>
       {!isRunning && (
         <button
           type="button"
