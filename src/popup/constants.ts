@@ -9,6 +9,10 @@ export const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; l
 
 export const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = { permissions: ['notifications'] };
 
+export const TELEGRAM_HOST_PERMISSION: chrome.permissions.Permissions = {
+  origins: ['https://api.telegram.org/*'],
+};
+
 export const STALE_THRESHOLD_MS = 60 * 60 * 1000;
 
 // Safety-net: loader normally cleared by UPDATE_STATE broadcast once background

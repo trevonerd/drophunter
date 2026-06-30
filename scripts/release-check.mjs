@@ -61,6 +61,11 @@ async function checkReleaseManifestForTarget(target) {
   );
   assertEqual(`${target} host_permissions`, manifest.host_permissions, EXTENSION_MANIFEST.host_permissions);
   assertEqual(
+    `${target} optional_host_permissions`,
+    manifest.optional_host_permissions,
+    EXTENSION_MANIFEST.optional_host_permissions,
+  );
+  assertEqual(
     `${target} content_security_policy`,
     manifest.content_security_policy,
     EXTENSION_MANIFEST.content_security_policy,

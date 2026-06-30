@@ -24,6 +24,7 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 - No `tabs` permission: tab creation, updates, mute state, and close operations use Chrome tab APIs without requesting access to sensitive tab URLs/titles across all sites.
 - `scripting`: injects Twitch-only content scripts needed for stream context and playback handling.
 - `notifications` optional permission: requested only when the user enables notifications; used for claims, sign-in issues, and playback attention.
+- `optional_host_permissions` for `api.telegram.org`: requested only when the user enables Telegram alerts or saves Telegram credentials; used to send optional claim notifications via the user's own bot.
 - `alarms`: keeps the monitoring loop alive in MV3.
 - Twitch-only `host_permissions`: required to read Twitch page state, inject Twitch-only scripts, and call Twitch endpoints.
 - No `cookies` permission and no `chrome.cookies` runtime fallback: session recovery uses Twitch page storage, content-script extraction, and open Twitch tabs.
@@ -32,6 +33,7 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 
 - The listing explains that DropHunter reads Twitch session credentials already present in the browser.
 - The listing explains that data remains local to the browser and requests are sent only to Twitch.
+- The listing explains that optional Telegram alerts send claim notifications to api.telegram.org only after the user enables the feature and provides their own bot credentials.
 - The listing explicitly says there is no third-party analytics, ads, telemetry, or remote logging.
 - The listing explains that Twitch credentials are not sent to developer-owned servers.
 
@@ -44,6 +46,7 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 - Verify a successful zero-campaign refresh clears old selected campaign rewards instead of showing stale pending/completed drops.
 - Verify the monitor opens, updates, and closes cleanly.
 - Verify notifications stay off when optional permission is denied, then turn on and fire after permission is granted.
+- Verify Telegram alerts stay off until credentials are saved and optional host permission is granted, then send a test message and a claim alert.
 - Verify no stale rotation reason is shown when a new farming session starts.
 - Verify the extension still recovers cleanly after a service-worker restart.
 - Verify at least one real active Twitch Drops campaign accrues progress.
