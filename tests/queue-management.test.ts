@@ -2246,6 +2246,37 @@ describe('openBestStreamerForSelectedGame', () => {
     expect(opened).toBe(true);
     expect(seenCandidates).toEqual(['alpha']);
   });
+
+  test('keeps avoidStreamerName set when no streamer is opened, so a retry still excludes it', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame();
+    state.avoidStreamerName = 'alpha';
+
+    const opened = await openBestStreamerForSelectedGame(
+      state,
+      {
+        onFetchDirectoryStreamersFromApi: async () =>
+          Object.assign([], { languageFilterApplied: false }) as never,
+        onOpenForegroundChannel: async () => undefined,
+      },
+      {
+        dropMatchesSelectedGame: () => false,
+        isDropCompleted: () => false,
+        getGameDisplayLabel: (item) => item.name,
+        resolveCategorySlug: async () => 'test-game',
+        pickStreamerForPreferences: () => ({
+          streamer: null,
+          activePoolSize: 0,
+          preferredLanguageApplied: false,
+          preferredLanguageMatches: 0,
+        }),
+        normalizePreferredStreamerLanguage: () => null,
+      },
+    );
+
+    expect(opened).toBe(false);
+    expect(state.avoidStreamerName).toBe('alpha');
+  });
 });
 
 describe('refreshDropsData light refresh', () => {
