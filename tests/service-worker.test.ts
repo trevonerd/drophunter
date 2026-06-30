@@ -1636,6 +1636,30 @@ describe('service worker message handlers', () => {
     expect(state.queue).toHaveLength(0);
   });
 
+  test('REORDER_QUEUE reorders persisted queue entries when farming is stopped', async () => {
+    await dispatchMessage({
+      type: 'UPDATE_GAMES',
+      payload: [demoGame, nextGame, thirdGame],
+    });
+    await addGameToQueue(demoGame);
+    await addGameToQueue(nextGame);
+    await addGameToQueue(thirdGame);
+
+    const response = await dispatchMessage({
+      type: 'REORDER_QUEUE',
+      payload: { fromIndex: 2, toIndex: 0 },
+    });
+
+    expect(response).toEqual({ success: true, reordered: true, queueLength: 3 });
+
+    const state = getAppStateFromStorage();
+    expect(state.queue.map((game) => game.campaignId)).toEqual([
+      'queue-third-campaign',
+      'campaign-1',
+      'queue-next-campaign',
+    ]);
+  });
+
   test('extension update preserves queue, selectedGame, settings, and isRunning', async () => {
     const chromeAny = (globalThis as unknown as { chrome: Record<string, unknown> }).chrome;
     const onInstalled = (chromeAny.runtime as Record<string, unknown>).onInstalled as ReturnType<
