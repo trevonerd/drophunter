@@ -9,6 +9,7 @@ import {
   clearClaimLog,
   detectNewlyClaimedDrops,
   recordClaimedDrops,
+  setClaimRecordedHandler,
 } from '../src/background/claim-log.ts';
 import type { ClaimLogEntry } from '../src/types/index.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
@@ -263,9 +264,10 @@ describe('loadClaimLog / appendClaimLogEntries / clearClaimLog', () => {
   test('appendClaimLogEntries returns the number of entries actually added', async () => {
     const e1 = makeEntry({ id: 'e1' });
     const e2 = makeEntry({ id: 'e2' });
-    expect(await appendClaimLogEntries([e1, e2])).toBe(2);
-    expect(await appendClaimLogEntries([e1, makeEntry({ id: 'e3' })])).toBe(1);
-    expect(await appendClaimLogEntries([e1])).toBe(0);
+    expect(await appendClaimLogEntries([e1, e2])).toEqual({ added: 2, entries: [e1, e2] });
+    const e3 = makeEntry({ id: 'e3' });
+    expect(await appendClaimLogEntries([e1, e3])).toEqual({ added: 1, entries: [e3] });
+    expect(await appendClaimLogEntries([e1])).toEqual({ added: 0, entries: [] });
   });
 
   test('recordClaimedDrops increments counter by exactly entries added', async () => {
@@ -280,6 +282,20 @@ describe('loadClaimLog / appendClaimLogEntries / clearClaimLog', () => {
     await recordClaimedDrops(target, [dropA, dropB]);
     expect(target.appState.totalDropsClaimed).toBe(7);
     expect(await loadClaimLog()).toHaveLength(2);
+  });
+
+  test('recordClaimedDrops invokes the registered claim handler for new entries', async () => {
+    const recorded: string[] = [];
+    setClaimRecordedHandler(async (entries) => {
+      recorded.push(...entries.map((entry) => entry.id));
+    });
+    const target = {
+      appState: { totalDropsClaimed: 0, availableGames: [makeGame()] },
+    };
+    const drop = makeDrop({ id: 'd-handler', campaignId: 'camp-handler' });
+    await recordClaimedDrops(target, [drop]);
+    expect(recorded).toEqual(['d-handler::camp-handler']);
+    setClaimRecordedHandler(null);
   });
 });
 

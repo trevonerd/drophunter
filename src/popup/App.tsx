@@ -15,6 +15,7 @@ import { useDropsRefresh } from './hooks/useDropsRefresh';
 import { useOnboarding } from './hooks/useOnboarding';
 import { useRecoveryClock } from './hooks/useRecoveryClock';
 import { useSettingsToggles } from './hooks/useSettingsToggles';
+import { useTelegramSettings } from './hooks/useTelegramSettings';
 import { logPopupWarn } from './logging';
 import { getGameToStartFromQueue, queueGameIdentity } from './queue-start';
 
@@ -93,6 +94,9 @@ function App() {
     handleStreamerSelectionModeChange,
     handlePreferredStreamerLanguageChange,
   } = useSettingsToggles({ state, setState });
+
+  const { handleTelegramAlertsToggle, saveTelegramCredentials, testTelegramAlerts, loadTelegramSettings } =
+    useTelegramSettings({ state, setState });
 
   const handleGameSelect = async (gameId: string) => {
     const selected = sortedGames.find((g) => queueGameIdentity(g) === gameId);
@@ -279,6 +283,10 @@ function App() {
           onMonitorAutoOpenToggle={() => void handleMonitorAutoOpenToggle()}
           onMuteFarmingTabToggle={() => void handleMuteFarmingTabToggle()}
           onNotificationsEnabledToggle={() => void handleNotificationsEnabledToggle()}
+          onTelegramAlertsToggle={handleTelegramAlertsToggle}
+          onSaveTelegramCredentials={saveTelegramCredentials}
+          onTestTelegramAlerts={testTelegramAlerts}
+          onLoadTelegramSettings={loadTelegramSettings}
           onAutoResumeOnStartupToggle={() => void handleAutoResumeOnStartupToggle()}
           onAutoClaimChannelPointsBonusToggle={() => void handleAutoClaimChannelPointsBonusToggle()}
           onAutoClaimDropsToggle={() => void handleAutoClaimDropsToggle()}

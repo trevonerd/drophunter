@@ -38,6 +38,8 @@ DropHunter does **not**:
 
 The only network requests made by the extension are directed to **twitch.tv** domains, using your existing Twitch session, to perform the same actions you would perform manually (watching streams and claiming drops).
 
+If you optionally enable **Telegram alerts**, DropHunter also sends claim notifications to **api.telegram.org** using a bot token and chat ID that you provide. Only drop alert content you configure the feature to send (such as drop name, campaign label, and reward image URL from Twitch) is transmitted, and only to the Telegram chat you specify.
+
 DropHunter does **not** include:
 
 - remote logging
@@ -54,6 +56,7 @@ DropHunter does **not** include:
 | `storage` | Persist extension state (queue, progress) across browser sessions |
 | `scripting` | Inject content scripts into Twitch pages to control video playback |
 | `notifications` (optional) | Notify you when drops are claimed or issues arise, only after you enable notifications |
+| `optional host access` to `api.telegram.org` (optional) | Send Telegram claim alerts only after you enable Telegram alerts and grant the permission |
 | `alarms` | Keep the background farming loop running reliably |
 | `host_permissions` (twitch.tv) | Access Twitch pages and API endpoints |
 

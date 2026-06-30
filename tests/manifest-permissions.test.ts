@@ -29,6 +29,11 @@ describe('manifest permissions', () => {
     expect(EXTENSION_MANIFEST.optional_permissions).toEqual(['notifications']);
   });
 
+  test('requests Telegram host access only as an optional host permission', () => {
+    expect(EXTENSION_MANIFEST.host_permissions).not.toContain('https://api.telegram.org/*');
+    expect(EXTENSION_MANIFEST.optional_host_permissions).toEqual(['https://api.telegram.org/*']);
+  });
+
   test('does not request broad host access', () => {
     const hosts = EXTENSION_MANIFEST.host_permissions;
     expect(hosts).not.toContain('<all_urls>');

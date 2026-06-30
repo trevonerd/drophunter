@@ -10,6 +10,7 @@ const sourceFiles = [
   'src/background/message-router.ts',
   'src/background/monitor-dashboard.ts',
   'src/background/notifications.ts',
+  'src/background/telegram-notifications.ts',
   'src/background/playback-orchestrator.ts',
   'src/background/session-orchestrator.ts',
   'src/background/twitch-api/client.ts',

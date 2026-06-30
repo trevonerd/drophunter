@@ -1,6 +1,7 @@
 // Storage keys
 export const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
 export const CLAIM_LOG_KEY = 'claimLog';
+export const TELEGRAM_CREDENTIALS_KEY = 'telegramCredentials';
 export const DROPS_SNAPSHOT_CACHE_KEY = 'dropsSnapshotCache';
 export const TIMING_STATE_KEY = 'timingState';
 export const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';

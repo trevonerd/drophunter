@@ -9,6 +9,7 @@ export const EXTENSION_MANIFEST = {
   minimum_chrome_version: '120',
   permissions: ['storage', 'scripting', 'alarms'],
   optional_permissions: ['notifications'],
+  optional_host_permissions: ['https://api.telegram.org/*'],
   host_permissions: TWITCH_MATCHES,
   content_security_policy: {
     extension_pages: "script-src 'self'; object-src 'self';",

@@ -3,6 +3,7 @@ import { browser } from '../../shared/browser-api.ts';
 import type { AppState, StreamerSelectionMode } from '../../types';
 import { STREAMER_LANGUAGE_OPTIONS, STREAMER_SELECTION_OPTIONS } from '../constants';
 import { BackIcon, CoffeeIcon, GitHubIcon, HistoryIcon } from './icons';
+import { TelegramSettingsSection } from './TelegramSettingsSection';
 
 export interface SettingsViewProps {
   state: AppState;
@@ -11,6 +12,17 @@ export interface SettingsViewProps {
   onMonitorAutoOpenToggle: () => void;
   onMuteFarmingTabToggle: () => void;
   onNotificationsEnabledToggle: () => void;
+  onTelegramAlertsToggle: () => Promise<{ success: boolean; error?: string } | undefined>;
+  onSaveTelegramCredentials: (
+    botToken: string,
+    chatId: string,
+  ) => Promise<
+    { success: boolean; configured?: boolean; chatId?: string | null; error?: string } | undefined
+  >;
+  onTestTelegramAlerts: () => Promise<{ success: boolean; error?: string } | undefined>;
+  onLoadTelegramSettings: () => Promise<
+    { success: boolean; configured?: boolean; chatId?: string | null; error?: string } | undefined
+  >;
   onAutoResumeOnStartupToggle: () => void;
   onAutoClaimChannelPointsBonusToggle: () => void;
   onAutoClaimDropsToggle: () => void;
@@ -56,6 +68,10 @@ export function SettingsView({
   onMonitorAutoOpenToggle,
   onMuteFarmingTabToggle,
   onNotificationsEnabledToggle,
+  onTelegramAlertsToggle,
+  onSaveTelegramCredentials,
+  onTestTelegramAlerts,
+  onLoadTelegramSettings,
   onAutoResumeOnStartupToggle,
   onAutoClaimChannelPointsBonusToggle,
   onAutoClaimDropsToggle,
@@ -132,6 +148,13 @@ export function SettingsView({
             checked={state.notificationsEnabled}
             ariaLabel="Notifications"
             onToggle={onNotificationsEnabledToggle}
+          />
+          <TelegramSettingsSection
+            enabled={state.telegramAlertsEnabled}
+            onToggle={onTelegramAlertsToggle}
+            onSaveCredentials={onSaveTelegramCredentials}
+            onTestAlerts={onTestTelegramAlerts}
+            onLoadSettings={onLoadTelegramSettings}
           />
           <SettingRow
             title="Auto-resume after restart"
