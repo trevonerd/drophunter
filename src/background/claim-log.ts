@@ -9,6 +9,13 @@ export const CLAIM_LOG_MAX_ENTRIES = 5000;
 
 let writeQueue: Promise<unknown> = Promise.resolve();
 
+type ClaimRecordedHandler = (entries: ClaimLogEntry[]) => void | Promise<void>;
+let claimRecordedHandler: ClaimRecordedHandler | null = null;
+
+export function setClaimRecordedHandler(handler: ClaimRecordedHandler | null): void {
+  claimRecordedHandler = handler;
+}
+
 export function normalizeClaimLogEntry(raw: unknown): ClaimLogEntry | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
@@ -80,7 +87,7 @@ export async function loadClaimLog(): Promise<ClaimLogEntry[]> {
 export async function appendClaimLogEntries(
   entries: ClaimLogEntry[],
   maxEntries = CLAIM_LOG_MAX_ENTRIES,
-): Promise<number> {
+): Promise<{ added: number; entries: ClaimLogEntry[] }> {
   const result = (writeQueue as Promise<unknown>).then(async () => {
     try {
       const existing = await loadClaimLog();
@@ -88,7 +95,7 @@ export async function appendClaimLogEntries(
       const toAdd = entries.filter((e) => !existingIds.has(e.id));
       if (toAdd.length === 0) {
         logDebug('appendClaimLogEntries: no new entries to add');
-        return 0;
+        return { added: 0, entries: [] as ClaimLogEntry[] };
       }
       const combined = [...existing, ...toAdd];
       const trimmed =
@@ -96,14 +103,14 @@ export async function appendClaimLogEntries(
           ? combined.sort((a, b) => a.claimedAt - b.claimedAt).slice(-maxEntries)
           : combined;
       await browser.storage.local.set({ [CLAIM_LOG_KEY]: trimmed });
-      return toAdd.length;
+      return { added: toAdd.length, entries: toAdd };
     } catch (error) {
       logWarn('Failed to append claim log entries:', String(error));
-      return 0;
+      return { added: 0, entries: [] as ClaimLogEntry[] };
     }
   });
   writeQueue = result;
-  return result as Promise<number>;
+  return result as Promise<{ added: number; entries: ClaimLogEntry[] }>;
 }
 
 export async function clearClaimLog(): Promise<void> {
@@ -137,7 +144,14 @@ export async function recordClaimedDrops(
 ): Promise<number> {
   if (drops.length === 0) return 0;
   const entries = drops.map((drop) => createClaimLogEntry(drop, target.appState.availableGames, claimedAt));
-  const added = await appendClaimLogEntries(entries);
+  const { added, entries: recordedEntries } = await appendClaimLogEntries(entries);
   target.appState.totalDropsClaimed += added;
+  if (added > 0 && claimRecordedHandler) {
+    try {
+      await claimRecordedHandler(recordedEntries);
+    } catch (error) {
+      logWarn('Claim recorded handler failed:', String(error));
+    }
+  }
   return added;
 }

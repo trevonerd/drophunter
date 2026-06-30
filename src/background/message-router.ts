@@ -40,6 +40,10 @@ export interface RuntimeMessageHandlers {
   setMonitorAutoOpen: RuntimeMessageHandler<'SET_MONITOR_AUTO_OPEN'>;
   setMuteFarmingTab: RuntimeMessageHandler<'SET_MUTE_FARMING_TAB'>;
   setNotificationsEnabled: RuntimeMessageHandler<'SET_NOTIFICATIONS_ENABLED'>;
+  setTelegramAlertsEnabled: RuntimeMessageHandler<'SET_TELEGRAM_ALERTS_ENABLED'>;
+  setTelegramCredentials: RuntimeMessageHandler<'SET_TELEGRAM_CREDENTIALS'>;
+  testTelegramAlerts: RuntimeMessageHandler<'TEST_TELEGRAM_ALERTS'>;
+  getTelegramSettings: RuntimeMessageHandler<'GET_TELEGRAM_SETTINGS'>;
   setAutoClaimChannelPointsBonus: RuntimeMessageHandler<'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'>;
   channelPointsBonusClaimed: RuntimeMessageHandler<'CHANNEL_POINTS_BONUS_CLAIMED'>;
   setAutoClaimDrops: RuntimeMessageHandler<'SET_AUTO_CLAIM_DROPS'>;
@@ -126,6 +130,14 @@ export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): 
         return respondAsync(() => handlers.setMuteFarmingTab(message, sender), sendResponse);
       case 'SET_NOTIFICATIONS_ENABLED':
         return respondAsync(() => handlers.setNotificationsEnabled(message, sender), sendResponse);
+      case 'SET_TELEGRAM_ALERTS_ENABLED':
+        return respondAsync(() => handlers.setTelegramAlertsEnabled(message, sender), sendResponse);
+      case 'SET_TELEGRAM_CREDENTIALS':
+        return respondAsync(() => handlers.setTelegramCredentials(message, sender), sendResponse);
+      case 'TEST_TELEGRAM_ALERTS':
+        return respondAsync(() => handlers.testTelegramAlerts(message, sender), sendResponse);
+      case 'GET_TELEGRAM_SETTINGS':
+        return respondAsync(() => handlers.getTelegramSettings(message, sender), sendResponse);
       case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
         return respondAsync(() => handlers.setAutoClaimChannelPointsBonus(message, sender), sendResponse);
       case 'CHANNEL_POINTS_BONUS_CLAIMED':

@@ -20,6 +20,10 @@ export const RUNTIME_MESSAGE_TYPES = [
   'SET_AUTO_RESUME_ON_STARTUP',
   'SET_MUTE_FARMING_TAB',
   'SET_NOTIFICATIONS_ENABLED',
+  'SET_TELEGRAM_ALERTS_ENABLED',
+  'SET_TELEGRAM_CREDENTIALS',
+  'TEST_TELEGRAM_ALERTS',
+  'GET_TELEGRAM_SETTINGS',
   'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
   'SET_AUTO_CLAIM_DROPS',
   'SET_STREAMER_SELECTION_MODE',
@@ -59,6 +63,13 @@ export type RuntimeRequest =
   | { type: 'SET_AUTO_RESUME_ON_STARTUP'; payload?: { enabled?: boolean } }
   | { type: 'SET_MUTE_FARMING_TAB'; payload?: { enabled?: boolean } }
   | { type: 'SET_NOTIFICATIONS_ENABLED'; payload?: { enabled?: boolean } }
+  | { type: 'SET_TELEGRAM_ALERTS_ENABLED'; payload?: { enabled?: boolean } }
+  | {
+      type: 'SET_TELEGRAM_CREDENTIALS';
+      payload?: { botToken?: string; chatId?: string; clearToken?: boolean };
+    }
+  | { type: 'TEST_TELEGRAM_ALERTS' }
+  | { type: 'GET_TELEGRAM_SETTINGS' }
   | { type: 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'; payload?: { enabled?: boolean } }
   | { type: 'SET_AUTO_CLAIM_DROPS'; payload?: { enabled?: boolean } }
   | { type: 'SET_STREAMER_SELECTION_MODE'; payload?: { mode?: StreamerSelectionMode } }
@@ -95,6 +106,15 @@ export type RuntimeResponseByType = {
   SET_AUTO_RESUME_ON_STARTUP: { success: boolean; autoResumeOnStartup?: boolean; error?: string };
   SET_MUTE_FARMING_TAB: { success: boolean; muteFarmingTab?: boolean; error?: string };
   SET_NOTIFICATIONS_ENABLED: { success: boolean; notificationsEnabled?: boolean; error?: string };
+  SET_TELEGRAM_ALERTS_ENABLED: { success: boolean; telegramAlertsEnabled?: boolean; error?: string };
+  SET_TELEGRAM_CREDENTIALS: {
+    success: boolean;
+    configured?: boolean;
+    chatId?: string | null;
+    error?: string;
+  };
+  TEST_TELEGRAM_ALERTS: { success: boolean; error?: string };
+  GET_TELEGRAM_SETTINGS: { success: boolean; configured?: boolean; chatId?: string | null; error?: string };
   SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS: {
     success: boolean;
     autoClaimChannelPointsBonus?: boolean;
@@ -242,9 +262,18 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
     case 'SET_AUTO_RESUME_ON_STARTUP':
     case 'SET_MUTE_FARMING_TAB':
     case 'SET_NOTIFICATIONS_ENABLED':
+    case 'SET_TELEGRAM_ALERTS_ENABLED':
     case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
     case 'SET_AUTO_CLAIM_DROPS':
       return isOptionalBooleanPayload(payload);
+    case 'SET_TELEGRAM_CREDENTIALS':
+      return (
+        payload === undefined ||
+        (isRecord(payload) &&
+          (payload.botToken === undefined || typeof payload.botToken === 'string') &&
+          (payload.chatId === undefined || typeof payload.chatId === 'string') &&
+          (payload.clearToken === undefined || typeof payload.clearToken === 'boolean'))
+      );
     case 'SET_STREAMER_SELECTION_MODE':
       return (
         payload === undefined ||
@@ -290,6 +319,8 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
     case 'UPDATE_STATE':
     case 'GET_CLAIM_LOG':
     case 'CLEAR_CLAIM_LOG':
+    case 'TEST_TELEGRAM_ALERTS':
+    case 'GET_TELEGRAM_SETTINGS':
       return true;
     default:
       return true;

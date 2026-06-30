@@ -67,4 +67,22 @@ describe('runtime message protocol', () => {
     expect(isRuntimeRequest({ type: 'CLEAR_CLAIM_LOG' })).toBe(true);
     expect(isRuntimeRequest({ type: 'GET_CLAIM_LOG', payload: { unexpected: true } })).toBe(true);
   });
+
+  test('accepts Telegram runtime requests and validates credential payloads', () => {
+    expect(isRuntimeRequest({ type: 'SET_TELEGRAM_ALERTS_ENABLED', payload: { enabled: true } })).toBe(true);
+    expect(
+      isRuntimeRequest({
+        type: 'SET_TELEGRAM_CREDENTIALS',
+        payload: { botToken: '123:abc', chatId: '999' },
+      }),
+    ).toBe(true);
+    expect(isRuntimeRequest({ type: 'TEST_TELEGRAM_ALERTS' })).toBe(true);
+    expect(isRuntimeRequest({ type: 'GET_TELEGRAM_SETTINGS' })).toBe(true);
+    expect(
+      isRuntimeRequest({
+        type: 'SET_TELEGRAM_CREDENTIALS',
+        payload: { botToken: 123 },
+      }),
+    ).toBe(false);
+  });
 });

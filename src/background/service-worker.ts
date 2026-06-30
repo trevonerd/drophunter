@@ -11,7 +11,7 @@ import {
   ChannelPointsBonusClaimResponse,
   shouldAttemptAutoClaimChannelPointsBonus,
 } from './channel-points';
-import { clearClaimLog, loadClaimLog } from './claim-log.ts';
+import { clearClaimLog, loadClaimLog, setClaimRecordedHandler } from './claim-log.ts';
 import { logDebug, logInfo, logWarn } from './logging';
 import { registerRuntimeMessageRouter } from './message-router.ts';
 import { openMonitorDashboardWindow as openMonitorDashboardWindowController } from './monitor-dashboard.ts';
@@ -19,6 +19,15 @@ import { createNotificationController } from './notifications.ts';
 import { needsPlaybackAttention } from './playback.ts';
 import { createPlaybackOrchestrator } from './playback-orchestrator.ts';
 import { applyStartupResumePolicy, clearRotationMetadata, createServiceWorkerState } from './runtime-state';
+import {
+  createTelegramNotifier,
+  getTelegramSettingsSummary,
+  isValidBotToken,
+  isValidChatId,
+  loadTelegramCredentials,
+  normalizeTelegramCredentials,
+  saveTelegramCredentials,
+} from './telegram-notifications.ts';
 
 export type { RefreshDropsOptions, StreamContext } from './farming-session.ts';
 export type { ServiceWorkerState } from './runtime-state';
@@ -111,6 +120,12 @@ const state = createServiceWorkerState();
 const notificationController = createNotificationController(state, {
   saveState: () => saveStateExt(state),
 });
+const telegramNotifier = createTelegramNotifier(state, {
+  saveState: () => saveStateExt(state),
+  loadCredentials: loadTelegramCredentials,
+  saveCredentials: saveTelegramCredentials,
+});
+setClaimRecordedHandler((entries) => telegramNotifier.notifyClaimedDrops(entries));
 const sessionOrchestrator = createSessionOrchestrator(state, {
   sanitizeTwitchSession,
   sessionDebugSummary: sessionDebugSummaryExt,
@@ -219,6 +234,7 @@ async function handleExtensionUpdate() {
     autoResumeOnStartup: state.appState.autoResumeOnStartup,
     muteFarmingTab: state.appState.muteFarmingTab,
     notificationsEnabled: state.appState.notificationsEnabled,
+    telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
     autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus,
     autoClaimDrops: state.appState.autoClaimDrops,
     streamerSelectionMode: state.appState.streamerSelectionMode,
@@ -737,6 +753,125 @@ async function handleSetNotificationsEnabled(payload?: { enabled?: boolean }) {
   return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
 }
 
+async function handleSetTelegramAlertsEnabled(payload?: { enabled?: boolean }) {
+  await trackActivity('set-telegram-alerts-enabled');
+  const enabled = payload?.enabled !== false;
+  if (!enabled) {
+    state.appState.telegramAlertsEnabled = false;
+    await saveStateExt(state);
+    return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
+  }
+
+  const credentials = await loadTelegramCredentials();
+  if (!credentials) {
+    state.appState.telegramAlertsEnabled = false;
+    await saveStateExt(state);
+    return {
+      success: false,
+      telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+      error: 'Telegram bot token and chat ID are required',
+    };
+  }
+
+  if (!(await telegramNotifier.hasTelegramHostPermission())) {
+    const granted = await telegramNotifier.requestTelegramHostPermission();
+    if (!granted) {
+      state.appState.telegramAlertsEnabled = false;
+      await saveStateExt(state);
+      return {
+        success: false,
+        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+        error: 'Telegram host permission was not granted',
+      };
+    }
+  }
+
+  const validation = await telegramNotifier.validateSetup(credentials);
+  if (!validation.success) {
+    state.appState.telegramAlertsEnabled = false;
+    await saveStateExt(state);
+    return {
+      success: false,
+      telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+      error: validation.error ?? 'Telegram bot validation failed',
+    };
+  }
+
+  state.appState.telegramAlertsEnabled = true;
+  await saveStateExt(state);
+  return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
+}
+
+async function handleSetTelegramCredentials(payload?: {
+  botToken?: string;
+  chatId?: string;
+  clearToken?: boolean;
+}) {
+  await trackActivity('set-telegram-credentials');
+  const existing = await loadTelegramCredentials();
+  const nextToken = payload?.clearToken
+    ? ''
+    : typeof payload?.botToken === 'string' && payload.botToken.trim()
+      ? payload.botToken.trim()
+      : (existing?.botToken ?? '');
+  const nextChatId =
+    typeof payload?.chatId === 'string' && payload.chatId.trim()
+      ? payload.chatId.trim()
+      : (existing?.chatId ?? '');
+
+  if (!nextToken || !nextChatId) {
+    if (!nextToken && !nextChatId && !existing) {
+      return { success: true, configured: false, chatId: null };
+    }
+    return { success: false, error: 'Telegram bot token and chat ID are required' };
+  }
+
+  if (!isValidBotToken(nextToken)) {
+    return { success: false, error: 'Telegram bot token format is invalid' };
+  }
+  if (!isValidChatId(nextChatId)) {
+    return { success: false, error: 'Telegram chat ID format is invalid' };
+  }
+
+  const credentials = normalizeTelegramCredentials({ botToken: nextToken, chatId: nextChatId });
+  if (!credentials) {
+    return { success: false, error: 'Telegram credentials are invalid' };
+  }
+
+  if (!(await telegramNotifier.hasTelegramHostPermission())) {
+    const granted = await telegramNotifier.requestTelegramHostPermission();
+    if (!granted) {
+      return { success: false, error: 'Telegram host permission was not granted' };
+    }
+  }
+
+  const validation = await telegramNotifier.validateSetup(credentials);
+  if (!validation.success) {
+    return { success: false, error: validation.error ?? 'Telegram bot validation failed' };
+  }
+
+  await saveTelegramCredentials(credentials);
+  return {
+    success: true,
+    configured: true,
+    chatId: credentials.chatId,
+  };
+}
+
+async function handleTestTelegramAlerts() {
+  await trackActivity('test-telegram-alerts');
+  return telegramNotifier.sendTestAlert();
+}
+
+async function handleGetTelegramSettings() {
+  try {
+    const summary = await getTelegramSettingsSummary();
+    return { success: true, ...summary };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+}
+
 async function handleSetAutoClaimChannelPointsBonus(payload?: { enabled?: boolean }) {
   await trackActivity('set-auto-claim-channel-points-bonus');
   state.appState = applyAutoClaimChannelPointsBonusSetting(state.appState, payload?.enabled);
@@ -966,6 +1101,7 @@ export function startServiceWorker(): void {
   });
   initPromise = initPromise.then(async () => {
     await notificationController.syncPermissionState();
+    await telegramNotifier.syncPermissionState();
   });
 
   registerExtensionLifecycleListeners({
@@ -999,6 +1135,10 @@ export function startServiceWorker(): void {
     setMonitorAutoOpen: (message) => handleSetMonitorAutoOpen(message.payload),
     setMuteFarmingTab: (message) => handleSetMuteFarmingTab(message.payload),
     setNotificationsEnabled: (message) => handleSetNotificationsEnabled(message.payload),
+    setTelegramAlertsEnabled: (message) => handleSetTelegramAlertsEnabled(message.payload),
+    setTelegramCredentials: (message) => handleSetTelegramCredentials(message.payload),
+    testTelegramAlerts: () => handleTestTelegramAlerts(),
+    getTelegramSettings: () => handleGetTelegramSettings(),
     setAutoClaimChannelPointsBonus: (message) => handleSetAutoClaimChannelPointsBonus(message.payload),
     channelPointsBonusClaimed: (message, sender) => handleChannelPointsBonusClaimed(message.payload, sender),
     setAutoClaimDrops: (message) => handleSetAutoClaimDrops(message.payload),

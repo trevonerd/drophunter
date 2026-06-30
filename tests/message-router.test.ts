@@ -29,6 +29,10 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
     setMonitorAutoOpen: missing,
     setMuteFarmingTab: missing,
     setNotificationsEnabled: missing,
+    setTelegramAlertsEnabled: missing,
+    setTelegramCredentials: missing,
+    testTelegramAlerts: missing,
+    getTelegramSettings: missing,
     setAutoClaimChannelPointsBonus: missing,
     channelPointsBonusClaimed: missing,
     setAutoClaimDrops: missing,
@@ -116,6 +120,33 @@ describe('runtime message router', () => {
 
     expect(get.response).toEqual({ success: true, entries: fakeEntries });
     expect(clear.response).toEqual({ success: true });
+  });
+
+  test('dispatches Telegram settings messages to the correct handlers', async () => {
+    const listener = createRuntimeMessageListener(
+      createHandlers({
+        getTelegramSettings: async () => ({ success: true, configured: true, chatId: '123' }),
+        testTelegramAlerts: async () => ({ success: true }),
+        setTelegramCredentials: async () => ({ success: true, configured: true, chatId: '123' }),
+        setTelegramAlertsEnabled: async () => ({ success: true, telegramAlertsEnabled: true }),
+      }),
+    );
+
+    const settings = await callListener(listener, { type: 'GET_TELEGRAM_SETTINGS' });
+    const test = await callListener(listener, { type: 'TEST_TELEGRAM_ALERTS' });
+    const credentials = await callListener(listener, {
+      type: 'SET_TELEGRAM_CREDENTIALS',
+      payload: { botToken: '123:abc', chatId: '123' },
+    });
+    const enabled = await callListener(listener, {
+      type: 'SET_TELEGRAM_ALERTS_ENABLED',
+      payload: { enabled: true },
+    });
+
+    expect(settings.response).toEqual({ success: true, configured: true, chatId: '123' });
+    expect(test.response).toEqual({ success: true });
+    expect(credentials.response).toEqual({ success: true, configured: true, chatId: '123' });
+    expect(enabled.response).toEqual({ success: true, telegramAlertsEnabled: true });
   });
 
   test('returns async handler results and converts thrown errors into response errors', async () => {

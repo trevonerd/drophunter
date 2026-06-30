@@ -28,6 +28,7 @@ export const createInitialState = (): AppState => ({
   autoResumeOnStartup: false,
   muteFarmingTab: true,
   notificationsEnabled: false,
+  telegramAlertsEnabled: false,
   autoClaimChannelPointsBonus: true,
   autoClaimDrops: true,
   totalDropsClaimed: 0,

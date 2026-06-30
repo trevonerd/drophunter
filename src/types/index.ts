@@ -73,6 +73,7 @@ export interface AppState {
   autoResumeOnStartup: boolean;
   muteFarmingTab: boolean;
   notificationsEnabled: boolean;
+  telegramAlertsEnabled: boolean;
   autoClaimChannelPointsBonus: boolean;
   autoClaimDrops: boolean;
   totalDropsClaimed: number;
