@@ -348,6 +348,12 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
           onNotify: adapters.notify,
         }),
       onSkipCurrentGame: skipCurrentGameDueToOfflineRecovery,
+      onForceRefreshDropsData: () =>
+        refreshDropsData({
+          includeCampaignFetch: true,
+          includeInventoryFetch: true,
+          forceInventoryFetch: true,
+        }),
     });
   }
 

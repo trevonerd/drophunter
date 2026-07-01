@@ -256,6 +256,7 @@ export interface ServiceWorkerState {
   lastFullRefreshAt: number;
   dropClaimInFlight: boolean;
   dropClaimRetryAtById: Map<string, number>;
+  queueMissingStreak: Map<string, number>;
   lastActivityAt: number;
   apiConsecutiveFailures: number;
   apiBackoffUntil: number;
@@ -294,6 +295,7 @@ export function createServiceWorkerState(): ServiceWorkerState {
     lastFullRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
+    queueMissingStreak: new Map(),
     lastActivityAt: 0,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,

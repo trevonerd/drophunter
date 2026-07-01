@@ -211,6 +211,7 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastFullRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
+    queueMissingStreak: new Map(),
     lastActivityAt: 0,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
