@@ -15,6 +15,9 @@ export const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 export const TIMING_SAVE_DEBOUNCE_MS = 5_000;
 export const CRASH_DETECTION_THRESHOLD_MS = 30_000;
 export const CRASH_RECOVERY_GRACE_MS = 2 * 60_000;
+// Consecutive dropVanished misses required before a queued campaign is pruned — guards
+// against a single partial/stale post-resume snapshot wiping the queue.
+export const QUEUE_MISSING_CONFIRM_THRESHOLD = 2;
 // Max heartbeat gap that still counts as a routine SW recycle (not a long browser restart)
 // when a no-tab recovery (no-streamers/offline/open-failed) is active.
 export const RESUME_RECOVERY_GRACE_MS = 5 * 60_000;

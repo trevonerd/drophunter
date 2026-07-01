@@ -17,7 +17,11 @@ import {
 import { isExpiredGame } from '../shared/utils';
 import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { detectNewlyClaimedDrops, recordClaimedDrops } from './claim-log.ts';
-import { CRASH_RECOVERY_GRACE_MS, STREAM_VALIDATION_GRACE_MS } from './constants';
+import {
+  CRASH_RECOVERY_GRACE_MS,
+  QUEUE_MISSING_CONFIRM_THRESHOLD,
+  STREAM_VALIDATION_GRACE_MS,
+} from './constants';
 import { completedDropKeys } from './drops-projection.ts';
 import { logDebug, logInfo, logWarn } from './logging';
 import type { ServiceWorkerState } from './service-worker';
@@ -174,17 +178,40 @@ export function normalizeQueueSelection(
 ) {
   if (!Array.isArray(state.appState.queue) || state.appState.queue.length === 0) {
     state.appState.queue = [];
+    state.queueMissingStreak.clear();
     return;
   }
+
+  const inCrashGrace =
+    state.appState.resumedFromCrash != null &&
+    Date.now() - state.appState.resumedFromCrash < CRASH_RECOVERY_GRACE_MS;
 
   const normalized: TwitchGame[] = [];
   const seen = new Set<string>();
   state.appState.queue.forEach((queuedGame) => {
     const resolved = findMatchingGame(queuedGame, games);
     if (!resolved && dropVanished && queuedGame.campaignId) {
+      const key = gameKey(queuedGame);
+      if (inCrashGrace) {
+        // First snapshot(s) right after a resume are the least trustworthy — don't count
+        // them toward the missing streak at all.
+      } else {
+        const streak = (state.queueMissingStreak.get(key) ?? 0) + 1;
+        if (streak >= QUEUE_MISSING_CONFIRM_THRESHOLD) {
+          state.queueMissingStreak.delete(key);
+          return;
+        }
+        state.queueMissingStreak.set(key, streak);
+      }
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      normalized.push(queuedGame);
       return;
     }
     const game = resolved ?? queuedGame;
+    state.queueMissingStreak.delete(gameKey(game));
     if (isExpiredGame(game)) {
       return;
     }
@@ -195,6 +222,12 @@ export function normalizeQueueSelection(
     seen.add(key);
     normalized.push(game);
   });
+
+  for (const key of Array.from(state.queueMissingStreak.keys())) {
+    if (!seen.has(key)) {
+      state.queueMissingStreak.delete(key);
+    }
+  }
 
   state.appState.queue = normalized;
 }
@@ -909,6 +942,7 @@ export async function rotateStreamerIfInvalid(
       },
     ) => Promise<void>;
     onSkipCurrentGame?: () => Promise<void>;
+    onForceRefreshDropsData?: () => Promise<void>;
   },
 ) {
   if (!state.appState.selectedGame) {
@@ -1189,9 +1223,20 @@ export async function rotateStreamerIfInvalid(
       }
       return;
     }
-    // Attempts 2+: self-heal did not help — rotate to a DIFFERENT streamer. The stall
-    // threshold plus the self-heal backoff already rate-limit this, so the generic rotation
-    // cooldown does not apply; advance the attempt counter only when we actually rotate.
+    // Attempts 2+: self-heal did not help. Before rotating, force a fresh campaign+inventory
+    // poll — Twitch's claimed-rewards backend can lag behind its own notification/badge grant,
+    // so a stale cached drop can look stalled when it is already done. If the refresh proves
+    // progress (via detectRecoveryProof clearing stalledRecoveryAttempts) or the drop is gone,
+    // skip rotating a perfectly good streamer for nothing.
+    if (opts?.onForceRefreshDropsData) {
+      await opts.onForceRefreshDropsData();
+      if (state.stalledRecoveryAttempts === 0 || state.appState.currentDrop == null) {
+        return;
+      }
+    }
+    // Rotate to a DIFFERENT streamer. The stall threshold plus the self-heal backoff already
+    // rate-limit this, so the generic rotation cooldown does not apply; advance the attempt
+    // counter only when we actually rotate.
     state.stalledRecoveryAttempts = Math.min(
       MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
       state.stalledRecoveryAttempts + 1,

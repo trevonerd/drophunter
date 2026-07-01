@@ -59,6 +59,7 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastFullRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
+    queueMissingStreak: new Map(),
     lastActivityAt: 0,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
@@ -152,10 +153,12 @@ describe('normalizeQueueSelection', () => {
     expect(state.appState.queue[0].campaignId).toBe('campaign-1');
   });
 
-  test('allows vanished drops to be removed when dropVanished is true', () => {
+  test('keeps a vanished game on the first miss and prunes only after consecutive confirmations', () => {
     const state = createMinimalState();
     const vanishedGame = createGame({ id: 'vanished', campaignId: 'campaign-gone' });
     state.appState.queue = [vanishedGame];
+    normalizeQueueSelection(state, [], true);
+    expect(state.appState.queue).toHaveLength(1);
     normalizeQueueSelection(state, [], true);
     expect(state.appState.queue).toHaveLength(0);
   });
@@ -166,6 +169,45 @@ describe('normalizeQueueSelection', () => {
     state.appState.queue = [vanishedGame];
     normalizeQueueSelection(state, [], false);
     expect(state.appState.queue).toHaveLength(1);
+  });
+
+  test('resets the missing streak when the game reappears', () => {
+    const state = createMinimalState();
+    const game = createGame({ id: 'flaky', campaignId: 'campaign-flaky' });
+    state.appState.queue = [game];
+    normalizeQueueSelection(state, [], true);
+    expect(state.appState.queue).toHaveLength(1);
+    normalizeQueueSelection(state, [game], true);
+    expect(state.appState.queue).toHaveLength(1);
+    normalizeQueueSelection(state, [], true);
+    expect(state.appState.queue).toHaveLength(1);
+    normalizeQueueSelection(state, [], true);
+    expect(state.appState.queue).toHaveLength(0);
+  });
+
+  test('does not count misses toward the streak while within the crash-recovery grace window', () => {
+    const state = createMinimalState();
+    state.appState.resumedFromCrash = Date.now();
+    const vanishedGame = createGame({ id: 'vanished', campaignId: 'campaign-gone' });
+    state.appState.queue = [vanishedGame];
+    normalizeQueueSelection(state, [], true);
+    normalizeQueueSelection(state, [], true);
+    normalizeQueueSelection(state, [], true);
+    expect(state.appState.queue).toHaveLength(1);
+  });
+
+  test('regression: a partial post-resume snapshot does not wipe a multi-campaign queue', () => {
+    const state = createMinimalState();
+    state.appState.resumedFromCrash = Date.now() - 3 * 60_000; // grace window elapsed
+    const museum = createGame({ id: 'museum', campaignId: 'campaign-museum' });
+    const diablo = createGame({ id: 'diablo', campaignId: 'campaign-diablo' });
+    state.appState.queue = [museum, diablo];
+    // First post-grace snapshot only reports diablo (museum missing) — should survive.
+    normalizeQueueSelection(state, [diablo], true);
+    expect(state.appState.queue.map((g) => g.id)).toEqual(['museum', 'diablo']);
+    // A second consecutive snapshot still missing museum confirms the prune.
+    normalizeQueueSelection(state, [diablo], true);
+    expect(state.appState.queue.map((g) => g.id)).toEqual(['diablo']);
   });
 });
 
@@ -2961,6 +3003,82 @@ describe('rotateStreamerIfInvalid', () => {
     });
 
     expect(selfHealCalled).toBe(false);
+    expect(rotateReason).toBe('stalled-progress');
+    expect(state.stalledRecoveryAttempts).toBe(2);
+  });
+
+  test('skips rotation when a forced drops refresh proves the drop already advanced', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 60 });
+    state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
+    state.stalledRecoveryAttempts = 1;
+    state.lastStreamRotationAt = 0;
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let rotateCalled = false;
+    await rotateStreamerIfInvalid(state, {
+      onFetchStreamContext: async () => ({
+        channelName: 'streamer',
+        categorySlug: 'test-game',
+        categoryLabel: 'Test Game',
+        streamTitle: 'Stream Title',
+        titleContainsDrops: true,
+        hasDropsSignal: true,
+        isLive: true,
+        pageUrl: 'https://twitch.tv/streamer',
+      }),
+      onResolveCategorySlug: async () => 'test-game',
+      onForceRefreshDropsData: async () => {
+        // Simulates detectRecoveryProof having already cleared the stall on fresher data.
+        state.stalledRecoveryAttempts = 0;
+        state.appState.currentDrop = createDrop({ requiredMinutes: 60, progress: 40 });
+      },
+      onRotateStreamer: async () => {
+        rotateCalled = true;
+      },
+    });
+
+    expect(rotateCalled).toBe(false);
+  });
+
+  test('rotates when a forced drops refresh leaves the drop still stalled', async () => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.currentDrop = createDrop({ requiredMinutes: 60 });
+    state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
+    state.stalledRecoveryAttempts = 1;
+    state.lastStreamRotationAt = 0;
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let rotateReason: StreamRotationReason | null = null;
+    let forceRefreshCalled = false;
+    await rotateStreamerIfInvalid(state, {
+      onFetchStreamContext: async () => ({
+        channelName: 'streamer',
+        categorySlug: 'test-game',
+        categoryLabel: 'Test Game',
+        streamTitle: 'Stream Title',
+        titleContainsDrops: true,
+        hasDropsSignal: true,
+        isLive: true,
+        pageUrl: 'https://twitch.tv/streamer',
+      }),
+      onResolveCategorySlug: async () => 'test-game',
+      onForceRefreshDropsData: async () => {
+        forceRefreshCalled = true;
+        // No change — the refresh confirms the drop is still genuinely stalled.
+      },
+      onRotateStreamer: async (_, reason) => {
+        rotateReason = reason;
+      },
+    });
+
+    expect(forceRefreshCalled).toBe(true);
     expect(rotateReason).toBe('stalled-progress');
     expect(state.stalledRecoveryAttempts).toBe(2);
   });

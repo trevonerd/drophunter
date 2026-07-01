@@ -1627,6 +1627,17 @@ describe('service worker message handlers', () => {
     expect(state.queue).toHaveLength(1);
     expect(state.queue[0].campaignId).toBe('campaign-b');
 
+    // A single snapshot missing the campaign is not enough to prune — guards against a
+    // partial/stale post-resume payload wiping the queue on one bad tick.
+    await dispatchMessage({
+      type: 'UPDATE_GAMES',
+      payload: [gameWithCampaignC],
+    });
+
+    state = getAppStateFromStorage();
+    expect(state.queue).toHaveLength(1);
+
+    // Confirmed missing on a second consecutive snapshot — now it's pruned.
     await dispatchMessage({
       type: 'UPDATE_GAMES',
       payload: [gameWithCampaignC],
