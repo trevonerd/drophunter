@@ -1,17 +1,17 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
-import { setupChromeMocks } from './mocks/chrome.ts';
-import type { ChromeMocks } from './mocks/chrome.ts';
-import {
-  saveTimingState,
-  loadTimingState,
-  setTimingSaveDebounceMsForTests,
-  clearPendingTimingStateSaveForTests,
-} from '../src/background/state-persistence.ts';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { CRASH_DETECTION_THRESHOLD_MS } from '../src/background/constants.ts';
 import { splitDropsForSelectedGame } from '../src/background/drops-projection.ts';
-import { createInitialState } from '../src/shared/utils.ts';
-import { CRASH_DETECTION_THRESHOLD_MS, TIMING_SAVE_DEBOUNCE_MS } from '../src/background/constants.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
+import {
+  clearPendingTimingStateSaveForTests,
+  loadTimingState,
+  saveTimingState,
+  setTimingSaveDebounceMsForTests,
+} from '../src/background/state-persistence.ts';
+import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchGame } from '../src/types/index.ts';
+import type { ChromeMocks } from './mocks/chrome.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
 
 let mocks: ChromeMocks;
 
@@ -132,9 +132,16 @@ describe('false recovery proof guard (freshTimingState)', () => {
     state.appState.selectedGame = game;
 
     const drop = {
-      id: 'd1', campaignId: 'c1', name: 'Drop1', gameName: 'TestGame',
-      progress: 45, currentMinutes: 45, remainingMinutes: 15,
-      claimed: false, claimable: false, status: 'active' as const,
+      id: 'd1',
+      campaignId: 'c1',
+      name: 'Drop1',
+      gameName: 'TestGame',
+      progress: 45,
+      currentMinutes: 45,
+      remainingMinutes: 15,
+      claimed: false,
+      claimable: false,
+      status: 'active' as const,
       dropType: 'time-based' as const,
     };
 
@@ -157,9 +164,16 @@ describe('false recovery proof guard (freshTimingState)', () => {
     state.appState.selectedGame = game;
 
     const drop = {
-      id: 'd1', campaignId: 'c1', name: 'Drop1', gameName: 'TestGame',
-      progress: 50, currentMinutes: 50, remainingMinutes: 10,
-      claimed: false, claimable: false, status: 'active' as const,
+      id: 'd1',
+      campaignId: 'c1',
+      name: 'Drop1',
+      gameName: 'TestGame',
+      progress: 50,
+      currentMinutes: 50,
+      remainingMinutes: 10,
+      claimed: false,
+      claimable: false,
+      status: 'active' as const,
       dropType: 'time-based' as const,
     };
 

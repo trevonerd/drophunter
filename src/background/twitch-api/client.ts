@@ -848,7 +848,9 @@ export class TwitchApiClient {
 
     const claimResponse = data.claimDropRewards;
     if (!claimResponse) {
-      return true;
+      // Ambiguous response — do not mark as claimed locally. Claim is
+      // idempotent server-side, so a retry next tick is safe.
+      return false;
     }
 
     const errorMessage = normalizeText(claimResponse.error?.message);
@@ -858,7 +860,7 @@ export class TwitchApiClient {
 
     const status = normalizeText(claimResponse.status).toUpperCase();
     if (!status) {
-      return true;
+      return false;
     }
 
     return (

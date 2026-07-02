@@ -1,6 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
 import { isDropCompleted } from '../shared/drops';
-import { replaceAvailableGames } from '../shared/game-selection';
+import { replaceAvailableGames, sameCampaignId } from '../shared/game-selection';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { createInitialState, toSlug } from '../shared/utils';
@@ -52,6 +52,7 @@ import {
 } from './api-operations.ts';
 import {
   CRASH_DETECTION_THRESHOLD_MS,
+  INVALID_STREAM_THRESHOLD,
   PROGRESS_POLL_MS,
   RESUME_RECOVERY_GRACE_MS,
   STREAM_VALIDATION_GRACE_MS,
@@ -94,11 +95,6 @@ import {
 import { TwitchApiClient } from './twitch-api/client';
 import { isLikelyAuthError, sanitizeTwitchSession, TwitchSession } from './twitch-api/types';
 
-export const FULL_REFRESH_INTERVAL_MS = 2 * 60_000;
-export const INVALID_STREAM_THRESHOLD = 8;
-export const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
-export const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
-export const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 export const MONITOR_AUTO_OPEN_DELAY_MS = 450;
 export const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
 export const DROPS_SNAPSHOT_CACHE_KEY = 'dropsSnapshotCache';
@@ -106,13 +102,7 @@ export const TIMING_STATE_KEY = 'timingState';
 export const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
 export const ALARM_NAME = 'dropCheck';
 export const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000; // 3 days
-export const INTEGRITY_FALLBACK_TTL_MS = 30 * 60_000; // 30 minutes
-export const TICK_WATCHDOG_TIMEOUT_MS = 60_000;
 export const STREAM_CONTEXT_TIMEOUT_MS = 12_000;
-
-function sameCampaignId(left?: string | null, right?: string | null): boolean {
-  return Boolean(left && right && left === right);
-}
 
 let initPromise: Promise<void> | null = null;
 const state = createServiceWorkerState();
@@ -552,6 +542,10 @@ async function refreshGamesCacheFromHiddenFetch(
     forceSessionRefresh?: boolean;
     acceptAuthoritativeEmpty?: boolean;
     requireFreshSnapshot?: boolean;
+    // Require 2+ consecutive empty responses before wiping queue/games. Used
+    // by one-shot call sites (e.g. session sync) that have no internal
+    // retry-until-ready loop of their own, unlike the drops-page-refresh flow.
+    requireConsecutiveEmptyConfirmation?: boolean;
   } = {},
 ): Promise<TwitchGame[]> {
   if (state.gamesCacheRefreshInFlight) {
@@ -566,11 +560,24 @@ async function refreshGamesCacheFromHiddenFetch(
     }
     if (apiSnapshot) {
       if (apiSnapshot.games.length === 0 && apiSnapshot.drops.length === 0) {
-        if (options.acceptAuthoritativeEmpty !== false) {
+        const shouldAccept = options.acceptAuthoritativeEmpty !== false;
+        if (shouldAccept && options.requireConsecutiveEmptyConfirmation) {
+          const EMPTY_CAMPAIGN_CONFIRMATIONS_REQUIRED = 2;
+          state.emptyCampaignRefreshStreak += 1;
+          if (state.emptyCampaignRefreshStreak >= EMPTY_CAMPAIGN_CONFIRMATIONS_REQUIRED) {
+            state.emptyCampaignRefreshStreak = 0;
+            await applyAuthoritativeEmptyCampaignRefresh();
+          } else {
+            logWarn('Empty campaign snapshot received; awaiting confirmation before wiping state', {
+              streak: state.emptyCampaignRefreshStreak,
+            });
+          }
+        } else if (shouldAccept) {
           await applyAuthoritativeEmptyCampaignRefresh();
         }
         return [];
       }
+      state.emptyCampaignRefreshStreak = 0;
       if (apiSnapshot.games.length > 0) {
         fetchedGames = apiSnapshot.games;
       }
@@ -670,7 +677,7 @@ async function handleEnsureGamesCache(payload?: { force?: boolean }) {
   const force = Boolean(payload?.force);
   const shouldRefresh = shouldRefreshGamesCacheExt(state, force);
   if (shouldRefresh) {
-    await refreshGamesCacheFromHiddenFetch();
+    await refreshGamesCacheFromHiddenFetch({ requireConsecutiveEmptyConfirmation: true });
   } else if (state.cachedDropsSnapshot.length > 0) {
     // Cache is fresh — no API call needed. But the games persisted in storage may
     // pre-date the annotation logic (e.g. after an extension update or SW restart).
@@ -1028,10 +1035,11 @@ async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.
   }
   state.twitchSessionCache = incoming;
   state.twitchSessionLastAttemptAt = 0;
+  state.appState.twitchSessionDetected = true;
   await persistTwitchSessionExt(incoming);
   logDebug('Twitch session synced from content script', sessionDebugSummaryExt(incoming));
   if (sender.tab?.id && shouldRefreshCampaignsAfterSessionSync()) {
-    await refreshGamesCacheFromHiddenFetch();
+    await refreshGamesCacheFromHiddenFetch({ requireConsecutiveEmptyConfirmation: true });
     await saveStateExt(state);
     broadcastStateUpdateExt(state.appState);
   }

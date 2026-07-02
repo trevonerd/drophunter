@@ -1,7 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
 import { isDropCompleted } from '../shared/drops';
-import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection';
-import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
+import { getGameDisplayLabel, replaceAvailableGames, sameCampaignId } from '../shared/game-selection';
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { autoClaimClaimableDrops as autoClaimClaimableDropsExt } from './auto-claim.ts';
 import { ALARM_NAME, PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
@@ -18,6 +17,8 @@ import {
   advanceQueueIfCompleted as advanceQueueIfCompletedExt,
   applyStopState as applyStopStateExt,
   checkDropProgress as checkDropProgressExt,
+  clearRecoveryState as clearRecoveryStateExt,
+  clearStopState as clearStopStateExt,
   enterPersistentRecovery as enterPersistentRecoveryExt,
   handleAddToQueue as handleAddToQueueExt,
   handleRemoveFromQueue as handleRemoveFromQueueExt,
@@ -88,10 +89,6 @@ export interface FarmingSessionAdapters {
   monitorAutoOpenDelayMs: number;
 }
 
-function sameCampaignId(left?: string | null, right?: string | null): boolean {
-  return Boolean(left && right && left === right);
-}
-
 function evaluateDropsForGame(
   game: TwitchGame,
   drops: TwitchDrop[],
@@ -104,18 +101,6 @@ function evaluateDropsForGame(
 }
 
 export function createFarmingSession(state: ServiceWorkerState, adapters: FarmingSessionAdapters) {
-  function clearRecoveryState() {
-    state.recoveryBackoffUntil = 0;
-    state.lastRecoveryAttemptAt = 0;
-    state.stalledRecoveryAttempts = 0;
-    state.recoveryNotificationSent = false;
-    state.appState = clearRecoveryStatus(state.appState);
-  }
-
-  function clearStopState() {
-    state.appState = clearTerminalStopStatus(state.appState);
-  }
-
   async function evaluateDropTransitions(previousCompletedKeys: Set<string>) {
     const nowCompletedKeys = completedDropKeys(state.appState.completedDrops);
     const newlyCompleted = state.appState.completedDrops.filter(
@@ -436,11 +421,11 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     state.appState.isPaused = false;
     state.invalidStreamChecks = 0;
     state.noProgressRotationAttempts = 0;
-    clearStopState();
+    clearStopStateExt(state);
     if (state.appState.tabId) {
       state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
     }
-    clearRecoveryState();
+    clearRecoveryStateExt(state);
     startMonitoring();
     await adapters.saveState(state);
     await adapters.saveTimingState(state);

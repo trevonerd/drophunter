@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-async function fetchWithTimeout<T>(
-  messagePromise: Promise<T>,
-  timeoutMs: number,
-): Promise<T | null> {
+async function fetchWithTimeout<T>(messagePromise: Promise<T>, timeoutMs: number): Promise<T | null> {
   const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
   return Promise.race([messagePromise, timeoutPromise]);
 }
@@ -31,10 +28,10 @@ function makeWatchdog(timeoutMs: number): {
 describe('timing constants — TICK_WATCHDOG_TIMEOUT_MS', () => {
   test('TICK_WATCHDOG_TIMEOUT_MS must be 60_000 ms', () => {
     const source = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../src/background/service-worker.ts'),
+      require('path').resolve(__dirname, '../src/background/constants.ts'),
       'utf-8',
     );
-    const match = source.match(/const\s+TICK_WATCHDOG_TIMEOUT_MS\s*=\s*([\d_]+)\s*;/);
+    const match = source.match(/export const\s+TICK_WATCHDOG_TIMEOUT_MS\s*=\s*([\d_]+)\s*;/);
     expect(match).not.toBeNull();
     const value = Number(match![1].replace(/_/g, ''));
     expect(value).toBe(60_000);
@@ -115,7 +112,7 @@ describe('tick watchdog pattern', () => {
   });
 
   test('watchdog only resets flag and does not schedule a new tick', async () => {
-    let newTickScheduled = false;
+    const newTickScheduled = false;
     const watchdog = makeWatchdog(50);
 
     await new Promise((resolve) => setTimeout(resolve, 80));

@@ -1,13 +1,10 @@
 import { browser } from '../shared/browser-api.ts';
+import { isRuntimeRequest } from '../shared/messages.ts';
 import { loadStoredContentAppState, subscribeToContentAppState } from './app-state.ts';
 import { claimChannelPointsBonus } from './channel-points.ts';
 import { logContentDebug, logContentInfo, logContentWarn } from './logging.ts';
 import { canAttemptPageUnmute, isExpectedTwitchPlaybackInterruption } from './playback.ts';
-
-type ContentRuntimeMessage = {
-  type?: string;
-  payload?: unknown;
-};
+import { extractTwitchSessionFrom, parseCookieValue } from './session-extraction.ts';
 
 const RESERVED_TWITCH_PATH_SEGMENTS = new Set([
   'directory',
@@ -322,111 +319,39 @@ function prepareStreamPlayback() {
   return { played, clickedSurface, isPlaybackReady, gateDismissed: false, userInteractionRequired };
 }
 
-function getCookieValue(name: string): string {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
-  return match?.[1] ? decodeURIComponent(match[1]) : '';
-}
-
-function parseTwilightUserEntry(): { oauthToken: string; userId: string } {
-  const keys = [
-    'twilight-user',
-    'twilight-user-data',
-    'twilight-user-data-v2',
-    '__twilight-user',
-    'twilight-session',
-  ];
-  const stores: Storage[] = [window.localStorage, window.sessionStorage];
-  for (const store of stores) {
-    for (const key of keys) {
-      const raw = store.getItem(key);
-      if (!raw) {
-        continue;
-      }
-      try {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        const asText = (value: unknown): string => (typeof value === 'string' ? normalizeText(value) : '');
-        const parsedUser =
-          parsed.user && typeof parsed.user === 'object' ? (parsed.user as Record<string, unknown>) : null;
-        const oauthToken =
-          asText(parsed.authToken) ||
-          asText(parsed.token) ||
-          asText(parsed.accessToken) ||
-          asText(parsed.oauthToken);
-        const userId =
-          asText(parsed.userID) || asText(parsed.userId) || asText(parsed.id) || asText(parsedUser?.id);
-        if (oauthToken || userId) {
-          return { oauthToken, userId };
-        }
-      } catch {
-        // Ignore malformed entries.
-      }
-    }
-  }
-  return { oauthToken: '', userId: '' };
-}
-
 function createSessionUuid(): string {
   const random = crypto.getRandomValues(new Uint8Array(8));
   return Array.from(random, (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
 function extractTwitchSession() {
-  const twilight = parseTwilightUserEntry();
-  const oauthToken =
-    twilight.oauthToken ||
-    normalizeText(getCookieValue('auth-token')) ||
-    normalizeText(getCookieValue('__Secure-auth-token'));
-  const userId = twilight.userId;
-  const deviceId =
-    normalizeText(window.localStorage.getItem('local_copy_unique_id')) ||
-    normalizeText(window.localStorage.getItem('device_id')) ||
-    normalizeText(window.localStorage.getItem('deviceId')) ||
-    normalizeText(window.sessionStorage.getItem('local_copy_unique_id')) ||
-    normalizeText(window.sessionStorage.getItem('device_id')) ||
-    normalizeText(window.sessionStorage.getItem('deviceId')) ||
-    normalizeText(getCookieValue('unique_id')) ||
-    normalizeText(getCookieValue('__Secure-unique_id')) ||
-    normalizeText(getCookieValue('device_id'));
-  const uuid =
-    normalizeText(window.localStorage.getItem('client-session-id')) ||
-    normalizeText(window.localStorage.getItem('clientSessionId')) ||
-    normalizeText(window.sessionStorage.getItem('client-session-id')) ||
-    normalizeText(window.sessionStorage.getItem('clientSessionId')) ||
-    createSessionUuid();
-  const clientIntegrity =
-    normalizeText(window.localStorage.getItem('client-integrity')) ||
-    normalizeText(window.localStorage.getItem('clientIntegrity'));
+  const session = extractTwitchSessionFrom({
+    cookieString: document.cookie,
+    localStorage: window.localStorage,
+    sessionStorage: window.sessionStorage,
+    createSessionUuid,
+  });
 
-  if (!oauthToken || !deviceId) {
+  if (!session) {
     logContentWarn('Content session extraction failed', {
-      hasOAuthToken: Boolean(oauthToken),
-      hasUserId: Boolean(userId),
-      hasDeviceId: Boolean(deviceId),
-      hasClientIntegrity: Boolean(clientIntegrity),
-      hasCookieAuthToken: Boolean(normalizeText(getCookieValue('auth-token'))),
+      hasCookieAuthToken: Boolean(normalizeText(parseCookieValue(document.cookie, 'auth-token'))),
       hasCookieUniqueId: Boolean(
-        normalizeText(getCookieValue('unique_id')) || normalizeText(getCookieValue('device_id')),
+        normalizeText(parseCookieValue(document.cookie, 'unique_id')) ||
+          normalizeText(parseCookieValue(document.cookie, 'device_id')),
       ),
     });
     return null;
   }
 
   logContentInfo('Content session extracted', {
-    hasUserId: Boolean(userId),
-    hasOAuthToken: Boolean(oauthToken),
-    hasClientIntegrity: Boolean(clientIntegrity),
-    hasDeviceId: Boolean(deviceId),
-    hasUuid: Boolean(uuid),
+    hasUserId: Boolean(session.userId),
+    hasOAuthToken: Boolean(session.oauthToken),
+    hasClientIntegrity: Boolean(session.clientIntegrity),
+    hasDeviceId: Boolean(session.deviceId),
+    hasUuid: Boolean(session.uuid),
   });
 
-  return {
-    oauthToken,
-    userId: userId || '',
-    deviceId,
-    uuid,
-    clientIntegrity: clientIntegrity || undefined,
-  };
+  return session;
 }
 
 function syncTwitchSessionToBackground() {
@@ -521,11 +446,17 @@ function playBeep(kind: 'drop-complete' | 'all-complete') {
 }
 
 function handleRuntimeMessage(
-  message: ContentRuntimeMessage,
+  message: unknown,
   _sender: chrome.runtime.MessageSender,
   sendResponse: (response?: unknown) => void,
 ) {
-  switch (message.type) {
+  if (!isRuntimeRequest(message)) {
+    sendResponse({ success: false, error: 'Invalid message payload' });
+    return true;
+  }
+  const request = message;
+
+  switch (request.type) {
     case 'GET_TWITCH_SESSION': {
       const session = extractTwitchSession();
       sendResponse({ success: Boolean(session), session });
@@ -549,7 +480,7 @@ function handleRuntimeMessage(
       break;
     }
     case 'PLAY_ALERT': {
-      const payload = (message.payload ?? {}) as Record<string, string | undefined>;
+      const payload = request.payload ?? {};
       const kind = payload.kind === 'all-complete' ? 'all-complete' : 'drop-complete';
       const text =
         normalizeText(payload.message) ||

@@ -1,23 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  dropRemainingMinutes,
-  compareDropPriority,
-  dropStateKey,
-  completedDropKeys,
-  isDropCampaignExpired,
-  dropMatchesSelectedGame,
-  normalizeGameSelection,
   annotateGameCompletion,
+  compareDropPriority,
+  completedDropKeys,
+  dropMatchesSelectedGame,
+  dropRemainingMinutes,
+  dropStateKey,
+  isDropCampaignExpired,
+  normalizeGameSelection,
   projectDropsSnapshot,
   splitDropsForSelectedGame,
 } from '../src/background/drops-projection.ts';
-import { dropMatchesGame } from '../src/shared/game-selection.ts';
-import { isDropCompleted, mergeDropProgressMonotonic } from '../src/shared/drops.ts';
-import { detectRecoveryProof, didDropMinutesAdvance } from '../src/background/stream-rotation.ts';
-import { createInitialState } from '../src/shared/utils.ts';
-
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
-import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
+import { dropMatchesGame } from '../src/shared/game-selection.ts';
+import { createInitialState } from '../src/shared/utils.ts';
+import type { TwitchDrop } from '../src/types/index.ts';
 
 function makeState(overrides = {}) {
   const appState = {
@@ -89,22 +86,82 @@ describe('dropRemainingMinutes', () => {
 
 describe('compareDropPriority', () => {
   test('sorts by remainingMinutes ascending', () => {
-    const a = { id: 'a', name: 'Drop A', gameId: 'g1', gameName: 'Game', imageUrl: '', progress: 50, currentMinutes: 0, claimed: false, remainingMinutes: 100 } as TwitchDrop;
-    const b = { id: 'b', name: 'Drop B', gameId: 'g1', gameName: 'Game', imageUrl: '', progress: 50, currentMinutes: 0, claimed: false, remainingMinutes: 10 } as TwitchDrop;
+    const a = {
+      id: 'a',
+      name: 'Drop A',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      progress: 50,
+      currentMinutes: 0,
+      claimed: false,
+      remainingMinutes: 100,
+    } as TwitchDrop;
+    const b = {
+      id: 'b',
+      name: 'Drop B',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      progress: 50,
+      currentMinutes: 0,
+      claimed: false,
+      remainingMinutes: 10,
+    } as TwitchDrop;
     expect(compareDropPriority(a, b)).toBeGreaterThan(0);
     expect(compareDropPriority(b, a)).toBeLessThan(0);
   });
 
   test('breaks tie by progress descending', () => {
-    const a = { id: 'a', name: 'Drop A', gameId: 'g1', gameName: 'Game', imageUrl: '', progress: 20, currentMinutes: 0, claimed: false, remainingMinutes: 50 } as TwitchDrop;
-    const b = { id: 'b', name: 'Drop B', gameId: 'g1', gameName: 'Game', imageUrl: '', progress: 80, currentMinutes: 0, claimed: false, remainingMinutes: 50 } as TwitchDrop;
+    const a = {
+      id: 'a',
+      name: 'Drop A',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      progress: 20,
+      currentMinutes: 0,
+      claimed: false,
+      remainingMinutes: 50,
+    } as TwitchDrop;
+    const b = {
+      id: 'b',
+      name: 'Drop B',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      progress: 80,
+      currentMinutes: 0,
+      claimed: false,
+      remainingMinutes: 50,
+    } as TwitchDrop;
     expect(compareDropPriority(a, b)).toBeGreaterThan(0);
     expect(compareDropPriority(b, a)).toBeLessThan(0);
   });
 
   test('breaks tie by name ascending', () => {
-    const a = { id: 'a', name: 'Zebra Drop', gameId: 'g1', gameName: 'Game', imageUrl: '', progress: 50, currentMinutes: 0, claimed: false, remainingMinutes: 50 } as TwitchDrop;
-    const b = { id: 'b', name: 'Alpha Drop', gameId: 'g1', gameName: 'Game', imageUrl: '', progress: 50, currentMinutes: 0, claimed: false, remainingMinutes: 50 } as TwitchDrop;
+    const a = {
+      id: 'a',
+      name: 'Zebra Drop',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      progress: 50,
+      currentMinutes: 0,
+      claimed: false,
+      remainingMinutes: 50,
+    } as TwitchDrop;
+    const b = {
+      id: 'b',
+      name: 'Alpha Drop',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      progress: 50,
+      currentMinutes: 0,
+      claimed: false,
+      remainingMinutes: 50,
+    } as TwitchDrop;
     expect(compareDropPriority(a, b)).toBeGreaterThan(0);
     expect(compareDropPriority(b, a)).toBeLessThan(0);
   });
@@ -128,10 +185,7 @@ describe('completedDropKeys', () => {
   });
 
   test('returns set of keys for multiple drops', () => {
-    const drops = [
-      { id: 'a', campaignId: 'c1' } as TwitchDrop,
-      { id: 'b', campaignId: 'c2' } as TwitchDrop,
-    ];
+    const drops = [{ id: 'a', campaignId: 'c1' } as TwitchDrop, { id: 'b', campaignId: 'c2' } as TwitchDrop];
     const keys = completedDropKeys(drops);
     expect(keys.size).toBe(2);
     expect(keys.has('a::c1')).toBe(true);
@@ -290,7 +344,18 @@ describe('splitDropsForSelectedGame', () => {
     const state = makeState({
       appState: {
         ...createInitialState(),
-        allDrops: [{ id: 'old', name: 'Old', gameId: 'g1', gameName: 'G', imageUrl: '', progress: 50, currentMinutes: 0, claimed: false } as TwitchDrop],
+        allDrops: [
+          {
+            id: 'old',
+            name: 'Old',
+            gameId: 'g1',
+            gameName: 'G',
+            imageUrl: '',
+            progress: 50,
+            currentMinutes: 0,
+            claimed: false,
+          } as TwitchDrop,
+        ],
         pendingDrops: [],
         completedDrops: [],
         currentDrop: null,
@@ -455,7 +520,16 @@ describe('splitDropsForSelectedGame', () => {
 
   test('no strict matches triggers relaxed fallback (drops with name overlap)', () => {
     const selected = { id: 'g1', name: 'Destiny 2', imageUrl: '' };
-    const fallback = { id: 'd1', name: 'Drop', gameId: 'g1', gameName: 'Destiny 2', imageUrl: '', progress: 20, currentMinutes: 0, claimed: false } as TwitchDrop;
+    const fallback = {
+      id: 'd1',
+      name: 'Drop',
+      gameId: 'g1',
+      gameName: 'Destiny 2',
+      imageUrl: '',
+      progress: 20,
+      currentMinutes: 0,
+      claimed: false,
+    } as TwitchDrop;
 
     const state = makeState({
       appState: { ...createInitialState(), selectedGame: selected },

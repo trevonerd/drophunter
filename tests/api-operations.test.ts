@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { setupChromeMocks, type ChromeMocks } from './mocks/chrome.ts';
-import { createInitialState } from '../src/shared/utils.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import type { TwitchSession } from '../src/background/twitch-api/types.ts';
+import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
+import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
 
 let chromeMocks: ChromeMocks;
 
@@ -207,7 +207,16 @@ function buildCampaignDetailsResponse(): unknown {
   ];
 }
 
-function buildDirectoryResponse(streamers: Array<{ id: string; name: string; displayName: string; viewersCount?: number; broadcasterLanguage?: string }>, language?: string): unknown {
+function buildDirectoryResponse(
+  streamers: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    viewersCount?: number;
+    broadcasterLanguage?: string;
+  }>,
+  _language?: string,
+): unknown {
   return {
     data: {
       game: {
@@ -228,7 +237,7 @@ function buildDirectoryResponse(streamers: Array<{ id: string; name: string; dis
   };
 }
 
-function buildIntegrityResponse(): unknown {
+function _buildIntegrityResponse(): unknown {
   return { token: 'mock-integrity-token' };
 }
 
@@ -1238,7 +1247,9 @@ describe('fetchDropsSnapshotFromApi', () => {
     const session = createSession();
 
     originalFetch = installFetchMock([
-      async () => { throw new Error('network error'); },
+      async () => {
+        throw new Error('network error');
+      },
     ]);
 
     const before = Date.now();
@@ -1258,7 +1269,9 @@ describe('fetchDropsSnapshotFromApi', () => {
     const session = createSession();
 
     originalFetch = installFetchMock([
-      async () => { throw new Error('401 unauthorized'); },
+      async () => {
+        throw new Error('401 unauthorized');
+      },
     ]);
 
     await expect(fetchDropsSnapshotFromApi(state, session)).rejects.toThrow('401 unauthorized');
@@ -1273,7 +1286,9 @@ describe('fetchDropsSnapshotFromApi', () => {
     const session = createSession();
 
     originalFetch = installFetchMock([
-      async () => { throw new Error('network error'); },
+      async () => {
+        throw new Error('network error');
+      },
     ]);
 
     await fetchDropsSnapshotFromApi(state, session);
@@ -1352,7 +1367,11 @@ describe('fetchDropsSnapshotFromApi', () => {
           text: async () => JSON.stringify({ token: 'refreshed-integrity-token' }),
         } as Response;
       }
-      const responses = [buildDropsDashboardResponse([game]), buildInventoryResponse(), buildCampaignDetailsResponse()];
+      const responses = [
+        buildDropsDashboardResponse([game]),
+        buildInventoryResponse(),
+        buildCampaignDetailsResponse(),
+      ];
       const response = responses[fetchCount - 4] ?? buildDropsDashboardResponse([game]);
       return {
         ok: true,
@@ -1611,12 +1630,12 @@ describe('fetchInventorySnapshotFromApi', () => {
     ];
 
     originalFetch = installFetchMock([
-      async () => { throw new Error('403 forbidden'); },
+      async () => {
+        throw new Error('403 forbidden');
+      },
     ]);
 
-    await expect(fetchInventorySnapshotFromApi(state, session, cachedDrops)).rejects.toThrow(
-      '403 forbidden',
-    );
+    await expect(fetchInventorySnapshotFromApi(state, session, cachedDrops)).rejects.toThrow('403 forbidden');
     expect(state.apiConsecutiveFailures).toBe(0);
     expect(state.apiBackoffUntil).toBe(0);
   });
@@ -1647,8 +1666,12 @@ describe('fetchInventorySnapshotFromApi', () => {
     ];
 
     originalFetch = installFetchMock([
-      async () => { throw new Error('403 forbidden'); },
-      async () => { throw new Error('invalid oauth token'); },
+      async () => {
+        throw new Error('403 forbidden');
+      },
+      async () => {
+        throw new Error('invalid oauth token');
+      },
     ]);
 
     const result = await fetchInventorySnapshotFromApiWrapper(
@@ -1696,13 +1719,23 @@ describe('fetchDirectoryStreamersFromApi', () => {
     const game = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     const session = createSession();
     const mockStreamers = [
-      { id: 'streamer1', name: 'streamer1', displayName: 'Streamer One', viewersCount: 1000, broadcasterLanguage: 'en' },
-      { id: 'streamer2', name: 'streamer2', displayName: 'Streamer Two', viewersCount: 500, broadcasterLanguage: 'es' },
+      {
+        id: 'streamer1',
+        name: 'streamer1',
+        displayName: 'Streamer One',
+        viewersCount: 1000,
+        broadcasterLanguage: 'en',
+      },
+      {
+        id: 'streamer2',
+        name: 'streamer2',
+        displayName: 'Streamer Two',
+        viewersCount: 500,
+        broadcasterLanguage: 'es',
+      },
     ];
 
-    originalFetch = installFetchMock([
-      async () => buildDirectoryResponse(mockStreamers),
-    ]);
+    originalFetch = installFetchMock([async () => buildDirectoryResponse(mockStreamers)]);
 
     const result = await fetchDirectoryStreamersFromApi(state, game, session);
 
@@ -1716,9 +1749,7 @@ describe('fetchDirectoryStreamersFromApi', () => {
     const game = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     const session = createSession();
 
-    originalFetch = installFetchMock([
-      async () => buildDirectoryResponse([]),
-    ]);
+    originalFetch = installFetchMock([async () => buildDirectoryResponse([])]);
 
     const result = await fetchDirectoryStreamersFromApi(state, game, session);
 
@@ -1733,9 +1764,7 @@ describe('fetchDirectoryStreamersFromApi', () => {
     const game = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     const mockStreamers = [{ id: 'pub1', name: 'pub1', displayName: 'Public', viewersCount: 100 }];
 
-    originalFetch = installFetchMock([
-      async () => buildDirectoryResponse(mockStreamers),
-    ]);
+    originalFetch = installFetchMock([async () => buildDirectoryResponse(mockStreamers)]);
 
     const result = await fetchDirectoryStreamersFromApi(state, game, null);
 
@@ -1750,7 +1779,9 @@ describe('fetchDirectoryStreamersFromApi', () => {
     const session = createSession();
 
     originalFetch = installFetchMock([
-      async () => { throw new Error('network failure'); },
+      async () => {
+        throw new Error('network failure');
+      },
     ]);
 
     const result = await fetchDirectoryStreamersFromApi(state, game, session);
@@ -1765,13 +1796,21 @@ describe('fetchDirectoryStreamersFromApi', () => {
     const state = createMinimalState();
     const game = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     const session = createSession();
-    const mockStreamers = [{ id: 'eng1', name: 'eng1', displayName: 'English Streamer', viewersCount: 500, broadcasterLanguage: 'en' }];
+    const mockStreamers = [
+      {
+        id: 'eng1',
+        name: 'eng1',
+        displayName: 'English Streamer',
+        viewersCount: 500,
+        broadcasterLanguage: 'en',
+      },
+    ];
 
     let capturedBody: Record<string, unknown> | null = null;
     const originalFetchMock = globalThis.fetch;
-    let callCount = 0;
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-      callCount++;
+    let _callCount = 0;
+    globalThis.fetch = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      _callCount++;
       if (init?.body && typeof init.body === 'string') {
         capturedBody = JSON.parse(init.body);
       }
@@ -1801,7 +1840,9 @@ describe('fetchDirectoryStreamersFromApi', () => {
     const game = createGame({ name: 'Test Game', categorySlug: 'test-game' });
 
     originalFetch = installFetchMock([
-      async () => { throw new Error('401 unauthorized'); },
+      async () => {
+        throw new Error('401 unauthorized');
+      },
     ]);
 
     const result = await fetchDirectoryStreamersFromApi(state, game, session);

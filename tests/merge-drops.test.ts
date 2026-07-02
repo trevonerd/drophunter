@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { isDropCompleted, mergeDropProgressMonotonic } from '../src/shared/drops.ts';
 
 function createDrop(overrides = {}) {

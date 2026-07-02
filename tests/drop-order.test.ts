@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { pickNearestDrop, sortPendingDrops } from '../src/shared/drop-order.js';
 
 function createDrop(overrides = {}) {

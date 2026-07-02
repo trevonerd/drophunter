@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from '../shared/browser-api.ts';
 import { sortPendingDrops } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
@@ -25,6 +25,12 @@ function App() {
   const [actionLoading, setActionLoading] = useState(false);
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'main' | 'settings' | 'log'>('main');
+  const viewContainerRef = useRef<HTMLDivElement>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeView triggers refocus but isn't read in the body
+  useEffect(() => {
+    viewContainerRef.current?.focus();
+  }, [activeView]);
 
   const isStale =
     !state.isRunning &&
@@ -77,7 +83,9 @@ function App() {
     : activeSyncError
       ? 'failed'
       : !gamesLoading && state.availableGames.length === 0
-        ? 'empty'
+        ? state.twitchSessionDetected
+          ? 'empty'
+          : 'signed-out'
         : isStale
           ? 'syncing'
           : 'fresh';
@@ -91,6 +99,7 @@ function App() {
     handleAutoClaimDropsToggle,
     handleMuteFarmingTabToggle,
     handleNotificationsEnabledToggle,
+    notificationPermissionDenied,
     handleStreamerSelectionModeChange,
     handlePreferredStreamerLanguageChange,
   } = useSettingsToggles({ state, setState });
@@ -162,7 +171,10 @@ function App() {
 
   const handleRemoveFromQueue = async (game: TwitchGame) => {
     try {
-      await sendRuntimeMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } });
+      const response = await sendRuntimeMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } });
+      if (!response?.success) {
+        setQueueMessage(response?.error ?? 'Unable to remove campaign from queue.');
+      }
     } catch (err: unknown) {
       logPopupWarn('REMOVE_FROM_QUEUE failed:', err);
       setQueueMessage('Unable to remove campaign from queue.');
@@ -171,7 +183,11 @@ function App() {
 
   const handleClearQueue = async () => {
     try {
-      await sendRuntimeMessage({ type: 'CLEAR_QUEUE' });
+      const response = await sendRuntimeMessage({ type: 'CLEAR_QUEUE' });
+      if (response?.success === false) {
+        setQueueMessage(response?.error ?? 'Unable to clear queue.');
+        return;
+      }
       setQueueMessage('Queue cleared.');
     } catch (err: unknown) {
       logPopupWarn('CLEAR_QUEUE failed:', err);
@@ -272,7 +288,11 @@ function App() {
   }
 
   return (
-    <div className="dh-view w-[400px] text-[color:var(--dh-text)]">
+    <div
+      ref={viewContainerRef}
+      tabIndex={-1}
+      className="dh-view w-[400px] text-[color:var(--dh-text)] outline-none"
+    >
       {activeView === 'log' ? (
         <ClaimLogView onBack={() => setActiveView('settings')} />
       ) : activeView === 'settings' ? (
@@ -283,6 +303,7 @@ function App() {
           onMonitorAutoOpenToggle={() => void handleMonitorAutoOpenToggle()}
           onMuteFarmingTabToggle={() => void handleMuteFarmingTabToggle()}
           onNotificationsEnabledToggle={() => void handleNotificationsEnabledToggle()}
+          notificationPermissionDenied={notificationPermissionDenied}
           onTelegramAlertsToggle={handleTelegramAlertsToggle}
           onSaveTelegramCredentials={saveTelegramCredentials}
           onTestTelegramAlerts={testTelegramAlerts}

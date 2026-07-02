@@ -94,6 +94,8 @@ export async function saveTimingState(state: ServiceWorkerState) {
           lastHeartbeatAt: state.lastHeartbeatAt,
           offlineChecks: state.offlineChecks,
           avoidStreamerName: state.avoidStreamerName,
+          cachedCampaignChannelsMap: state.cachedCampaignChannelsMap,
+          previousAllDropsCount: state.previousAllDropsCount,
         };
         await browser.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
       } catch {
@@ -135,6 +137,8 @@ export async function loadTimingState(state: ServiceWorkerState) {
     state.lastHeartbeatAt = saved.lastHeartbeatAt ?? 0;
     state.offlineChecks = saved.offlineChecks;
     state.avoidStreamerName = saved.avoidStreamerName;
+    state.cachedCampaignChannelsMap = saved.cachedCampaignChannelsMap;
+    state.previousAllDropsCount = saved.previousAllDropsCount;
   } catch (error) {
     logWarn('Failed to load timing state from local storage:', String(error));
   }
@@ -164,12 +168,27 @@ export function broadcastStateUpdate(appState: AppState) {
   }
 }
 
+// appState is a single long-lived object mutated in place across many
+// modules (not always reassigned), so reference equality can't detect
+// no-op saves. A content signature lets us skip the broadcast/badge work
+// (cross-context messaging) on saveState calls where nothing changed,
+// without touching the storage write itself.
+let lastBroadcastAppStateSignature: string | null = null;
+
+export function resetSaveStateBroadcastCacheForTests() {
+  lastBroadcastAppStateSignature = null;
+}
+
 export async function saveState(state: ServiceWorkerState) {
   await browser.storage.local.set({
     appState: state.appState,
     [DROPS_SNAPSHOT_CACHE_KEY]: state.cachedDropsSnapshot,
   });
-  broadcastStateUpdate(state.appState);
+  const signature = JSON.stringify(state.appState);
+  if (signature !== lastBroadcastAppStateSignature) {
+    lastBroadcastAppStateSignature = signature;
+    broadcastStateUpdate(state.appState);
+  }
 }
 
 export interface LoadStateCallbacks {

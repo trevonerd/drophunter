@@ -1,5 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
-import { TWITCH_SESSION_STORAGE_KEY } from './constants.ts';
+import { TWITCH_SESSION_RETRY_COOLDOWN_MS, TWITCH_SESSION_STORAGE_KEY } from './constants.ts';
 import { logDebug, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './service-worker.ts';
 import { sessionDebugSummary } from './state-persistence.ts';
@@ -331,8 +331,6 @@ export async function ensureTwitchSession(
   callbacks: EnsureTwitchSessionCallbacks,
   deps: EnsureTwitchSessionDeps,
 ): Promise<TwitchSession | null> {
-  const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
-
   if (!forceRefresh && state.twitchSessionCache) {
     return state.twitchSessionCache;
   }
@@ -379,9 +377,16 @@ export async function ensureTwitchSession(
 
     deps.clearTwitchSessionCache(state);
     return null;
-  })().finally(() => {
-    state.twitchSessionFetchInFlight = null;
-  });
+  })()
+    .then((session) => {
+      if (session && !state.appState.twitchSessionDetected) {
+        state.appState.twitchSessionDetected = true;
+      }
+      return session;
+    })
+    .finally(() => {
+      state.twitchSessionFetchInFlight = null;
+    });
 
   return state.twitchSessionFetchInFlight;
 }

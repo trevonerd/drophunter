@@ -28,7 +28,9 @@ export function CampaignSyncPanel({
       ? 'border-red-500/35 bg-red-500/10'
       : status === 'stale'
         ? 'border-yellow-500/35 bg-yellow-500/10'
-        : 'border-blue-500/30 bg-blue-500/10';
+        : status === 'signed-out'
+          ? 'border-purple-500/35 bg-purple-500/10'
+          : 'border-blue-500/30 bg-blue-500/10';
   const title =
     status === 'failed'
       ? 'Could not update campaigns'
@@ -36,7 +38,9 @@ export function CampaignSyncPanel({
         ? 'Updating campaigns'
         : status === 'syncing'
           ? 'Updating campaigns'
-          : 'Go to Twitch Drops';
+          : status === 'signed-out'
+            ? 'Sign in to Twitch'
+            : 'No active campaigns';
   const description =
     status === 'failed'
       ? hasCachedCampaigns
@@ -46,14 +50,16 @@ export function CampaignSyncPanel({
         ? 'Checking Twitch for fresh campaigns…'
         : status === 'syncing'
           ? 'Updating Twitch Drops and campaigns…'
-          : 'Open Twitch Drops so DropHunter can detect available campaigns.';
+          : status === 'signed-out'
+            ? 'DropHunter needs an active Twitch session. Open Twitch, sign in, then come back here.'
+            : 'Signed in, but no active Drops campaigns were found. Open Twitch Drops to check again.';
   const detail =
     status === 'failed' && error
       ? error
       : status === 'empty' && !lastUpdated
         ? 'Not synced yet'
         : formatLastUpdated(lastUpdated);
-  const buttonLabel = 'Open Twitch Drops';
+  const buttonLabel = status === 'signed-out' ? 'Open Twitch' : 'Open Twitch Drops';
 
   return (
     <section

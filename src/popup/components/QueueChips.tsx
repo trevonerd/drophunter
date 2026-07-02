@@ -1,8 +1,11 @@
 // Extracted from src/popup/App.tsx (QueueChips component).
+import { useEffect, useState } from 'react';
 import { getGameDisplayLabel } from '../../shared/game-selection';
 import type { TwitchGame } from '../../types';
 import { useQueueDragReorder } from '../hooks/useQueueDragReorder';
 import { isSameQueuedGame, queueGameIdentity } from '../queue-start';
+
+const CLEAR_CONFIRM_TIMEOUT_MS = 3000;
 
 export interface QueueChipsProps {
   selectedGame: TwitchGame | null;
@@ -24,6 +27,22 @@ export function QueueChips({
   const canReorder = !isRunning && queueGames.length >= 2;
   const { dragIndex, dropIndex, handleDragStart, handleDragEnd, handleDragOver, handleDrop } =
     useQueueDragReorder(onReorder);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+
+  useEffect(() => {
+    if (!confirmingClear) return;
+    const timer = setTimeout(() => setConfirmingClear(false), CLEAR_CONFIRM_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [confirmingClear]);
+
+  const handleClearClick = () => {
+    if (confirmingClear) {
+      setConfirmingClear(false);
+      onClear();
+      return;
+    }
+    setConfirmingClear(true);
+  };
 
   const selectedNotInQueue =
     !isRunning &&
@@ -66,8 +85,17 @@ export function QueueChips({
                   draggable
                   onDragStart={handleDragStart(index)}
                   onDragEnd={handleDragEnd}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+                      event.preventDefault();
+                      if (index > 0) onReorder(index, index - 1);
+                    } else if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+                      event.preventDefault();
+                      if (index < queueGames.length - 1) onReorder(index, index + 1);
+                    }
+                  }}
                   className="dh-focus -ml-0.5 cursor-grab rounded px-0.5 text-[10px] text-[color:var(--dh-muted)] active:cursor-grabbing hover:text-[color:var(--dh-text)]"
-                  aria-label={`Reorder ${label}`}
+                  aria-label={`Reorder ${label}. Use arrow keys to move.`}
                 >
                   ⠿
                 </button>
@@ -91,11 +119,11 @@ export function QueueChips({
       {!isRunning && (
         <button
           type="button"
-          onClick={onClear}
+          onClick={handleClearClick}
           className="dh-focus rounded px-1 text-[11px] text-red-400 hover:text-red-300"
-          aria-label="Clear queue"
+          aria-label={confirmingClear ? 'Confirm clear queue' : 'Clear queue'}
         >
-          Clear
+          {confirmingClear ? 'Confirm?' : 'Clear'}
         </button>
       )}
     </div>

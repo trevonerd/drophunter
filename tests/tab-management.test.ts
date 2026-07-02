@@ -1,19 +1,18 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import {
-  streamerWatchUrl,
-  monitorDashboardUrl,
   applyBestEffortAlwaysOnTop,
+  clearManagedTabOwnership,
+  closeManagedTabIfSafe,
   createManagedTab,
   ensureManagedTab,
-  closeManagedTabIfSafe,
-  clearManagedTabOwnership,
-  waitForTabComplete,
+  monitorDashboardUrl,
   shouldMuteManagedFarmingTab,
+  streamerWatchUrl,
   syncManagedTabMuteState,
+  waitForTabComplete,
 } from '../src/background/tab-management.ts';
 import { createInitialState } from '../src/shared/utils.ts';
-import type { ServiceWorkerState } from '../src/background/service-worker.ts';
-import type { AppState } from '../src/types/index.ts';
 
 interface Tab {
   id?: number;
@@ -75,8 +74,14 @@ interface ChromeMock {
     getURL: (path: string) => string;
   };
   storage: {
-    local: { get: (keys: string | string[] | null) => Promise<Record<string, unknown>>; set: (items: Record<string, unknown>) => Promise<void> };
-    session: { get: (keys: string | string[] | null) => Promise<Record<string, unknown>>; set: (items: Record<string, unknown>) => Promise<void> };
+    local: {
+      get: (keys: string | string[] | null) => Promise<Record<string, unknown>>;
+      set: (items: Record<string, unknown>) => Promise<void>;
+    };
+    session: {
+      get: (keys: string | string[] | null) => Promise<Record<string, unknown>>;
+      set: (items: Record<string, unknown>) => Promise<void>;
+    };
   };
 }
 
@@ -85,7 +90,7 @@ function createMockChrome(): ChromeMock {
   let tabsGetResult: Tab | null = null;
   const tabRegistry = new Map<number, Tab>();
   let nextTabId = 1;
-  let lastFocusedWindow: Window = { id: 1, focused: true };
+  const lastFocusedWindow: Window = { id: 1, focused: true };
   const onUpdatedHandlers: Array<(id: number, info: Record<string, unknown>) => void> = [];
   const localStore: Record<string, unknown> = {};
   const sessionStore: Record<string, unknown> = {};
@@ -103,7 +108,12 @@ function createMockChrome(): ChromeMock {
       },
       create: (details) => {
         const id = nextTabId++;
-        const tab: Tab = { id, url: details.url, active: details.active ?? false, windowId: details.windowId ?? lastFocusedWindow.id ?? 1 };
+        const tab: Tab = {
+          id,
+          url: details.url,
+          active: details.active ?? false,
+          windowId: details.windowId ?? lastFocusedWindow.id ?? 1,
+        };
         tabRegistry.set(id, tab);
         return Promise.resolve(tab);
       },
@@ -126,7 +136,9 @@ function createMockChrome(): ChromeMock {
           const idx = onUpdatedHandlers.indexOf(h);
           if (idx !== -1) onUpdatedHandlers.splice(idx, 1);
         },
-        trigger: (id, info) => { for (const h of onUpdatedHandlers) h(id, info); },
+        trigger: (id, info) => {
+          for (const h of onUpdatedHandlers) h(id, info);
+        },
       },
     },
     windows: {
@@ -148,39 +160,74 @@ function createMockChrome(): ChromeMock {
         get: (keys) => {
           const result: Record<string, unknown> = {};
           if (keys === null) return Promise.resolve({ ...localStore });
-          if (typeof keys === 'string') { if (keys in localStore) result[keys] = localStore[keys]; }
-          else if (Array.isArray(keys)) { for (const k of keys) { if (k in localStore) result[k] = localStore[k]; } }
-          else { for (const [k, def] of Object.entries(keys ?? {})) { result[k] = k in localStore ? localStore[k] : def; } }
+          if (typeof keys === 'string') {
+            if (keys in localStore) result[keys] = localStore[keys];
+          } else if (Array.isArray(keys)) {
+            for (const k of keys) {
+              if (k in localStore) result[k] = localStore[k];
+            }
+          } else {
+            for (const [k, def] of Object.entries(keys ?? {})) {
+              result[k] = k in localStore ? localStore[k] : def;
+            }
+          }
           return Promise.resolve(result);
         },
-        set: (items) => { for (const [k, v] of Object.entries(items)) localStore[k] = v; return Promise.resolve(); },
+        set: (items) => {
+          for (const [k, v] of Object.entries(items)) localStore[k] = v;
+          return Promise.resolve();
+        },
       },
       session: {
         get: (keys) => {
           const result: Record<string, unknown> = {};
           if (keys === null) return Promise.resolve({ ...sessionStore });
-          if (typeof keys === 'string') { if (keys in sessionStore) result[keys] = sessionStore[keys]; }
-          else if (Array.isArray(keys)) { for (const k of keys) { if (k in sessionStore) result[k] = sessionStore[k]; } }
-          else { for (const [k, def] of Object.entries(keys ?? {})) { result[k] = k in sessionStore ? sessionStore[k] : def; } }
+          if (typeof keys === 'string') {
+            if (keys in sessionStore) result[keys] = sessionStore[keys];
+          } else if (Array.isArray(keys)) {
+            for (const k of keys) {
+              if (k in sessionStore) result[k] = sessionStore[k];
+            }
+          } else {
+            for (const [k, def] of Object.entries(keys ?? {})) {
+              result[k] = k in sessionStore ? sessionStore[k] : def;
+            }
+          }
           return Promise.resolve(result);
         },
-        set: (items) => { for (const [k, v] of Object.entries(items)) sessionStore[k] = v; return Promise.resolve(); },
+        set: (items) => {
+          for (const [k, v] of Object.entries(items)) sessionStore[k] = v;
+          return Promise.resolve();
+        },
       },
     },
-    _setQueryResult: (tabs: Tab[]) => { tabsQueryResult = tabs; },
-    _setGetResult: (tab: Tab | null) => { tabsGetResult = tab; },
+    _setQueryResult: (tabs: Tab[]) => {
+      tabsQueryResult = tabs;
+    },
+    _setGetResult: (tab: Tab | null) => {
+      tabsGetResult = tab;
+    },
     _getTabRegistry: () => tabRegistry,
-  } as unknown as ChromeMock & { _setQueryResult: (tabs: Tab[]) => void; _setGetResult: (tab: Tab | null) => void };
+  } as unknown as ChromeMock & {
+    _setQueryResult: (tabs: Tab[]) => void;
+    _setGetResult: (tab: Tab | null) => void;
+  };
 }
 
-function setupChromeMock(): { mock: ChromeMock & { _setQueryResult: (tabs: Tab[]) => void; _setGetResult: (tab: Tab | null) => void }; teardown: () => void } {
+function setupChromeMock(): {
+  mock: ChromeMock & { _setQueryResult: (tabs: Tab[]) => void; _setGetResult: (tab: Tab | null) => void };
+  teardown: () => void;
+} {
   const originalChrome = (globalThis as Record<string, unknown>).chrome;
   const originalBrowser = (globalThis as Record<string, unknown>).browser;
   const mock = createMockChrome();
   (globalThis as Record<string, unknown>).chrome = mock;
   (globalThis as Record<string, unknown>).browser = mock;
   return {
-    mock: mock as ChromeMock & { _setQueryResult: (tabs: Tab[]) => void; _setGetResult: (tab: Tab | null) => void },
+    mock: mock as ChromeMock & {
+      _setQueryResult: (tabs: Tab[]) => void;
+      _setGetResult: (tab: Tab | null) => void;
+    },
     teardown: () => {
       (globalThis as Record<string, unknown>).chrome = originalChrome;
       (globalThis as Record<string, unknown>).browser = originalBrowser;
@@ -491,12 +538,16 @@ describe('shouldMuteManagedFarmingTab', () => {
   });
 
   test('returns true when muteFarmingTab is true', () => {
-    const state = createMinimalState({ appState: { ...createInitialState(), muteFarmingTab: true } } as ServiceWorkerState);
+    const state = createMinimalState({
+      appState: { ...createInitialState(), muteFarmingTab: true },
+    } as ServiceWorkerState);
     expect(shouldMuteManagedFarmingTab(state)).toBe(true);
   });
 
   test('returns false when muteFarmingTab is explicitly false', () => {
-    const state = createMinimalState({ appState: { ...createInitialState(), muteFarmingTab: false } } as ServiceWorkerState);
+    const state = createMinimalState({
+      appState: { ...createInitialState(), muteFarmingTab: false },
+    } as ServiceWorkerState);
     expect(shouldMuteManagedFarmingTab(state)).toBe(false);
   });
 });
@@ -517,8 +568,13 @@ describe('syncManagedTabMuteState', () => {
 
   test('does nothing when tabId is null', async () => {
     let updateCalled = false;
-    mock.tabs.update = () => { updateCalled = true; return Promise.reject(new Error('should not be called')); };
-    const state = createMinimalState({ appState: { ...createInitialState(), tabId: null } } as ServiceWorkerState);
+    mock.tabs.update = () => {
+      updateCalled = true;
+      return Promise.reject(new Error('should not be called'));
+    };
+    const state = createMinimalState({
+      appState: { ...createInitialState(), tabId: null },
+    } as ServiceWorkerState);
     await syncManagedTabMuteState(state);
     expect(updateCalled).toBe(false);
   });
@@ -529,7 +585,9 @@ describe('syncManagedTabMuteState', () => {
       updatedMuted = details.muted;
       return Promise.resolve({ id: tabId, ...details } as Tab);
     };
-    const state = createMinimalState({ appState: { ...createInitialState(), tabId: 42 } } as ServiceWorkerState);
+    const state = createMinimalState({
+      appState: { ...createInitialState(), tabId: 42 },
+    } as ServiceWorkerState);
     await syncManagedTabMuteState(state);
     expect(updatedMuted).toBe(true);
   });
@@ -540,7 +598,9 @@ describe('syncManagedTabMuteState', () => {
       updatedMuted = details.muted;
       return Promise.resolve({ id: tabId, ...details } as Tab);
     };
-    const state = createMinimalState({ appState: { ...createInitialState(), tabId: 42, muteFarmingTab: false } } as ServiceWorkerState);
+    const state = createMinimalState({
+      appState: { ...createInitialState(), tabId: 42, muteFarmingTab: false },
+    } as ServiceWorkerState);
     await syncManagedTabMuteState(state);
     expect(updatedMuted).toBe(false);
   });
