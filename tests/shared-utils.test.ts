@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { createInitialState, isExpiredGame, toSlug } from '../src/shared/utils.ts';
 
 // --- toSlug ---

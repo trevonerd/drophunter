@@ -53,6 +53,10 @@ export function isSameGameIdentity(left: TwitchGame, right: TwitchGame): boolean
   return gameIdentity(left) === gameIdentity(right);
 }
 
+export function sameCampaignId(left?: string | null, right?: string | null): boolean {
+  return Boolean(left && right && left === right);
+}
+
 export function getGameDisplayLabel(game: TwitchGame): string {
   return fallbackDisplayName(game);
 }

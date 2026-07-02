@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test';
-import { haveAllDropsExpiredOrVanished, isDropCompleted } from '../src/shared/drops.ts';
+import { expect, test } from 'bun:test';
+import { haveAllDropsExpiredOrVanished } from '../src/shared/drops.ts';
 
 function createDrop(overrides = {}) {
   return {
@@ -41,7 +41,7 @@ test('haveAllDropsExpiredOrVanished([expiredDrop, activeDrop], 2) → false (mul
   expect(haveAllDropsExpiredOrVanished([expiredDrop, activeDrop], 2)).toBe(false);
 });
 
-test('haveAllDropsExpiredOrVanished([claimedDrop], 1) → false (completed drop is NOT expired — it\'s done)', () => {
+test("haveAllDropsExpiredOrVanished([claimedDrop], 1) → false (completed drop is NOT expired — it's done)", () => {
   const claimedDrop = createDrop({
     claimed: true,
     endsAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago

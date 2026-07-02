@@ -4,6 +4,26 @@ const GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
 const INTEGRITY_ENDPOINT = 'https://gql.twitch.tv/integrity';
 const INTEGRITY_CLIENT_ID = 'ue6666qo983tsx6so1t0vnawi233wa';
 const INTEGRITY_CLIENT_VERSION = 'da69d5f2-ac48-4169-9574-48fee4a96513';
+const GQL_FETCH_TIMEOUT_MS = 20_000;
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs = GQL_FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('Twitch GQL request timed out.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function createErrorFromResponse(payload: unknown): Error {
   if (Array.isArray(payload)) {
@@ -15,7 +35,9 @@ function createErrorFromResponse(payload: unknown): Error {
 
   const response = payload as TwitchGraphQLResponse<unknown>;
   if (Array.isArray(response.errors) && response.errors.length > 0) {
-    const firstMessage = response.errors.map((entry) => entry.message).find((message) => typeof message === 'string' && message.trim().length > 0);
+    const firstMessage = response.errors
+      .map((entry) => entry.message)
+      .find((message) => typeof message === 'string' && message.trim().length > 0);
     if (firstMessage) {
       return new Error(firstMessage);
     }
@@ -54,7 +76,7 @@ export class TwitchGqlTransport {
   }
 
   async post<T>(payload: unknown): Promise<T> {
-    const response = await fetch(GQL_ENDPOINT, {
+    const response = await fetchWithTimeout(GQL_ENDPOINT, {
       method: 'POST',
       headers: this.buildBaseHeaders(),
       body: JSON.stringify(payload),
@@ -82,7 +104,7 @@ export class TwitchGqlTransport {
   }
 
   async postAuthorized<T>(payload: unknown): Promise<T> {
-    const response = await fetch(GQL_ENDPOINT, {
+    const response = await fetchWithTimeout(GQL_ENDPOINT, {
       method: 'POST',
       headers: this.buildAuthorizedHeaders(),
       body: JSON.stringify(payload),
@@ -110,7 +132,7 @@ export class TwitchGqlTransport {
   }
 
   async postAuthorizedBatch<T>(payloads: unknown[]): Promise<Array<TwitchGraphQLResponse<T>>> {
-    const response = await fetch(GQL_ENDPOINT, {
+    const response = await fetchWithTimeout(GQL_ENDPOINT, {
       method: 'POST',
       headers: this.buildAuthorizedHeaders(),
       body: JSON.stringify(payloads),
@@ -134,7 +156,7 @@ export async function fetchTwitchIntegrityToken(session: TwitchSession): Promise
     return null;
   }
 
-  const response = await fetch(INTEGRITY_ENDPOINT, {
+  const response = await fetchWithTimeout(INTEGRITY_ENDPOINT, {
     method: 'POST',
     headers: {
       'Client-Id': INTEGRITY_CLIENT_ID,

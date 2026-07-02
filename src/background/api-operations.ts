@@ -1,6 +1,7 @@
 import { toSlug } from '../shared/utils.ts';
 import { DropsSnapshot, TwitchGame, TwitchStreamer } from '../types';
-import { PROGRESS_POLL_MS } from './constants.ts';
+import { INTEGRITY_FALLBACK_TTL_MS, PROGRESS_POLL_MS } from './constants.ts';
+import { logDebug } from './logging.ts';
 import type { ServiceWorkerState } from './service-worker.ts';
 import {
   clearTwitchSessionCache as clearTwitchSessionCacheExt,
@@ -9,18 +10,27 @@ import {
 import { TwitchApiClient } from './twitch-api/client.ts';
 import { isLikelyAuthError, TwitchSession } from './twitch-api/types.ts';
 
-export async function fetchDropsSnapshotFromApi(
+function applyApiBackoff(state: ServiceWorkerState) {
+  state.apiConsecutiveFailures += 1;
+  state.apiBackoffUntil =
+    Date.now() + Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
+}
+
+// Shared by fetchDropsSnapshotFromApi and fetchInventorySnapshotFromApi: both hit the
+// same "integrity token rejected" failure mode and recover the same way — refresh the
+// integrity token and retry once, then fall back to no-integrity mode for a TTL window.
+async function fetchSnapshotWithIntegrityRetry(
   state: ServiceWorkerState,
   session: TwitchSession,
+  fetchSnapshot: (client: TwitchApiClient) => Promise<DropsSnapshot>,
 ): Promise<DropsSnapshot | null> {
   const sessionWithIntegrity =
     state.integrityFallbackActive && Date.now() < state.integrityFallbackActiveUntil
       ? { ...session, clientIntegrity: undefined }
       : await ensureSessionIntegrityExt(state, session);
 
-  let client = new TwitchApiClient(sessionWithIntegrity);
   try {
-    const snapshot = await client.fetchDropsSnapshot();
+    const snapshot = await fetchSnapshot(new TwitchApiClient(sessionWithIntegrity));
     state.apiConsecutiveFailures = 0;
     state.apiBackoffUntil = 0;
     return snapshot;
@@ -33,33 +43,42 @@ export async function fetchDropsSnapshotFromApi(
         refreshedIntegritySession.clientIntegrity !== sessionWithIntegrity.clientIntegrity
       ) {
         try {
-          client = new TwitchApiClient(refreshedIntegritySession);
-          const retriedSnapshot = await client.fetchDropsSnapshot();
+          const retriedSnapshot = await fetchSnapshot(new TwitchApiClient(refreshedIntegritySession));
           state.apiConsecutiveFailures = 0;
           state.apiBackoffUntil = 0;
           return retriedSnapshot;
-        } catch {}
+        } catch (retryError) {
+          logDebug('Integrity-refreshed retry still failed, falling back to no-integrity mode', {
+            error: String(retryError),
+          });
+        }
       }
 
       try {
         const sessionWithoutIntegrity: TwitchSession = { ...session, clientIntegrity: undefined };
-        client = new TwitchApiClient(sessionWithoutIntegrity);
-        const fallbackSnapshot = await client.fetchDropsSnapshot();
+        const fallbackSnapshot = await fetchSnapshot(new TwitchApiClient(sessionWithoutIntegrity));
         state.integrityFallbackActive = true;
-        state.integrityFallbackActiveUntil = Date.now() + 30 * 60_000;
+        state.integrityFallbackActiveUntil = Date.now() + INTEGRITY_FALLBACK_TTL_MS;
         state.apiConsecutiveFailures = 0;
         state.apiBackoffUntil = 0;
         return fallbackSnapshot;
-      } catch {}
+      } catch (fallbackError) {
+        logDebug('No-integrity fallback fetch also failed', { error: String(fallbackError) });
+      }
     }
     if (isLikelyAuthError(error)) {
       throw error;
     }
-    state.apiConsecutiveFailures += 1;
-    state.apiBackoffUntil =
-      Date.now() + Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
+    applyApiBackoff(state);
     return null;
   }
+}
+
+export async function fetchDropsSnapshotFromApi(
+  state: ServiceWorkerState,
+  session: TwitchSession,
+): Promise<DropsSnapshot | null> {
+  return fetchSnapshotWithIntegrityRetry(state, session, (client) => client.fetchDropsSnapshot());
 }
 
 export async function fetchInventorySnapshotFromApi(
@@ -71,53 +90,10 @@ export async function fetchInventorySnapshotFromApi(
     return null;
   }
 
-  const sessionWithIntegrity =
-    state.integrityFallbackActive && Date.now() < state.integrityFallbackActiveUntil
-      ? { ...session, clientIntegrity: undefined }
-      : await ensureSessionIntegrityExt(state, session);
-
-  let client = new TwitchApiClient(sessionWithIntegrity);
-  try {
-    const snapshot = await client.fetchInventorySnapshot(baseDrops);
-    state.apiConsecutiveFailures = 0;
-    state.apiBackoffUntil = 0;
-    return snapshot.drops.length > 0 ? snapshot : null;
-  } catch (error) {
-    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-    if (message.includes('integrity')) {
-      const refreshedIntegritySession = await ensureSessionIntegrityExt(state, session, true);
-      if (
-        refreshedIntegritySession.clientIntegrity &&
-        refreshedIntegritySession.clientIntegrity !== sessionWithIntegrity.clientIntegrity
-      ) {
-        try {
-          client = new TwitchApiClient(refreshedIntegritySession);
-          const retriedSnapshot = await client.fetchInventorySnapshot(baseDrops);
-          state.apiConsecutiveFailures = 0;
-          state.apiBackoffUntil = 0;
-          return retriedSnapshot.drops.length > 0 ? retriedSnapshot : null;
-        } catch {}
-      }
-
-      try {
-        const sessionWithoutIntegrity: TwitchSession = { ...session, clientIntegrity: undefined };
-        client = new TwitchApiClient(sessionWithoutIntegrity);
-        const fallbackSnapshot = await client.fetchInventorySnapshot(baseDrops);
-        state.integrityFallbackActive = true;
-        state.integrityFallbackActiveUntil = Date.now() + 30 * 60_000;
-        state.apiConsecutiveFailures = 0;
-        state.apiBackoffUntil = 0;
-        return fallbackSnapshot.drops.length > 0 ? fallbackSnapshot : null;
-      } catch {}
-    }
-    if (isLikelyAuthError(error)) {
-      throw error;
-    }
-    state.apiConsecutiveFailures += 1;
-    state.apiBackoffUntil =
-      Date.now() + Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
-    return null;
-  }
+  const snapshot = await fetchSnapshotWithIntegrityRetry(state, session, (client) =>
+    client.fetchInventorySnapshot(baseDrops),
+  );
+  return snapshot && snapshot.drops.length > 0 ? snapshot : null;
 }
 
 export async function fetchDirectoryStreamersFromApi(

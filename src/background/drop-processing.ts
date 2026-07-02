@@ -9,5 +9,4 @@ export {
   normalizeGameSelection,
   projectDropsSnapshot,
   splitDropsForSelectedGame,
-  updateStateFromSnapshot,
 } from './drops-projection.ts';

@@ -19,8 +19,12 @@ import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types'
 import { detectNewlyClaimedDrops, recordClaimedDrops } from './claim-log.ts';
 import {
   CRASH_RECOVERY_GRACE_MS,
+  FULL_REFRESH_INTERVAL_MS,
+  INVALID_STREAM_THRESHOLD,
   QUEUE_MISSING_CONFIRM_THRESHOLD,
+  STREAM_ROTATE_COOLDOWN_MS,
   STREAM_VALIDATION_GRACE_MS,
+  TICK_WATCHDOG_TIMEOUT_MS,
 } from './constants';
 import { completedDropKeys } from './drops-projection.ts';
 import { logDebug, logInfo, logWarn } from './logging';
@@ -41,10 +45,6 @@ import {
   StreamRotationReason,
 } from './stream-rotation';
 import { PickStreamerResult, StreamerSelectionPreferences } from './streamer-selection';
-
-// Constants needed from service-worker
-const INVALID_STREAM_THRESHOLD = 8;
-const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
 
 // ============================================================================
 // Helper Functions (internal)
@@ -96,7 +96,7 @@ function resetNoProgressRotationAttempts(state: ServiceWorkerState) {
   state.noProgressRotationAttempts = 0;
 }
 
-function clearRecoveryState(state: ServiceWorkerState) {
+export function clearRecoveryState(state: ServiceWorkerState) {
   state.recoveryBackoffUntil = 0;
   state.lastRecoveryAttemptAt = 0;
   state.stalledRecoveryAttempts = 0;
@@ -104,7 +104,7 @@ function clearRecoveryState(state: ServiceWorkerState) {
   state.appState = clearRecoveryStatus(state.appState);
 }
 
-function clearStopState(state: ServiceWorkerState) {
+export function clearStopState(state: ServiceWorkerState) {
   state.appState = clearTerminalStopStatus(state.appState);
 }
 
@@ -435,6 +435,7 @@ export async function stopFarmingSession(
   state.dropClaimRetryAtById.clear();
   state.dropClaimInFlight = false;
   state.monitorTickInFlight = false;
+  state.tickGeneration += 1;
 
   if (opts?.onCloseManagedTab) {
     await opts.onCloseManagedTab(state.appState.tabId);
@@ -808,6 +809,7 @@ export async function handleStartFarming(
   state.dropClaimRetryAtById.clear();
   state.dropClaimInFlight = false;
   state.monitorTickInFlight = false;
+  state.tickGeneration += 1;
 
   if (opts?.onEnsureWorkspace) {
     await opts.onEnsureWorkspace();
@@ -1306,9 +1308,6 @@ export async function checkDropProgress(
   state: ServiceWorkerState,
   callbacks: CheckDropProgressCallbacks,
 ): Promise<void> {
-  const FULL_REFRESH_INTERVAL_MS = 2 * 60_000;
-  const TICK_WATCHDOG_TIMEOUT_MS = 60_000;
-
   if (!state.appState.isRunning || state.appState.isPaused) {
     return;
   }
@@ -1327,6 +1326,14 @@ export async function checkDropProgress(
     return;
   }
   state.monitorTickInFlight = true;
+  const myTickGeneration = state.tickGeneration;
+  const isStaleTick = () => {
+    if (state.tickGeneration !== myTickGeneration) {
+      logDebug('Tick generation stale (session stopped/restarted mid-tick) — aborting');
+      return true;
+    }
+    return false;
+  };
 
   const tickWatchdogTimer = setTimeout(() => {
     if (state.monitorTickInFlight) {
@@ -1355,23 +1362,28 @@ export async function checkDropProgress(
 
     if (state.appState.tabId) {
       const streamTab = await browser.tabs.get(state.appState.tabId).catch(() => null);
+      if (isStaleTick()) return;
       if (!streamTab) {
         state.appState.tabId = null;
         state.appState.activeStreamer = null;
       }
     }
     await callbacks.onEnforcePlaybackPolicy();
+    if (isStaleTick()) return;
 
     const isFullTick = Date.now() - state.lastFullRefreshAt >= FULL_REFRESH_INTERVAL_MS;
     if (isFullTick) {
       await callbacks.onRefreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true });
+      if (isStaleTick()) return;
       state.lastFullRefreshAt = Date.now();
     } else {
       await callbacks.onRefreshDropsData();
+      if (isStaleTick()) return;
     }
 
     const selectedBeforeAdvance = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
     const advancedBeforeValidation = await callbacks.onAdvanceQueueIfCompleted();
+    if (isStaleTick()) return;
     if (!advancedBeforeValidation || !state.appState.isRunning || state.appState.isPaused) {
       return;
     }
@@ -1390,19 +1402,26 @@ export async function checkDropProgress(
         state.appState.resumedFromCrash = null;
       }
       await callbacks.onRotateStreamerIfInvalid();
+      if (isStaleTick()) return;
       if (!state.appState.isRunning || state.appState.isPaused) {
         return;
       }
     }
     await callbacks.onAttemptAutoClaimChannelPointsBonus();
+    if (isStaleTick()) return;
 
     const claimedAny = await callbacks.onAutoClaimClaimableDrops();
-    if (claimedAny) {
+    if (isStaleTick()) return;
+    // Skip the post-claim reconciliation fetch if this tick already did a full
+    // campaign+inventory refresh moments ago (isFullTick above) — that data is
+    // still fresh and autoClaim already applied the claim locally.
+    if (claimedAny && !isFullTick) {
       await callbacks.onRefreshDropsData({
         includeCampaignFetch: true,
         includeInventoryFetch: true,
         forceInventoryFetch: true,
       });
+      if (isStaleTick()) return;
       state.lastFullRefreshAt = Date.now();
     }
     await callbacks.onAdvanceQueueIfCompleted();

@@ -24,6 +24,10 @@ export interface TimingState {
   offlineChecks: number;
   // Channel to skip on the next streamer selection (the one we are rotating away from).
   avoidStreamerName: string | null;
+  // Allowed-channel filter per campaign; must survive SW restart or a
+  // recycled worker can open a non-allowed streamer until the next full fetch.
+  cachedCampaignChannelsMap: Record<string, string[] | null>;
+  previousAllDropsCount: number;
 }
 
 export function createInitialTimingState(): TimingState {
@@ -49,6 +53,8 @@ export function createInitialTimingState(): TimingState {
     lastHeartbeatAt: 0,
     offlineChecks: 0,
     avoidStreamerName: null,
+    cachedCampaignChannelsMap: {},
+    previousAllDropsCount: 0,
   };
 }
 
@@ -147,7 +153,27 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
       typeof source.avoidStreamerName === 'string' && source.avoidStreamerName.length > 0
         ? source.avoidStreamerName
         : initial.avoidStreamerName,
+    cachedCampaignChannelsMap: normalizeCachedCampaignChannelsMap(source.cachedCampaignChannelsMap),
+    previousAllDropsCount:
+      typeof source.previousAllDropsCount === 'number' && Number.isFinite(source.previousAllDropsCount)
+        ? source.previousAllDropsCount
+        : initial.previousAllDropsCount,
   };
+}
+
+function normalizeCachedCampaignChannelsMap(input: unknown): Record<string, string[] | null> {
+  if (!input || typeof input !== 'object') {
+    return {};
+  }
+  const result: Record<string, string[] | null> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (value === null) {
+      result[key] = null;
+    } else if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 export function clearRotationMetadata(state: AppState): AppState {
@@ -233,6 +259,10 @@ import type { TwitchSession } from './twitch-api/types.ts';
 export interface ServiceWorkerState {
   appState: AppState;
   monitorTickInFlight: boolean;
+  // Bumped by stop/start of the farming session; an in-flight tick compares
+  // its captured generation after each await to detect a session restart
+  // mid-tick and abort instead of mutating state for a session that ended.
+  tickGeneration: number;
   invalidStreamChecks: number;
   lastStreamRotationAt: number;
   streamValidationGraceUntil: number;
@@ -268,12 +298,16 @@ export interface ServiceWorkerState {
   recoveryNotificationSent: boolean;
   lastHeartbeatAt: number;
   lastGamesCacheRefreshAt: number;
+  // Consecutive empty-campaign API responses; require more than one before
+  // treating an empty snapshot as authoritative and wiping queue/games.
+  emptyCampaignRefreshStreak: number;
 }
 
 export function createServiceWorkerState(): ServiceWorkerState {
   return {
     appState: createInitialState(),
     monitorTickInFlight: false,
+    tickGeneration: 0,
     invalidStreamChecks: 0,
     lastStreamRotationAt: 0,
     streamValidationGraceUntil: 0,
@@ -307,5 +341,6 @@ export function createServiceWorkerState(): ServiceWorkerState {
     recoveryNotificationSent: false,
     lastHeartbeatAt: 0,
     lastGamesCacheRefreshAt: 0,
+    emptyCampaignRefreshStreak: 0,
   };
 }

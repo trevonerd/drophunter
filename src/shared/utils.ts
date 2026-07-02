@@ -45,6 +45,7 @@ export const createInitialState = (): AppState => ({
   monitorWindowId: null,
   tabId: null,
   completionNotified: false,
+  twitchSessionDetected: false,
   dropsPageRefreshInProgress: false,
   lastDropsPageRefreshAttemptAt: null,
   lastDropsPageRefreshCompletedAt: null,

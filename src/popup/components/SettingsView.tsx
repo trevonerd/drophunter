@@ -12,6 +12,7 @@ export interface SettingsViewProps {
   onMonitorAutoOpenToggle: () => void;
   onMuteFarmingTabToggle: () => void;
   onNotificationsEnabledToggle: () => void;
+  notificationPermissionDenied?: boolean;
   onTelegramAlertsToggle: () => Promise<{ success: boolean; error?: string } | undefined>;
   onSaveTelegramCredentials: (
     botToken: string,
@@ -36,9 +37,10 @@ interface SettingRowProps {
   checked: boolean;
   ariaLabel: string;
   onToggle: () => void;
+  warning?: string | null;
 }
 
-function SettingRow({ title, description, checked, ariaLabel, onToggle }: SettingRowProps) {
+function SettingRow({ title, description, checked, ariaLabel, onToggle, warning }: SettingRowProps) {
   return (
     <div className="dh-panel dh-contain px-3 py-2.5">
       <div className="flex items-center justify-between gap-3">
@@ -57,6 +59,15 @@ function SettingRow({ title, description, checked, ariaLabel, onToggle }: Settin
           <span className="dh-switch__thumb" />
         </button>
       </div>
+      {warning && (
+        <p
+          className="mt-1.5 text-[11px] text-[color:var(--dh-danger,#f04f4f)]"
+          role="status"
+          aria-live="polite"
+        >
+          {warning}
+        </p>
+      )}
     </div>
   );
 }
@@ -68,6 +79,7 @@ export function SettingsView({
   onMonitorAutoOpenToggle,
   onMuteFarmingTabToggle,
   onNotificationsEnabledToggle,
+  notificationPermissionDenied,
   onTelegramAlertsToggle,
   onSaveTelegramCredentials,
   onTestTelegramAlerts,
@@ -148,6 +160,11 @@ export function SettingsView({
             checked={state.notificationsEnabled}
             ariaLabel="Notifications"
             onToggle={onNotificationsEnabledToggle}
+            warning={
+              notificationPermissionDenied
+                ? 'Browser permission was denied. Allow notifications for this extension in your browser settings, then try again.'
+                : null
+            }
           />
           <TelegramSettingsSection
             enabled={state.telegramAlertsEnabled}

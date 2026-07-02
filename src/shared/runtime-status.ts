@@ -90,6 +90,23 @@ export function applyTerminalStopStatus(state: AppState, stop: TerminalStopState
   });
 }
 
+export function formatStopReason(reason: string | null | undefined): string | null {
+  switch (reason) {
+    case 'no-active-campaigns':
+      return 'No active Twitch Drops campaigns found';
+    case 'queue-complete':
+      return 'Queue complete';
+    case 'sign-in-required':
+      return 'Twitch sign-in required';
+    case 'stall-skipped':
+      return 'Stopped after repeated stalls';
+    case 'user-stop':
+      return 'Stopped';
+    default:
+      return reason ?? null;
+  }
+}
+
 export function formatRotationReason(reason: string | null | undefined): string | null {
   switch (reason) {
     case 'offline':

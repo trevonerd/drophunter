@@ -1,26 +1,25 @@
 import { describe, expect, test } from 'bun:test';
+import type { ClaimedRewardEntry } from '../src/background/twitch-api/client.ts';
 import {
   buildClaimedRewardLookup,
-  buildGlobalClaimedRewardEntry,
   buildGlobalClaimedIdCounts,
+  buildGlobalClaimedRewardEntry,
   buildInventoryDropMaps,
   computeExpiry,
-  extractBroadcasterLanguage,
   extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
+  extractBroadcasterLanguage,
   findInventoryStateForDrop,
   matchClaimedReward,
   normalizeImageUrl,
+  normalizeLanguageForApi,
   normalizeStreamerLanguage,
   normalizeText,
   parseCampaignDrops,
   toIsoDate,
   toNumber,
-  normalizeLanguageForApi,
 } from '../src/background/twitch-api/client.ts';
-import { TwitchApiClient } from '../src/background/twitch-api/client.ts';
-import type { ClaimedRewardEntry } from '../src/background/twitch-api/client.ts';
 
 // ---------------------------------------------------------------------------
 // normalizeText
@@ -578,9 +577,7 @@ describe('matchClaimedReward', () => {
   test('matches awarded benefit only inside the drop window when timestamp is present', () => {
     const entry = makeEntry({}, {});
     entry.idCounts.set('benefit-windowed', 1);
-    entry.idAwardedAt.set('benefit-windowed', [
-      { kind: 'valid', value: '2026-05-18T12:00:00.000Z' },
-    ]);
+    entry.idAwardedAt.set('benefit-windowed', [{ kind: 'valid', value: '2026-05-18T12:00:00.000Z' }]);
 
     const inside = matchForTest(['benefit-windowed'], [], entry, emptyEntry, {
       startsAt: '2026-05-18T06:00:00.000Z',
@@ -617,9 +614,7 @@ describe('matchClaimedReward', () => {
   test('allows global fallback for valid timestamps even when missing timestamps are blocked', () => {
     const globalEntry = makeEntry({}, {});
     globalEntry.idCounts.set('benefit-global', 1);
-    globalEntry.idAwardedAt.set('benefit-global', [
-      { kind: 'valid', value: '2026-05-18T12:00:00.000Z' },
-    ]);
+    globalEntry.idAwardedAt.set('benefit-global', [{ kind: 'valid', value: '2026-05-18T12:00:00.000Z' }]);
 
     const result = matchForTest(
       ['benefit-global'],
@@ -639,15 +634,7 @@ describe('matchClaimedReward', () => {
 
   test('blocks global fallback with missing timestamps when missing timestamps are blocked', () => {
     const globalEntry = makeEntry({ 'benefit-global': 1 }, {});
-    const result = matchForTest(
-      ['benefit-global'],
-      [],
-      undefined,
-      globalEntry,
-      defaultWindow,
-      true,
-      false,
-    );
+    const result = matchForTest(['benefit-global'], [], undefined, globalEntry, defaultWindow, true, false);
     expect(result.globalIdMatch).toBe(false);
   });
 });
@@ -752,9 +739,7 @@ describe('parseCampaignDrops — inventory authoritative over game-event name ma
     const game = { id: 'g-ow', name: 'Overwatch', imageUrl: '', campaignId: 'camp-2' };
     // claimedRewards simulates camp-1's claimed "100 Comp Points" appearing in the game events
     const claimedRewards = buildClaimedRewardLookup({
-      gameEventDrops: [
-        { id: 'benefit-comp', name: '100 Comp Points', game: { displayName: 'Overwatch' } },
-      ],
+      gameEventDrops: [{ id: 'benefit-comp', name: '100 Comp Points', game: { displayName: 'Overwatch' } }],
     });
     const globalClaimedRewards = buildGlobalClaimedRewardEntry({ gameEventDrops: [] });
 
@@ -852,7 +837,9 @@ describe('parseCampaignDrops — early-award badge/emote does not bleed across s
           ],
         },
       ],
-      gameEventDrops: [{ id: sharedBenefit.id, name: sharedBenefit.name, game: { displayName: 'Overwatch' } }],
+      gameEventDrops: [
+        { id: sharedBenefit.id, name: sharedBenefit.name, game: { displayName: 'Overwatch' } },
+      ],
     };
     const maps = buildInventoryDropMaps(inventory);
     const campaign = {

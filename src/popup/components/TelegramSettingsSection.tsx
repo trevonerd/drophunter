@@ -91,12 +91,18 @@ export function TelegramSettingsSection({
           aria-checked={enabled}
           aria-label="Telegram alerts"
           onClick={() => void runAction(onToggle)}
-          disabled={busy}
+          disabled={busy || (!enabled && !tokenConfigured)}
+          title={!enabled && !tokenConfigured ? 'Save bot token and chat ID first' : undefined}
           className={`dh-switch shrink-0 dh-focus ${enabled ? 'dh-switch--on' : ''}`}
         >
           <span className="dh-switch__thumb" />
         </button>
       </div>
+      {!enabled && !tokenConfigured && (
+        <p className="dh-copy mt-1.5 text-[11px] leading-snug opacity-80">
+          Save a bot token and chat ID below before enabling alerts.
+        </p>
+      )}
 
       <div className="mt-3 space-y-2">
         <label className="block">

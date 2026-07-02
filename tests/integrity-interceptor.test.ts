@@ -74,7 +74,7 @@ function applyInterceptorLogic(
   sessionStorage: ReturnType<typeof createSessionStorageMock>,
   dispatchFn: (event: Event) => boolean,
 ): typeof fetch {
-  return function (...args: Parameters<typeof fetch>) {
+  return (...args: Parameters<typeof fetch>) => {
     const url = typeof args[0] === 'string' ? args[0] : args[0] instanceof Request ? args[0].url : '';
     const promise = fetchFn.apply(null, args);
 

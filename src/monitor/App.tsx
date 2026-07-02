@@ -7,6 +7,7 @@ import {
   formatRecoveryAttemptLabel,
   formatRecoveryReason,
   formatRetryLabel,
+  formatStopReason,
 } from '../shared/runtime-status';
 import { createInitialState } from '../shared/utils';
 import { AppState } from '../types';
@@ -144,9 +145,12 @@ function App() {
           </div>
         )}
 
-        {runtimeMode === 'stopped-terminal' && state.lastStopMessage && (
-          <div className="monitor-rotation-reason">Stopped: {state.lastStopMessage}</div>
-        )}
+        {runtimeMode === 'stopped-terminal' &&
+          (state.lastStopMessage || formatStopReason(state.lastStopReason)) && (
+            <div className="monitor-rotation-reason">
+              Stopped: {state.lastStopMessage ?? formatStopReason(state.lastStopReason)}
+            </div>
+          )}
 
         <div className="monitor-footer">
           <span className="monitor-channel">

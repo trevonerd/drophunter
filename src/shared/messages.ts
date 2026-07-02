@@ -215,7 +215,10 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
     case 'UPDATE_GAMES':
       return payload === undefined || (Array.isArray(payload) && payload.every(isTwitchGameLike));
     case 'SYNC_TWITCH_SESSION':
-      return isRecord(payload);
+      // Deep field validation happens in sanitizeTwitchSession() downstream;
+      // here we only reject shapes that couldn't possibly be a session, e.g.
+      // `{ session: "not an object" }`.
+      return isRecord(payload) && (payload.session === undefined || isRecord(payload.session));
     case 'SYNC_TWITCH_INTEGRITY':
       return (
         isRecord(payload) &&
@@ -335,7 +338,7 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
     case 'GET_TELEGRAM_SETTINGS':
       return true;
     default:
-      return true;
+      return false;
   }
 }
 

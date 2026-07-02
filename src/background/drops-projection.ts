@@ -224,5 +224,3 @@ export function projectDropsSnapshot(state: ServiceWorkerState, snapshot: DropsS
   normalizeGameSelection(state, annotatedGames);
   splitDropsForSelectedGame(state, snapshot.drops);
 }
-
-export const updateStateFromSnapshot = projectDropsSnapshot;

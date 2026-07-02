@@ -1,5 +1,5 @@
 // Extracted from src/popup/App.tsx (settings toggle + select handlers).
-import type { Dispatch, SetStateAction } from 'react';
+import { type Dispatch, type SetStateAction, useState } from 'react';
 import { browser } from '../../shared/browser-api.ts';
 import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState, StreamerSelectionMode } from '../../types';
@@ -11,6 +11,8 @@ interface UseSettingsTogglesArgs {
 }
 
 export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) {
+  const [notificationPermissionDenied, setNotificationPermissionDenied] = useState(false);
+
   const makeToggleHandler =
     (
       stateKey:
@@ -55,11 +57,13 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
 
   const handleNotificationsEnabledToggle = async () => {
     const next = !state.notificationsEnabled;
+    setNotificationPermissionDenied(false);
     setState((prev) => ({ ...prev, notificationsEnabled: next }));
     if (next) {
       const granted = await browser.permissions.request(NOTIFICATION_PERMISSION).catch(() => false);
       if (!granted) {
         setState((prev) => ({ ...prev, notificationsEnabled: false }));
+        setNotificationPermissionDenied(true);
         return;
       }
     }
@@ -119,6 +123,7 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     handleAutoClaimDropsToggle,
     handleMuteFarmingTabToggle,
     handleNotificationsEnabledToggle,
+    notificationPermissionDenied,
     handleStreamerSelectionModeChange,
     handlePreferredStreamerLanguageChange,
   };

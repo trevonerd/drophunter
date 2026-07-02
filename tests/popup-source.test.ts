@@ -37,7 +37,9 @@ test('popup treats Drops page refresh response as an async launch acknowledgemen
   expect(source).toContain('lastDropsPageRefreshError: null');
   expect(source).toContain('lastDropsPageRefreshAttemptAt: attemptAt');
   expect(source).not.toContain('response?.appState ??');
-  expect(source).not.toContain('prev.dropsPageRefreshInProgress ? { ...prev, dropsPageRefreshInProgress: false }');
+  expect(source).not.toContain(
+    'prev.dropsPageRefreshInProgress ? { ...prev, dropsPageRefreshInProgress: false }',
+  );
 });
 
 test('popup does not silently refresh campaigns on mount', () => {
@@ -70,10 +72,12 @@ test('popup campaign selector uses campaign-aware option identities', () => {
 test('popup uses a single campaign sync panel for empty, stale, syncing, failed, and fresh states', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("type CampaignSyncStatus = 'empty' | 'fresh' | 'stale' | 'syncing' | 'failed'");
+  expect(source).toContain(
+    "type CampaignSyncStatus = 'empty' | 'signed-out' | 'fresh' | 'stale' | 'syncing' | 'failed'",
+  );
   expect(source).toContain('function CampaignSyncPanel');
   expect(source).toContain('aria-live="polite"');
-  expect(source).toContain('Go to Twitch Drops');
+  expect(source).toContain('Sign in to Twitch');
   expect(source).toContain('Updating Twitch Drops and campaigns…');
   expect(source).toContain('Not synced yet');
   expect(source).toContain('Could not update. Old data is still shown.');
@@ -131,7 +135,9 @@ test('popup campaign selector uses improved placeholder text', () => {
 test('popup renders first-sync confirmation banner with campaign count', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('{!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null &&');
+  expect(source).toContain(
+    '{!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null &&',
+  );
   expect(source).toContain('campaigns loaded. Select a campaign below and press Start.');
   expect(source).toContain('firstSyncCampaignCount');
   expect(source).toContain('hasUnseenRefreshSuccess');
@@ -161,7 +167,7 @@ test('popup applies onboarding-pulse class to start button when step is start', 
 test('popup saves onboardingCompleted to chrome.storage.local after first start', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("await browser.storage.local.set({ onboardingCompleted: true })");
+  expect(source).toContain('await browser.storage.local.set({ onboardingCompleted: true })');
   expect(source).toContain('setOnboardingStep(null)');
   expect(source).toContain('setOnboardingCompleted(true)');
 });
@@ -176,7 +182,7 @@ test('popup loads onboardingCompleted from chrome.storage.local on mount', () =>
 test('popup advances onboarding step on game select', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("setFirstSyncConfirmation(false)");
+  expect(source).toContain('setFirstSyncConfirmation(false)');
   expect(source).toContain("onboardingStep === 'selector'");
   expect(source).toContain("setOnboardingStep('start')");
 });
@@ -193,7 +199,9 @@ test('popup header keeps utility icons stable instead of using progressive discl
 test('popup Drops header button stays icon-only while sync feedback lives outside the toolbar', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("aria-label={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Open Twitch Drops'}");
+  expect(source).toContain(
+    "aria-label={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Open Twitch Drops'}",
+  );
   expect(source).toContain('<DropsIcon />');
   expect(source).not.toContain('Refreshing Twitch Drops');
   expect(source).not.toContain('<span>Refreshing…</span>');

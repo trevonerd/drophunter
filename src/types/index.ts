@@ -91,6 +91,10 @@ export interface AppState {
   tabId: number | null;
   completionNotified: boolean;
   lastSuccessfulRefreshAt?: number;
+  // Sticky: set true the first time a Twitch session is detected from any
+  // source (storage/tab/content-script). Used to tell "never signed in" apart
+  // from "signed in but 0 active campaigns" in the popup empty state.
+  twitchSessionDetected: boolean;
   dropsPageRefreshInProgress: boolean;
   lastDropsPageRefreshAttemptAt?: number | null;
   lastDropsPageRefreshCompletedAt?: number | null;

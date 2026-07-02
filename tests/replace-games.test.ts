@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { replaceAvailableGames, applyGameDisplayNames } from '../src/shared/game-selection.ts';
+import { applyGameDisplayNames, replaceAvailableGames } from '../src/shared/game-selection.ts';
 import type { TwitchGame } from '../src/types/index.ts';
 
 function createGame(overrides: Partial<TwitchGame> = {}): TwitchGame {
@@ -24,13 +24,11 @@ function createGame(overrides: Partial<TwitchGame> = {}): TwitchGame {
 
 describe('replaceAvailableGames', () => {
   test('removes games not in incoming list', () => {
-    const current = [
+    const _current = [
       createGame({ id: 'game-a', name: 'GameA' }),
       createGame({ id: 'game-b', name: 'GameB' }),
     ];
-    const incoming = [
-      createGame({ id: 'game-b', name: 'GameB' }),
-    ];
+    const incoming = [createGame({ id: 'game-b', name: 'GameB' })];
 
     const result = replaceAvailableGames(incoming);
 
@@ -42,7 +40,13 @@ describe('replaceAvailableGames', () => {
   test('filters expired games from incoming list', () => {
     const expiredTime = new Date(Date.now() - 3600000).toISOString();
     const incoming = [
-      createGame({ id: 'game-a', name: 'GameA', endsAt: expiredTime, expiresInMs: 0, expiryStatus: 'expired' }),
+      createGame({
+        id: 'game-a',
+        name: 'GameA',
+        endsAt: expiredTime,
+        expiresInMs: 0,
+        expiryStatus: 'expired',
+      }),
       createGame({ id: 'game-b', name: 'GameB' }),
     ];
 
@@ -54,7 +58,7 @@ describe('replaceAvailableGames', () => {
   });
 
   test('returns empty array when incoming is empty', () => {
-    const current = [
+    const _current = [
       createGame({ id: 'game-a', name: 'GameA' }),
       createGame({ id: 'game-b', name: 'GameB' }),
     ];
@@ -80,9 +84,7 @@ describe('replaceAvailableGames', () => {
   });
 
   test('applies display names override', () => {
-    const incoming = [
-      createGame({ id: 'game-a', name: 'GameA', displayName: 'Awesome Game A' }),
-    ];
+    const incoming = [createGame({ id: 'game-a', name: 'GameA', displayName: 'Awesome Game A' })];
 
     const result = replaceAvailableGames(incoming);
 
@@ -91,7 +93,7 @@ describe('replaceAvailableGames', () => {
   });
 
   test('replaces all old games when API returns fresh list', () => {
-    const current = [
+    const _current = [
       createGame({ id: 'old-game-1', name: 'OldGame1' }),
       createGame({ id: 'old-game-2', name: 'OldGame2' }),
     ];

@@ -1,5 +1,5 @@
 // Extracted from src/popup/App.tsx (main view markup).
-import type { RuntimeMode } from '../../shared/runtime-status';
+import { formatStopReason, type RuntimeMode } from '../../shared/runtime-status';
 import type { AppState, TwitchDrop, TwitchGame } from '../../types';
 import type { CampaignSyncStatus } from '../constants';
 import { formatEtaMinutes, recoveryAttemptLabel, retryLabel, statusReasonLabel } from '../format';
@@ -150,11 +150,23 @@ export function MainView({
           </div>
         )}
 
-        {runtimeMode === 'stopped-terminal' && state.lastStopMessage && (
-          <div className="dh-panel dh-contain px-3 py-2">
-            <p className="text-[11px] text-[color:var(--dh-text-soft)]">{state.lastStopMessage}</p>
-          </div>
-        )}
+        {runtimeMode === 'stopped-terminal' &&
+          (state.lastStopMessage || formatStopReason(state.lastStopReason)) && (
+            <div className="dh-panel dh-contain px-3 py-2" role="status" aria-live="polite">
+              <p className="text-[11px] text-[color:var(--dh-text-soft)]">
+                {state.lastStopMessage ?? formatStopReason(state.lastStopReason)}
+              </p>
+              {state.lastStopReason === 'sign-in-required' && (
+                <button
+                  type="button"
+                  onClick={onOpenDropsPage}
+                  className="dh-focus mt-2 inline-flex min-h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-twitch-purple/80 px-3 py-1.5 text-[11px] font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-twitch-purple"
+                >
+                  Sign in on Twitch
+                </button>
+              )}
+            </div>
+          )}
 
         <QueueChips
           selectedGame={state.selectedGame}

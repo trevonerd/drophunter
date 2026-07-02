@@ -22,3 +22,9 @@ export const QUEUE_MISSING_CONFIRM_THRESHOLD = 2;
 // when a no-tab recovery (no-streamers/offline/open-failed) is active.
 export const RESUME_RECOVERY_GRACE_MS = 5 * 60_000;
 export const STREAM_VALIDATION_GRACE_MS = 75_000;
+export const FULL_REFRESH_INTERVAL_MS = 2 * 60_000;
+export const INVALID_STREAM_THRESHOLD = 8;
+export const STREAM_ROTATE_COOLDOWN_MS = 5 * 60_000;
+export const TWITCH_SESSION_RETRY_COOLDOWN_MS = 5_000;
+export const INTEGRITY_FALLBACK_TTL_MS = 30 * 60_000; // 30 minutes
+export const TICK_WATCHDOG_TIMEOUT_MS = 60_000;

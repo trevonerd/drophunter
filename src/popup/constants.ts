@@ -55,4 +55,4 @@ export const STREAMER_LANGUAGE_OPTIONS = [
   { value: 'zh_hk', label: 'ZH-HK' },
 ];
 
-export type CampaignSyncStatus = 'empty' | 'fresh' | 'stale' | 'syncing' | 'failed';
+export type CampaignSyncStatus = 'empty' | 'signed-out' | 'fresh' | 'stale' | 'syncing' | 'failed';

@@ -1,11 +1,45 @@
-interface AlarmInfo { delayInMinutes?: number; periodInMinutes?: number; when?: number }
-interface Alarm { name: string; scheduledTime: number; periodInMinutes?: number }
-interface Tab { id?: number; url?: string; title?: string; active?: boolean; windowId?: number }
-interface MessageSender { tab?: Tab; frameId?: number; id?: string; url?: string }
-interface BadgeTextDetails { text?: string | null; tabId?: number }
-interface BadgeColorDetails { color: string | [number, number, number, number]; tabId?: number }
-interface QueryInfo { active?: boolean; windowId?: number; url?: string | string[] }
-interface PermissionsRequest { permissions?: string[]; origins?: string[] }
+import { resetSaveStateBroadcastCacheForTests } from '../../src/background/state-persistence';
+
+interface AlarmInfo {
+  delayInMinutes?: number;
+  periodInMinutes?: number;
+  when?: number;
+}
+interface Alarm {
+  name: string;
+  scheduledTime: number;
+  periodInMinutes?: number;
+}
+interface Tab {
+  id?: number;
+  url?: string;
+  title?: string;
+  active?: boolean;
+  windowId?: number;
+}
+interface MessageSender {
+  tab?: Tab;
+  frameId?: number;
+  id?: string;
+  url?: string;
+}
+interface BadgeTextDetails {
+  text?: string | null;
+  tabId?: number;
+}
+interface BadgeColorDetails {
+  color: string | [number, number, number, number];
+  tabId?: number;
+}
+interface QueryInfo {
+  active?: boolean;
+  windowId?: number;
+  url?: string | string[];
+}
+interface PermissionsRequest {
+  permissions?: string[];
+  origins?: string[];
+}
 
 interface ListenerMock<T> {
   addListener(handler: (arg: T) => void): void;
@@ -18,20 +52,24 @@ function createListenerMock<T>(): ListenerMock<T> {
   const handlers: Array<(arg: T) => void> = [];
   return {
     _handlers: handlers,
-    addListener(handler) { handlers.push(handler); },
+    addListener(handler) {
+      handlers.push(handler);
+    },
     removeListener(handler) {
       const idx = handlers.indexOf(handler);
       if (idx !== -1) handlers.splice(idx, 1);
     },
-    trigger(arg) { for (const h of handlers) h(arg); },
+    trigger(arg) {
+      for (const h of handlers) h(arg);
+    },
   };
 }
 
 type MessageHandler = (
   message: unknown,
   sender: MessageSender,
-  sendResponse: (response?: unknown) => void
-) => boolean | void;
+  sendResponse: (response?: unknown) => void,
+) => boolean | undefined;
 
 interface MessageListenerMock {
   addListener(handler: MessageHandler): void;
@@ -44,7 +82,9 @@ function createMessageListenerMock(): MessageListenerMock {
   const handlers: MessageHandler[] = [];
   return {
     _handlers: handlers,
-    addListener(handler) { handlers.push(handler); },
+    addListener(handler) {
+      handlers.push(handler);
+    },
     removeListener(handler) {
       const idx = handlers.indexOf(handler);
       if (idx !== -1) handlers.splice(idx, 1);
@@ -131,6 +171,7 @@ export interface ChromeMocks {
 }
 
 export function setupChromeMocks(): ChromeMocks {
+  resetSaveStateBroadcastCacheForTests();
   const originalChrome = (globalThis as Record<string, unknown>).chrome;
   const originalBrowser = (globalThis as Record<string, unknown>).browser;
 
@@ -157,18 +198,24 @@ export function setupChromeMocks(): ChromeMocks {
       },
     },
     alarms: {
-      create(name: string, info: AlarmInfo) { createdAlarms.push({ name, info }); },
+      create(name: string, info: AlarmInfo) {
+        createdAlarms.push({ name, info });
+      },
       onAlarm,
     },
     tabs: {
-      query(_queryInfo: QueryInfo): Promise<Tab[]> { return Promise.resolve(tabsQueryResult); },
+      query(_queryInfo: QueryInfo): Promise<Tab[]> {
+        return Promise.resolve(tabsQueryResult);
+      },
       get(_tabId: number): Promise<Tab> {
         if (tabsGetResult === null) return Promise.reject(new Error('tab not found'));
         return Promise.resolve(tabsGetResult);
       },
     },
     action: {
-      setBadgeText(details: BadgeTextDetails) { badgeState.text = details.text ?? ''; },
+      setBadgeText(details: BadgeTextDetails) {
+        badgeState.text = details.text ?? '';
+      },
       setBadgeBackgroundColor(details: BadgeColorDetails) {
         badgeState.color = String(details.color ?? '');
       },
@@ -204,13 +251,19 @@ export function setupChromeMocks(): ChromeMocks {
     tabs: {
       query: mockChrome.tabs.query,
       get: mockChrome.tabs.get,
-      setTabsQueryResult(tabs) { tabsQueryResult = tabs; },
-      setTabsGetResult(tab) { tabsGetResult = tab; },
+      setTabsQueryResult(tabs) {
+        tabsQueryResult = tabs;
+      },
+      setTabsGetResult(tab) {
+        tabsGetResult = tab;
+      },
     },
     action: {
       setBadgeText: mockChrome.action.setBadgeText.bind(mockChrome.action),
       setBadgeBackgroundColor: mockChrome.action.setBadgeBackgroundColor.bind(mockChrome.action),
-      getBadgeState() { return { ...badgeState }; },
+      getBadgeState() {
+        return { ...badgeState };
+      },
     },
     notifications: {
       create: mockChrome.notifications.create.bind(mockChrome.notifications),
@@ -219,8 +272,12 @@ export function setupChromeMocks(): ChromeMocks {
     permissions: {
       contains: mockChrome.permissions.contains.bind(mockChrome.permissions),
       request: mockChrome.permissions.request.bind(mockChrome.permissions),
-      setContainsResult(result) { permissionsContainsResult = result; },
-      setRequestResult(result) { permissionsRequestResult = result; },
+      setContainsResult(result) {
+        permissionsContainsResult = result;
+      },
+      setRequestResult(result) {
+        permissionsRequestResult = result;
+      },
       _requests: permissionRequests,
     },
     teardown() {
