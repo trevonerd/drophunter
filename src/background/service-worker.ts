@@ -1036,10 +1036,17 @@ async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.
   state.twitchSessionCache = incoming;
   state.twitchSessionLastAttemptAt = 0;
   state.appState.twitchSessionDetected = true;
+  const hadStaleSignInStop = state.appState.lastStopReason === 'sign-in-required';
+  if (hadStaleSignInStop) {
+    state.appState = clearTerminalStopStatus(state.appState);
+  }
   await persistTwitchSessionExt(incoming);
   logDebug('Twitch session synced from content script', sessionDebugSummaryExt(incoming));
   if (sender.tab?.id && shouldRefreshCampaignsAfterSessionSync()) {
     await refreshGamesCacheFromHiddenFetch({ requireConsecutiveEmptyConfirmation: true });
+    await saveStateExt(state);
+    broadcastStateUpdateExt(state.appState);
+  } else if (hadStaleSignInStop) {
     await saveStateExt(state);
     broadcastStateUpdateExt(state.appState);
   }

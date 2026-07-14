@@ -1,3 +1,4 @@
+import { clearTerminalStopStatus } from '../shared/runtime-status.ts';
 import { toSlug } from '../shared/utils.ts';
 import { DropsSnapshot, TwitchGame, TwitchStreamer } from '../types';
 import { INTEGRITY_FALLBACK_TTL_MS, PROGRESS_POLL_MS } from './constants.ts';
@@ -14,6 +15,15 @@ function applyApiBackoff(state: ServiceWorkerState) {
   state.apiConsecutiveFailures += 1;
   state.apiBackoffUntil =
     Date.now() + Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
+}
+
+// A successful authorized API call proves the Twitch session is valid, so any
+// stale 'sign-in-required' terminal stop from a prior transient failure no
+// longer applies — clear it instead of leaving the popup banner stuck forever.
+function clearSignInRequiredStop(state: ServiceWorkerState) {
+  if (state.appState.lastStopReason === 'sign-in-required') {
+    state.appState = clearTerminalStopStatus(state.appState);
+  }
 }
 
 // Shared by fetchDropsSnapshotFromApi and fetchInventorySnapshotFromApi: both hit the
@@ -33,6 +43,7 @@ async function fetchSnapshotWithIntegrityRetry(
     const snapshot = await fetchSnapshot(new TwitchApiClient(sessionWithIntegrity));
     state.apiConsecutiveFailures = 0;
     state.apiBackoffUntil = 0;
+    clearSignInRequiredStop(state);
     return snapshot;
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
@@ -46,6 +57,7 @@ async function fetchSnapshotWithIntegrityRetry(
           const retriedSnapshot = await fetchSnapshot(new TwitchApiClient(refreshedIntegritySession));
           state.apiConsecutiveFailures = 0;
           state.apiBackoffUntil = 0;
+          clearSignInRequiredStop(state);
           return retriedSnapshot;
         } catch (retryError) {
           logDebug('Integrity-refreshed retry still failed, falling back to no-integrity mode', {
@@ -61,6 +73,7 @@ async function fetchSnapshotWithIntegrityRetry(
         state.integrityFallbackActiveUntil = Date.now() + INTEGRITY_FALLBACK_TTL_MS;
         state.apiConsecutiveFailures = 0;
         state.apiBackoffUntil = 0;
+        clearSignInRequiredStop(state);
         return fallbackSnapshot;
       } catch (fallbackError) {
         logDebug('No-integrity fallback fetch also failed', { error: String(fallbackError) });
@@ -228,6 +241,7 @@ export async function fetchDropsSnapshotFromApiWrapper(
   }
   if (!session.userId) {
     deps.logWarn('Twitch session has no userId — attempting auto-detect', deps.sessionDebugSummary(session));
+    let autoDetectFailedTransiently = false;
     try {
       const sessionForDetect = await callbacks.onEnsureSessionIntegrity(state, session);
       const detectClient = new deps.TwitchApiClient(sessionForDetect);
@@ -237,11 +251,23 @@ export async function fetchDropsSnapshotFromApiWrapper(
         session = { ...session, userId: detectedId, clientIntegrity: sessionForDetect.clientIntegrity };
         state.twitchSessionCache = session;
         await callbacks.onPersistTwitchSession(session);
+        clearSignInRequiredStop(state);
       } else {
         deps.logWarn('Could not auto-detect userId — user may not be logged in');
       }
     } catch (error) {
-      deps.logWarn('Failed to auto-detect userId', String(error));
+      if (callbacks.onIsLikelyAuthError(error)) {
+        deps.logWarn('Failed to auto-detect userId: auth error', String(error));
+      } else {
+        // Network/timeout/integrity hiccup, not proof the user is signed out —
+        // don't trigger a terminal sign-in-required stop for a transient failure.
+        deps.logWarn('Failed to auto-detect userId: transient error, will retry', String(error));
+        autoDetectFailedTransiently = true;
+        applyApiBackoff(state);
+      }
+    }
+    if (!session.userId && autoDetectFailedTransiently) {
+      return null;
     }
     if (!session.userId && state.appState.isRunning) {
       if (callbacks.onStopFarmingSession) {
