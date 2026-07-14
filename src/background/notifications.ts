@@ -59,9 +59,35 @@ export function createNotificationController(
     });
   };
 
+  // Owns the enable/disable policy: disabled short-circuits, enabled requires
+  // the optional notification permission, otherwise flips the flag off and
+  // surfaces the permission error. Caller owns the activity-side-effect.
+  const setNotificationsEnabled = async (
+    enabled: boolean,
+  ): Promise<{ success: boolean; notificationsEnabled: boolean; error?: string }> => {
+    if (!enabled) {
+      state.appState.notificationsEnabled = false;
+      await options.saveState();
+      return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
+    }
+    if (!(await hasNotificationPermission())) {
+      state.appState.notificationsEnabled = false;
+      await options.saveState();
+      return {
+        success: false,
+        notificationsEnabled: state.appState.notificationsEnabled,
+        error: 'Notification permission was not granted',
+      };
+    }
+    state.appState.notificationsEnabled = true;
+    await options.saveState();
+    return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
+  };
+
   return {
     hasNotificationPermission,
     notify,
     syncPermissionState,
+    setNotificationsEnabled,
   };
 }

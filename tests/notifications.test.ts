@@ -85,3 +85,66 @@ describe('notification controller', () => {
     ]);
   });
 });
+
+describe('notification controller setNotificationsEnabled', () => {
+  test('disables the preference when the user turns it off', async () => {
+    const state = { appState: { ...createInitialState(), notificationsEnabled: true } };
+    const fakes = createChromeNotificationFakes(true);
+    let saveCount = 0;
+    const controller = createNotificationController(state, {
+      permissionsApi: fakes.permissionsApi,
+      notificationsApi: fakes.notificationsApi,
+      saveState: async () => {
+        saveCount += 1;
+      },
+    });
+
+    const result = await controller.setNotificationsEnabled(false);
+
+    expect(result).toEqual({ success: true, notificationsEnabled: false });
+    expect(state.appState.notificationsEnabled).toBe(false);
+    expect(saveCount).toBe(1);
+    expect(fakes.notifications).toEqual([]);
+  });
+
+  test('enables the preference when permission is already granted', async () => {
+    const state = { appState: { ...createInitialState(), notificationsEnabled: false } };
+    const fakes = createChromeNotificationFakes(true);
+    let saveCount = 0;
+    const controller = createNotificationController(state, {
+      permissionsApi: fakes.permissionsApi,
+      notificationsApi: fakes.notificationsApi,
+      saveState: async () => {
+        saveCount += 1;
+      },
+    });
+
+    const result = await controller.setNotificationsEnabled(true);
+
+    expect(result).toEqual({ success: true, notificationsEnabled: true });
+    expect(state.appState.notificationsEnabled).toBe(true);
+    expect(saveCount).toBe(1);
+  });
+
+  test('flips the preference off and surfaces an error when permission is missing', async () => {
+    const state = { appState: { ...createInitialState(), notificationsEnabled: false } };
+    const fakes = createChromeNotificationFakes(false);
+    let saveCount = 0;
+    const controller = createNotificationController(state, {
+      permissionsApi: fakes.permissionsApi,
+      notificationsApi: fakes.notificationsApi,
+      saveState: async () => {
+        saveCount += 1;
+      },
+    });
+
+    const result = await controller.setNotificationsEnabled(true);
+
+    expect(result.success).toBe(false);
+    expect(result.notificationsEnabled).toBe(false);
+    expect(result.error).toBe('Notification permission was not granted');
+    expect(state.appState.notificationsEnabled).toBe(false);
+    expect(saveCount).toBe(1);
+    expect(fakes.notifications).toEqual([]);
+  });
+});

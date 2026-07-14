@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   annotateGameCompletion,
+  clearSelectedCompletedIdleCampaignExt,
   compareDropPriority,
   completedDropKeys,
   dropMatchesSelectedGame,
@@ -9,12 +10,14 @@ import {
   isDropCampaignExpired,
   normalizeGameSelection,
   projectDropsSnapshot,
+  recordEmptyCampaignObservation,
+  resetStateForAuthoritativeEmptyCampaignExt,
   splitDropsForSelectedGame,
 } from '../src/background/drops-projection.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import { dropMatchesGame } from '../src/shared/game-selection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
-import type { TwitchDrop } from '../src/types/index.ts';
+import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
 function makeState(overrides = {}) {
   const appState = {
@@ -587,5 +590,196 @@ describe('splitDropsForSelectedGame', () => {
     expect(state.recoveryBackoffUntil).toBe(0);
     expect(state.recoveryNotificationSent).toBe(false);
     expect(state.appState.recoveryReason).toBeNull();
+  });
+});
+
+describe('clearSelectedCompletedIdleCampaignExt', () => {
+  const selectedGame: TwitchGame = {
+    id: 'game-1',
+    name: 'Test Game',
+    campaignId: 'campaign-1',
+    categorySlug: 'test-game',
+  } as TwitchGame;
+
+  const completedDrop = {
+    id: 'drop-1',
+    game: { id: 'game-1', name: 'Test Game' } as TwitchGame,
+    campaignId: 'campaign-1',
+    dropType: 'watch-time',
+    claimed: true,
+    claimedAt: '2026-01-01T00:00:00.000Z',
+    currentMinutes: 100,
+    requiredMinutes: 100,
+  } as TwitchDrop;
+
+  const farmablePendingDrop = {
+    id: 'drop-2',
+    game: { id: 'game-1', name: 'Test Game' } as TwitchGame,
+    campaignId: 'campaign-1',
+    dropType: 'watch-time',
+    currentMinutes: 50,
+    requiredMinutes: 100,
+  } as TwitchDrop;
+
+  const eventDrop = {
+    id: 'drop-3',
+    game: { id: 'game-1', name: 'Test Game' } as TwitchGame,
+    campaignId: 'campaign-1',
+    dropType: 'event-based',
+    currentMinutes: 50,
+    requiredMinutes: 100,
+  } as TwitchDrop;
+
+  test('no-op when isRunning=true', () => {
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        isRunning: true,
+        selectedGame,
+        queue: [],
+        allDrops: [completedDrop],
+      },
+      cachedDropsSnapshot: [completedDrop],
+    });
+    clearSelectedCompletedIdleCampaignExt(state);
+    expect(state.appState.selectedGame).toBe(selectedGame);
+  });
+
+  test('no-op when selectedGame is null', () => {
+    const state = makeState({ cachedDropsSnapshot: [completedDrop] });
+    clearSelectedCompletedIdleCampaignExt(state);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.allDrops).toEqual([]);
+  });
+
+  test('no-op when queue has items', () => {
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame,
+        queue: [{ gameId: 'game-1' } as TwitchGame],
+        allDrops: [completedDrop],
+      },
+      cachedDropsSnapshot: [completedDrop],
+    });
+    clearSelectedCompletedIdleCampaignExt(state);
+    expect(state.appState.selectedGame).toBe(selectedGame);
+    expect(state.appState.allDrops).toEqual([completedDrop]);
+  });
+
+  test('no-op when there is a farmable pending drop', () => {
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame,
+        queue: [],
+        allDrops: [farmablePendingDrop],
+        pendingDrops: [farmablePendingDrop],
+      },
+      cachedDropsSnapshot: [farmablePendingDrop],
+    });
+    clearSelectedCompletedIdleCampaignExt(state);
+    expect(state.appState.selectedGame).toBe(selectedGame);
+    expect(state.appState.allDrops).toEqual([farmablePendingDrop]);
+  });
+
+  test('wipes when only non-farmable event-based drops remain', () => {
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame,
+        queue: [],
+        allDrops: [eventDrop],
+        pendingDrops: [eventDrop],
+      },
+      cachedDropsSnapshot: [eventDrop],
+    });
+    clearSelectedCompletedIdleCampaignExt(state);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.allDrops).toEqual([]);
+  });
+
+  test('wipes selection and projections when only completed drops remain', () => {
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame,
+        queue: [],
+        allDrops: [completedDrop],
+        pendingDrops: [completedDrop],
+        completedDrops: [completedDrop],
+        currentDrop: completedDrop,
+        completionNotified: true,
+      },
+      cachedDropsSnapshot: [completedDrop],
+      previousAllDropsCount: 5,
+    });
+    clearSelectedCompletedIdleCampaignExt(state);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.currentDrop).toBeNull();
+    expect(state.appState.allDrops).toEqual([]);
+    expect(state.appState.pendingDrops).toEqual([]);
+    expect(state.appState.completedDrops).toEqual([]);
+    expect(state.appState.completionNotified).toBe(false);
+    expect(state.previousAllDropsCount).toBe(0);
+  });
+});
+
+describe('resetStateForAuthoritativeEmptyCampaignExt', () => {
+  test('wipes all 12 fields', () => {
+    const game: TwitchGame = { id: 'g1', name: 'G1' } as TwitchGame;
+    const drop = { id: 'd1' } as TwitchDrop;
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        availableGames: [game],
+        queue: [game],
+        selectedGame: game,
+        currentDrop: drop,
+        allDrops: [drop],
+        pendingDrops: [drop],
+        completedDrops: [drop],
+        completionNotified: true,
+        lastSuccessfulRefreshAt: 12345,
+      },
+      cachedDropsSnapshot: [drop],
+      cachedCampaignChannelsMap: { 'campaign-1': ['streamer-a'] },
+      previousAllDropsCount: 9,
+    });
+    resetStateForAuthoritativeEmptyCampaignExt(state);
+    expect(state.appState.availableGames).toEqual([]);
+    expect(state.appState.queue).toEqual([]);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.currentDrop).toBeNull();
+    expect(state.appState.allDrops).toEqual([]);
+    expect(state.appState.pendingDrops).toEqual([]);
+    expect(state.appState.completedDrops).toEqual([]);
+    expect(state.appState.completionNotified).toBe(false);
+    expect(state.cachedDropsSnapshot).toEqual([]);
+    expect(state.cachedCampaignChannelsMap).toEqual({});
+    expect(state.previousAllDropsCount).toBe(0);
+  });
+});
+
+describe('recordEmptyCampaignObservation', () => {
+  test('immediate confirm when requireConsecutive=false', () => {
+    const state = makeState({ emptyCampaignRefreshStreak: 0 });
+    const result = recordEmptyCampaignObservation(state, false);
+    expect(result).toEqual({ accept: true, confirmed: true, streak: 0 });
+    expect(state.emptyCampaignRefreshStreak).toBe(0);
+  });
+
+  test('requires 2 consecutive observations before confirming', () => {
+    const state = makeState({ emptyCampaignRefreshStreak: 0 });
+
+    const first = recordEmptyCampaignObservation(state, true);
+    expect(first.confirmed).toBe(false);
+    expect(first.streak).toBe(1);
+    expect(state.emptyCampaignRefreshStreak).toBe(1);
+
+    const second = recordEmptyCampaignObservation(state, true);
+    expect(second.confirmed).toBe(true);
+    expect(second.streak).toBe(0);
+    expect(state.emptyCampaignRefreshStreak).toBe(0);
   });
 });

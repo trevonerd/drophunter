@@ -257,3 +257,18 @@ export function replaceAvailableGames(incoming: TwitchGame[]): TwitchGame[] {
     displayName: explicitDisplayNames.get(gameKey(game)) ?? game.displayName ?? game.name,
   }));
 }
+
+export function resolveCategorySlug(game: TwitchGame, availableGames: TwitchGame[]): string {
+  const updated = availableGames.find(
+    (item) => item.id === game.id || sameCampaignId(item.campaignId, game.campaignId),
+  );
+  if (updated?.categorySlug) {
+    return updated.categorySlug;
+  }
+
+  if (game.categorySlug) {
+    return game.categorySlug;
+  }
+
+  return toSlug(game.name);
+}

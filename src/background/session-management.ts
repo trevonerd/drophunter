@@ -1,4 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
+import { clearTerminalStopStatus } from '../shared/runtime-status.ts';
 import { TWITCH_SESSION_RETRY_COOLDOWN_MS, TWITCH_SESSION_STORAGE_KEY } from './constants.ts';
 import { logDebug, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './service-worker.ts';
@@ -389,4 +390,81 @@ export async function ensureTwitchSession(
     });
 
   return state.twitchSessionFetchInFlight;
+}
+
+export interface SyncTwitchSessionCallbacks {
+  shouldRefreshCampaignsAfterSessionSync: () => boolean;
+  onRefreshCampaigns: () => Promise<unknown>;
+  onSaveState: () => Promise<void>;
+  onBroadcastStateUpdate: () => void;
+}
+
+// Caller owns trust verification, init wait, and payload unwrap. This module
+// owns the sync policy: sanitize, mutate cache/timing/appState, clear a stale
+// sign-in stop, persist the session, log, and branch into refresh+broadcast.
+export async function syncTwitchSessionFromContentScriptExt(
+  state: ServiceWorkerState,
+  rawPayload: unknown,
+  senderTabId: number | null | undefined,
+  callbacks: SyncTwitchSessionCallbacks,
+): Promise<{ success: boolean; error?: string }> {
+  const incoming = sanitizeTwitchSession(rawPayload);
+  if (!incoming) {
+    return { success: false, error: 'Invalid session payload' };
+  }
+  state.twitchSessionCache = incoming;
+  state.twitchSessionLastAttemptAt = 0;
+  state.appState.twitchSessionDetected = true;
+  const hadStaleSignInStop = state.appState.lastStopReason === 'sign-in-required';
+  if (hadStaleSignInStop) {
+    state.appState = clearTerminalStopStatus(state.appState);
+  }
+  await persistTwitchSession(incoming);
+  logDebug('Twitch session synced from content script', sessionDebugSummary(incoming));
+  if (senderTabId && callbacks.shouldRefreshCampaignsAfterSessionSync()) {
+    await callbacks.onRefreshCampaigns();
+    await callbacks.onSaveState();
+    callbacks.onBroadcastStateUpdate();
+  } else if (hadStaleSignInStop) {
+    await callbacks.onSaveState();
+    callbacks.onBroadcastStateUpdate();
+  }
+  return { success: true };
+}
+
+export interface SyncTwitchIntegrityPayload {
+  token?: string;
+  expiration?: number;
+  request_id?: string;
+}
+
+// Caller owns trust verification. This module owns the integrity-sync policy:
+// token validation, fallback-flag reset, session-cache mutation, and the
+// fire-and-forget storage write. The persist is best-effort.
+export async function syncTwitchIntegrityFromContentScriptExt(
+  state: ServiceWorkerState,
+  payload: SyncTwitchIntegrityPayload | undefined,
+): Promise<{ success: boolean; error?: string }> {
+  const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
+  if (!token) {
+    return { success: false, error: 'Empty integrity token' };
+  }
+  const expiration = typeof payload?.expiration === 'number' ? payload.expiration : 0;
+  logDebug('Integrity token synced from content script', {
+    hasToken: true,
+    expiration,
+    hasSession: Boolean(state.twitchSessionCache),
+  });
+  // A fresh page-intercepted token means integrity is working — reset the fallback flag
+  // so the next request re-attempts with integrity instead of staying in no-integrity mode.
+  state.integrityFallbackActive = false;
+  state.integrityFallbackActiveUntil = 0;
+  if (state.twitchSessionCache) {
+    state.twitchSessionCache = { ...state.twitchSessionCache, clientIntegrity: token };
+    persistTwitchSession(state.twitchSessionCache).catch(() => undefined);
+  }
+  browser.storage.local
+    .set({ twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' } })
+    .catch(() => undefined);
+  return { success: true };
 }
