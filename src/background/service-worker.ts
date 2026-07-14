@@ -1,15 +1,17 @@
 import { browser } from '../shared/browser-api.ts';
-import { isDropCompleted } from '../shared/drops';
-import { replaceAvailableGames, sameCampaignId } from '../shared/game-selection';
+import {
+  replaceAvailableGames,
+  resolveCategorySlug as resolveCategorySlugExt,
+} from '../shared/game-selection';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
-import { createInitialState, toSlug } from '../shared/utils';
+import { createInitialState } from '../shared/utils';
 import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { applyAutoClaimDropsSetting } from './auto-claim.ts';
 import {
   applyAutoClaimChannelPointsBonusSetting,
-  ChannelPointsBonusClaimResponse,
-  shouldAttemptAutoClaimChannelPointsBonus,
+  attemptAutoClaimChannelPointsBonusExt,
+  recordChannelPointsBonusClaimedExt,
 } from './channel-points';
 import { clearClaimLog, loadClaimLog, setClaimRecordedHandler } from './claim-log.ts';
 import { logDebug, logInfo, logWarn } from './logging';
@@ -18,14 +20,16 @@ import { openMonitorDashboardWindow as openMonitorDashboardWindowController } fr
 import { createNotificationController } from './notifications.ts';
 import { needsPlaybackAttention } from './playback.ts';
 import { createPlaybackOrchestrator } from './playback-orchestrator.ts';
-import { applyStartupResumePolicy, clearRotationMetadata, createServiceWorkerState } from './runtime-state';
+import {
+  applyExtensionUpdateStateTransition,
+  applyStartupResumePolicy,
+  clearRotationMetadata,
+  createServiceWorkerState,
+} from './runtime-state';
 import {
   createTelegramNotifier,
   getTelegramSettingsSummary,
-  isValidBotToken,
-  isValidChatId,
   loadTelegramCredentials,
-  normalizeTelegramCredentials,
   saveTelegramCredentials,
 } from './telegram-notifications.ts';
 
@@ -60,8 +64,10 @@ import {
 import { createDropsPageRefresher } from './drops-page-refresh.ts';
 import {
   annotateGameCompletion as annotateGameCompletionExt,
-  dropMatchesSelectedGame as dropMatchesSelectedGameExt,
+  clearSelectedCompletedIdleCampaignExt,
   normalizeGameSelection as normalizeGameSelectionExt,
+  recordEmptyCampaignObservation,
+  resetStateForAuthoritativeEmptyCampaignExt,
   splitDropsForSelectedGame as splitDropsForSelectedGameExt,
 } from './drops-projection.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
@@ -76,6 +82,8 @@ import {
   ensureTwitchSession as ensureTwitchSessionExt,
   persistTwitchSession as persistTwitchSessionExt,
   readTwitchSessionViaExecuteScript as readTwitchSessionViaExecuteScriptExt,
+  syncTwitchIntegrityFromContentScriptExt,
+  syncTwitchSessionFromContentScriptExt,
 } from './session-management.ts';
 import {
   broadcastStateUpdate as broadcastStateUpdateExt,
@@ -215,29 +223,7 @@ async function trackActivity(reason: string) {
 }
 
 async function handleExtensionUpdate() {
-  // Preserve lifetime stats, user settings, and active farming intent.
-  // Wipe volatile timing state and cached tokens (may have schema changes after update).
-  const preserved = {
-    totalDropsClaimed: state.appState.totalDropsClaimed,
-    totalChannelPointsClaimed: state.appState.totalChannelPointsClaimed,
-    monitorAutoOpen: state.appState.monitorAutoOpen,
-    autoResumeOnStartup: state.appState.autoResumeOnStartup,
-    muteFarmingTab: state.appState.muteFarmingTab,
-    notificationsEnabled: state.appState.notificationsEnabled,
-    telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-    autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus,
-    autoClaimDrops: state.appState.autoClaimDrops,
-    streamerSelectionMode: state.appState.streamerSelectionMode,
-    preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
-    queue: state.appState.queue,
-    selectedGame: state.appState.selectedGame,
-    isRunning: state.appState.isRunning,
-  };
-  state.appState = clearRotationMetadata({
-    ...createInitialState(),
-    ...preserved,
-  });
-  state.cachedDropsSnapshot = [];
+  applyExtensionUpdateStateTransition(state);
   await browser.storage.local.remove([DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, 'twitchIntegrity']);
   await browser.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
   await browser.storage.local.set({ appState: state.appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
@@ -403,30 +389,7 @@ function shouldRefreshCampaignsAfterSessionSync(): boolean {
 }
 
 function clearSelectedCompletedIdleCampaign() {
-  if (state.appState.isRunning || !state.appState.selectedGame || state.appState.queue.length > 0) {
-    return;
-  }
-
-  const selected = state.appState.selectedGame;
-  const selectedDrops = state.cachedDropsSnapshot.filter((drop) =>
-    dropMatchesSelectedGameExt(drop, selected),
-  );
-  const hasKnownDrops = selectedDrops.length > 0;
-  const hasFarmablePending = selectedDrops.some(
-    (drop) => !isDropCompleted(drop) && drop.dropType !== 'event-based',
-  );
-
-  if (!hasKnownDrops || hasFarmablePending) {
-    return;
-  }
-
-  state.appState.selectedGame = null;
-  state.appState.currentDrop = null;
-  state.appState.allDrops = [];
-  state.appState.pendingDrops = [];
-  state.appState.completedDrops = [];
-  state.appState.completionNotified = false;
-  state.previousAllDropsCount = 0;
+  clearSelectedCompletedIdleCampaignExt(state);
   resetStreamTrackingStateExt(state);
 }
 
@@ -440,18 +403,8 @@ async function applyAuthoritativeEmptyCampaignRefresh(): Promise<void> {
     state.appState = clearTerminalStopStatus(clearRecoveryStatus(state.appState));
   }
 
-  state.appState.availableGames = [];
-  state.appState.queue = [];
-  state.appState.selectedGame = null;
-  state.appState.currentDrop = null;
-  state.appState.allDrops = [];
-  state.appState.pendingDrops = [];
-  state.appState.completedDrops = [];
-  state.appState.completionNotified = false;
+  resetStateForAuthoritativeEmptyCampaignExt(state);
   state.appState.lastSuccessfulRefreshAt = Date.now();
-  state.cachedDropsSnapshot = [];
-  state.cachedCampaignChannelsMap = {};
-  state.previousAllDropsCount = 0;
   resetStreamTrackingStateExt(state);
   state.lastGamesCacheRefreshAt = Date.now();
   await saveStateExt(state);
@@ -561,19 +514,18 @@ async function refreshGamesCacheFromHiddenFetch(
     if (apiSnapshot) {
       if (apiSnapshot.games.length === 0 && apiSnapshot.drops.length === 0) {
         const shouldAccept = options.acceptAuthoritativeEmpty !== false;
-        if (shouldAccept && options.requireConsecutiveEmptyConfirmation) {
-          const EMPTY_CAMPAIGN_CONFIRMATIONS_REQUIRED = 2;
-          state.emptyCampaignRefreshStreak += 1;
-          if (state.emptyCampaignRefreshStreak >= EMPTY_CAMPAIGN_CONFIRMATIONS_REQUIRED) {
-            state.emptyCampaignRefreshStreak = 0;
+        if (shouldAccept) {
+          const decision = recordEmptyCampaignObservation(
+            state,
+            Boolean(options.requireConsecutiveEmptyConfirmation),
+          );
+          if (decision.confirmed) {
             await applyAuthoritativeEmptyCampaignRefresh();
           } else {
             logWarn('Empty campaign snapshot received; awaiting confirmation before wiping state', {
-              streak: state.emptyCampaignRefreshStreak,
+              streak: decision.streak,
             });
           }
-        } else if (shouldAccept) {
-          await applyAuthoritativeEmptyCampaignRefresh();
         }
         return [];
       }
@@ -627,19 +579,7 @@ async function openDropsPageAndRefresh(message?: {
 }
 
 async function resolveCategorySlug(game: TwitchGame): Promise<string> {
-  // Prefer availableGames — may have the correct slug from content script
-  const updated = state.appState.availableGames.find(
-    (item) => item.id === game.id || sameCampaignId(item.campaignId, game.campaignId),
-  );
-  if (updated?.categorySlug) {
-    return updated.categorySlug;
-  }
-
-  if (game.categorySlug) {
-    return game.categorySlug;
-  }
-
-  return toSlug(game.name);
+  return resolveCategorySlugExt(game, state.appState.availableGames);
 }
 
 async function openForegroundChannel(streamer: TwitchStreamer) {
@@ -738,75 +678,12 @@ async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
 
 async function handleSetNotificationsEnabled(payload?: { enabled?: boolean }) {
   await trackActivity('set-notifications-enabled');
-  const enabled = payload?.enabled !== false;
-  if (!enabled) {
-    state.appState.notificationsEnabled = false;
-    await saveStateExt(state);
-    return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
-  }
-
-  if (!(await notificationController.hasNotificationPermission())) {
-    state.appState.notificationsEnabled = false;
-    await saveStateExt(state);
-    return {
-      success: false,
-      notificationsEnabled: state.appState.notificationsEnabled,
-      error: 'Notification permission was not granted',
-    };
-  }
-
-  state.appState.notificationsEnabled = true;
-  await saveStateExt(state);
-  return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
+  return notificationController.setNotificationsEnabled(payload?.enabled !== false);
 }
 
 async function handleSetTelegramAlertsEnabled(payload?: { enabled?: boolean }) {
   await trackActivity('set-telegram-alerts-enabled');
-  const enabled = payload?.enabled !== false;
-  if (!enabled) {
-    state.appState.telegramAlertsEnabled = false;
-    await saveStateExt(state);
-    return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
-  }
-
-  const credentials = await loadTelegramCredentials();
-  if (!credentials) {
-    state.appState.telegramAlertsEnabled = false;
-    await saveStateExt(state);
-    return {
-      success: false,
-      telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-      error: 'Telegram bot token and chat ID are required',
-    };
-  }
-
-  if (!(await telegramNotifier.hasTelegramHostPermission())) {
-    const granted = await telegramNotifier.requestTelegramHostPermission();
-    if (!granted) {
-      state.appState.telegramAlertsEnabled = false;
-      await saveStateExt(state);
-      return {
-        success: false,
-        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-        error: 'Telegram host permission was not granted',
-      };
-    }
-  }
-
-  const validation = await telegramNotifier.validateSetup(credentials);
-  if (!validation.success) {
-    state.appState.telegramAlertsEnabled = false;
-    await saveStateExt(state);
-    return {
-      success: false,
-      telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-      error: validation.error ?? 'Telegram bot validation failed',
-    };
-  }
-
-  state.appState.telegramAlertsEnabled = true;
-  await saveStateExt(state);
-  return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
+  return telegramNotifier.setTelegramAlertsEnabled(payload?.enabled !== false);
 }
 
 async function handleSetTelegramCredentials(payload?: {
@@ -815,54 +692,7 @@ async function handleSetTelegramCredentials(payload?: {
   clearToken?: boolean;
 }) {
   await trackActivity('set-telegram-credentials');
-  const existing = await loadTelegramCredentials();
-  const nextToken = payload?.clearToken
-    ? ''
-    : typeof payload?.botToken === 'string' && payload.botToken.trim()
-      ? payload.botToken.trim()
-      : (existing?.botToken ?? '');
-  const nextChatId =
-    typeof payload?.chatId === 'string' && payload.chatId.trim()
-      ? payload.chatId.trim()
-      : (existing?.chatId ?? '');
-
-  if (!nextToken || !nextChatId) {
-    if (!nextToken && !nextChatId && !existing) {
-      return { success: true, configured: false, chatId: null };
-    }
-    return { success: false, error: 'Telegram bot token and chat ID are required' };
-  }
-
-  if (!isValidBotToken(nextToken)) {
-    return { success: false, error: 'Telegram bot token format is invalid' };
-  }
-  if (!isValidChatId(nextChatId)) {
-    return { success: false, error: 'Telegram chat ID format is invalid' };
-  }
-
-  const credentials = normalizeTelegramCredentials({ botToken: nextToken, chatId: nextChatId });
-  if (!credentials) {
-    return { success: false, error: 'Telegram credentials are invalid' };
-  }
-
-  if (!(await telegramNotifier.hasTelegramHostPermission())) {
-    const granted = await telegramNotifier.requestTelegramHostPermission();
-    if (!granted) {
-      return { success: false, error: 'Telegram host permission was not granted' };
-    }
-  }
-
-  const validation = await telegramNotifier.validateSetup(credentials);
-  if (!validation.success) {
-    return { success: false, error: validation.error ?? 'Telegram bot validation failed' };
-  }
-
-  await saveTelegramCredentials(credentials);
-  return {
-    success: true,
-    configured: true,
-    chatId: credentials.chatId,
-  };
+  return telegramNotifier.setTelegramCredentials(payload ?? {});
 }
 
 async function handleTestTelegramAlerts() {
@@ -937,35 +767,13 @@ async function handleSetPreferredStreamerLanguage(payload?: { language?: string 
 }
 
 async function attemptAutoClaimChannelPointsBonus() {
-  if (!shouldAttemptAutoClaimChannelPointsBonus(state.appState)) {
-    return false;
-  }
-
-  const tabId = state.appState.tabId;
-  if (tabId == null) {
-    return false;
-  }
-
-  const tab = await browser.tabs.get(tabId).catch(() => null);
-  if (!tab?.id) {
-    return false;
-  }
-
-  await ensureContentScriptOnTab(tab.id);
-  const result = (await browser.tabs
-    .sendMessage(tab.id, {
-      type: 'CLAIM_CHANNEL_POINTS_BONUS',
-    })
-    .catch(() => null)) as ChannelPointsBonusClaimResponse | null;
-
-  if (result?.success && result.claimed) {
-    const channelName = getChannelNameFromTab(tab.url) ?? state.appState.activeStreamer?.displayName ?? null;
-    logDebug('Auto-claimed channel points bonus', { tabId: tab.id, channelName });
-    await recordChannelPointsBonusClaimed(channelName);
-    return true;
-  }
-
-  return false;
+  return attemptAutoClaimChannelPointsBonusExt(state.appState, {
+    ensureContentScriptOnTab,
+    sendMessageToTab: (tabId: number, message: unknown) =>
+      browser.tabs.sendMessage(tabId, message).catch(() => null),
+    getTab: (tabId: number) => browser.tabs.get(tabId).catch(() => null),
+    recordBonusClaimed: recordChannelPointsBonusClaimed,
+  });
 }
 
 async function ensureInitializedForStatsUpdate() {
@@ -992,11 +800,15 @@ function isTrustedTwitchSender(sender: chrome.runtime.MessageSender): boolean {
 }
 
 async function recordChannelPointsBonusClaimed(channelName?: string | null) {
-  await ensureInitializedForStatsUpdate();
-  state.appState.totalChannelPointsClaimed = state.appState.totalChannelPointsClaimed + 1;
-  await saveStateExt(state);
-  const fromChannel = channelName ? ` from ${channelName}` : '';
-  await notify('Channel points claimed', `Claimed${fromChannel}.`, 0);
+  await recordChannelPointsBonusClaimedExt(
+    state.appState,
+    {
+      saveState: () => saveStateExt(state),
+      notify,
+      awaitInit: ensureInitializedForStatsUpdate,
+    },
+    channelName,
+  );
 }
 
 async function handleUpdateGames(payload?: TwitchGame[]) {
@@ -1029,28 +841,12 @@ async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.
   if (initPromise) {
     await initPromise;
   }
-  const incoming = sanitizeTwitchSession(sessionPayloadCandidate(payload));
-  if (!incoming) {
-    return { success: false, error: 'Invalid session payload' };
-  }
-  state.twitchSessionCache = incoming;
-  state.twitchSessionLastAttemptAt = 0;
-  state.appState.twitchSessionDetected = true;
-  const hadStaleSignInStop = state.appState.lastStopReason === 'sign-in-required';
-  if (hadStaleSignInStop) {
-    state.appState = clearTerminalStopStatus(state.appState);
-  }
-  await persistTwitchSessionExt(incoming);
-  logDebug('Twitch session synced from content script', sessionDebugSummaryExt(incoming));
-  if (sender.tab?.id && shouldRefreshCampaignsAfterSessionSync()) {
-    await refreshGamesCacheFromHiddenFetch({ requireConsecutiveEmptyConfirmation: true });
-    await saveStateExt(state);
-    broadcastStateUpdateExt(state.appState);
-  } else if (hadStaleSignInStop) {
-    await saveStateExt(state);
-    broadcastStateUpdateExt(state.appState);
-  }
-  return { success: true };
+  return syncTwitchSessionFromContentScriptExt(state, sessionPayloadCandidate(payload), sender.tab?.id, {
+    shouldRefreshCampaignsAfterSessionSync,
+    onRefreshCampaigns: () => refreshGamesCacheFromHiddenFetch({ requireConsecutiveEmptyConfirmation: true }),
+    onSaveState: () => saveStateExt(state),
+    onBroadcastStateUpdate: () => broadcastStateUpdateExt(state.appState),
+  });
 }
 
 async function handleSyncTwitchIntegrity(
@@ -1064,29 +860,7 @@ async function handleSyncTwitchIntegrity(
   if (!sender || !isTrustedTwitchSender(sender)) {
     return { success: false, error: 'Untrusted message sender' };
   }
-  const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
-  if (!token) {
-    return { success: false, error: 'Empty integrity token' };
-  }
-  const expiration = typeof payload?.expiration === 'number' ? payload.expiration : 0;
-  logDebug('Integrity token synced from content script', {
-    hasToken: true,
-    expiration,
-    hasSession: Boolean(state.twitchSessionCache),
-  });
-  // A fresh page-intercepted token means integrity is working — reset the fallback flag
-  // so the next request re-attempts with integrity instead of staying in no-integrity mode.
-  state.integrityFallbackActive = false;
-  state.integrityFallbackActiveUntil = 0;
-  if (state.twitchSessionCache) {
-    state.twitchSessionCache = { ...state.twitchSessionCache, clientIntegrity: token };
-    persistTwitchSessionExt(state.twitchSessionCache).catch(() => undefined);
-  }
-  // Also store the full integrity object separately for expiration tracking.
-  browser.storage.local
-    .set({ twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' } })
-    .catch(() => undefined);
-  return { success: true };
+  return syncTwitchIntegrityFromContentScriptExt(state, payload);
 }
 
 async function handleChannelPointsBonusClaimed(

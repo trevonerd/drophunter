@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
   applyAutoClaimChannelPointsBonusSetting,
+  attemptAutoClaimChannelPointsBonusExt,
+  type ChannelPointsClaimDeps,
+  type ChannelPointsRecordingDeps,
+  recordChannelPointsBonusClaimedExt,
   shouldAttemptAutoClaimChannelPointsBonus,
 } from '../src/background/channel-points.ts';
 import {
@@ -21,13 +25,15 @@ interface FakeElement {
   click(): void;
 }
 
-function createFakeElement(options: {
-  textContent?: string;
-  disabled?: boolean;
-  hidden?: boolean;
-  attributes?: Record<string, string>;
-  closestTarget?: FakeElement | null;
-} = {}): FakeElement {
+function createFakeElement(
+  options: {
+    textContent?: string;
+    disabled?: boolean;
+    hidden?: boolean;
+    attributes?: Record<string, string>;
+    closestTarget?: FakeElement | null;
+  } = {},
+): FakeElement {
   const element: FakeElement = {
     textContent: options.textContent ?? '',
     disabled: options.disabled ?? false,
@@ -282,5 +288,160 @@ describe('content channel-points autonomous claiming', () => {
       reason: 'claimed',
     });
     expect(button.clickCount).toBe(1);
+  });
+});
+
+describe('attemptAutoClaimChannelPointsBonusExt', () => {
+  function makeRunningState() {
+    return {
+      ...createInitialState(),
+      isRunning: true,
+      isPaused: false,
+      autoClaimChannelPointsBonus: true,
+      tabId: 42,
+      activeStreamer: { displayName: 'StreamerName' },
+    };
+  }
+
+  test('returns false and short-circuits when not eligible (idle)', async () => {
+    const state = createInitialState();
+    let ensureContentScriptCalled = false;
+    const deps: ChannelPointsClaimDeps = {
+      ensureContentScriptOnTab: () => {
+        ensureContentScriptCalled = true;
+      },
+      sendMessageToTab: async () => null,
+      getTab: async () => ({ id: 42 }),
+      recordBonusClaimed: async () => undefined,
+    };
+    expect(await attemptAutoClaimChannelPointsBonusExt(state, deps)).toBe(false);
+    expect(ensureContentScriptCalled).toBe(false);
+  });
+
+  test('returns false when no tabId', async () => {
+    const state = { ...makeRunningState(), tabId: null as unknown as number };
+    let getTabCalled = false;
+    const deps: ChannelPointsClaimDeps = {
+      ensureContentScriptOnTab: () => undefined,
+      sendMessageToTab: async () => null,
+      getTab: async () => {
+        getTabCalled = true;
+        return null;
+      },
+      recordBonusClaimed: async () => undefined,
+    };
+    expect(await attemptAutoClaimChannelPointsBonusExt(state, deps)).toBe(false);
+    expect(getTabCalled).toBe(false);
+  });
+
+  test('returns false when tab is missing', async () => {
+    const state = makeRunningState();
+    let ensureContentScriptCalled = false;
+    const deps: ChannelPointsClaimDeps = {
+      ensureContentScriptOnTab: () => {
+        ensureContentScriptCalled = true;
+      },
+      sendMessageToTab: async () => null,
+      getTab: async () => null,
+      recordBonusClaimed: async () => undefined,
+    };
+    expect(await attemptAutoClaimChannelPointsBonusExt(state, deps)).toBe(false);
+    expect(ensureContentScriptCalled).toBe(false);
+  });
+
+  test('returns false when content script message returns not-claimed', async () => {
+    const state = makeRunningState();
+    const ensureContentScriptCalls: number[] = [];
+    const deps: ChannelPointsClaimDeps = {
+      ensureContentScriptOnTab: (tabId: number) => {
+        ensureContentScriptCalls.push(tabId);
+      },
+      sendMessageToTab: async () => ({ success: true, claimed: false, reason: 'not-available' }),
+      getTab: async () => ({ id: 42, url: 'https://www.twitch.tv/StreamerName' }),
+      recordBonusClaimed: async () => undefined,
+    };
+    expect(await attemptAutoClaimChannelPointsBonusExt(state, deps)).toBe(false);
+    expect(ensureContentScriptCalls).toEqual([42]);
+  });
+
+  test('claims, extracts channel name from URL, and records when result is claimed', async () => {
+    const state = makeRunningState();
+    const sendMessageCalls: { tabId: number; message: unknown }[] = [];
+    const recordedNames: (string | null)[] = [];
+    const deps: ChannelPointsClaimDeps = {
+      ensureContentScriptOnTab: () => undefined,
+      sendMessageToTab: async (tabId, message) => {
+        sendMessageCalls.push({ tabId, message });
+        return { success: true, claimed: true, reason: 'claimed' };
+      },
+      getTab: async () => ({ id: 42, url: 'https://www.twitch.tv/SomeChannelXYZ' }),
+      recordBonusClaimed: async (channelName) => {
+        recordedNames.push(channelName);
+      },
+    };
+    expect(await attemptAutoClaimChannelPointsBonusExt(state, deps)).toBe(true);
+    expect(sendMessageCalls).toEqual([{ tabId: 42, message: { type: 'CLAIM_CHANNEL_POINTS_BONUS' } }]);
+    expect(recordedNames).toEqual(['somechannelxyz']);
+  });
+
+  test('falls back to activeStreamer.displayName when URL has no channel slug', async () => {
+    const state = makeRunningState();
+    const recordedNames: (string | null)[] = [];
+    const deps: ChannelPointsClaimDeps = {
+      ensureContentScriptOnTab: () => undefined,
+      sendMessageToTab: async () => ({ success: true, claimed: true }),
+      getTab: async () => ({ id: 42, url: 'https://dashboard.example.com/' }),
+      recordBonusClaimed: async (channelName) => {
+        recordedNames.push(channelName);
+      },
+    };
+    expect(await attemptAutoClaimChannelPointsBonusExt(state, deps)).toBe(true);
+    expect(recordedNames).toEqual(['StreamerName']);
+  });
+});
+
+describe('recordChannelPointsBonusClaimedExt', () => {
+  test('awaits init, increments counter, persists, and notifies with channel suffix', async () => {
+    const state = createInitialState();
+    let initAwaited = false;
+    const saveCalls: unknown[] = [];
+    const notifyCalls: { title: string; message: string; priority?: number }[] = [];
+    const deps: ChannelPointsRecordingDeps = {
+      awaitInit: async () => {
+        initAwaited = true;
+      },
+      saveState: async () => {
+        saveCalls.push(null);
+      },
+      notify: (title, message, priority) => {
+        notifyCalls.push({ title, message, priority });
+      },
+    };
+    await recordChannelPointsBonusClaimedExt(state, deps, 'FromChannel');
+    expect(initAwaited).toBe(true);
+    expect(state.totalChannelPointsClaimed).toBe(1);
+    expect(saveCalls).toHaveLength(1);
+    expect(notifyCalls).toEqual([
+      { title: 'Channel points claimed', message: 'Claimed from FromChannel.', priority: 0 },
+    ]);
+  });
+
+  test('notifies without channel suffix when channelName is null or omittedit', async () => {
+    const state = { ...createInitialState(), totalChannelPointsClaimed: 12 };
+    const notifyCalls: { title: string; message: string; priority?: number }[] = [];
+    const deps: ChannelPointsRecordingDeps = {
+      awaitInit: async () => undefined,
+      saveState: async () => undefined,
+      notify: (title, message, priority) => {
+        notifyCalls.push({ title, message, priority });
+      },
+    };
+    await recordChannelPointsBonusClaimedExt(state, deps, null);
+    await recordChannelPointsBonusClaimedExt(state, deps);
+    expect(state.totalChannelPointsClaimed).toBe(14);
+    expect(notifyCalls).toEqual([
+      { title: 'Channel points claimed', message: 'Claimed.', priority: 0 },
+      { title: 'Channel points claimed', message: 'Claimed.', priority: 0 },
+    ]);
   });
 });

@@ -224,3 +224,74 @@ export function projectDropsSnapshot(state: ServiceWorkerState, snapshot: DropsS
   normalizeGameSelection(state, annotatedGames);
   splitDropsForSelectedGame(state, snapshot.drops);
 }
+
+// Idle-campaign clearing policy: when farming is idle, the selected game has no
+// farmable pending drops, and there are no queue items holding the slot, drop
+// the selected-game selection and reset the per-game progress projections.
+// Caller owns the resetStreamTrackingState side-effect (avoids a circular import
+// into queue-management).
+export function clearSelectedCompletedIdleCampaignExt(state: ServiceWorkerState): void {
+  if (state.appState.isRunning || !state.appState.selectedGame || state.appState.queue.length > 0) {
+    return;
+  }
+
+  const selected = state.appState.selectedGame;
+  const selectedDrops = state.cachedDropsSnapshot.filter((drop) => dropMatchesSelectedGame(drop, selected));
+  const hasKnownDrops = selectedDrops.length > 0;
+  const hasFarmablePending = selectedDrops.some(
+    (drop) => !isDropCompleted(drop) && drop.dropType !== 'event-based',
+  );
+
+  if (!hasKnownDrops || hasFarmablePending) {
+    return;
+  }
+
+  state.appState.selectedGame = null;
+  state.appState.currentDrop = null;
+  state.appState.allDrops = [];
+  state.appState.pendingDrops = [];
+  state.appState.completedDrops = [];
+  state.appState.completionNotified = false;
+  state.previousAllDropsCount = 0;
+}
+
+// Pure 12-field state reset for the authoritative-empty campaign flow.
+// Caller (service-worker wrapper) owns the farmingSession.stop / terminal-stop
+// clearing / lastSuccessfulRefreshAt / lastGamesCacheRefreshAt / resetStreamTrackingState
+// / saveState orchestration.
+export function resetStateForAuthoritativeEmptyCampaignExt(state: ServiceWorkerState): void {
+  state.appState.availableGames = [];
+  state.appState.queue = [];
+  state.appState.selectedGame = null;
+  state.appState.currentDrop = null;
+  state.appState.allDrops = [];
+  state.appState.pendingDrops = [];
+  state.appState.completedDrops = [];
+  state.appState.completionNotified = false;
+  state.cachedDropsSnapshot = [];
+  state.cachedCampaignChannelsMap = {};
+  state.previousAllDropsCount = 0;
+}
+
+// Streak policy for one-shot callers that can't internally retry: bump the
+// streak counter, decide whether the empty campaign is confirmed. Callers that
+// want single-observation acceptance pass `requireConsecutive = false` and
+// every observation is treated as confirmed (streak still tracked for
+// observability but reset when `accept` is true).
+export function recordEmptyCampaignObservation(
+  state: ServiceWorkerState,
+  requireConsecutive: boolean,
+): { accept: boolean; confirmed: boolean; streak: number } {
+  if (!requireConsecutive) {
+    state.emptyCampaignRefreshStreak = 0;
+    return { accept: true, confirmed: true, streak: 0 };
+  }
+
+  const EMPTY_CAMPAIGN_CONFIRMATIONS_REQUIRED = 2;
+  state.emptyCampaignRefreshStreak += 1;
+  const confirmed = state.emptyCampaignRefreshStreak >= EMPTY_CAMPAIGN_CONFIRMATIONS_REQUIRED;
+  if (confirmed) {
+    state.emptyCampaignRefreshStreak = 0;
+  }
+  return { accept: true, confirmed, streak: state.emptyCampaignRefreshStreak };
+}

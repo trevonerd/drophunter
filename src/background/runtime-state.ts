@@ -184,6 +184,33 @@ export function clearRotationMetadata(state: AppState): AppState {
   };
 }
 
+// On extension update: preserve lifetime stats, user settings, and active farming
+// intent; wipe volatile state that may have schema changes. Caller owns the storage
+// side-effects (clearing cached keys + persisting the new appState).
+export function applyExtensionUpdateStateTransition(state: ServiceWorkerState): void {
+  const preserved = {
+    totalDropsClaimed: state.appState.totalDropsClaimed,
+    totalChannelPointsClaimed: state.appState.totalChannelPointsClaimed,
+    monitorAutoOpen: state.appState.monitorAutoOpen,
+    autoResumeOnStartup: state.appState.autoResumeOnStartup,
+    muteFarmingTab: state.appState.muteFarmingTab,
+    notificationsEnabled: state.appState.notificationsEnabled,
+    telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+    autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus,
+    autoClaimDrops: state.appState.autoClaimDrops,
+    streamerSelectionMode: state.appState.streamerSelectionMode,
+    preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
+    queue: state.appState.queue,
+    selectedGame: state.appState.selectedGame,
+    isRunning: state.appState.isRunning,
+  };
+  state.appState = clearRotationMetadata({
+    ...createInitialState(),
+    ...preserved,
+  });
+  state.cachedDropsSnapshot = [];
+}
+
 export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'paused-on-startup' | 'resume-recovery';
 
 // Recovery reasons that can leave no managed tab open, making the SW dormant during

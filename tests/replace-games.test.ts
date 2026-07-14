@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { applyGameDisplayNames, replaceAvailableGames } from '../src/shared/game-selection.ts';
+import {
+  applyGameDisplayNames,
+  replaceAvailableGames,
+  resolveCategorySlug,
+} from '../src/shared/game-selection.ts';
 import type { TwitchGame } from '../src/types/index.ts';
 
 function createGame(overrides: Partial<TwitchGame> = {}): TwitchGame {
@@ -241,5 +245,58 @@ describe('applyGameDisplayNames', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].displayName).toBe('GOALS · GOALS - 9th of June');
+  });
+});
+
+describe('resolveCategorySlug', () => {
+  test('prefers availableGames match by id', () => {
+    const game = createGame({ id: 'game-x', name: 'GameX', categorySlug: 'fallback-slug' });
+    const availableGames = [
+      createGame({ id: 'game-x', name: 'GameX-updated', categorySlug: 'updated-slug' }),
+    ];
+    expect(resolveCategorySlug(game, availableGames)).toBe('updated-slug');
+  });
+
+  test('prefers availableGames match by sameCampaignId', () => {
+    const game = createGame({
+      id: 'game-y',
+      name: 'GameY',
+      campaignId: 'campaign-shared',
+      categorySlug: 'fallback-slug',
+    });
+    const availableGames = [
+      createGame({
+        id: 'different-id',
+        name: 'GameY-2',
+        campaignId: 'campaign-shared',
+        categorySlug: 'shared-campaign-slug',
+      }),
+    ];
+    expect(resolveCategorySlug(game, availableGames)).toBe('shared-campaign-slug');
+  });
+
+  test('falls back to game.categorySlug when no availableGames match', () => {
+    const game = createGame({
+      id: 'game-z',
+      name: 'GameZ',
+      campaignId: 'campaign-z',
+      categorySlug: 'game-z-own-slug',
+    });
+    const availableGames = [
+      createGame({ id: 'other', name: 'Other', campaignId: 'campaign-other', categorySlug: 'other-slug' }),
+    ];
+    expect(resolveCategorySlug(game, availableGames)).toBe('game-z-own-slug');
+  });
+
+  test('falls back to toSlug(game.name) when no slug anywhere', () => {
+    const game = createGame({ id: 'game-w', name: 'Game With Spaces', categorySlug: '' });
+    const availableGames: TwitchGame[] = [];
+    expect(resolveCategorySlug(game, availableGames)).toBe('game-with-spaces');
+  });
+
+  test('ignores availableGames match without categorySlug, falls back to game.categorySlug', () => {
+    const game = createGame({ id: 'game-match', name: 'MatchGame', categorySlug: 'own-slug' });
+    const availableGames = [createGame({ id: 'game-match', name: 'MatchGame', categorySlug: '' })];
+    expect(resolveCategorySlug(game, availableGames)).toBe('own-slug');
   });
 });

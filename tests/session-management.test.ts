@@ -1,21 +1,23 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
-import { setupChromeMocks } from './mocks/chrome.ts';
-import type { ChromeMocks } from './mocks/chrome.ts';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { TWITCH_SESSION_STORAGE_KEY } from '../src/background/constants.ts';
+import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import {
-  persistTwitchSession,
   clearTwitchSessionCache,
-  trySanitizeSessionCandidate,
+  ensureSessionIntegrity,
   findSessionCandidateDeep,
+  loadPageIntegrityToken,
+  persistTwitchSession,
+  readTwitchSessionViaExecuteScript,
   recoverTwitchSessionFromStorageKeys,
   refreshTwitchIntegrityToken,
-  loadPageIntegrityToken,
-  ensureSessionIntegrity,
-  readTwitchSessionViaExecuteScript,
+  syncTwitchIntegrityFromContentScriptExt,
+  syncTwitchSessionFromContentScriptExt,
+  trySanitizeSessionCandidate,
 } from '../src/background/session-management.ts';
-import { TWITCH_SESSION_STORAGE_KEY } from '../src/background/constants.ts';
 import type { TwitchSession } from '../src/background/twitch-api/types.ts';
-import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import { createInitialState } from '../src/shared/utils.ts';
+import type { ChromeMocks } from './mocks/chrome.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
 
 function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
@@ -67,7 +69,10 @@ function validSession(overrides: Partial<TwitchSession> = {}): TwitchSession {
 }
 
 interface ScriptExecutionMock {
-  executeScript: (options: { target: { tabId: number }; func: () => unknown }) => Promise<Array<{ result: unknown }>>;
+  executeScript: (options: {
+    target: { tabId: number };
+    func: () => unknown;
+  }) => Promise<Array<{ result: unknown }>>;
 }
 
 function createScriptExecutionMock(result: unknown): ScriptExecutionMock {
@@ -342,8 +347,7 @@ describe('refreshTwitchIntegrityToken', () => {
     const state = createMinimalState();
     const session = validSession();
 
-    globalThis.fetch = async () =>
-      new Response(null, { status: 500 });
+    globalThis.fetch = async () => new Response(null, { status: 500 });
 
     const result = await refreshTwitchIntegrityToken(state, session);
     expect(result).toBeNull();
@@ -543,5 +547,194 @@ describe('readTwitchSessionViaExecuteScript', () => {
 
     const result = await readTwitchSessionViaExecuteScript(999);
     expect(result).toBeNull();
+  });
+});
+
+describe('syncTwitchSessionFromContentScriptExt', () => {
+  let mocks: ChromeMocks;
+
+  beforeEach(() => {
+    mocks = setupChromeMocks();
+  });
+
+  afterEach(() => {
+    mocks.teardown();
+  });
+
+  test('rejects invalid payload without touching state', async () => {
+    const state = createMinimalState();
+    const callbacks = {
+      shouldRefreshCampaignsAfterSessionSync: () => false,
+      onRefreshCampaigns: async () => {},
+      onSaveState: async () => {},
+      onBroadcastStateUpdate: () => {},
+    };
+    const result = await syncTwitchSessionFromContentScriptExt(state, { bogus: true }, null, callbacks);
+    expect(result).toEqual({ success: false, error: 'Invalid session payload' });
+    expect(state.twitchSessionCache).toBeNull();
+  });
+
+  test('mutates cache/timing/appState and persists; no refresh branch without tab', async () => {
+    const state = createMinimalState();
+    let saved = 0;
+    let broadcasted = 0;
+    let refreshed = 0;
+    const callbacks = {
+      shouldRefreshCampaignsAfterSessionSync: () => true,
+      onRefreshCampaigns: async () => {
+        refreshed += 1;
+      },
+      onSaveState: async () => {
+        saved += 1;
+      },
+      onBroadcastStateUpdate: () => {
+        broadcasted += 1;
+      },
+    };
+    const session = validSession();
+    const result = await syncTwitchSessionFromContentScriptExt(state, session, null, callbacks);
+    expect(result).toEqual({ success: true });
+    expect(state.twitchSessionCache).toEqual(session);
+    expect(state.twitchSessionLastAttemptAt).toBe(0);
+    expect(state.appState.twitchSessionDetected).toBe(true);
+    expect(refreshed).toBe(0);
+    expect(saved).toBe(0);
+    expect(broadcasted).toBe(0);
+  });
+
+  test('refreshes + saves + broadcasts when sender has tab id and callback says refresh', async () => {
+    const state = createMinimalState();
+    let saved = 0;
+    let broadcasted = 0;
+    let refreshed = 0;
+    const callbacks = {
+      shouldRefreshCampaignsAfterSessionSync: () => true,
+      onRefreshCampaigns: async () => {
+        refreshed += 1;
+      },
+      onSaveState: async () => {
+        saved += 1;
+      },
+      onBroadcastStateUpdate: () => {
+        broadcasted += 1;
+      },
+    };
+    const result = await syncTwitchSessionFromContentScriptExt(state, validSession(), 42, callbacks);
+    expect(result).toEqual({ success: true });
+    expect(refreshed).toBe(1);
+    expect(saved).toBe(1);
+    expect(broadcasted).toBe(1);
+  });
+
+  test('save+broadcast but no refresh when tab id present, callback says no refresh, but stale stop existed', async () => {
+    const state = createMinimalState({
+      appState: { ...createInitialState(), lastStopReason: 'sign-in-required' },
+    });
+    let saved = 0;
+    let broadcasted = 0;
+    let refreshed = 0;
+    const callbacks = {
+      shouldRefreshCampaignsAfterSessionSync: () => false,
+      onRefreshCampaigns: async () => {
+        refreshed += 1;
+      },
+      onSaveState: async () => {
+        saved += 1;
+      },
+      onBroadcastStateUpdate: () => {
+        broadcasted += 1;
+      },
+    };
+    const result = await syncTwitchSessionFromContentScriptExt(state, validSession(), 42, callbacks);
+    expect(result).toEqual({ success: true });
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(refreshed).toBe(0);
+    expect(saved).toBe(1);
+    expect(broadcasted).toBe(1);
+  });
+
+  test('save+broadcast fires for stale stop even without tab id', async () => {
+    const state = createMinimalState({
+      appState: { ...createInitialState(), lastStopReason: 'sign-in-required' },
+    });
+    let saved = 0;
+    let broadcasted = 0;
+    const callbacks = {
+      shouldRefreshCampaignsAfterSessionSync: () => true,
+      onRefreshCampaigns: async () => {},
+      onSaveState: async () => {
+        saved += 1;
+      },
+      onBroadcastStateUpdate: () => {
+        broadcasted += 1;
+      },
+    };
+    const result = await syncTwitchSessionFromContentScriptExt(state, validSession(), null, callbacks);
+    expect(result).toEqual({ success: true });
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(saved).toBe(1);
+    expect(broadcasted).toBe(1);
+  });
+});
+
+describe('syncTwitchIntegrityFromContentScriptExt', () => {
+  let mocks: ChromeMocks;
+
+  beforeEach(() => {
+    mocks = setupChromeMocks();
+  });
+
+  afterEach(() => {
+    mocks.teardown();
+  });
+
+  test('rejects empty token', async () => {
+    const state = createMinimalState();
+    const result = await syncTwitchIntegrityFromContentScriptExt(state, { token: '   ' });
+    expect(result).toEqual({ success: false, error: 'Empty integrity token' });
+  });
+
+  test('rejects missing payload', async () => {
+    const state = createMinimalState();
+    const result = await syncTwitchIntegrityFromContentScriptExt(state, undefined);
+    expect(result).toEqual({ success: false, error: 'Empty integrity token' });
+  });
+
+  test('resets fallback flags and writes storage; no cached session means no persist call', async () => {
+    const state = createMinimalState({
+      integrityFallbackActive: true,
+      integrityFallbackActiveUntil: 12345,
+    });
+    const result = await syncTwitchIntegrityFromContentScriptExt(state, {
+      token: 'integrity-token-xyz',
+      expiration: 9999,
+      request_id: 'req-1',
+    });
+    expect(result).toEqual({ success: true });
+    expect(state.integrityFallbackActive).toBe(false);
+    expect(state.integrityFallbackActiveUntil).toBe(0);
+    const stored = mocks.storage.local._store.get('twitchIntegrity') as Record<string, unknown>;
+    expect(stored).toEqual({
+      token: 'integrity-token-xyz',
+      expiration: 9999,
+      request_id: 'req-1',
+    });
+  });
+
+  test('mutates cached session clientIntegrity and persists when session exists', async () => {
+    const existing = validSession({ clientIntegrity: 'old-token' });
+    const state = createMinimalState({
+      twitchSessionCache: existing,
+      integrityFallbackActive: true,
+    });
+    const result = await syncTwitchIntegrityFromContentScriptExt(state, {
+      token: 'new-token',
+      expiration: 123,
+    });
+    expect(result).toEqual({ success: true });
+    expect(state.twitchSessionCache?.clientIntegrity).toBe('new-token');
+    expect(state.integrityFallbackActive).toBe(false);
+    const stored = mocks.storage.local._store.get(TWITCH_SESSION_STORAGE_KEY) as TwitchSession;
+    expect(stored.clientIntegrity).toBe('new-token');
   });
 });

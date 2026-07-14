@@ -248,6 +248,119 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
     }
   };
 
+  // Owns the enable/disable policy: disabled short-circuits, enabled requires
+  // stored credentials + host permission + a successful getMe probe, otherwise
+  // flips the flag off and surfaces the first failing gate. Caller owns
+  // activity-side-effect.
+  const setTelegramAlertsEnabled = async (
+    enabled: boolean,
+  ): Promise<{ success: boolean; telegramAlertsEnabled: boolean; error?: string }> => {
+    if (!enabled) {
+      state.appState.telegramAlertsEnabled = false;
+      await options.saveState();
+      return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
+    }
+    const credentials = await options.loadCredentials();
+    if (!credentials) {
+      state.appState.telegramAlertsEnabled = false;
+      await options.saveState();
+      return {
+        success: false,
+        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+        error: 'Telegram bot token and chat ID are required',
+      };
+    }
+    if (!(await hasTelegramHostPermission())) {
+      const granted = await requestTelegramHostPermission();
+      if (!granted) {
+        state.appState.telegramAlertsEnabled = false;
+        await options.saveState();
+        return {
+          success: false,
+          telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+          error: 'Telegram host permission was not granted',
+        };
+      }
+    }
+    const validation = await validateSetup(credentials);
+    if (!validation.success) {
+      state.appState.telegramAlertsEnabled = false;
+      await options.saveState();
+      return {
+        success: false,
+        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+        error: validation.error ?? 'Telegram bot validation failed',
+      };
+    }
+    state.appState.telegramAlertsEnabled = true;
+    await options.saveState();
+    return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
+  };
+
+  // Owns credential assembly, clear-fallback, format validation, host-permission
+  // gate, setup validation, and persistence. Returns a consistent shape with
+  // optional configured/chatId/error so callers can branch on `success` alone.
+  // Caller owns activity-side-effect.
+  const setTelegramCredentials = async (input: {
+    botToken?: string;
+    chatId?: string;
+    clearToken?: boolean;
+  }): Promise<{
+    success: boolean;
+    configured?: boolean;
+    chatId?: string | null;
+    error?: string;
+  }> => {
+    const existing = await options.loadCredentials();
+    const nextToken = input.clearToken
+      ? ''
+      : typeof input.botToken === 'string' && input.botToken.trim()
+        ? input.botToken.trim()
+        : (existing?.botToken ?? '');
+    const nextChatId =
+      typeof input.chatId === 'string' && input.chatId.trim()
+        ? input.chatId.trim()
+        : (existing?.chatId ?? '');
+
+    if (!nextToken || !nextChatId) {
+      if (!nextToken && !nextChatId && !existing) {
+        return { success: true, configured: false, chatId: null };
+      }
+      return { success: false, error: 'Telegram bot token and chat ID are required' };
+    }
+
+    if (!isValidBotToken(nextToken)) {
+      return { success: false, error: 'Telegram bot token format is invalid' };
+    }
+    if (!isValidChatId(nextChatId)) {
+      return { success: false, error: 'Telegram chat ID format is invalid' };
+    }
+
+    const credentials = normalizeTelegramCredentials({ botToken: nextToken, chatId: nextChatId });
+    if (!credentials) {
+      return { success: false, error: 'Telegram credentials are invalid' };
+    }
+
+    if (!(await hasTelegramHostPermission())) {
+      const granted = await requestTelegramHostPermission();
+      if (!granted) {
+        return { success: false, error: 'Telegram host permission was not granted' };
+      }
+    }
+
+    const validation = await validateSetup(credentials);
+    if (!validation.success) {
+      return { success: false, error: validation.error ?? 'Telegram bot validation failed' };
+    }
+
+    await options.saveCredentials(credentials);
+    return {
+      success: true,
+      configured: true,
+      chatId: credentials.chatId,
+    };
+  };
+
   return {
     hasTelegramHostPermission,
     requestTelegramHostPermission,
@@ -255,6 +368,8 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
     notifyClaimedDrops,
     validateSetup,
     sendTestAlert,
+    setTelegramAlertsEnabled,
+    setTelegramCredentials,
   };
 }
 
