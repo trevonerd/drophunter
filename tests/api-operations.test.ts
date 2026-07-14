@@ -1475,6 +1475,157 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(state.apiConsecutiveFailures).toBe(0);
     expect(state.apiBackoffUntil).toBe(0);
   });
+
+  test('does not stop farming when userId auto-detect fails transiently (network/timeout)', async () => {
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../src/background/api-operations.ts');
+    const { TwitchApiClient } = await import('../src/background/twitch-api/client.ts');
+
+    const session = createSession({ userId: '' });
+    const state = createMinimalState({
+      appState: { ...createInitialState(), isRunning: true },
+      twitchSessionCache: session,
+    });
+    let stopCalled = false;
+
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (): Promise<Response> => {
+      throw new Error('Twitch GQL request timed out.');
+    }) as FetchMock;
+
+    const result = await fetchDropsSnapshotFromApiWrapper(
+      state,
+      false,
+      {
+        onEnsureTwitchSession: async () => session,
+        onEnsureSessionIntegrity: async () => session,
+        onPersistTwitchSession: async () => undefined,
+        onStopFarmingSession: async () => {
+          stopCalled = true;
+        },
+        onIsLikelyAuthError: () => false,
+        onClearTwitchSessionCache: (nextState) => {
+          nextState.twitchSessionCache = null;
+        },
+      },
+      {
+        TwitchApiClient,
+        sessionDebugSummary: (nextSession) => ({ available: Boolean(nextSession) }),
+        PROGRESS_POLL_MS: 60_000,
+        logDebug: () => undefined,
+        logWarn: () => undefined,
+        logInfo: () => undefined,
+      },
+    );
+
+    expect(result).toBeNull();
+    expect(stopCalled).toBe(false);
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(state.apiBackoffUntil).toBeGreaterThan(0);
+  });
+
+  test('still stops farming when auto-detect completes but finds no userId', async () => {
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../src/background/api-operations.ts');
+    const { TwitchApiClient } = await import('../src/background/twitch-api/client.ts');
+
+    const session = createSession({ userId: '' });
+    const state = createMinimalState({
+      appState: { ...createInitialState(), isRunning: true },
+      twitchSessionCache: session,
+    });
+    let stopReason: string | undefined;
+
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (): Promise<Response> => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { currentUser: null } }),
+        text: async () => JSON.stringify({ data: { currentUser: null } }),
+      } as Response;
+    }) as FetchMock;
+
+    const result = await fetchDropsSnapshotFromApiWrapper(
+      state,
+      false,
+      {
+        onEnsureTwitchSession: async () => session,
+        onEnsureSessionIntegrity: async () => session,
+        onPersistTwitchSession: async () => undefined,
+        onStopFarmingSession: async (options) => {
+          stopReason = options.stopReason;
+        },
+        onIsLikelyAuthError: () => false,
+        onClearTwitchSessionCache: (nextState) => {
+          nextState.twitchSessionCache = null;
+        },
+      },
+      {
+        TwitchApiClient,
+        sessionDebugSummary: (nextSession) => ({ available: Boolean(nextSession) }),
+        PROGRESS_POLL_MS: 60_000,
+        logDebug: () => undefined,
+        logWarn: () => undefined,
+        logInfo: () => undefined,
+      },
+    );
+
+    expect(result).toBeNull();
+    expect(stopReason).toBe('sign-in-required');
+  });
+
+  test('clears a stale sign-in-required stop once a drops snapshot fetch succeeds', async () => {
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../src/background/api-operations.ts');
+    const { TwitchApiClient } = await import('../src/background/twitch-api/client.ts');
+
+    const session = createSession();
+    const state = createMinimalState({
+      appState: {
+        ...createInitialState(),
+        isRunning: false,
+        lastStopReason: 'sign-in-required',
+        lastStopMessage: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
+      },
+      twitchSessionCache: session,
+    });
+
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (): Promise<Response> => {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => buildInventoryResponse(),
+        text: async () => JSON.stringify(buildInventoryResponse()),
+      } as Response;
+    }) as FetchMock;
+
+    const result = await fetchDropsSnapshotFromApiWrapper(
+      state,
+      false,
+      {
+        onEnsureTwitchSession: async () => session,
+        onEnsureSessionIntegrity: async () => session,
+        onPersistTwitchSession: async () => undefined,
+        onStopFarmingSession: async () => undefined,
+        onIsLikelyAuthError: () => false,
+        onClearTwitchSessionCache: (nextState) => {
+          nextState.twitchSessionCache = null;
+        },
+      },
+      {
+        TwitchApiClient,
+        sessionDebugSummary: (nextSession) => ({ available: Boolean(nextSession) }),
+        PROGRESS_POLL_MS: 60_000,
+        logDebug: () => undefined,
+        logWarn: () => undefined,
+        logInfo: () => undefined,
+      },
+    );
+
+    expect(result).not.toBeNull();
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(state.appState.lastStopMessage).toBeNull();
+  });
 });
 
 describe('fetchInventorySnapshotFromApi', () => {
