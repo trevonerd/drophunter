@@ -2,12 +2,6 @@ import { browser } from '../shared/browser-api.ts';
 import { haveAllDropsExpiredOrVanished } from '../shared/drops';
 import { findMatchingGame, gameKey, getGameDisplayLabel } from '../shared/game-selection';
 import { normalizeToken } from '../shared/matching';
-import {
-  applyRecoveryStatus,
-  applyTerminalStopStatus,
-  clearRecoveryStatus,
-  clearTerminalStopStatus,
-} from '../shared/runtime-status';
 import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { detectNewlyClaimedDrops, recordClaimedDrops } from './claim-log.ts';
 import {
@@ -31,12 +25,18 @@ import {
   reorderQueue,
   resolveGameFromState,
 } from './queue-operations';
+import {
+  applyNoStreamersRecoveryState,
+  applyRecoveryState,
+  clearNoStreamersRecoveryState,
+  clearRecoveryState,
+  clearStopState,
+} from './recovery-state';
 import type { ServiceWorkerState } from './service-worker';
 import { saveTimingState as saveTimingStateExt } from './state-persistence';
 import {
   classifyStreamHealth,
   computeEffectiveStallThreshold,
-  computeRecoveryBackoffMs,
   MAX_NO_STREAMERS_RETRIES,
   MAX_PERSISTENT_RECOVERY_CYCLES,
   MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
@@ -60,51 +60,22 @@ export {
   resolveGameFromState,
 } from './queue-operations';
 
+// Backward-compat re-exports — symbols moved to ./recovery-state (batch 2 of candidate #1).
+// External callers should import directly from ./recovery-state; these re-exports are
+// temporary scaffold that a later batch will remove once all import sites are updated.
+export {
+  applyStopState,
+  clearRecoveryState,
+  clearStopState,
+  enterPersistentRecovery,
+} from './recovery-state';
+
 // ============================================================================
 // Helper Functions (internal)
 // ============================================================================
 
 function resetNoProgressRotationAttempts(state: ServiceWorkerState) {
   state.noProgressRotationAttempts = 0;
-}
-
-export function clearRecoveryState(state: ServiceWorkerState) {
-  state.recoveryBackoffUntil = 0;
-  state.lastRecoveryAttemptAt = 0;
-  state.stalledRecoveryAttempts = 0;
-  state.recoveryNotificationSent = false;
-  state.appState = clearRecoveryStatus(state.appState);
-}
-
-export function clearStopState(state: ServiceWorkerState) {
-  state.appState = clearTerminalStopStatus(state.appState);
-}
-
-function applyRecoveryState(state: ServiceWorkerState, reason: StreamRotationReason, retryAt: number | null) {
-  state.appState = applyRecoveryStatus(state.appState, {
-    reason,
-    retryAt,
-    attempts: state.stalledRecoveryAttempts,
-  });
-}
-
-function clearNoStreamersRecoveryState(state: ServiceWorkerState) {
-  if (state.appState.recoveryReason !== 'no-streamers') {
-    return;
-  }
-  state.recoveryBackoffUntil = 0;
-  state.lastRecoveryAttemptAt = 0;
-  state.appState = clearRecoveryStatus(state.appState);
-}
-
-function applyNoStreamersRecoveryState(state: ServiceWorkerState, retryAt: number, attempts: number) {
-  state.recoveryBackoffUntil = retryAt;
-  state.lastRecoveryAttemptAt = Date.now();
-  state.appState = applyRecoveryStatus(state.appState, {
-    reason: 'no-streamers',
-    retryAt,
-    attempts,
-  });
 }
 
 function shouldKeepStreamerWhileDropProgresses(input: {
@@ -152,45 +123,6 @@ export function resetStreamTrackingState(state: ServiceWorkerState) {
   resetNoProgressRotationAttempts(state);
   state.playbackAttentionWarningSent = false;
   clearRecoveryState(state);
-}
-
-export function applyStopState(state: ServiceWorkerState, reason: string, message: string | null) {
-  clearRecoveryState(state);
-  state.appState = applyTerminalStopStatus(state.appState, { reason, message });
-}
-
-export async function enterPersistentRecovery(
-  state: ServiceWorkerState,
-  reason: StreamRotationReason,
-  message: string,
-  opts?: {
-    onSkipCurrentGame?: () => Promise<void>;
-    onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
-  },
-) {
-  state.stalledRecoveryAttempts += 1;
-
-  if (state.stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
-    if (opts?.onSkipCurrentGame) {
-      await opts.onSkipCurrentGame();
-    }
-    return;
-  }
-
-  const backoffMs = computeRecoveryBackoffMs(state.stalledRecoveryAttempts);
-  state.recoveryBackoffUntil = Date.now() + backoffMs;
-  state.lastRecoveryAttemptAt = Date.now();
-  applyRecoveryState(state, reason, state.recoveryBackoffUntil);
-  logWarn('Entering persistent recovery mode', {
-    reason,
-    stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-    backoffMs,
-    retryAt: state.recoveryBackoffUntil,
-  });
-  if (!state.recoveryNotificationSent) {
-    state.recoveryNotificationSent = true;
-    await opts?.onNotify?.('DropHunter is still recovering', message, 1);
-  }
 }
 
 export async function acquireStreamerForSelectedGame(
