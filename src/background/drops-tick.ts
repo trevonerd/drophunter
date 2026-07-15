@@ -1,4 +1,3 @@
-// Extracted from queue-management.ts (batch 4 of candidate #1).
 // Owns the per-tick drop-progress checks, inventory/campaign refresh, and
 // runtime message handlers that mutate the drops/queue view (select/set-game,
 // add/remove/reorder queue). Free functions taking explicit `state` +

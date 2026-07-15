@@ -13,13 +13,10 @@ import type { ServiceWorkerState } from './service-worker';
 
 // queue-operations.ts — campaign-aware queue identity + pure queue mutators.
 // Owns queue shape + campaign-aware identity (see AGENTS.md: prefer campaignId;
-// duplicate campaigns share game-ish IDs). Caller (queue-management.ts) owns
-// streamer acquisition, recovery state, session lifecycle, drops tick, and
-// imports these primitives when it needs to advance/mutate the queue.
+// duplicate campaigns share game-ish IDs). Callers import these primitives
+// directly when they need to advance or mutate the queue.
 // Boundary: this module is a strict leaf — must NOT import from
-// queue-management.ts, drops-projection.ts, stream-rotation.ts, or
-// state-persistence.ts. queue-management re-exports the public API for
-// backward compat; re-exports can be deleted once caller sites are flipped.
+// drops-projection.ts, stream-rotation.ts, or state-persistence.ts.
 
 function isSameQueueIdentity(left: TwitchGame, right: TwitchGame): boolean {
   return isSameGameIdentity(left, right);

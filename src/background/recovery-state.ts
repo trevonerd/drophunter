@@ -7,13 +7,13 @@
 // (manual stop, queue complete, no active campaigns, sign-in required);
 // recovery is self-heal/backoff/rotation before any terminal stop.
 //
-// Caller (service-worker wrappers / farming-session / queue-management) owns
+// Callers (service-worker wrappers / farming-session) own
 // the policy that decides WHEN to invoke these — recover vs skip vs stop —
 // and persists/broadcasts state after these mutators run.
 //
 // DAG-leaf invariant: this module imports only from shared/* and
 // background/stream-rotation (itself a downstream leaf). MUST NOT import from
-// queue-management, drops-projection, state-persistence, or claim-log, or it
+// drops-projection, state-persistence, or claim-log, or it
 // would close a circular edge with the rest of the background layer.
 // ============================================================================
 
