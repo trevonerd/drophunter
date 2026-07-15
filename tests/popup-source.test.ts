@@ -64,7 +64,7 @@ test('popup clears game switch state in handleGameSelect', () => {
 test('popup campaign selector uses campaign-aware option identities', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("value={selectedGame ? queueGameIdentity(selectedGame) : ''}");
+  expect(source).toContain("value={state.selectedGame ? queueGameIdentity(state.selectedGame) : ''}");
   expect(source).toContain('<option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>');
   expect(source).not.toContain('value={selectedGame?.id ??');
 });
@@ -89,7 +89,6 @@ test('popup splits the main campaign UI into focused components', () => {
   const source = readPopupSource();
 
   expect(source).toContain('function PopupHeader');
-  expect(source).toContain('function CampaignSelector');
   expect(source).toContain('function QueueChips');
   expect(source).toContain('function RewardList');
 });

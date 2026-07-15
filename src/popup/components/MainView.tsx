@@ -1,10 +1,16 @@
 // Extracted from src/popup/App.tsx (main view markup).
+import { getGameDisplayLabel } from '../../shared/game-selection';
 import { formatStopReason, type RuntimeMode } from '../../shared/runtime-status';
 import type { AppState, TwitchDrop, TwitchGame } from '../../types';
 import type { CampaignSyncStatus } from '../constants';
-import { formatEtaMinutes, recoveryAttemptLabel, retryLabel, statusReasonLabel } from '../format';
-import { isSameQueuedGame } from '../queue-start';
-import { CampaignSelector } from './CampaignSelector';
+import {
+  expiryLabel,
+  formatEtaMinutes,
+  recoveryAttemptLabel,
+  retryLabel,
+  statusReasonLabel,
+} from '../format';
+import { isSameQueuedGame, queueGameIdentity } from '../queue-start';
 import { CampaignSyncPanel } from './CampaignSyncPanel';
 import { PopupHeader } from './PopupHeader';
 import { QueueChips } from './QueueChips';
@@ -117,15 +123,34 @@ export function MainView({
           </div>
         )}
 
-        <CampaignSelector
-          selectedGame={state.selectedGame}
-          sortedGames={sortedGames}
-          isRunning={state.isRunning}
-          actionLoading={actionLoading}
-          onboardingStep={onboardingStep}
-          onSelect={onSelectGame}
-          onAddToQueue={onAddToQueue}
-        />
+        <div className="flex items-center gap-1.5">
+          <select
+            aria-label="Campaign"
+            value={state.selectedGame ? queueGameIdentity(state.selectedGame) : ''}
+            onChange={(e) => onSelectGame(e.target.value)}
+            className={`dh-input min-h-8 min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs [&>option]:bg-twitch-dark [&>option]:text-[color:var(--dh-text)] ${onboardingStep === 'selector' ? 'onboarding-pulse' : ''}`}
+            disabled={state.isRunning}
+          >
+            <option value="">Select a campaign to start</option>
+            {sortedGames.map((game) => (
+              <option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>
+                {game.allDropsCompleted ? '\u2705 ' : game.isConnected === false ? '\u{1F512} ' : ''}
+                {getGameDisplayLabel(game)} · {expiryLabel(game.expiryStatus)}
+              </option>
+            ))}
+          </select>
+          {!state.isRunning && (
+            <button
+              type="button"
+              onClick={onAddToQueue}
+              disabled={!state.selectedGame || actionLoading}
+              className="dh-action-secondary dh-focus min-h-8 shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-55"
+              aria-label="Add selected campaign to queue"
+            >
+              Queue
+            </button>
+          )}
+        </div>
 
         <p
           role="status"
