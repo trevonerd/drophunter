@@ -72,6 +72,12 @@ import {
 } from './drops-projection.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import { createFarmingSession, type StreamContext } from './farming-session.ts';
+import {
+  type EnsureGamesCacheDeps,
+  type GamesCacheRefreshDeps,
+  handleEnsureGamesCache,
+  refreshGamesCacheFromHiddenFetch,
+} from './games-cache-orchestration.ts';
 import { normalizeQueueSelection as normalizeQueueSelectionExt } from './queue-operations.ts';
 import { resetStreamTrackingState as resetStreamTrackingStateExt } from './session-lifecycle.ts';
 import {
@@ -130,12 +136,39 @@ const sessionOrchestrator = createSessionOrchestrator(state, {
   logDebug,
   logWarn,
 });
+const gamesCacheRefreshDeps: GamesCacheRefreshDeps = {
+  fetchDropsSnapshot: (forceSessionRefresh) => fetchDropsSnapshotFromApi(forceSessionRefresh),
+  replaceAvailableGames,
+  annotateGameCompletion: annotateGameCompletionExt,
+  normalizeGameSelection: normalizeGameSelectionExt,
+  normalizeQueueSelection: normalizeQueueSelectionExt,
+  splitDropsForSelectedGame: splitDropsForSelectedGameExt,
+  recordEmptyCampaignObservation,
+  resetStateForAuthoritativeEmptyCampaign: resetStateForAuthoritativeEmptyCampaignExt,
+  clearSelectedCompletedIdleCampaign: clearSelectedCompletedIdleCampaignExt,
+  resetStreamTrackingState: resetStreamTrackingStateExt,
+  clearRecoveryStatus,
+  clearTerminalStopStatus,
+  stopFarmingSession: (args) => farmingSession.stop(args),
+  saveState: saveStateExt,
+};
+const ensureGamesCacheDeps: EnsureGamesCacheDeps = {
+  awaitInitPromise: () => initPromise,
+  trackActivity,
+  ensureStateHydratedForCache,
+  shouldRefreshGamesCache: shouldRefreshGamesCacheExt,
+  refreshGamesCacheFromHiddenFetch: (options) =>
+    refreshGamesCacheFromHiddenFetch(state, options, gamesCacheRefreshDeps),
+  annotateGameCompletion: annotateGameCompletionExt,
+  saveState: saveStateExt,
+};
 const dropsPageRefresher = createDropsPageRefresher(state, {
   trackActivity,
   ensureStateHydratedForCache,
   waitForTabComplete: waitForTabCompleteExt,
   persistSessionFromDropsPage,
-  refreshGamesCacheFromHiddenFetch,
+  refreshGamesCacheFromHiddenFetch: (options) =>
+    refreshGamesCacheFromHiddenFetch(state, options, gamesCacheRefreshDeps),
   saveState: () => saveStateExt(state),
   broadcastStateUpdate: broadcastStateUpdateExt,
 });
@@ -386,28 +419,6 @@ function shouldRefreshCampaignsAfterSessionSync(): boolean {
   return sessionOrchestrator.shouldRefreshCampaignsAfterSessionSync(GAMES_STALE_THRESHOLD_MS);
 }
 
-function clearSelectedCompletedIdleCampaign() {
-  clearSelectedCompletedIdleCampaignExt(state);
-  resetStreamTrackingStateExt(state);
-}
-
-async function applyAuthoritativeEmptyCampaignRefresh(): Promise<void> {
-  if (state.appState.isRunning) {
-    await farmingSession.stop({
-      stopReason: 'no-active-campaigns',
-      stopMessage: 'No active Twitch Drops campaigns found.',
-    });
-  } else {
-    state.appState = clearTerminalStopStatus(clearRecoveryStatus(state.appState));
-  }
-
-  resetStateForAuthoritativeEmptyCampaignExt(state);
-  state.appState.lastSuccessfulRefreshAt = Date.now();
-  resetStreamTrackingStateExt(state);
-  state.lastGamesCacheRefreshAt = Date.now();
-  await saveStateExt(state);
-}
-
 async function fetchDropsSnapshotFromApi(forceSessionRefresh = false): Promise<DropsSnapshot | null> {
   return fetchDropsSnapshotFromApiWrapper(
     state,
@@ -488,82 +499,6 @@ async function fetchStreamContext(tabId: number): Promise<StreamContext | null> 
   return response.context as StreamContext;
 }
 
-async function refreshGamesCacheFromHiddenFetch(
-  options: {
-    forceSessionRefresh?: boolean;
-    acceptAuthoritativeEmpty?: boolean;
-    requireFreshSnapshot?: boolean;
-    // Require 2+ consecutive empty responses before wiping queue/games. Used
-    // by one-shot call sites (e.g. session sync) that have no internal
-    // retry-until-ready loop of their own, unlike the drops-page-refresh flow.
-    requireConsecutiveEmptyConfirmation?: boolean;
-  } = {},
-): Promise<TwitchGame[]> {
-  if (state.gamesCacheRefreshInFlight) {
-    return state.gamesCacheRefreshInFlight;
-  }
-
-  state.gamesCacheRefreshInFlight = (async () => {
-    let fetchedGames: TwitchGame[] = [];
-    const apiSnapshot = await fetchDropsSnapshotFromApi(Boolean(options.forceSessionRefresh));
-    if (!apiSnapshot && options.requireFreshSnapshot) {
-      return [];
-    }
-    if (apiSnapshot) {
-      if (apiSnapshot.games.length === 0 && apiSnapshot.drops.length === 0) {
-        const shouldAccept = options.acceptAuthoritativeEmpty !== false;
-        if (shouldAccept) {
-          const decision = recordEmptyCampaignObservation(
-            state,
-            Boolean(options.requireConsecutiveEmptyConfirmation),
-          );
-          if (decision.confirmed) {
-            await applyAuthoritativeEmptyCampaignRefresh();
-          } else {
-            logWarn('Empty campaign snapshot received; awaiting confirmation before wiping state', {
-              streak: decision.streak,
-            });
-          }
-        }
-        return [];
-      }
-      state.emptyCampaignRefreshStreak = 0;
-      if (apiSnapshot.games.length > 0) {
-        fetchedGames = apiSnapshot.games;
-      }
-      state.appState.lastSuccessfulRefreshAt = Date.now();
-      if (apiSnapshot.drops.length > 0) {
-        state.cachedDropsSnapshot = apiSnapshot.drops;
-      } else {
-        state.cachedDropsSnapshot = [];
-      }
-      if (apiSnapshot.campaignChannelsMap) {
-        state.cachedCampaignChannelsMap = apiSnapshot.campaignChannelsMap;
-      }
-    }
-
-    const mergedGames =
-      fetchedGames.length > 0 ? replaceAvailableGames(fetchedGames) : state.appState.availableGames;
-    const annotatedGames = annotateGameCompletionExt(mergedGames, state.cachedDropsSnapshot);
-    state.appState.availableGames = annotatedGames;
-    normalizeGameSelectionExt(state, annotatedGames);
-    normalizeQueueSelectionExt(state, annotatedGames, Boolean(apiSnapshot));
-    // If a campaign refresh succeeded, the selected campaign split should reflect it,
-    // including the valid "no rewards left" case.
-    if (state.appState.selectedGame && apiSnapshot) {
-      splitDropsForSelectedGameExt(state, state.cachedDropsSnapshot);
-    }
-    clearSelectedCompletedIdleCampaign();
-    state.lastGamesCacheRefreshAt = Date.now();
-    await saveStateExt(state);
-    return mergedGames;
-  })().finally(() => {
-    state.gamesCacheRefreshInFlight = null;
-  });
-
-  return state.gamesCacheRefreshInFlight;
-}
-
 async function openDropsPageAndRefresh(message?: {
   payload?: { waitForRefresh?: boolean; active?: boolean };
 }) {
@@ -604,34 +539,6 @@ async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string
           .catch(() => undefined),
       ),
   );
-}
-
-async function handleEnsureGamesCache(payload?: { force?: boolean }) {
-  if (initPromise) {
-    await initPromise;
-  }
-  await trackActivity('ensure-games-cache');
-  await ensureStateHydratedForCache();
-  const force = Boolean(payload?.force);
-  const shouldRefresh = shouldRefreshGamesCacheExt(state, force);
-  if (shouldRefresh) {
-    await refreshGamesCacheFromHiddenFetch({ requireConsecutiveEmptyConfirmation: true });
-  } else if (state.cachedDropsSnapshot.length > 0) {
-    // Cache is fresh — no API call needed. But the games persisted in storage may
-    // pre-date the annotation logic (e.g. after an extension update or SW restart).
-    // Re-annotate in-memory and persist so the popup reads correct allDropsCompleted flags.
-    state.appState.availableGames = annotateGameCompletionExt(
-      state.appState.availableGames,
-      state.cachedDropsSnapshot,
-    );
-    await saveStateExt(state);
-  }
-  return {
-    success: true,
-    refreshed: shouldRefresh,
-    gamesCount: state.appState.availableGames.length,
-    games: state.appState.availableGames,
-  };
 }
 
 async function handleMarkDropsRefreshNoticeSeen(payload?: { seenAt?: number }) {
@@ -841,7 +748,12 @@ async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.
   }
   return syncTwitchSessionFromContentScriptExt(state, sessionPayloadCandidate(payload), sender.tab?.id, {
     shouldRefreshCampaignsAfterSessionSync,
-    onRefreshCampaigns: () => refreshGamesCacheFromHiddenFetch({ requireConsecutiveEmptyConfirmation: true }),
+    onRefreshCampaigns: () =>
+      refreshGamesCacheFromHiddenFetch(
+        state,
+        { requireConsecutiveEmptyConfirmation: true },
+        gamesCacheRefreshDeps,
+      ),
     onSaveState: () => saveStateExt(state),
     onBroadcastStateUpdate: () => broadcastStateUpdateExt(state.appState),
   });
@@ -903,7 +815,7 @@ export function startServiceWorker(): void {
   });
 
   registerRuntimeMessageRouter({
-    ensureGamesCache: (message) => handleEnsureGamesCache(message.payload),
+    ensureGamesCache: (message) => handleEnsureGamesCache(state, message.payload, ensureGamesCacheDeps),
     openDropsPageAndRefresh: (message) => openDropsPageAndRefresh(message),
     markDropsRefreshNoticeSeen: (message) => handleMarkDropsRefreshNoticeSeen(message.payload),
     addToQueue: (message) => farmingSession.handleAddToQueue(message.payload),
