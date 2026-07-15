@@ -7,7 +7,7 @@
 
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
 import { logWarn } from './logging';
-import type { ServiceWorkerState } from './service-worker';
+import type { ServiceWorkerState } from './runtime-state';
 
 export interface RefreshGamesCacheOptions {
   forceSessionRefresh?: boolean;
