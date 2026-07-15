@@ -11,8 +11,7 @@
 //   advancement), and DI wiring of fetch/close foreground callbacks.
 // DAG-leaf invariant: imports only shared utilities, recovery-state, stream-rotation,
 //   streamer-selection, logging, constants, types, and ServiceWorkerState type.
-//   MUST NOT import from queue-management (host re-exports for backward compat),
-//   drops-projection, state-persistence, claim-log.
+//   MUST NOT import from drops-projection, state-persistence, or claim-log.
 // ============================================================================
 import { browser } from '../shared/browser-api.ts';
 import { haveAllDropsExpiredOrVanished } from '../shared/drops';
