@@ -11,32 +11,40 @@ import {
   projectDropsSnapshot as projectDropsSnapshotExt,
   splitDropsForSelectedGame as splitDropsForSelectedGameExt,
 } from './drops-projection.ts';
-import { logDebug, logWarn } from './logging';
 import {
-  acquireStreamerForSelectedGame as acquireStreamerForSelectedGameExt,
-  advanceQueueIfCompleted as advanceQueueIfCompletedExt,
-  applyStopState as applyStopStateExt,
   checkDropProgress as checkDropProgressExt,
-  clearRecoveryState as clearRecoveryStateExt,
-  clearStopState as clearStopStateExt,
-  enterPersistentRecovery as enterPersistentRecoveryExt,
   handleAddToQueue as handleAddToQueueExt,
   handleRemoveFromQueue as handleRemoveFromQueueExt,
   handleReorderQueue as handleReorderQueueExt,
   handleSetSelectedGame as handleSetSelectedGameExt,
-  handleStartFarming as handleStartFarmingExt,
-  normalizeQueueSelection as normalizeQueueSelectionExt,
-  openBestStreamerForSelectedGame as openBestStreamerForSelectedGameExt,
   refreshDropsData as refreshDropsDataExt,
+} from './drops-tick.ts';
+import { logDebug, logWarn } from './logging';
+import {
+  normalizeQueueSelection as normalizeQueueSelectionExt,
   removeGameFromQueue as removeGameFromQueueExt,
   resolveGameFromState as resolveGameFromStateExt,
-  rotateStreamer as rotateStreamerExt,
-  rotateStreamerIfInvalid as rotateStreamerIfInvalidExt,
+} from './queue-operations.ts';
+import {
+  applyStopState as applyStopStateExt,
+  clearRecoveryState as clearRecoveryStateExt,
+  clearStopState as clearStopStateExt,
+  enterPersistentRecovery as enterPersistentRecoveryExt,
+} from './recovery-state.ts';
+import { clearRotationMetadata, type ServiceWorkerState } from './runtime-state';
+import {
+  advanceQueueIfCompleted as advanceQueueIfCompletedExt,
+  handleStartFarming as handleStartFarmingExt,
   skipCurrentGameAndAdvanceQueue as skipCurrentGameAndAdvanceQueueExt,
   skipCurrentGameDueToStall as skipCurrentGameDueToStallExt,
   stopFarmingSession as stopFarmingSessionExt,
-} from './queue-management.ts';
-import { clearRotationMetadata, type ServiceWorkerState } from './runtime-state';
+} from './session-lifecycle.ts';
+import {
+  acquireStreamerForSelectedGame as acquireStreamerForSelectedGameExt,
+  openBestStreamerForSelectedGame as openBestStreamerForSelectedGameExt,
+  rotateStreamer as rotateStreamerExt,
+  rotateStreamerIfInvalid as rotateStreamerIfInvalidExt,
+} from './streamer-acquisition.ts';
 import { normalizePreferredStreamerLanguage, pickStreamerForPreferences } from './streamer-selection';
 import type { TwitchSession } from './twitch-api/types';
 

@@ -1,38 +1,39 @@
-import { beforeEach, describe, expect, test, afterEach } from 'bun:test';
-import { setupChromeMocks } from './mocks/chrome.ts';
-import type { ChromeMocks } from './mocks/chrome.ts';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { projectDropsSnapshot, splitDropsForSelectedGame } from '../src/background/drops-projection.ts';
+import { checkDropProgress, handleReorderQueue, refreshDropsData } from '../src/background/drops-tick.ts';
 import {
   normalizeQueueSelection,
-  removeGameFromQueue,
-  resolveGameFromState,
   pushGameToQueue,
+  removeGameFromQueue,
   reorderQueue,
-  resetStreamTrackingState,
-  applyStopState,
-  acquireStreamerForSelectedGame,
-  enterPersistentRecovery,
-  stopFarmingSession,
+  resolveGameFromState,
+} from '../src/background/queue-operations.ts';
+import { applyStopState, enterPersistentRecovery } from '../src/background/recovery-state.ts';
+import type { ServiceWorkerState } from '../src/background/service-worker.ts';
+import {
   advanceQueueIfCompleted,
+  handleStartFarming,
+  resetStreamTrackingState,
   skipCurrentGameAndAdvanceQueue,
   skipCurrentGameDueToStall,
-  handleStartFarming,
-  handleReorderQueue,
-  refreshDropsData,
-  rotateStreamer,
-  rotateStreamerIfInvalid,
-  checkDropProgress,
-  openBestStreamerForSelectedGame,
-} from '../src/background/queue-management.ts';
-import { projectDropsSnapshot, splitDropsForSelectedGame } from '../src/background/drops-projection.ts';
-import { replaceAvailableGames } from '../src/shared/game-selection.ts';
-import type { ServiceWorkerState } from '../src/background/service-worker.ts';
-import { createInitialState } from '../src/shared/utils.ts';
-import type { TwitchGame, TwitchDrop } from '../src/types/index.ts';
+  stopFarmingSession,
+} from '../src/background/session-lifecycle.ts';
 import type { StreamRotationReason } from '../src/background/stream-rotation.ts';
 import {
   MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
   OFFLINE_CONFIRMATION_CHECKS,
 } from '../src/background/stream-rotation.ts';
+import {
+  acquireStreamerForSelectedGame,
+  openBestStreamerForSelectedGame,
+  rotateStreamer,
+  rotateStreamerIfInvalid,
+} from '../src/background/streamer-acquisition.ts';
+import { replaceAvailableGames } from '../src/shared/game-selection.ts';
+import { createInitialState } from '../src/shared/utils.ts';
+import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
+import type { ChromeMocks } from './mocks/chrome.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
 
 function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
@@ -220,7 +221,7 @@ describe('removeGameFromQueue', () => {
     state.appState.queue = [game1, game2, game3];
     removeGameFromQueue(state, game2);
     expect(state.appState.queue).toHaveLength(2);
-    expect(state.appState.queue.map(g => g.id)).toEqual(['game-1', 'game-3']);
+    expect(state.appState.queue.map((g) => g.id)).toEqual(['game-1', 'game-3']);
   });
 
   test('removes all matching games from queue', () => {
@@ -983,10 +984,7 @@ describe('advanceQueueIfCompleted', () => {
     state.appState.currentDrop = null;
     const nextGame = createGame({ id: 'game-2' });
     state.appState.queue = [nextGame];
-    state.appState.availableGames = [
-      createGame({ id: 'game-1', allDropsCompleted: true }),
-      nextGame,
-    ];
+    state.appState.availableGames = [createGame({ id: 'game-1', allDropsCompleted: true }), nextGame];
 
     let openStreamerCalled = false;
     await advanceQueueIfCompleted(state, {
@@ -1234,7 +1232,7 @@ describe('skipCurrentGameDueToStall', () => {
       onOpenStreamer: async () => true,
     });
 
-    expect(state.appState.queue.some(g => g.id === 'game-1')).toBe(false);
+    expect(state.appState.queue.some((g) => g.id === 'game-1')).toBe(false);
   });
 
   test('advances to next game in queue', async () => {
@@ -1272,7 +1270,11 @@ describe('skipCurrentGameDueToStall', () => {
     state.appState.queue = [];
 
     let stopFarmingCalled = false;
-    let stopParams: { stopReason: string; stopMessage: string; notification: { title: string; message: string } } | null = null;
+    let stopParams: {
+      stopReason: string;
+      stopMessage: string;
+      notification: { title: string; message: string };
+    } | null = null;
 
     await skipCurrentGameDueToStall(state, {
       onStopFarmingSession: async (params) => {
@@ -1365,11 +1367,15 @@ describe('handleStartFarming', () => {
   test('tracks activity on start', async () => {
     const state = createMinimalState();
     let trackActivityCalled = false;
-    await handleStartFarming(state, { game: createGame() }, {
-      onTrackActivity: async () => {
-        trackActivityCalled = true;
+    await handleStartFarming(
+      state,
+      { game: createGame() },
+      {
+        onTrackActivity: async () => {
+          trackActivityCalled = true;
+        },
       },
-    });
+    );
     expect(trackActivityCalled).toBe(true);
   });
 
@@ -1456,7 +1462,7 @@ describe('handleStartFarming', () => {
 
     await handleStartFarming(state, { game });
 
-    expect(state.appState.queue.some(g => g.id === 'game-1')).toBe(false);
+    expect(state.appState.queue.some((g) => g.id === 'game-1')).toBe(false);
   });
 
   test('calls onEnsureWorkspace', async () => {
@@ -1464,11 +1470,15 @@ describe('handleStartFarming', () => {
     state.appState.pendingDrops = [createDrop()];
 
     let ensureWorkspaceCalled = false;
-    await handleStartFarming(state, { game: createGame() }, {
-      onEnsureWorkspace: async () => {
-        ensureWorkspaceCalled = true;
+    await handleStartFarming(
+      state,
+      { game: createGame() },
+      {
+        onEnsureWorkspace: async () => {
+          ensureWorkspaceCalled = true;
+        },
       },
-    });
+    );
 
     expect(ensureWorkspaceCalled).toBe(true);
   });
@@ -1477,12 +1487,20 @@ describe('handleStartFarming', () => {
     const state = createMinimalState();
     state.appState.pendingDrops = [createDrop()];
 
-    let refreshOptions: { includeCampaignFetch: boolean; includeInventoryFetch: boolean; suppressNotifications: boolean } | null = null;
-    await handleStartFarming(state, { game: createGame() }, {
-      onRefreshDropsData: async (options) => {
-        refreshOptions = options;
+    let refreshOptions: {
+      includeCampaignFetch: boolean;
+      includeInventoryFetch: boolean;
+      suppressNotifications: boolean;
+    } | null = null;
+    await handleStartFarming(
+      state,
+      { game: createGame() },
+      {
+        onRefreshDropsData: async (options) => {
+          refreshOptions = options;
+        },
       },
-    });
+    );
 
     expect(refreshOptions?.includeCampaignFetch).toBe(true);
     expect(refreshOptions?.includeInventoryFetch).toBe(true);
@@ -1515,11 +1533,15 @@ describe('handleStartFarming', () => {
     state.appState.pendingDrops = [createDrop()];
 
     let saveStateCalled = false;
-    await handleStartFarming(state, { game: createGame() }, {
-      onSaveState: async () => {
-        saveStateCalled = true;
+    await handleStartFarming(
+      state,
+      { game: createGame() },
+      {
+        onSaveState: async () => {
+          saveStateCalled = true;
+        },
       },
-    });
+    );
 
     expect(saveStateCalled).toBe(true);
   });
@@ -1534,7 +1556,7 @@ describe('handleStartFarming', () => {
 
     await handleStartFarming(state, { game });
 
-    const game1Count = state.appState.queue.filter(g => g.id === 'game-1').length;
+    const game1Count = state.appState.queue.filter((g) => g.id === 'game-1').length;
     expect(game1Count).toBe(1);
     expect(state.appState.queue[0].id).toBe('game-1');
   });
@@ -1900,11 +1922,14 @@ describe('checkDropProgress', () => {
     state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     state.lastFullRefreshAt = Date.now() - 3 * 60 * 1000;
 
-    const refreshOptions: Array<{
-      includeCampaignFetch?: boolean;
-      includeInventoryFetch?: boolean;
-      forceInventoryFetch?: boolean;
-    } | undefined> = [];
+    const refreshOptions: Array<
+      | {
+          includeCampaignFetch?: boolean;
+          includeInventoryFetch?: boolean;
+          forceInventoryFetch?: boolean;
+        }
+      | undefined
+    > = [];
 
     await checkDropProgress(state, {
       onEnforcePlaybackPolicy: async () => undefined,
@@ -2177,7 +2202,8 @@ describe('openBestStreamerForSelectedGame', () => {
     const opened = await openBestStreamerForSelectedGame(
       state,
       {
-        onFetchDirectoryStreamersFromApi: async () => Object.assign([...streamers], { languageFilterApplied: false }) as never,
+        onFetchDirectoryStreamersFromApi: async () =>
+          Object.assign([...streamers], { languageFilterApplied: false }) as never,
         onOpenForegroundChannel: async () => undefined,
       },
       {
@@ -2215,7 +2241,8 @@ describe('openBestStreamerForSelectedGame', () => {
     const opened = await openBestStreamerForSelectedGame(
       state,
       {
-        onFetchDirectoryStreamersFromApi: async () => Object.assign([...streamers], { languageFilterApplied: false }) as never,
+        onFetchDirectoryStreamersFromApi: async () =>
+          Object.assign([...streamers], { languageFilterApplied: false }) as never,
         onOpenForegroundChannel: async () => undefined,
       },
       {
@@ -2285,7 +2312,10 @@ describe('openBestStreamerForSelectedGame', () => {
     state.appState.selectedGame = createGame();
     state.avoidStreamerName = 'alpha';
 
-    const streamers = [createStreamer({ id: 'alpha', name: 'alpha' }), createStreamer({ id: 'beta', name: 'beta' })];
+    const streamers = [
+      createStreamer({ id: 'alpha', name: 'alpha' }),
+      createStreamer({ id: 'beta', name: 'beta' }),
+    ];
     let seenCandidates: string[] = [];
 
     const opened = await openBestStreamerForSelectedGame(
@@ -2758,7 +2788,12 @@ describe('rotateStreamerIfInvalid', () => {
     state.appState.selectedGame = createGame();
     state.appState.tabId = 123;
     state.invalidStreamChecks = 3;
-    state.appState.activeStreamer = { id: 'streamer-1', name: 'streamer', displayName: 'Streamer', isLive: true };
+    state.appState.activeStreamer = {
+      id: 'streamer-1',
+      name: 'streamer',
+      displayName: 'Streamer',
+      isLive: true,
+    };
 
     mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
