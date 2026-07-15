@@ -56,6 +56,7 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 
 ## Runtime Message Rules
 - Runtime message changes must update all contracts: `RUNTIME_MESSAGE_TYPES`, `RuntimeRequest`, `RuntimeResponseByType`, payload validation, background router handling, tests.
+- Homogeneous message clusters (uniform request+response shape) use the table-driven pattern in `src/shared/messages.ts` (see `BOOLEAN_TOGGLE_MESSAGES`, `NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES`) instead of literal arms; heterogeneous clusters stay literal until a per-type response-shape table is designed.
 - Validate payloads before invoking handlers. Critical actions fail closed on malformed input.
 - Responses include useful `error` text on failure. Don't swallow clear/remove/start failures.
 - After state-changing handlers, persist + broadcast unless local pattern delegates.
