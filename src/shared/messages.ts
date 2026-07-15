@@ -222,6 +222,9 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
   if (type in BOOLEAN_TOGGLE_MESSAGES) {
     return validateBooleanTogglePayload(payload);
   }
+  if (type in NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES) {
+    return payload === undefined;
+  }
 
   switch (type) {
     case 'START_FARMING':
@@ -336,15 +339,9 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
     case 'GET_STREAM_CONTEXT':
     case 'PREPARE_STREAM_PLAYBACK':
     case 'CLAIM_CHANNEL_POINTS_BONUS':
-    case 'CLEAR_QUEUE':
-    case 'PAUSE_FARMING':
-    case 'RESUME_FARMING':
-    case 'STOP_FARMING':
-    case 'REFRESH_DROPS':
     case 'UPDATE_STATE':
     case 'GET_CLAIM_LOG':
     case 'CLEAR_CLAIM_LOG':
-    case 'TEST_TELEGRAM_ALERTS':
     case 'GET_TELEGRAM_SETTINGS':
       return true;
     default:
