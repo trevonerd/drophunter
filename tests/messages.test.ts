@@ -141,6 +141,10 @@ describe('runtime message protocol', () => {
 
     expect(Object.values(requestShapeChecks).every(Boolean)).toBe(true);
     expect(Object.values(responseShapeChecks).every(Boolean)).toBe(true);
+    for (const type of expectedTypes) {
+      expect(isRuntimeRequest({ type })).toBe(true);
+      expect(isRuntimeRequest({ type, payload: { unexpected: true } })).toBe(false);
+    }
   });
 
   test('assertNever throws for unreachable runtime branches', () => {
