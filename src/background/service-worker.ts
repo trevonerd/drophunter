@@ -72,10 +72,8 @@ import {
 } from './drops-projection.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import { createFarmingSession, type StreamContext } from './farming-session.ts';
-import {
-  normalizeQueueSelection as normalizeQueueSelectionExt,
-  resetStreamTrackingState as resetStreamTrackingStateExt,
-} from './queue-management.ts';
+import { normalizeQueueSelection as normalizeQueueSelectionExt } from './queue-operations.ts';
+import { resetStreamTrackingState as resetStreamTrackingStateExt } from './session-lifecycle.ts';
 import {
   clearTwitchSessionCache as clearTwitchSessionCacheExt,
   ensureSessionIntegrity as ensureSessionIntegrityExt,
