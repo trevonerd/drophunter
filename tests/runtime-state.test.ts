@@ -9,11 +9,32 @@ import {
   shouldCloseManagedTab,
 } from '../src/background/runtime-state.ts';
 import { createInitialState } from '../src/shared/utils.ts';
-import type { TwitchDrop } from '../src/types';
 
 describe('normalizeTimingState', () => {
   test('returns defaults for missing input', () => {
     expect(normalizeTimingState(null)).toEqual(createInitialTimingState());
+  });
+
+  test('defaults unverifiable reward markers to an empty record', () => {
+    expect(normalizeTimingState(null).unverifiableRewardsByKey).toEqual({});
+    expect(createServiceWorkerState().unverifiableRewardsByKey).toEqual({});
+  });
+
+  test('accepts valid unverifiable reward markers and rejects malformed entries and identities', () => {
+    const state = normalizeTimingState({
+      unverifiableRewardsByKey: {
+        '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+        garbage: { progress: 1, currentMinutes: 1, markedAt: 1 },
+        '["campaign","nan-progress"]': { progress: Number.NaN, currentMinutes: 1, markedAt: 1 },
+        '["campaign","negative-minutes"]': { progress: 1, currentMinutes: -1, markedAt: 1 },
+        '["campaign","negative-marked-at"]': { progress: 1, currentMinutes: 1, markedAt: -1 },
+        '["campaign","non-record"]': 'invalid',
+      },
+    });
+
+    expect(state.unverifiableRewardsByKey).toEqual({
+      '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+    });
   });
 
   test('preserves integrity fallback when ttl is still active', () => {
@@ -158,8 +179,31 @@ describe('applyStartupResumePolicy', () => {
       lastRecoveryAttemptAt: 80_000,
       stalledRecoveryAttempts: 2,
       recoveryNotificationSent: true,
+      unverifiableRewardsByKey: {
+        '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+      },
     };
   }
+
+  test('preserves unverifiable reward markers across startup policy branches', () => {
+    const expectedMarkers = {
+      '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+    };
+
+    const recent = makePolicyState();
+    recent.lastHeartbeatAt = 35_000;
+    expect(applyStartupResumePolicy(recent, 40_000, 30_000, 300_000)).toBe('not-stale');
+    expect(recent.unverifiableRewardsByKey).toEqual(expectedMarkers);
+
+    const paused = makePolicyState();
+    expect(applyStartupResumePolicy(paused, 40_000, 30_000, 300_000)).toBe('paused-on-startup');
+    expect(paused.unverifiableRewardsByKey).toEqual(expectedMarkers);
+
+    const autoResume = makePolicyState();
+    autoResume.appState.autoResumeOnStartup = true;
+    expect(applyStartupResumePolicy(autoResume, 40_000, 30_000, 300_000)).toBe('auto-resume');
+    expect(autoResume.unverifiableRewardsByKey).toEqual(expectedMarkers);
+  });
 
   test('pauses stale startup sessions when auto-resume is disabled', () => {
     const state = makePolicyState();
@@ -313,7 +357,22 @@ describe('applyExtensionUpdateStateTransition', () => {
       lastRotationReason: 'viewers',
       lastRotationAt: 1234,
     };
-    state.cachedDropsSnapshot = [{ id: 'drop-1', name: 'D1', campaignId: 'c1' }] as unknown as TwitchDrop[];
+    state.cachedDropsSnapshot = [
+      {
+        id: 'drop-1',
+        name: 'D1',
+        gameId: 'game-1',
+        gameName: 'Game',
+        imageUrl: '',
+        campaignId: 'c1',
+        progress: 0,
+        currentMinutes: 0,
+        claimed: false,
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      },
+    ];
     return state;
   }
 

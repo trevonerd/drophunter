@@ -1,12 +1,14 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { setupChromeMocks, type ChromeMocks } from './mocks/chrome';
-import type { RuntimeRequest } from '../src/shared/messages.ts';
-import type { AppState, TwitchGame } from '../src/types/index.ts';
+import { clearRotationMetadata, createServiceWorkerState } from '../src/background/runtime-state.ts';
 import {
   clearPendingTimingStateSaveForTests,
+  loadState as loadPersistedState,
   setTimingSaveDebounceMsForTests,
 } from '../src/background/state-persistence.ts';
+import type { RuntimeRequest } from '../src/shared/messages.ts';
 import { createInitialState } from '../src/shared/utils.ts';
+import type { AppState, TwitchGame } from '../src/types/index.ts';
+import { type ChromeMocks, setupChromeMocks } from './mocks/chrome';
 
 const chromeMocks = setupChromeMocks();
 setTimingSaveDebounceMsForTests(0);
@@ -238,13 +240,14 @@ function installFetchMock() {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
 
-    const jsonResponse = (json: unknown, options: Omit<MockFetchResponse, 'json'> = {}) => ({
-      ok: options.ok ?? true,
-      status: options.status ?? 200,
-      async json() {
-        return json;
-      },
-    }) as Response;
+    const jsonResponse = (json: unknown, options: Omit<MockFetchResponse, 'json'> = {}) =>
+      ({
+        ok: options.ok ?? true,
+        status: options.status ?? 200,
+        async json() {
+          return json;
+        },
+      }) as Response;
 
     if (Array.isArray(body)) {
       const scenario = activeSnapshotScenario;
@@ -353,7 +356,9 @@ function installFetchMock() {
       }
 
       default:
-        throw new Error(`Unexpected fetch operation in service-worker test: ${body?.operationName ?? 'unknown'}`);
+        throw new Error(
+          `Unexpected fetch operation in service-worker test: ${body?.operationName ?? 'unknown'}`,
+        );
     }
   }) as typeof fetch;
 }
@@ -410,7 +415,10 @@ async function waitForAppState(check: (state: AppState) => boolean, message: str
   throw new Error(message);
 }
 
-async function dispatchMessage(message: RuntimeRequest, sender: Record<string, unknown> = {}): Promise<unknown> {
+async function dispatchMessage(
+  message: RuntimeRequest,
+  sender: Record<string, unknown> = {},
+): Promise<unknown> {
   const handler = chromeMocks.runtime.onMessage._handlers[0];
   if (!handler) {
     throw new Error('service worker onMessage handler not registered');
@@ -649,6 +657,7 @@ describe('service worker message handlers', () => {
   });
 
   test('START_FARMING exits cleanly when no farmable drops are available', async () => {
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame] });
     const response = await dispatchMessage({
       type: 'START_FARMING',
       payload: { game: demoGame },
@@ -660,6 +669,34 @@ describe('service worker message handlers', () => {
     expect(state.isRunning).toBe(false);
     expect(state.isPaused).toBe(false);
     expect(state.selectedGame).toBeNull();
+  });
+
+  test('START_FARMING rejects a farming-complete campaign without mutating the queue', async () => {
+    const farmingCompleteGame: TwitchGame = {
+      ...demoGame,
+      id: 'farming-complete-game',
+      name: 'Farming Complete Game',
+      campaignId: 'farming-complete-campaign',
+      dropCount: 1,
+      rewardSummary: {
+        completion: 'farming-complete',
+        remainderReasons: ['unverifiable-twitch'],
+      },
+    };
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [farmingCompleteGame] });
+
+    const response = await dispatchMessage({
+      type: 'START_FARMING',
+      payload: { game: farmingCompleteGame },
+    });
+
+    expect(response).toEqual({
+      success: false,
+      error: 'Farming finished · Twitch reward acquisition could not be verified',
+    });
+    const state = getAppStateFromStorage();
+    expect(state.isRunning).toBe(false);
+    expect(state.queue).toEqual([]);
   });
 
   test('OPEN_DROPS_PAGE_AND_REFRESH opens Twitch, extracts session, and refreshes campaigns', async () => {
@@ -832,8 +869,9 @@ describe('service worker message handlers', () => {
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-before-empty-refresh', currentMinutes: 20 }]);
     await syncTestSession();
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-before-empty-refresh', currentMinutes: 20 }]);
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame] });
     await dispatchMessage({ type: 'SET_SELECTED_GAME', payload: { game: demoGame } });
-    await addGameToQueue(nextGame);
+    await addGameToQueue(demoGame);
 
     const before = getAppStateFromStorage();
     expect(before.availableGames).toHaveLength(1);
@@ -1078,6 +1116,7 @@ describe('service worker message handlers', () => {
     enqueueDropsSnapshot(completedSnapshot);
     await syncTestSession();
     enqueueDropsSnapshot(completedSnapshot);
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [completedGame] });
     await dispatchMessage({ type: 'SET_SELECTED_GAME', payload: { game: completedGame } });
 
     const before = getAppStateFromStorage();
@@ -1261,7 +1300,7 @@ describe('service worker message handlers', () => {
     expect(stopped.lastStopMessage).toBe('Stopped by user.');
   });
 
-  test('UPDATE_GAMES annotates game with allDropsCompleted=true to false when no matching drops', async () => {
+  test('UPDATE_GAMES preserves trusted allDropsCompleted=true when no matching drops exist', async () => {
     const gameWithCompletedMarked = { ...demoGame, allDropsCompleted: true };
     const response = await dispatchMessage({
       type: 'UPDATE_GAMES',
@@ -1271,7 +1310,7 @@ describe('service worker message handlers', () => {
     expect(response).toEqual({ success: true });
 
     const state = getAppStateFromStorage();
-    expect(state.availableGames[0].allDropsCompleted).toBe(false);
+    expect(state.availableGames[0].allDropsCompleted).toBe(true);
   });
 
   test('UPDATE_GAMES leaves allDropsCompleted=false unchanged when no drops match', async () => {
@@ -1306,7 +1345,7 @@ describe('service worker message handlers', () => {
     expect(state.availableGames).toHaveLength(2);
     expect(state.availableGames.some((g) => g.id === 'game-1')).toBe(true);
     expect(state.availableGames.some((g) => g.id === 'game-2')).toBe(true);
-    expect(state.availableGames.find((g) => g.id === 'game-2')?.allDropsCompleted).toBe(false);
+    expect(state.availableGames.find((g) => g.id === 'game-2')?.allDropsCompleted).toBe(true);
   });
 
   test('UPDATE_GAMES updates lastSuccessfulRefreshAt when games are provided', async () => {
@@ -1336,6 +1375,7 @@ describe('service worker message handlers', () => {
     enqueueDropsSnapshot([{ game: nextGame, dropId: 'drop-next', currentMinutes: 5 }]);
     enqueueDirectoryResult('streamer-next');
 
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame] });
     await syncTestSession();
     await addGameToQueue(nextGame);
 
@@ -1374,6 +1414,7 @@ describe('service worker message handlers', () => {
     enqueueDropsSnapshot([{ game: nextGame, dropId: 'drop-next', currentMinutes: 5 }]);
     enqueueDirectoryResult('streamer-next');
 
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame] });
     await syncTestSession();
     await addGameToQueue(nextGame);
 
@@ -1409,6 +1450,7 @@ describe('service worker message handlers', () => {
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 20 }]);
 
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame] });
     await syncTestSession();
     await addGameToQueue(nextGame);
 
@@ -1454,6 +1496,7 @@ describe('service worker message handlers', () => {
     ]);
     enqueueDirectoryResult(null);
 
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame, thirdGame] });
     await syncTestSession();
     await addGameToQueue(nextGame);
     await addGameToQueue(thirdGame);
@@ -1501,6 +1544,7 @@ describe('service worker message handlers', () => {
       enqueueDirectoryResult(null);
       enqueueDirectoryResult(null);
 
+      await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame] });
       await syncTestSession();
       chromeMocks.permissions.setContainsResult(true);
       await dispatchMessage({
@@ -1671,7 +1715,8 @@ describe('service worker message handlers', () => {
     ]);
   });
 
-  test('extension update preserves queue, selectedGame, settings, and isRunning', async () => {
+  test('extension update discards an old volatile reward snapshot before current state reload', async () => {
+    // Given
     const chromeAny = (globalThis as unknown as { chrome: Record<string, unknown> }).chrome;
     const onInstalled = (chromeAny.runtime as Record<string, unknown>).onInstalled as ReturnType<
       typeof createEventMock<{ reason: 'install' | 'update' | 'chrome_update' }>
@@ -1689,17 +1734,67 @@ describe('service worker message handlers', () => {
     expect(beforeUpdate.monitorAutoOpen).toBe(true);
     expect(beforeUpdate.muteFarmingTab).toBe(true);
 
+    const oldRewardSemanticField = ['drop', 'Type'].join('');
+    const oldRewardSnapshot = {
+      id: 'old-reward',
+      name: 'Old Reward',
+      gameId: 'game-1',
+      gameName: 'Demo Game',
+      imageUrl: '',
+      progress: 45,
+      currentMinutes: 27,
+      claimed: false,
+      [oldRewardSemanticField]: ['time', 'based'].join('-'),
+    };
+    await chromeMocks.storage.local.set({
+      appState: {
+        ...beforeUpdate,
+        currentDrop: oldRewardSnapshot,
+        allDrops: [oldRewardSnapshot],
+        pendingDrops: [oldRewardSnapshot],
+      },
+      [serviceWorkerModule.DROPS_SNAPSHOT_CACHE_KEY]: [oldRewardSnapshot],
+      [serviceWorkerModule.TIMING_STATE_KEY]: { lastTrackedDropKey: 'old-reward::campaign-1' },
+    });
+
+    // When
     onInstalled.trigger({ reason: 'update' });
     await sleepTick();
     await sleepTick();
 
-    const afterUpdate = getAppStateFromStorage();
-    expect(afterUpdate.queue).toHaveLength(1);
-    expect(afterUpdate.queue[0].id).toBe('game-1');
-    expect(afterUpdate.selectedGame?.id).toBe('game-1');
-    expect(afterUpdate.monitorAutoOpen).toBe(true);
-    expect(afterUpdate.muteFarmingTab).toBe(true);
-    expect(afterUpdate.totalDropsClaimed).toBe(beforeUpdate.totalDropsClaimed);
+    const reloadedState = createServiceWorkerState();
+    await loadPersistedState(
+      reloadedState,
+      {
+        onLoadTimingState: async () => {},
+        onEnforceInactivityReset: async () => false,
+      },
+      {
+        sanitizeTwitchSession: () => null,
+        sessionDebugSummary: () => ({}),
+        createInitialState,
+        clearRotationMetadata,
+        TWITCH_SESSION_STORAGE_KEY: serviceWorkerModule.TWITCH_SESSION_STORAGE_KEY,
+        DROPS_SNAPSHOT_CACHE_KEY: serviceWorkerModule.DROPS_SNAPSHOT_CACHE_KEY,
+        LAST_ACTIVITY_AT_KEY: serviceWorkerModule.LAST_ACTIVITY_AT_KEY,
+        TIMING_STATE_KEY: serviceWorkerModule.TIMING_STATE_KEY,
+        STREAM_VALIDATION_GRACE_MS: 0,
+      },
+    );
+
+    // Then
+    expect(reloadedState.cachedDropsSnapshot).toEqual([]);
+    expect(reloadedState.appState.currentDrop).toBeNull();
+    expect(reloadedState.appState.allDrops).toEqual([]);
+    expect(reloadedState.appState.pendingDrops).toEqual([]);
+    expect(reloadedState.appState.completedDrops).toEqual([]);
+    expect(reloadedState.appState.queue).toHaveLength(1);
+    expect(reloadedState.appState.queue[0]?.id).toBe('game-1');
+    expect(reloadedState.appState.selectedGame?.id).toBe('game-1');
+    expect(reloadedState.appState.monitorAutoOpen).toBe(true);
+    expect(reloadedState.appState.muteFarmingTab).toBe(true);
+    expect(reloadedState.appState.totalDropsClaimed).toBe(beforeUpdate.totalDropsClaimed);
+    expect(chromeMocks.storage.local._store.has(serviceWorkerModule.TIMING_STATE_KEY)).toBe(false);
   });
 
   test('normalizeGameSelection does not fuzzy-match when campaign ID is explicit but different', async () => {

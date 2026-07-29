@@ -1,3 +1,4 @@
+import { isRewardAutomatable, isTwitchNativeReward } from '../shared/reward-semantics.ts';
 import { AppState, TwitchDrop } from '../types/index.ts';
 import { recordClaimedDrops } from './claim-log.ts';
 import { DROP_CLAIM_RETRY_COOLDOWN_MS } from './constants.ts';
@@ -33,6 +34,7 @@ function asClaimedDrop(drop: TwitchDrop): TwitchDrop {
     claimable: false,
     progress: 100,
     remainingMinutes: 0,
+    verificationState: isTwitchNativeReward(drop) ? 'verified' : drop.verificationState,
     status: 'completed' as const,
   };
 }
@@ -171,7 +173,7 @@ export async function autoClaimClaimableDrops(
   const claimTargets = state.cachedDropsSnapshot
     .filter((drop) => Boolean(drop.claimable) && !drop.claimed)
     .filter((drop) => Boolean((drop.claimId ?? '').trim()))
-    .filter((drop) => drop.dropType !== 'event-based');
+    .filter(isRewardAutomatable);
 
   if (claimTargets.length === 0) {
     return false;
@@ -188,7 +190,7 @@ export async function autoClaimClaimableDrops(
       }
       markDropClaimedLocally(state, drop.claimId, drop.id, drop.campaignId);
       markDropClaimedInSnapshot(state, drop.claimId, drop.id, drop.campaignId);
-      claimedDrops.push(drop);
+      claimedDrops.push(asClaimedDrop(drop));
       claimedAny = true;
       if (onDropClaimed) await onDropClaimed(drop);
     }

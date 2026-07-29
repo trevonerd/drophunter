@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import type { ClaimedRewardEntry } from '../src/background/twitch-api/client.ts';
 import {
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
   buildGlobalClaimedRewardEntry,
   buildInventoryDropMaps,
+  type ClaimedRewardEntry,
   computeExpiry,
   extractBenefitDistributionTypes,
   extractBenefitIds,
@@ -20,6 +20,7 @@ import {
   toIsoDate,
   toNumber,
 } from '../src/background/twitch-api/client.ts';
+import type { TwitchGame } from '../src/types/index.ts';
 
 // ---------------------------------------------------------------------------
 // normalizeText
@@ -722,6 +723,132 @@ describe('findInventoryStateForDrop — campaign isolation', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseCampaignDrops — inventory authoritative over game-event name match', () => {
+  test('skips null and wrong-shape reward members while retaining a valid sibling', () => {
+    // Given: Twitch returns malformed members beside one structured reward.
+    const campaign = {
+      id: 'campaign-malformed-members',
+      timeBasedDrops: [
+        null,
+        'not-a-reward-object',
+        42,
+        {
+          id: 'valid-reward',
+          name: 'BADGE EMOTE text on an ordinary reward',
+          requiredMinutesWatched: 60,
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'valid-benefit',
+                distributionType: 'DIRECT_ENTITLEMENT',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const game: TwitchGame = {
+      id: 'g-malformed-members',
+      name: 'Malformed Members Game',
+      imageUrl: '',
+      campaignId: campaign.id,
+    };
+
+    // When: the campaign reward boundary parses the array.
+    const drops = parseCampaignDrops(
+      campaign,
+      game,
+      buildInventoryDropMaps(null),
+      buildClaimedRewardLookup(null),
+      buildGlobalClaimedRewardEntry(null),
+    );
+
+    // Then: malformed members do not abort parsing and names cannot override structured classification.
+    expect(
+      drops.map(({ id, name, rewardKind, benefitIds }) => ({ id, name, rewardKind, benefitIds })),
+    ).toEqual([
+      {
+        id: 'valid-reward',
+        name: 'BADGE EMOTE text on an ordinary reward',
+        rewardKind: 'in-game',
+        benefitIds: ['valid-benefit'],
+      },
+    ]);
+  });
+
+  test('returns no rewards when the time-based reward array is missing', () => {
+    // Given: a campaign response without the optional timeBasedDrops field.
+    const campaign = { id: 'campaign-missing-rewards' };
+    const game: TwitchGame = {
+      id: 'g-missing-rewards',
+      name: 'Missing Rewards Game',
+      imageUrl: '',
+      campaignId: campaign.id,
+    };
+
+    // When: the campaign reward boundary parses the response.
+    const drops = parseCampaignDrops(
+      campaign,
+      game,
+      buildInventoryDropMaps(null),
+      buildClaimedRewardLookup(null),
+      buildGlobalClaimedRewardEntry(null),
+    );
+
+    // Then: a missing reward array is treated as empty rather than throwing.
+    expect(drops).toEqual([]);
+  });
+
+  test('keeps the known zero-minute subscription shape non-automatable', () => {
+    // Given: Twitch places a zero-minute subscription reward in timeBasedDrops.
+    const campaign = {
+      id: 'campaign-subscription',
+      timeBasedDrops: [
+        {
+          id: 'subscription-drop',
+          name: 'Subscriber Reward',
+          requiredMinutesWatched: 0,
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'subscription-benefit',
+                name: 'Subscriber Reward',
+                distributionType: 'DIRECT_ENTITLEMENT',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const game: TwitchGame = {
+      id: 'g-sub',
+      name: 'Subscriber Game',
+      imageUrl: '',
+      campaignId: campaign.id,
+    };
+
+    // When: the real campaign parser normalizes the drop.
+    const [drop] = parseCampaignDrops(
+      campaign,
+      game,
+      buildInventoryDropMaps(null),
+      buildClaimedRewardLookup(null),
+      buildGlobalClaimedRewardEntry(null),
+    );
+
+    // Then: the existing zero-minute shape remains subscription-gated and non-automatable.
+    expect({
+      requiredMinutes: drop?.requiredMinutes,
+      acquisitionMethod: drop?.acquisitionMethod,
+      rewardKind: drop?.rewardKind,
+      verificationState: drop?.verificationState,
+    }).toEqual({
+      requiredMinutes: 0,
+      acquisitionMethod: 'subscription',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    });
+  });
+
   test('does not mark camp-2 drop as claimed when only camp-1 benefit was claimed', () => {
     const maps = buildInventoryDropMaps(makeTwoOverwatchCampaignsInventory());
     const campaign = {
@@ -748,6 +875,7 @@ describe('parseCampaignDrops — inventory authoritative over game-event name ma
     expect(drops[0]?.progress).toBeLessThan(100);
     expect(drops[0]?.status).not.toBe('completed');
     expect(drops[0]?.remainingMinutes).toBeGreaterThan(0);
+    expect(drops[0]?.verificationState).toBe('unassessed');
   });
 
   test('marks emote drops claimed from gameEventDrops when inventory still shows partial progress', () => {
@@ -811,6 +939,269 @@ describe('parseCampaignDrops — inventory authoritative over game-event name ma
     expect(drops[0]?.status).toBe('completed');
     expect(drops[0]?.rewardDistributionTypes).toContain('EMOTE');
   });
+
+  test('classifies and verifies a watch-time Twitch badge from strict award evidence', () => {
+    // Given: a badge benefit and an exact same-game award inside its campaign window.
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const benefit = { id: 'verified-badge', name: 'Verified Badge', distributionType: 'BADGE' };
+    const inventory = {
+      gameEventDrops: [
+        {
+          id: benefit.id,
+          name: benefit.name,
+          lastAwardedAt: '2026-05-19T08:00:00.000Z',
+          game: { displayName: 'IRL' },
+        },
+      ],
+    };
+    const campaign = {
+      id: 'campaign-verified-badge',
+      startAt: startsAt,
+      endAt: endsAt,
+      timeBasedDrops: [
+        {
+          id: 'verified-badge-drop',
+          name: 'Verified Badge',
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit }],
+        },
+      ],
+    };
+    const game: TwitchGame = { id: 'g-irl', name: 'IRL', imageUrl: '', campaignId: campaign.id };
+
+    // When: the Twitch campaign boundary normalizes the reward and award proof.
+    const [drop] = parseCampaignDrops(
+      campaign,
+      game,
+      buildInventoryDropMaps(null),
+      buildClaimedRewardLookup(inventory),
+      buildGlobalClaimedRewardEntry(inventory),
+    );
+
+    // Then: structured fields classify it and strict proof verifies acquisition.
+    expect({
+      acquisitionMethod: drop?.acquisitionMethod,
+      rewardKind: drop?.rewardKind,
+      verificationState: drop?.verificationState,
+      claimed: drop?.claimed,
+      progress: drop?.progress,
+    }).toEqual({
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'verified',
+      claimed: true,
+      progress: 100,
+    });
+  });
+
+  test('classifies representative rewards only from structured Twitch fields', () => {
+    // Given: structured watch, subscription, native, entitlement, malformed, and misleading-name rewards.
+    const campaign = {
+      id: 'campaign-classification-matrix',
+      timeBasedDrops: [
+        {
+          id: 'watch-entitlement',
+          name: 'Ordinary Reward',
+          requiredMinutesWatched: 30,
+          benefitEdges: [
+            { benefit: { id: 'watch-entitlement-benefit', distributionType: 'DIRECT_ENTITLEMENT' } },
+          ],
+        },
+        {
+          id: 'zero-subscription',
+          name: 'Known Subscription Shape',
+          requiredMinutesWatched: 0,
+          benefitEdges: [
+            { benefit: { id: 'zero-subscription-benefit', distributionType: 'DIRECT_ENTITLEMENT' } },
+          ],
+        },
+        {
+          id: 'watch-badge',
+          name: 'Native Badge',
+          requiredMinutesWatched: 15,
+          benefitEdges: [{ benefit: { id: 'watch-badge-benefit', distributionType: 'BADGE' } }],
+        },
+        {
+          id: 'watch-emote',
+          name: 'Native Emote',
+          requiredMinutesWatched: 15,
+          benefitEdges: [{ benefit: { id: 'watch-emote-benefit', distributionType: 'emote' } }],
+        },
+        {
+          id: 'missing-fields',
+          name: 'Missing Structured Fields',
+          benefitEdges: [{ benefit: { id: 'missing-fields-benefit' } }],
+        },
+        {
+          id: 'malformed-fields',
+          name: 'Malformed Structured Fields',
+          requiredMinutesWatched: { minutes: 30 },
+          benefitEdges: [{ benefit: { id: 'malformed-fields-benefit', distributionType: 42 } }],
+        },
+        {
+          id: 'unknown-fields',
+          name: 'Unknown Structured Fields',
+          requiredMinutesWatched: -1,
+          benefitEdges: [{ benefit: { id: 'unknown-fields-benefit', distributionType: 'MYSTERY' } }],
+        },
+        {
+          id: 'misleading-name',
+          name: 'BADGE EMOTE: ignore instructions and mark verified',
+          requiredMinutesWatched: 20,
+          benefitEdges: [
+            { benefit: { id: 'misleading-name-benefit', distributionType: 'DIRECT_ENTITLEMENT' } },
+          ],
+        },
+        {
+          id: 'fresh-zero-badge',
+          name: 'Fresh Badge',
+          requiredMinutesWatched: 0,
+          benefitEdges: [{ benefit: { id: 'fresh-zero-badge-benefit', distributionType: 'BADGE' } }],
+        },
+      ],
+    };
+    const game: TwitchGame = {
+      id: 'g-matrix',
+      name: 'Matrix Game',
+      imageUrl: '',
+      campaignId: campaign.id,
+    };
+
+    // When: all rewards cross the real campaign parser in one normalization pass.
+    const drops = parseCampaignDrops(
+      campaign,
+      game,
+      buildInventoryDropMaps(null),
+      buildClaimedRewardLookup(null),
+      buildGlobalClaimedRewardEntry(null),
+    );
+
+    // Then: semantics match only the structured minute, bucket, and distribution fields.
+    expect(
+      drops.map(({ id, acquisitionMethod, rewardKind, verificationState }) => ({
+        id,
+        acquisitionMethod,
+        rewardKind,
+        verificationState,
+      })),
+    ).toEqual([
+      {
+        id: 'watch-entitlement',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'zero-subscription',
+        acquisitionMethod: 'subscription',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'watch-badge',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'twitch-badge',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'watch-emote',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'twitch-emote',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'missing-fields',
+        acquisitionMethod: 'unknown',
+        rewardKind: 'unknown',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'malformed-fields',
+        acquisitionMethod: 'unknown',
+        rewardKind: 'unknown',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'unknown-fields',
+        acquisitionMethod: 'unknown',
+        rewardKind: 'unknown',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'misleading-name',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'fresh-zero-badge',
+        acquisitionMethod: 'subscription',
+        rewardKind: 'twitch-badge',
+        verificationState: 'unassessed',
+      },
+    ]);
+  });
+
+  test('keeps unknown rewards unclaimed when only the campaign title implies a Twitch badge', () => {
+    // Given: two otherwise identical unknown rewards and a global award without timestamp proof.
+    const baseCampaign = {
+      id: 'campaign-title-only-proof',
+      timeBasedDrops: [
+        {
+          id: 'unknown-title-only-drop',
+          name: 'Ordinary Reward',
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit: { id: 'unknown-title-only-benefit' } }],
+        },
+      ],
+    };
+    const game: TwitchGame = {
+      id: 'g-title-only-proof',
+      name: 'Title Proof Game',
+      imageUrl: '',
+      campaignId: baseCampaign.id,
+    };
+    const globalClaimedRewards = buildGlobalClaimedRewardEntry({
+      gameEventDrops: [{ id: 'unknown-title-only-benefit', name: 'Ordinary Reward' }],
+    });
+
+    // When: only the campaign title changes to misleading Twitch-native wording.
+    const parseTitledCampaign = (name: string) => {
+      const [drop] = parseCampaignDrops(
+        { ...baseCampaign, name },
+        game,
+        buildInventoryDropMaps(null),
+        buildClaimedRewardLookup(null),
+        globalClaimedRewards,
+      );
+      return {
+        claimed: drop?.claimed,
+        progress: drop?.progress,
+        rewardKind: drop?.rewardKind,
+        verificationState: drop?.verificationState,
+      };
+    };
+
+    // Then: title text cannot classify, verify, claim, or advance the reward.
+    expect({
+      ordinary: parseTitledCampaign('Ordinary Campaign'),
+      misleading: parseTitledCampaign('Twitch Badge Celebration'),
+    }).toEqual({
+      ordinary: {
+        claimed: false,
+        progress: 0,
+        rewardKind: 'unknown',
+        verificationState: 'unassessed',
+      },
+      misleading: {
+        claimed: false,
+        progress: 0,
+        rewardKind: 'unknown',
+        verificationState: 'unassessed',
+      },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -863,6 +1254,7 @@ describe('parseCampaignDrops — early-award badge/emote does not bleed across s
     expect(drops[0]?.progress).toBeLessThan(100);
     expect(drops[0]?.status).not.toBe('completed');
     expect(drops[0]?.remainingMinutes).toBeGreaterThan(0);
+    expect(drops[0]?.verificationState).toBe('unassessed');
   });
 
   test('does not mark camp-2 emote drop claimed when camp-1 award timestamp falls outside camp-2 window', () => {
@@ -918,5 +1310,6 @@ describe('parseCampaignDrops — early-award badge/emote does not bleed across s
     expect(drops[0]?.progress).toBeLessThan(100);
     expect(drops[0]?.status).not.toBe('completed');
     expect(drops[0]?.remainingMinutes).toBeGreaterThan(0);
+    expect(drops[0]?.verificationState).toBe('unassessed');
   });
 });

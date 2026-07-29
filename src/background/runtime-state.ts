@@ -1,4 +1,11 @@
 import type { AppState } from '../types/index.ts';
+import { parseUnverifiableRewardKey } from './unverifiable-reward-key.ts';
+
+export interface UnverifiableRewardMarker {
+  progress: number;
+  currentMinutes: number;
+  markedAt: number;
+}
 
 export interface TimingState {
   lastStreamRotationAt: number;
@@ -28,6 +35,7 @@ export interface TimingState {
   // recycled worker can open a non-allowed streamer until the next full fetch.
   cachedCampaignChannelsMap: Record<string, string[] | null>;
   previousAllDropsCount: number;
+  unverifiableRewardsByKey: Record<string, UnverifiableRewardMarker>;
 }
 
 export function createInitialTimingState(): TimingState {
@@ -55,6 +63,7 @@ export function createInitialTimingState(): TimingState {
     avoidStreamerName: null,
     cachedCampaignChannelsMap: {},
     previousAllDropsCount: 0,
+    unverifiableRewardsByKey: {},
   };
 }
 
@@ -158,7 +167,50 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
       typeof source.previousAllDropsCount === 'number' && Number.isFinite(source.previousAllDropsCount)
         ? source.previousAllDropsCount
         : initial.previousAllDropsCount,
+    unverifiableRewardsByKey: normalizeUnverifiableRewardsByKey(source.unverifiableRewardsByKey),
   };
+}
+
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return typeof input === 'object' && input !== null && !Array.isArray(input);
+}
+
+function isUnverifiableRewardMarker(input: unknown): input is UnverifiableRewardMarker {
+  if (!isRecord(input)) {
+    return false;
+  }
+
+  return (
+    typeof input.progress === 'number' &&
+    Number.isFinite(input.progress) &&
+    input.progress >= 0 &&
+    input.progress <= 100 &&
+    typeof input.currentMinutes === 'number' &&
+    Number.isFinite(input.currentMinutes) &&
+    input.currentMinutes >= 0 &&
+    typeof input.markedAt === 'number' &&
+    Number.isFinite(input.markedAt) &&
+    input.markedAt >= 0
+  );
+}
+
+function normalizeUnverifiableRewardsByKey(input: unknown): Record<string, UnverifiableRewardMarker> {
+  if (!isRecord(input)) {
+    return {};
+  }
+
+  const result: Record<string, UnverifiableRewardMarker> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (parseUnverifiableRewardKey(key) === null || !isUnverifiableRewardMarker(value)) {
+      continue;
+    }
+    result[key] = {
+      progress: value.progress,
+      currentMinutes: value.currentMinutes,
+      markedAt: value.markedAt,
+    };
+  }
+  return result;
 }
 
 function normalizeCachedCampaignChannelsMap(input: unknown): Record<string, string[] | null> {
@@ -328,6 +380,7 @@ export interface ServiceWorkerState {
   // Consecutive empty-campaign API responses; require more than one before
   // treating an empty snapshot as authoritative and wiping queue/games.
   emptyCampaignRefreshStreak: number;
+  unverifiableRewardsByKey: Record<string, UnverifiableRewardMarker>;
 }
 
 export function createServiceWorkerState(): ServiceWorkerState {
@@ -369,5 +422,6 @@ export function createServiceWorkerState(): ServiceWorkerState {
     lastHeartbeatAt: 0,
     lastGamesCacheRefreshAt: 0,
     emptyCampaignRefreshStreak: 0,
+    unverifiableRewardsByKey: {},
   };
 }

@@ -1,5 +1,11 @@
 import type { TwitchDrop } from '../../types/index.ts';
-import { normalizeText, toIsoDate } from './parsing.ts';
+import {
+  buildConflictedRewardBenefitKeys,
+  classifyRewardKind,
+  normalizeText,
+  rewardBenefitKey,
+  toIsoDate,
+} from './parsing.ts';
 
 export type ClaimedRewardAwardedAt =
   | { kind: 'valid'; value: string }
@@ -13,6 +19,13 @@ export interface ClaimedRewardEntry {
 }
 
 export type ClaimedRewardLookup = Map<string, ClaimedRewardEntry>;
+
+export type StrictGameEventRewardProof = {
+  readonly benefitIds: readonly string[];
+  readonly gameName: string;
+  readonly window: { readonly startsAt: string | null; readonly endsAt: string | null };
+  readonly conflictedBenefitKeys: ReadonlySet<string>;
+};
 
 function createClaimedRewardEntry(): ClaimedRewardEntry {
   return { nameCounts: new Map(), idCounts: new Map(), idAwardedAt: new Map() };
@@ -121,7 +134,7 @@ function awardWithinWindow(awardedAt: string, startsAt: string | null, endsAt: s
 
 function entryHasAwardedBenefit(
   entry: ClaimedRewardEntry | undefined,
-  benefitIds: string[],
+  benefitIds: readonly string[],
   window: { startsAt: string | null; endsAt: string | null },
   allowMissingTimestamp = true,
 ): boolean {
@@ -171,7 +184,8 @@ export function matchClaimedReward(
 }
 
 export function isEarlyAwardableTwitchReward(rewardDistributionTypes?: string[]): boolean {
-  return (rewardDistributionTypes ?? []).some((type) => type === 'BADGE' || type === 'EMOTE');
+  const rewardKind = classifyRewardKind(rewardDistributionTypes ?? []);
+  return rewardKind === 'twitch-badge' || rewardKind === 'twitch-emote';
 }
 
 // Strict match used when inventory state already exists for a drop (a specific campaign
@@ -181,11 +195,21 @@ export function isEarlyAwardableTwitchReward(rewardDistributionTypes?: string[])
 // inventory state to be authoritative over. This is what keeps a badge/emote claimed in
 // one campaign from marking a sibling campaign's drop for the same game as done.
 export function hasClaimedGameEventReward(
-  benefitIds: string[],
-  gameName: string,
   claimedRewards: ClaimedRewardLookup,
-  window: { startsAt: string | null; endsAt: string | null },
+  proof: StrictGameEventRewardProof,
 ): boolean {
+  const { benefitIds, gameName, window, conflictedBenefitKeys } = proof;
+  if (!window.startsAt || !window.endsAt) return false;
+
+  const startsAtMs = new Date(window.startsAt).getTime();
+  const endsAtMs = new Date(window.endsAt).getTime();
+  if (!Number.isFinite(startsAtMs) || !Number.isFinite(endsAtMs) || startsAtMs >= endsAtMs) {
+    return false;
+  }
+  if (benefitIds.some((benefitId) => conflictedBenefitKeys.has(rewardBenefitKey(gameName, benefitId)))) {
+    return false;
+  }
+
   const gameClaimedRewards = claimedRewards.get(gameName.toLowerCase());
   return entryHasAwardedBenefit(gameClaimedRewards, benefitIds, window, false);
 }
@@ -197,9 +221,10 @@ export function resolveDropClaimedStatus(
   hasInventoryState: boolean,
   isEarlyAwardable: boolean,
 ): boolean {
-  if (hasInventoryState) {
-    return claimedFromInventory || (isEarlyAwardable && strictClaimedFromGameEvents);
+  if (isEarlyAwardable) {
+    return claimedFromInventory || strictClaimedFromGameEvents;
   }
+  if (hasInventoryState) return claimedFromInventory;
   return claimedFromInventory || claimedFromGameEvents;
 }
 
@@ -207,40 +232,47 @@ export function applyEarlyTwitchRewardClaimsToDrops(
   drops: TwitchDrop[],
   inventoryRaw: unknown,
 ): TwitchDrop[] {
-  if (!inventoryRaw || typeof inventoryRaw !== 'object') {
-    return drops;
-  }
-
   const claimedRewards = buildClaimedRewardLookup(inventoryRaw);
+  const conflictedBenefitKeys = buildConflictedRewardBenefitKeys(
+    drops.map((drop) => ({
+      gameName: drop.gameName,
+      campaignIdentity: drop.campaignId ?? drop.id,
+      benefitIds: drop.benefitIds ?? [],
+    })),
+  );
 
   return drops.map((drop) => {
-    if (drop.claimed || !isEarlyAwardableTwitchReward(drop.rewardDistributionTypes)) {
-      return drop;
-    }
+    const classifiedRewardKind = classifyRewardKind(drop.rewardDistributionTypes ?? []);
+    const rewardKind = classifiedRewardKind === 'unknown' ? drop.rewardKind : classifiedRewardKind;
+    const isTwitchNative = rewardKind === 'twitch-badge' || rewardKind === 'twitch-emote';
+    const normalizedDrop: TwitchDrop = {
+      ...drop,
+      rewardKind,
+      verificationState: isTwitchNative ? drop.verificationState : 'unassessed',
+    };
+
+    if (!isTwitchNative || normalizedDrop.verificationState === 'verified') return normalizedDrop;
 
     const benefitIds = drop.benefitIds ?? [];
-    if (benefitIds.length === 0) {
-      return drop;
-    }
+    if (benefitIds.length === 0) return normalizedDrop;
 
-    // Drops already carry inventory-derived state by this point (applyInventoryToDrops
-    // ran first), so the strict, campaign-window-scoped match is always the right one here.
-    const claimedFromGameEvents = hasClaimedGameEventReward(benefitIds, drop.gameName, claimedRewards, {
-      startsAt: drop.startsAt ?? null,
-      endsAt: drop.endsAt ?? null,
+    const claimedFromGameEvents = hasClaimedGameEventReward(claimedRewards, {
+      benefitIds,
+      gameName: drop.gameName,
+      window: { startsAt: drop.startsAt ?? null, endsAt: drop.endsAt ?? null },
+      conflictedBenefitKeys,
     });
 
-    if (!claimedFromGameEvents) {
-      return drop;
-    }
+    if (!claimedFromGameEvents) return normalizedDrop;
 
     return {
-      ...drop,
+      ...normalizedDrop,
       claimed: true,
       claimable: false,
       progress: 100,
       remainingMinutes: 0,
       status: 'completed',
+      verificationState: 'verified',
     };
   });
 }

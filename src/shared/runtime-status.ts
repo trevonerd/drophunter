@@ -1,4 +1,4 @@
-import type { AppState } from '../types/index.ts';
+import type { AppState, CampaignRemainderReason } from '../types/index.ts';
 
 export type RuntimeMode = 'idle' | 'running' | 'paused' | 'recovering' | 'stopped-terminal';
 
@@ -14,6 +14,10 @@ export interface TerminalStopState {
 }
 
 export const MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS = 3;
+
+function assertNever(value: never): never {
+  throw new TypeError(`Unhandled campaign remainder reason: ${String(value)}`);
+}
 
 export function deriveRuntimeMode(
   state: Pick<AppState, 'isRunning' | 'isPaused' | 'recoveryReason' | 'lastStopReason'>,
@@ -96,14 +100,37 @@ export function formatStopReason(reason: string | null | undefined): string | nu
       return 'No active Twitch Drops campaigns found';
     case 'queue-complete':
       return 'Queue complete';
+    case 'farming-complete':
+      return 'Farming finished';
     case 'sign-in-required':
       return 'Twitch sign-in required';
     case 'stall-skipped':
       return 'Stopped after repeated stalls';
+    case 'unverifiable-twitch':
+      return 'Farming finished · Twitch reward acquisition could not be verified';
     case 'user-stop':
       return 'Stopped';
     default:
       return reason ?? null;
+  }
+}
+
+export function formatFarmingCompleteStatusLines(
+  reasons: readonly CampaignRemainderReason[],
+): readonly string[] {
+  return (['subscription-required', 'unverifiable-twitch'] as const)
+    .filter((reason) => reasons.includes(reason))
+    .map(formatFarmingCompleteStatusLine);
+}
+
+export function formatFarmingCompleteStatusLine(reason: CampaignRemainderReason): string {
+  switch (reason) {
+    case 'subscription-required':
+      return 'All farmable rewards claimed · Subscription required for remaining rewards';
+    case 'unverifiable-twitch':
+      return 'Farming finished · Twitch reward acquisition could not be verified';
+    default:
+      return assertNever(reason);
   }
 }
 

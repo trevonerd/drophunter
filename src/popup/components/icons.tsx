@@ -171,3 +171,18 @@ export function SubIcon() {
     </svg>
   );
 }
+
+export function QuestionIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M9.75 9a2.25 2.25 0 1 1 4.14 1.21c-.43.68-1.89 1.08-1.89 2.79"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="16.5" r="1" fill="currentColor" />
+    </svg>
+  );
+}

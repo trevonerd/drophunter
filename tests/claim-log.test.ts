@@ -1,18 +1,17 @@
-import { beforeEach, afterEach, describe, expect, test } from 'bun:test';
-import { setupChromeMocks } from './mocks/chrome.ts';
-import type { ChromeMocks } from './mocks/chrome.ts';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
-  normalizeClaimLogEntry,
-  createClaimLogEntry,
-  loadClaimLog,
   appendClaimLogEntries,
   clearClaimLog,
+  createClaimLogEntry,
   detectNewlyClaimedDrops,
+  loadClaimLog,
+  normalizeClaimLogEntry,
   recordClaimedDrops,
   setClaimRecordedHandler,
 } from '../src/background/claim-log.ts';
-import type { ClaimLogEntry } from '../src/types/index.ts';
-import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
+import type { ClaimLogEntry, TwitchDrop, TwitchGame } from '../src/types/index.ts';
+import type { ChromeMocks } from './mocks/chrome.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
 
 function makeDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
   return {
@@ -27,6 +26,9 @@ function makeDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     currentMinutes: 60,
     claimed: true,
     claimable: false,
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
     ...overrides,
   };
 }
@@ -105,9 +107,17 @@ describe('normalizeClaimLogEntry', () => {
 
   test('passes through optional fields', () => {
     const raw = {
-      id: 'x', dropId: 'd', dropName: 'n', gameId: 'g', gameName: 'g2',
-      campaignLabel: 'l', claimedAt: 1, claimId: 'c1', benefitName: 'b1',
-      campaignId: 'camp1', campaignName: 'cn',
+      id: 'x',
+      dropId: 'd',
+      dropName: 'n',
+      gameId: 'g',
+      gameName: 'g2',
+      campaignLabel: 'l',
+      claimedAt: 1,
+      claimId: 'c1',
+      benefitName: 'b1',
+      campaignId: 'camp1',
+      campaignName: 'cn',
     };
     const result = normalizeClaimLogEntry(raw);
     expect(result?.claimId).toBe('c1');
@@ -220,9 +230,7 @@ describe('loadClaimLog / appendClaimLogEntries / clearClaimLog', () => {
   });
 
   test('FIFO trim keeps only newest by claimedAt when over maxEntries', async () => {
-    const entries = Array.from({ length: 7 }, (_, i) =>
-      makeEntry({ id: `e${i}`, claimedAt: i * 100 }),
-    );
+    const entries = Array.from({ length: 7 }, (_, i) => makeEntry({ id: `e${i}`, claimedAt: i * 100 }));
     await appendClaimLogEntries(entries, 5);
     const loaded = await loadClaimLog();
     expect(loaded).toHaveLength(5);
@@ -284,6 +292,75 @@ describe('loadClaimLog / appendClaimLogEntries / clearClaimLog', () => {
     expect(await loadClaimLog()).toHaveLength(2);
   });
 
+  test('recordClaimedDrops ignores unverified Twitch-native claimed observations', async () => {
+    const target = {
+      appState: { totalDropsClaimed: 4, availableGames: [makeGame()] },
+    };
+    const drops = [
+      makeDrop({ id: 'native-unassessed', rewardKind: 'twitch-badge', verificationState: 'unassessed' }),
+      makeDrop({ id: 'native-unverifiable', rewardKind: 'twitch-emote', verificationState: 'unverifiable' }),
+    ];
+
+    const added = await recordClaimedDrops(target, drops);
+
+    expect(added).toBe(0);
+    expect(target.appState.totalDropsClaimed).toBe(4);
+    expect(await loadClaimLog()).toEqual([]);
+  });
+
+  test('recordClaimedDrops logs verified native and ordinary acquired rewards once', async () => {
+    const target = {
+      appState: { totalDropsClaimed: 0, availableGames: [makeGame()] },
+    };
+    const verifiedNative = makeDrop({
+      id: 'native-verified',
+      rewardKind: 'twitch-badge',
+      verificationState: 'verified',
+    });
+    const ordinaryAcquired = makeDrop({ id: 'ordinary-acquired', rewardKind: 'in-game' });
+
+    expect(await recordClaimedDrops(target, [verifiedNative, ordinaryAcquired])).toBe(2);
+    expect(target.appState.totalDropsClaimed).toBe(2);
+    expect((await loadClaimLog()).map((entry) => entry.dropId)).toEqual([
+      'native-verified',
+      'ordinary-acquired',
+    ]);
+    expect(await recordClaimedDrops(target, [verifiedNative, ordinaryAcquired])).toBe(0);
+    expect(target.appState.totalDropsClaimed).toBe(2);
+    expect(await loadClaimLog()).toHaveLength(2);
+  });
+
+  test('parser-shaped unassessed native transition does not reach claim recording', async () => {
+    const target = {
+      appState: { totalDropsClaimed: 0, availableGames: [makeGame()] },
+    };
+    const previousDrops = [
+      makeDrop({
+        id: 'native-refresh-transition',
+        claimed: false,
+        progress: 0,
+        claimable: true,
+        rewardKind: 'twitch-badge',
+      }),
+    ];
+    const parsedNextDrops = [
+      makeDrop({
+        id: 'native-refresh-transition',
+        claimed: true,
+        rewardKind: 'twitch-badge',
+        verificationState: 'unassessed',
+      }),
+    ];
+
+    const detected = detectNewlyClaimedDrops(parsedNextDrops, previousDrops);
+    const added = await recordClaimedDrops(target, detected);
+
+    expect(detected).toEqual([]);
+    expect(added).toBe(0);
+    expect(target.appState.totalDropsClaimed).toBe(0);
+    expect(await loadClaimLog()).toEqual([]);
+  });
+
   test('recordClaimedDrops invokes the registered claim handler for new entries', async () => {
     const recorded: string[] = [];
     setClaimRecordedHandler(async (entries) => {
@@ -301,7 +378,9 @@ describe('loadClaimLog / appendClaimLogEntries / clearClaimLog', () => {
 
 describe('detectNewlyClaimedDrops', () => {
   test('detects unclaimed→claimed transition', () => {
-    const before = [makeDrop({ id: 'd1', campaignId: 'camp-1', claimed: false })];
+    const before = [
+      makeDrop({ id: 'd1', campaignId: 'camp-1', claimed: false, progress: 0, claimable: true }),
+    ];
     const after = [makeDrop({ id: 'd1', campaignId: 'camp-1', claimed: true })];
     const result = detectNewlyClaimedDrops(after, before);
     expect(result).toHaveLength(1);
@@ -311,7 +390,7 @@ describe('detectNewlyClaimedDrops', () => {
   test('distinguishes duplicate drop ids across two campaigns', () => {
     const before = [
       makeDrop({ id: 'd1', campaignId: 'camp-1', claimed: true }),
-      makeDrop({ id: 'd1', campaignId: 'camp-2', claimed: false }),
+      makeDrop({ id: 'd1', campaignId: 'camp-2', claimed: false, progress: 0, claimable: true }),
     ];
     const after = [
       makeDrop({ id: 'd1', campaignId: 'camp-1', claimed: true }),
@@ -334,5 +413,23 @@ describe('detectNewlyClaimedDrops', () => {
       makeDrop({ id: 'd2', campaignId: 'camp-1', claimed: false }),
     ];
     expect(detectNewlyClaimedDrops(before, before)).toHaveLength(0);
+  });
+
+  test('requires verified acquisition for Twitch-native claim transitions', () => {
+    const before = [makeDrop({ id: 'native-transition', claimed: false, rewardKind: 'twitch-badge' })];
+    const unassessedAfter = [
+      makeDrop({ id: 'native-transition', claimed: true, rewardKind: 'twitch-badge' }),
+    ];
+    const verifiedAfter = [
+      makeDrop({
+        id: 'native-transition',
+        claimed: true,
+        rewardKind: 'twitch-badge',
+        verificationState: 'verified',
+      }),
+    ];
+
+    expect(detectNewlyClaimedDrops(unassessedAfter, before)).toEqual([]);
+    expect(detectNewlyClaimedDrops(verifiedAfter, before)).toHaveLength(1);
   });
 });

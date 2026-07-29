@@ -1,19 +1,26 @@
 import { describe, expect, test } from 'bun:test';
 import {
   annotateGameCompletion,
+  applyUnverifiableRewardMarker,
   clearSelectedCompletedIdleCampaignExt,
+  clearUnverifiableRewardMarker,
   compareDropPriority,
   completedDropKeys,
+  type DropsSnapshotProvenance,
   dropMatchesSelectedGame,
   dropRemainingMinutes,
   dropStateKey,
   isDropCampaignExpired,
+  markDropUnverifiable,
   normalizeGameSelection,
   projectDropsSnapshot,
+  recomputeSelectedCampaignSummaryAfterLocalMarker,
+  reconcileUnverifiableRewardMarkers,
   recordEmptyCampaignObservation,
   resetStateForAuthoritativeEmptyCampaignExt,
   splitDropsForSelectedGame,
 } from '../src/background/drops-projection.ts';
+import { refreshDropsData } from '../src/background/drops-tick.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import { dropMatchesGame } from '../src/shared/game-selection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
@@ -61,9 +68,312 @@ function makeState(overrides = {}) {
     stalledRecoveryAttempts: 0,
     recoveryNotificationSent: false,
     lastGamesCacheRefreshAt: 0,
+    unverifiableRewardsByKey: {},
     ...overrides,
   } as ServiceWorkerState;
 }
+
+describe('unverifiable reward markers', () => {
+  const nativeDrop = {
+    id: 'reward-1',
+    name: 'Twitch Badge',
+    gameId: 'game-1',
+    gameName: 'Game',
+    imageUrl: '',
+    campaignId: 'campaign-1',
+    progress: 99,
+    currentMinutes: 59,
+    claimed: false,
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'twitch-badge',
+    verificationState: 'unassessed',
+  } satisfies TwitchDrop;
+  const nativeMarkerKey = '["campaign-1","reward-1"]';
+
+  test('preserves the exact observed baseline when marking a campaign reward', () => {
+    // Given
+    const state = makeState();
+
+    // When
+    const marked = markDropUnverifiable(state, nativeDrop, 123_456);
+
+    // Then
+    expect(marked).toBe(true);
+    expect(state.unverifiableRewardsByKey).toEqual({
+      [nativeMarkerKey]: { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+    });
+    expect(applyUnverifiableRewardMarker(state, nativeDrop)).toMatchObject({
+      progress: 99,
+      currentMinutes: 59,
+      verificationState: 'unverifiable',
+    });
+  });
+
+  test('isolates equal reward ids by campaign when applying and clearing a marker', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 123_456);
+    const sibling = { ...nativeDrop, campaignId: 'campaign-2', progress: 0, currentMinutes: 0 };
+
+    // When
+    const siblingProjection = applyUnverifiableRewardMarker(state, sibling);
+    const clearedSibling = clearUnverifiableRewardMarker(state, sibling);
+
+    // Then
+    expect(siblingProjection.verificationState).toBe('unassessed');
+    expect(clearedSibling).toBe(false);
+    expect(state.unverifiableRewardsByKey[nativeMarkerKey]).toBeDefined();
+  });
+
+  test('isolates delimiter-bearing reward and campaign identities', () => {
+    // Given
+    const state = makeState();
+    const first = { ...nativeDrop, id: 'a::b', campaignId: 'c' };
+    const second = { ...nativeDrop, id: 'a', campaignId: 'b::c' };
+
+    // When
+    markDropUnverifiable(state, first, 123_456);
+    const firstProjection = applyUnverifiableRewardMarker(state, first);
+    const secondProjection = applyUnverifiableRewardMarker(state, second);
+
+    // Then
+    expect(firstProjection.verificationState).toBe('unverifiable');
+    expect(secondProjection.verificationState).toBe('unassessed');
+    expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(1);
+  });
+
+  test('never persists a marker when campaign identity is missing or blank', () => {
+    // Given
+    const state = makeState();
+    const missingCampaign = { ...nativeDrop, campaignId: undefined };
+    const blankCampaign = { ...nativeDrop, campaignId: '   ' };
+
+    // When
+    const missingMarked = markDropUnverifiable(state, missingCampaign, 1);
+    const blankMarked = markDropUnverifiable(state, blankCampaign, 2);
+
+    // Then
+    expect(missingMarked).toBe(false);
+    expect(blankMarked).toBe(false);
+    expect(state.unverifiableRewardsByKey).toEqual({});
+    expect(applyUnverifiableRewardMarker(state, missingCampaign).verificationState).toBe('unassessed');
+  });
+
+  test('preserves an exact zero-percent marker on equal inventory evidence', () => {
+    // Given
+    const state = makeState();
+    const zeroPercentDrop = { ...nativeDrop, progress: 0, currentMinutes: 0 };
+    markDropUnverifiable(state, zeroPercentDrop, 10);
+
+    // When
+    const [projected] = reconcileUnverifiableRewardMarkers(
+      state,
+      { games: [], drops: [zeroPercentDrop], updatedAt: 11 },
+      'inventory-partial',
+    );
+
+    // Then
+    expect(projected.progress).toBe(0);
+    expect(projected.currentMinutes).toBe(0);
+    expect(projected.verificationState).toBe('unverifiable');
+    expect(state.unverifiableRewardsByKey[nativeMarkerKey]).toBeDefined();
+  });
+
+  test('preserves a marker on weaker campaign evidence', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+    const weaker = { ...nativeDrop, progress: 90, currentMinutes: 50 };
+
+    // When
+    const [projected] = reconcileUnverifiableRewardMarkers(
+      state,
+      {
+        games: [{ id: 'game-1', name: 'Game', imageUrl: '', campaignId: 'campaign-1', dropCount: 1 }],
+        drops: [weaker],
+        updatedAt: 11,
+      },
+      'campaign-authoritative',
+    );
+
+    // Then
+    expect(projected.verificationState).toBe('unverifiable');
+    expect(state.unverifiableRewardsByKey[nativeMarkerKey]).toBeDefined();
+  });
+
+  test('preserves a marker when only cached data is projected', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+    const cachedAhead = { ...nativeDrop, progress: 100, currentMinutes: 60 };
+
+    // When
+    const [projected] = reconcileUnverifiableRewardMarkers(
+      state,
+      { games: [], drops: [cachedAhead], updatedAt: 11 },
+      'cached',
+    );
+
+    // Then
+    expect(projected.verificationState).toBe('unverifiable');
+    expect(state.unverifiableRewardsByKey[nativeMarkerKey]).toBeDefined();
+  });
+
+  test('clears a marker on forward percentage evidence', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+    const progressed = { ...nativeDrop, progress: 100 };
+
+    // When
+    const [projected] = reconcileUnverifiableRewardMarkers(
+      state,
+      { games: [], drops: [progressed], updatedAt: 11 },
+      'inventory-partial',
+    );
+
+    // Then
+    expect(projected.verificationState).toBe('unassessed');
+    expect(state.unverifiableRewardsByKey).toEqual({});
+  });
+
+  test('clears a marker on forward watched-minutes evidence', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+    const progressed = { ...nativeDrop, currentMinutes: 60 };
+
+    // When
+    const [projected] = reconcileUnverifiableRewardMarkers(
+      state,
+      { games: [], drops: [progressed], updatedAt: 11 },
+      'inventory-partial',
+    );
+
+    // Then
+    expect(projected.verificationState).toBe('unassessed');
+    expect(state.unverifiableRewardsByKey).toEqual({});
+  });
+
+  test('clears a marker only on verified acquisition rather than claimed status alone', () => {
+    // Given
+    const claimedWithoutProof = { ...nativeDrop, claimed: true, progress: 100 };
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+
+    // When
+    const [projected] = reconcileUnverifiableRewardMarkers(
+      state,
+      { games: [], drops: [claimedWithoutProof], updatedAt: 11 },
+      'cached',
+    );
+
+    // Then
+    expect(projected.verificationState).toBe('unverifiable');
+    expect(state.unverifiableRewardsByKey[nativeMarkerKey]).toBeDefined();
+  });
+
+  test('clears a marker when strict verified acquisition arrives', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+    const verified = { ...nativeDrop, claimed: true, progress: 100, verificationState: 'verified' as const };
+
+    // When
+    const [projected] = reconcileUnverifiableRewardMarkers(
+      state,
+      { games: [], drops: [verified], updatedAt: 11 },
+      'inventory-partial',
+    );
+
+    // Then
+    expect(projected.verificationState).toBe('verified');
+    expect(state.unverifiableRewardsByKey).toEqual({});
+  });
+
+  test('clears a marker when the reward is expired', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+    const expired = { ...nativeDrop, endsAt: '2000-01-01T00:00:00.000Z' };
+
+    // When
+    reconcileUnverifiableRewardMarkers(state, { games: [], drops: [expired], updatedAt: 11 }, 'cached');
+
+    // Then
+    expect(state.unverifiableRewardsByKey).toEqual({});
+  });
+
+  test('preserves disappearance on partial inventory data', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+
+    // When
+    reconcileUnverifiableRewardMarkers(state, { games: [], drops: [], updatedAt: 11 }, 'inventory-partial');
+
+    // Then
+    expect(state.unverifiableRewardsByKey[nativeMarkerKey]).toBeDefined();
+  });
+
+  test('clears a marker when an authoritative complete campaign omits the reward', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+    const replacement = { ...nativeDrop, id: 'reward-2', progress: 0, currentMinutes: 0 };
+
+    // When
+    reconcileUnverifiableRewardMarkers(
+      state,
+      {
+        games: [{ id: 'game-1', name: 'Game', imageUrl: '', campaignId: 'campaign-1', dropCount: 1 }],
+        drops: [replacement],
+        updatedAt: 11,
+      },
+      'campaign-authoritative',
+    );
+
+    // Then
+    expect(state.unverifiableRewardsByKey).toEqual({});
+  });
+
+  test('preserves a missing reward when the authoritative campaign set is incomplete', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+    const replacement = { ...nativeDrop, id: 'reward-2', progress: 0, currentMinutes: 0 };
+
+    // When
+    reconcileUnverifiableRewardMarkers(
+      state,
+      {
+        games: [{ id: 'game-1', name: 'Game', imageUrl: '', campaignId: 'campaign-1', dropCount: 2 }],
+        drops: [replacement],
+        updatedAt: 11,
+      },
+      'campaign-authoritative',
+    );
+
+    // Then
+    expect(state.unverifiableRewardsByKey[nativeMarkerKey]).toBeDefined();
+  });
+
+  test('clears all markers on an authoritative empty campaign snapshot', () => {
+    // Given
+    const state = makeState();
+    markDropUnverifiable(state, nativeDrop, 10);
+
+    // When
+    reconcileUnverifiableRewardMarkers(
+      state,
+      { games: [], drops: [], updatedAt: 11 },
+      'campaign-authoritative',
+    );
+
+    // Then
+    expect(state.unverifiableRewardsByKey).toEqual({});
+  });
+});
 
 describe('dropRemainingMinutes', () => {
   test('returns finite value as-is with Math.max(0)', () => {
@@ -266,32 +576,315 @@ describe('normalizeGameSelection', () => {
 
 describe('annotateGameCompletion', () => {
   test('sets allDropsCompleted=true when all matching drops are completed', () => {
-    const game = { id: 'g1', name: 'Game', imageUrl: '' };
+    const game = { id: 'g1', name: 'Game', imageUrl: '', campaignId: 'c1', dropCount: 2 };
     const drops = [
-      { id: 'd1', gameId: 'g1', progress: 100, claimed: true, gameName: 'Game', imageUrl: '' } as TwitchDrop,
-      { id: 'd2', gameId: 'g1', progress: 100, claimed: true, gameName: 'Game', imageUrl: '' } as TwitchDrop,
+      {
+        id: 'd1',
+        gameId: 'g1',
+        progress: 100,
+        currentMinutes: 1,
+        claimed: true,
+        gameName: 'Game',
+        imageUrl: '',
+        campaignId: 'c1',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      } satisfies TwitchDrop,
+      {
+        id: 'd2',
+        gameId: 'g1',
+        progress: 100,
+        currentMinutes: 1,
+        claimed: true,
+        gameName: 'Game',
+        imageUrl: '',
+        campaignId: 'c1',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      } satisfies TwitchDrop,
     ];
-    const result = annotateGameCompletion([game], drops);
+    const result = annotateGameCompletion([game], drops, 'campaign-authoritative');
     expect(result[0].allDropsCompleted).toBe(true);
+    expect(result[0].rewardSummary).toEqual({ completion: 'all-acquired', remainderReasons: [] });
   });
 
   test('sets allDropsCompleted=false when not all matching drops are completed', () => {
-    const game = { id: 'g1', name: 'Game', imageUrl: '', allDropsCompleted: true };
+    const game = {
+      id: 'g1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'c1',
+      dropCount: 2,
+      allDropsCompleted: true,
+    };
     const drops = [
-      { id: 'd1', gameId: 'g1', progress: 100, claimed: true, gameName: 'Game', imageUrl: '' } as TwitchDrop,
-      { id: 'd2', gameId: 'g1', progress: 50, claimed: false, gameName: 'Game', imageUrl: '' } as TwitchDrop,
+      {
+        id: 'd1',
+        gameId: 'g1',
+        progress: 100,
+        currentMinutes: 1,
+        claimed: true,
+        gameName: 'Game',
+        imageUrl: '',
+        campaignId: 'c1',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      } satisfies TwitchDrop,
+      {
+        id: 'd2',
+        gameId: 'g1',
+        progress: 50,
+        currentMinutes: 1,
+        claimed: false,
+        gameName: 'Game',
+        imageUrl: '',
+        campaignId: 'c1',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      } satisfies TwitchDrop,
     ];
-    const result = annotateGameCompletion([game], drops);
+    const result = annotateGameCompletion([game], drops, 'campaign-authoritative');
     expect(result[0].allDropsCompleted).toBe(false);
+    expect(result[0].rewardSummary).toEqual({ completion: 'farmable', remainderReasons: [] });
   });
 
-  test('leaves game unchanged when no matching drops exist', () => {
-    const game = { id: 'g1', name: 'Game', imageUrl: '' };
+  test('leaves the prior summary unchanged when expected reward count is not met', () => {
+    const game = {
+      id: 'g1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'c1',
+      dropCount: 1,
+      rewardSummary: { completion: 'farmable' as const, remainderReasons: [] },
+    };
     const drops = [
-      { id: 'd1', gameId: 'g2', progress: 50, claimed: false, gameName: 'Other', imageUrl: '' } as TwitchDrop,
+      {
+        id: 'd1',
+        gameId: 'g2',
+        progress: 50,
+        currentMinutes: 1,
+        claimed: false,
+        gameName: 'Other',
+        imageUrl: '',
+        campaignId: 'c2',
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      } satisfies TwitchDrop,
     ];
-    const result = annotateGameCompletion([game], drops);
-    expect(result[0].allDropsCompleted).toBeUndefined();
+    const result = annotateGameCompletion([game], drops, 'campaign-authoritative');
+    expect(result[0]).toBe(game);
+  });
+
+  test('derives subscription-only farming completion from a complete campaign set', () => {
+    const game = { id: 'g1', name: 'Game', imageUrl: '', campaignId: 'c1', dropCount: 1 };
+    const subscription = {
+      id: 'd1',
+      name: 'Sub reward',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      campaignId: 'c1',
+      progress: 0,
+      currentMinutes: 0,
+      claimed: false,
+      acquisitionMethod: 'subscription',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    } satisfies TwitchDrop;
+
+    const [result] = annotateGameCompletion([game], [subscription], 'campaign-authoritative');
+
+    expect(result.rewardSummary).toEqual({
+      completion: 'farming-complete',
+      remainderReasons: ['subscription-required'],
+    });
+    expect(result.allDropsCompleted).toBe(false);
+  });
+
+  test('derives unverifiable-only farming completion from a complete campaign set', () => {
+    const game = { id: 'g1', name: 'Game', imageUrl: '', campaignId: 'c1', dropCount: 1 };
+    const unverifiable = {
+      id: 'd1',
+      name: 'Badge',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      campaignId: 'c1',
+      progress: 99,
+      currentMinutes: 59,
+      claimed: false,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'unverifiable',
+    } satisfies TwitchDrop;
+
+    const [result] = annotateGameCompletion([game], [unverifiable], 'campaign-authoritative');
+
+    expect(result.rewardSummary).toEqual({
+      completion: 'farming-complete',
+      remainderReasons: ['unverifiable-twitch'],
+    });
+    expect(result.allDropsCompleted).toBe(false);
+  });
+
+  test('orders both farming-complete remainder reasons deterministically', () => {
+    const game = { id: 'g1', name: 'Game', imageUrl: '', campaignId: 'c1', dropCount: 2 };
+    const subscription = {
+      id: 'd1',
+      name: 'Sub reward',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      campaignId: 'c1',
+      progress: 0,
+      currentMinutes: 0,
+      claimed: false,
+      acquisitionMethod: 'subscription',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    } satisfies TwitchDrop;
+    const unverifiable = {
+      id: 'd2',
+      name: 'Emote',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      campaignId: 'c1',
+      progress: 0,
+      currentMinutes: 0,
+      claimed: false,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-emote',
+      verificationState: 'unverifiable',
+    } satisfies TwitchDrop;
+
+    const [result] = annotateGameCompletion([game], [subscription, unverifiable], 'campaign-authoritative');
+
+    expect(result.rewardSummary).toEqual({
+      completion: 'farming-complete',
+      remainderReasons: ['subscription-required', 'unverifiable-twitch'],
+    });
+    expect(result.allDropsCompleted).toBe(false);
+  });
+
+  test('preserves a prior summary for partial inventory and cached projections', () => {
+    const summary = { completion: 'all-acquired' as const, remainderReasons: [] };
+    const game = {
+      id: 'g1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'c1',
+      dropCount: 1,
+      rewardSummary: summary,
+      allDropsCompleted: true,
+    };
+    const partial = {
+      id: 'd1',
+      name: 'Reward',
+      gameId: 'g1',
+      gameName: 'Game',
+      imageUrl: '',
+      campaignId: 'c1',
+      progress: 0,
+      currentMinutes: 0,
+      claimed: false,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    } satisfies TwitchDrop;
+
+    const [inventoryResult] = annotateGameCompletion([game], [partial], 'inventory-partial');
+    const [cachedResult] = annotateGameCompletion([game], [partial], 'cached');
+
+    expect(inventoryResult).toBe(game);
+    expect(cachedResult).toBe(game);
+  });
+});
+
+describe('recomputeSelectedCampaignSummaryAfterLocalMarker', () => {
+  test('updates only an already-known complete selected campaign with exact reward identity proof', () => {
+    const selectedGame = {
+      id: 'selected-game',
+      name: 'Selected Game',
+      imageUrl: '',
+      campaignId: 'selected-campaign',
+      dropCount: 1,
+      rewardSummary: { completion: 'farmable' as const, remainderReasons: [] },
+      allDropsCompleted: false,
+    };
+    const siblingGame = {
+      id: 'selected-game',
+      name: 'Selected Game',
+      imageUrl: '',
+      campaignId: 'sibling-campaign',
+      dropCount: 1,
+      rewardSummary: { completion: 'farmable' as const, remainderReasons: [] },
+      allDropsCompleted: false,
+    };
+    const unverifiable = {
+      id: 'badge',
+      name: 'Badge',
+      gameId: selectedGame.id,
+      gameName: selectedGame.name,
+      imageUrl: '',
+      campaignId: selectedGame.campaignId,
+      progress: 99,
+      currentMinutes: 59,
+      claimed: false,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'unverifiable',
+    } satisfies TwitchDrop;
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame,
+        availableGames: [selectedGame, siblingGame],
+        queue: [selectedGame, siblingGame],
+        allDrops: [unverifiable],
+      },
+    });
+
+    expect(recomputeSelectedCampaignSummaryAfterLocalMarker(state)).toBe(true);
+    expect(state.appState.selectedGame?.rewardSummary).toEqual({
+      completion: 'farming-complete',
+      remainderReasons: ['unverifiable-twitch'],
+    });
+    expect(state.appState.availableGames[0]).toBe(state.appState.selectedGame);
+    expect(state.appState.queue[0]).toBe(state.appState.selectedGame);
+    expect(state.appState.availableGames[1]).toBe(siblingGame);
+    expect(state.appState.queue[1]).toBe(siblingGame);
+  });
+
+  test('refuses recomputation when exact reward-count proof is missing', () => {
+    const selectedGame = {
+      id: 'selected-game',
+      name: 'Selected Game',
+      imageUrl: '',
+      campaignId: 'selected-campaign',
+      dropCount: 2,
+      rewardSummary: { completion: 'farmable' as const, remainderReasons: [] },
+      allDropsCompleted: false,
+    };
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame,
+        availableGames: [selectedGame],
+        queue: [selectedGame],
+        allDrops: [],
+      },
+    });
+
+    expect(recomputeSelectedCampaignSummaryAfterLocalMarker(state)).toBe(false);
+    expect(state.appState.selectedGame).toBe(selectedGame);
+    expect(state.appState.availableGames[0]).toBe(selectedGame);
+    expect(state.appState.queue[0]).toBe(selectedGame);
   });
 });
 
@@ -299,7 +892,7 @@ describe('projectDropsSnapshot', () => {
   test('handles empty snapshot', () => {
     const state = makeState();
     const snapshot = { games: [], drops: [], updatedAt: Date.now() };
-    projectDropsSnapshot(state, snapshot);
+    projectDropsSnapshot(state, snapshot, 'campaign-authoritative');
     expect(state.appState.availableGames).toEqual([]);
     expect(state.appState.allDrops).toEqual([]);
   });
@@ -319,7 +912,7 @@ describe('projectDropsSnapshot', () => {
     } as TwitchDrop;
     const snapshot = { games: [game], drops: [drop], updatedAt: Date.now() };
 
-    projectDropsSnapshot(state, snapshot);
+    projectDropsSnapshot(state, snapshot, 'campaign-authoritative');
 
     expect(state.appState.availableGames).toHaveLength(1);
     expect(state.appState.availableGames[0].name).toBe('Destiny 2');
@@ -335,10 +928,492 @@ describe('projectDropsSnapshot', () => {
     const newGame = { id: 'new', name: 'New Game', imageUrl: '' };
     const snapshot = { games: [newGame], drops: [], updatedAt: Date.now() };
 
-    projectDropsSnapshot(state, snapshot);
+    projectDropsSnapshot(state, snapshot, 'campaign-authoritative');
 
     expect(state.appState.availableGames).toHaveLength(1);
     expect(state.appState.availableGames[0].id).toBe('new');
+  });
+
+  test('reconciles a marker before selecting the current reward', () => {
+    // Given
+    const game = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      dropCount: 1,
+    } satisfies TwitchGame;
+    const drop = {
+      id: 'reward-1',
+      name: 'Badge',
+      gameId: 'game-1',
+      gameName: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      progress: 99,
+      currentMinutes: 59,
+      claimed: false,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'unassessed',
+    } satisfies TwitchDrop;
+    const state = makeState({
+      appState: { ...createInitialState(), selectedGame: game, availableGames: [game] },
+    });
+    markDropUnverifiable(state, drop, 10);
+
+    // When
+    projectDropsSnapshot(state, { games: [game], drops: [drop], updatedAt: 11 }, 'campaign-authoritative');
+
+    // Then
+    expect(state.appState.currentDrop).toBeNull();
+    expect(state.appState.pendingDrops[0]?.verificationState).toBe('unverifiable');
+    expect(state.appState.availableGames[0]?.rewardSummary).toEqual({
+      completion: 'farming-complete',
+      remainderReasons: ['unverifiable-twitch'],
+    });
+  });
+
+  test('keeps a Twitch-native reward without campaign identity on the ordinary path', () => {
+    // Given
+    const game = { id: 'game-1', name: 'Game', imageUrl: '' } satisfies TwitchGame;
+    const drop = {
+      id: 'reward-1',
+      name: 'Badge',
+      gameId: 'game-1',
+      gameName: 'Game',
+      imageUrl: '',
+      progress: 0,
+      currentMinutes: 0,
+      claimed: false,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'unassessed',
+    } satisfies TwitchDrop;
+    const state = makeState({ appState: { ...createInitialState(), selectedGame: game } });
+
+    // When
+    projectDropsSnapshot(state, { games: [game], drops: [drop], updatedAt: 11 }, 'cached');
+
+    // Then
+    expect(state.unverifiableRewardsByKey).toEqual({});
+    expect(state.appState.currentDrop?.id).toBe('reward-1');
+    expect(state.appState.currentDrop?.verificationState).toBe('unassessed');
+  });
+
+  test.each([
+    'inventory-partial',
+    'cached',
+  ] as const)('preserves an authoritative campaign summary through a %s projection', (provenance) => {
+    // Given
+    const summary = {
+      completion: 'farming-complete' as const,
+      remainderReasons: ['unverifiable-twitch' as const],
+    };
+    const previousGame = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      dropCount: 1,
+      rewardSummary: summary,
+      allDropsCompleted: false,
+    } satisfies TwitchGame;
+    const rawGame = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      dropCount: 1,
+    } satisfies TwitchGame;
+    const state = makeState({
+      appState: { ...createInitialState(), availableGames: [previousGame] },
+    });
+
+    // When
+    projectDropsSnapshot(state, { games: [rawGame], drops: [], updatedAt: 11 }, provenance);
+
+    // Then
+    expect(state.appState.availableGames[0]?.rewardSummary).toEqual(summary);
+    expect(state.appState.availableGames[0]?.allDropsCompleted).toBe(false);
+  });
+
+  test('preserves a trusted summary through a count-incomplete authoritative replacement', () => {
+    // Given
+    const rewardSummary = { completion: 'all-acquired' as const, remainderReasons: [] };
+    const previousGame = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      dropCount: 2,
+      rewardSummary,
+      allDropsCompleted: true,
+    } satisfies TwitchGame;
+    const incomingGame = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      dropCount: 2,
+    } satisfies TwitchGame;
+    const oneKnownReward = {
+      id: 'reward-1',
+      name: 'Reward',
+      gameId: 'game-1',
+      gameName: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      progress: 50,
+      currentMinutes: 30,
+      claimed: false,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    } satisfies TwitchDrop;
+    const state = makeState({
+      appState: { ...createInitialState(), availableGames: [previousGame] },
+    });
+
+    // When
+    projectDropsSnapshot(
+      state,
+      { games: [incomingGame], drops: [oneKnownReward], updatedAt: 11 },
+      'campaign-authoritative',
+    );
+
+    // Then
+    expect(state.appState.availableGames[0]?.rewardSummary).toEqual(rewardSummary);
+    expect(state.appState.availableGames[0]?.allDropsCompleted).toBe(true);
+  });
+
+  test('rejects a blank reward id from authoritative completeness proof', () => {
+    // Given
+    const game = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      dropCount: 0,
+    } satisfies TwitchGame;
+    const malformedAcquiredReward = {
+      id: '   ',
+      name: 'Malformed Reward',
+      gameId: 'game-1',
+      gameName: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      progress: 100,
+      currentMinutes: 60,
+      claimed: true,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    } satisfies TwitchDrop;
+    const state = makeState();
+
+    // When
+    projectDropsSnapshot(
+      state,
+      { games: [game], drops: [malformedAcquiredReward], updatedAt: 11 },
+      'campaign-authoritative',
+    );
+
+    // Then
+    expect(state.appState.availableGames[0]?.rewardSummary).toBeUndefined();
+    expect(state.appState.availableGames[0]?.allDropsCompleted).toBeUndefined();
+  });
+});
+
+describe('refreshDropsData projection provenance', () => {
+  const cachedDrop = {
+    id: 'reward-1',
+    name: 'Reward',
+    gameId: 'game-1',
+    gameName: 'Game',
+    imageUrl: '',
+    campaignId: 'campaign-1',
+    progress: 0,
+    currentMinutes: 0,
+    claimed: false,
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
+  } satisfies TwitchDrop;
+  const game = {
+    id: 'game-1',
+    name: 'Game',
+    imageUrl: '',
+    campaignId: 'campaign-1',
+    dropCount: 1,
+  } satisfies TwitchGame;
+
+  function projectionDeps(observed: DropsSnapshotProvenance[]) {
+    return {
+      replaceAvailableGames: (games: TwitchGame[]) => games,
+      getGameDisplayLabel: (candidate: TwitchGame) => candidate.name,
+      projectDropsSnapshot: (
+        _state: ServiceWorkerState,
+        _snapshot: { games: TwitchGame[]; drops: TwitchDrop[]; updatedAt: number },
+        provenance: DropsSnapshotProvenance,
+      ) => observed.push(provenance),
+      normalizeQueueSelection: () => undefined,
+    };
+  }
+
+  test('passes campaign-authoritative provenance for a successful campaign refresh', async () => {
+    // Given
+    const observed: DropsSnapshotProvenance[] = [];
+    const state = makeState();
+
+    // When
+    await refreshDropsData(
+      state,
+      { includeCampaignFetch: true, suppressNotifications: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => ({ games: [game], drops: [cachedDrop], updatedAt: 1 }),
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      projectionDeps(observed),
+    );
+
+    // Then
+    expect(observed).toEqual(['campaign-authoritative']);
+  });
+
+  test('passes inventory-partial provenance for a successful inventory refresh', async () => {
+    // Given
+    const observed: DropsSnapshotProvenance[] = [];
+    const state = makeState({ cachedDropsSnapshot: [cachedDrop] });
+
+    // When
+    await refreshDropsData(
+      state,
+      { includeInventoryFetch: true, suppressNotifications: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => null,
+        onFetchInventorySnapshotFromApi: async () => ({
+          games: [],
+          drops: [{ ...cachedDrop, progress: 1 }],
+          updatedAt: 1,
+        }),
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      projectionDeps(observed),
+    );
+
+    // Then
+    expect(observed).toEqual(['inventory-partial']);
+  });
+
+  test('passes cached provenance after a failed campaign refresh', async () => {
+    // Given
+    const observed: DropsSnapshotProvenance[] = [];
+    const state = makeState({ cachedDropsSnapshot: [cachedDrop] });
+
+    // When
+    await refreshDropsData(
+      state,
+      { includeCampaignFetch: true, suppressNotifications: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => null,
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      projectionDeps(observed),
+    );
+
+    // Then
+    expect(observed).toEqual(['cached']);
+  });
+
+  test('clears stale projection after a successful explicit zero-reward campaign refresh', async () => {
+    // Given
+    const staleDrop = {
+      ...cachedDrop,
+      name: 'Badge',
+      progress: 99,
+      currentMinutes: 59,
+      rewardKind: 'twitch-badge',
+    } satisfies TwitchDrop;
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+        availableGames: [game],
+        allDrops: [staleDrop],
+        pendingDrops: [staleDrop],
+      },
+      cachedDropsSnapshot: [staleDrop],
+    });
+    markDropUnverifiable(state, staleDrop, 10);
+
+    // When
+    await refreshDropsData(
+      state,
+      { includeCampaignFetch: true, suppressNotifications: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => ({
+          games: [{ ...game, dropCount: 0 }],
+          drops: [],
+          updatedAt: 2,
+        }),
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      {
+        replaceAvailableGames: (games) => games,
+        getGameDisplayLabel: (candidate) => candidate.name,
+        projectDropsSnapshot,
+        normalizeQueueSelection: () => undefined,
+      },
+    );
+
+    // Then
+    expect(state.unverifiableRewardsByKey).toEqual({});
+    expect(state.cachedDropsSnapshot).toEqual([]);
+    expect(state.appState.allDrops).toEqual([]);
+    expect(state.appState.currentDrop).toBeNull();
+  });
+
+  test('clears markers and stale projected games when campaign refresh returns no games or drops', async () => {
+    // Given
+    const staleDrop = {
+      ...cachedDrop,
+      name: 'Badge',
+      progress: 99,
+      currentMinutes: 59,
+      rewardKind: 'twitch-badge',
+    } satisfies TwitchDrop;
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+        availableGames: [game],
+        allDrops: [staleDrop],
+        pendingDrops: [staleDrop],
+        currentDrop: staleDrop,
+      },
+      cachedDropsSnapshot: [staleDrop],
+    });
+    markDropUnverifiable(state, staleDrop, 10);
+
+    // When
+    await refreshDropsData(
+      state,
+      { includeCampaignFetch: true, suppressNotifications: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => ({ games: [], drops: [], updatedAt: 2 }),
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      {
+        replaceAvailableGames: (games) => games,
+        getGameDisplayLabel: (candidate) => candidate.name,
+        projectDropsSnapshot,
+        normalizeQueueSelection: () => undefined,
+      },
+    );
+
+    // Then
+    expect(state.unverifiableRewardsByKey).toEqual({});
+    expect(state.appState.availableGames).toEqual([]);
+    expect(state.appState.allDrops).toEqual([]);
+    expect(state.appState.pendingDrops).toEqual([]);
+    expect(state.appState.currentDrop).toBeNull();
+  });
+
+  test('preserves markers and projected state when inventory refresh returns an empty partial snapshot', async () => {
+    // Given
+    const staleDrop = {
+      ...cachedDrop,
+      name: 'Badge',
+      progress: 99,
+      currentMinutes: 59,
+      rewardKind: 'twitch-badge',
+    } satisfies TwitchDrop;
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+        availableGames: [game],
+        allDrops: [staleDrop],
+        pendingDrops: [staleDrop],
+        currentDrop: staleDrop,
+      },
+      cachedDropsSnapshot: [staleDrop],
+    });
+    markDropUnverifiable(state, staleDrop, 10);
+
+    // When
+    await refreshDropsData(
+      state,
+      { includeInventoryFetch: true, suppressNotifications: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => null,
+        onFetchInventorySnapshotFromApi: async () => ({ games: [], drops: [], updatedAt: 2 }),
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      {
+        replaceAvailableGames: (games) => games,
+        getGameDisplayLabel: (candidate) => candidate.name,
+        projectDropsSnapshot,
+        normalizeQueueSelection: () => undefined,
+      },
+    );
+
+    // Then
+    expect(state.unverifiableRewardsByKey['["campaign-1","reward-1"]']).toBeDefined();
+    expect(state.appState.availableGames.map((candidate) => candidate.id)).toEqual(['game-1']);
+    expect(state.appState.allDrops.map((drop) => drop.id)).toEqual(['reward-1']);
+  });
+
+  test('preserves markers and projected state when campaign refresh fails and cached state is used', async () => {
+    // Given
+    const staleDrop = {
+      ...cachedDrop,
+      name: 'Badge',
+      progress: 99,
+      currentMinutes: 59,
+      rewardKind: 'twitch-badge',
+    } satisfies TwitchDrop;
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+        availableGames: [game],
+        allDrops: [staleDrop],
+        pendingDrops: [staleDrop],
+        currentDrop: staleDrop,
+      },
+      cachedDropsSnapshot: [staleDrop],
+    });
+    markDropUnverifiable(state, staleDrop, 10);
+
+    // When
+    await refreshDropsData(
+      state,
+      { includeCampaignFetch: true, suppressNotifications: true },
+      {
+        onFetchDropsSnapshotFromApi: async () => null,
+        onEvaluateDropTransitions: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+      {
+        replaceAvailableGames: (games) => games,
+        getGameDisplayLabel: (candidate) => candidate.name,
+        projectDropsSnapshot,
+        normalizeQueueSelection: () => undefined,
+      },
+    );
+
+    // Then
+    expect(state.unverifiableRewardsByKey['["campaign-1","reward-1"]']).toBeDefined();
+    expect(state.appState.availableGames.map((candidate) => candidate.id)).toEqual(['game-1']);
+    expect(state.appState.allDrops.map((drop) => drop.id)).toEqual(['reward-1']);
   });
 });
 
@@ -390,7 +1465,9 @@ describe('splitDropsForSelectedGame', () => {
       currentMinutes: 30,
       claimed: false,
       campaignId: 'c1',
-      dropType: 'time-based',
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
     } as TwitchDrop;
 
     const state = makeState({
@@ -420,9 +1497,11 @@ describe('splitDropsForSelectedGame', () => {
       claimed: true,
       claimable: false,
       campaignId: 'c1',
-      dropType: 'time-based',
       requiredMinutes: 60,
       remainingMinutes: 0,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
     } as TwitchDrop;
 
     const state = makeState({
@@ -439,6 +1518,47 @@ describe('splitDropsForSelectedGame', () => {
     expect(state.appState.currentDrop).toBeNull();
   });
 
+  test('claimed Twitch-native observation without verification does not become currentDrop', () => {
+    const game = { id: 'g1', name: 'IL', imageUrl: '', campaignId: 'c1' };
+    const claimedBadge = {
+      id: 'badge-1',
+      name: 'Claimed Badge',
+      gameId: 'g1',
+      gameName: 'IL',
+      imageUrl: '',
+      progress: 100,
+      currentMinutes: 60,
+      claimed: true,
+      campaignId: 'c1',
+      requiredMinutes: 60,
+      remainingMinutes: 0,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'unassessed',
+    } satisfies TwitchDrop;
+    const watchReward = {
+      ...claimedBadge,
+      id: 'watch-1',
+      name: 'Next Reward',
+      progress: 20,
+      currentMinutes: 12,
+      claimed: false,
+      remainingMinutes: 48,
+      rewardKind: 'in-game',
+    } satisfies TwitchDrop;
+    const state = makeState({
+      appState: {
+        ...createInitialState(),
+        selectedGame: game,
+      },
+    });
+
+    splitDropsForSelectedGame(state, [claimedBadge, watchReward]);
+
+    expect(state.appState.pendingDrops).toHaveLength(2);
+    expect(state.appState.currentDrop?.id).toBe('watch-1');
+  });
+
   test('fully watched unclaimable drop does not become currentDrop', () => {
     const game = { id: 'g1', name: 'Subnautica', imageUrl: '', campaignId: 'c1' };
     const earnedDrop = {
@@ -452,10 +1572,12 @@ describe('splitDropsForSelectedGame', () => {
       claimed: false,
       claimable: false,
       campaignId: 'c1',
-      dropType: 'time-based',
       requiredMinutes: 60,
       remainingMinutes: 0,
       status: 'completed',
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
     } as TwitchDrop;
 
     const state = makeState({
@@ -486,9 +1608,11 @@ describe('splitDropsForSelectedGame', () => {
         claimed: true,
         claimable: false,
         campaignId: 'c1',
-        dropType: 'time-based',
         requiredMinutes: 60,
         remainingMinutes: 0,
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
       },
       {
         id: 'd2',
@@ -501,9 +1625,11 @@ describe('splitDropsForSelectedGame', () => {
         claimed: true,
         claimable: false,
         campaignId: 'c1',
-        dropType: 'time-based',
         requiredMinutes: 120,
         remainingMinutes: 0,
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
       },
     ] as TwitchDrop[];
 
@@ -532,6 +1658,9 @@ describe('splitDropsForSelectedGame', () => {
       progress: 20,
       currentMinutes: 0,
       claimed: false,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
     } as TwitchDrop;
 
     const state = makeState({
@@ -555,7 +1684,9 @@ describe('splitDropsForSelectedGame', () => {
       currentMinutes: 20,
       claimed: false,
       campaignId: 'c1',
-      dropType: 'time-based',
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
     } as TwitchDrop;
     const nextDrop = {
       ...previousDrop,
@@ -603,32 +1734,51 @@ describe('clearSelectedCompletedIdleCampaignExt', () => {
 
   const completedDrop = {
     id: 'drop-1',
-    game: { id: 'game-1', name: 'Test Game' } as TwitchGame,
+    name: 'Completed Reward',
+    gameId: 'game-1',
+    gameName: 'Test Game',
+    imageUrl: '',
     campaignId: 'campaign-1',
-    dropType: 'watch-time',
     claimed: true,
-    claimedAt: '2026-01-01T00:00:00.000Z',
+    progress: 100,
     currentMinutes: 100,
     requiredMinutes: 100,
-  } as TwitchDrop;
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
+  } satisfies TwitchDrop;
 
   const farmablePendingDrop = {
     id: 'drop-2',
-    game: { id: 'game-1', name: 'Test Game' } as TwitchGame,
+    name: 'Pending Reward',
+    gameId: 'game-1',
+    gameName: 'Test Game',
+    imageUrl: '',
     campaignId: 'campaign-1',
-    dropType: 'watch-time',
+    claimed: false,
+    progress: 50,
     currentMinutes: 50,
     requiredMinutes: 100,
-  } as TwitchDrop;
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
+  } satisfies TwitchDrop;
 
-  const eventDrop = {
+  const subscriptionDrop = {
     id: 'drop-3',
-    game: { id: 'game-1', name: 'Test Game' } as TwitchGame,
+    name: 'Subscriber Reward',
+    gameId: 'game-1',
+    gameName: 'Test Game',
+    imageUrl: '',
     campaignId: 'campaign-1',
-    dropType: 'event-based',
+    claimed: false,
+    progress: 50,
     currentMinutes: 50,
     requiredMinutes: 100,
-  } as TwitchDrop;
+    acquisitionMethod: 'subscription',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
+  } satisfies TwitchDrop;
 
   test('no-op when isRunning=true', () => {
     const state = makeState({
@@ -683,16 +1833,16 @@ describe('clearSelectedCompletedIdleCampaignExt', () => {
     expect(state.appState.allDrops).toEqual([farmablePendingDrop]);
   });
 
-  test('wipes when only non-farmable event-based drops remain', () => {
+  test('wipes when only a subscription-gated reward remains', () => {
     const state = makeState({
       appState: {
         ...createInitialState(),
         selectedGame,
         queue: [],
-        allDrops: [eventDrop],
-        pendingDrops: [eventDrop],
+        allDrops: [subscriptionDrop],
+        pendingDrops: [subscriptionDrop],
       },
-      cachedDropsSnapshot: [eventDrop],
+      cachedDropsSnapshot: [subscriptionDrop],
     });
     clearSelectedCompletedIdleCampaignExt(state);
     expect(state.appState.selectedGame).toBeNull();
@@ -726,7 +1876,7 @@ describe('clearSelectedCompletedIdleCampaignExt', () => {
 });
 
 describe('resetStateForAuthoritativeEmptyCampaignExt', () => {
-  test('wipes all 12 fields', () => {
+  test('wipes volatile campaign state including unverifiable markers', () => {
     const game: TwitchGame = { id: 'g1', name: 'G1' } as TwitchGame;
     const drop = { id: 'd1' } as TwitchDrop;
     const state = makeState({
@@ -745,6 +1895,9 @@ describe('resetStateForAuthoritativeEmptyCampaignExt', () => {
       cachedDropsSnapshot: [drop],
       cachedCampaignChannelsMap: { 'campaign-1': ['streamer-a'] },
       previousAllDropsCount: 9,
+      unverifiableRewardsByKey: {
+        '["c1","d1"]': { progress: 99, currentMinutes: 59, markedAt: 10 },
+      },
     });
     resetStateForAuthoritativeEmptyCampaignExt(state);
     expect(state.appState.availableGames).toEqual([]);
@@ -758,6 +1911,7 @@ describe('resetStateForAuthoritativeEmptyCampaignExt', () => {
     expect(state.cachedDropsSnapshot).toEqual([]);
     expect(state.cachedCampaignChannelsMap).toEqual({});
     expect(state.previousAllDropsCount).toBe(0);
+    expect(state.unverifiableRewardsByKey).toEqual({});
   });
 });
 

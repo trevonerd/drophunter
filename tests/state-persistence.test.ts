@@ -1,23 +1,23 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
-import { setupChromeMocks } from './mocks/chrome.ts';
-import type { ChromeMocks } from './mocks/chrome.ts';
-import {
-  sessionDebugSummary,
-  markActivity,
-  loadTimingState,
-  saveTimingState,
-  shouldRefreshGamesCache,
-  broadcastStateUpdate,
-  loadState,
-  saveState,
-  resetStateForInactivity,
-  setTimingSaveDebounceMsForTests,
-  clearPendingTimingStateSaveForTests,
-} from '../src/background/state-persistence.ts';
-import { createInitialState } from '../src/shared/utils.ts';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
-import type { AppState } from '../src/types/index.ts';
+import {
+  broadcastStateUpdate,
+  clearPendingTimingStateSaveForTests,
+  loadState,
+  loadTimingState,
+  markActivity,
+  resetStateForInactivity,
+  saveState,
+  saveTimingState,
+  sessionDebugSummary,
+  setTimingSaveDebounceMsForTests,
+  shouldRefreshGamesCache,
+} from '../src/background/state-persistence.ts';
 import type { TwitchSession } from '../src/background/twitch-api/types.ts';
+import { createInitialState } from '../src/shared/utils.ts';
+import type { AppState } from '../src/types/index.ts';
+import type { ChromeMocks } from './mocks/chrome.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
 
 function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
@@ -173,9 +173,7 @@ describe('loadState', () => {
     );
 
     expect(state.appState.dropsPageRefreshInProgress).toBe(false);
-    expect((mocks.storage.local._store.get('appState') as AppState).dropsPageRefreshInProgress).toBe(
-      false,
-    );
+    expect((mocks.storage.local._store.get('appState') as AppState).dropsPageRefreshInProgress).toBe(false);
   });
 });
 
@@ -215,6 +213,9 @@ describe('loadTimingState / saveTimingState', () => {
       dropClaimRetryAtById: new Map([['drop1', 999]]),
       offlineChecks: 1,
       avoidStreamerName: 'bad-streamer',
+      unverifiableRewardsByKey: {
+        '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+      },
     });
 
     await saveTimingState(state);
@@ -237,9 +238,12 @@ describe('loadTimingState / saveTimingState', () => {
     expect(saved.lastRecoveryAttemptAt).toBe(8000);
     expect(saved.stalledRecoveryAttempts).toBe(1);
     expect(saved.recoveryNotificationSent).toBe(true);
-    expect((saved.dropClaimRetryAtById as Record<string, number>)).toEqual({ drop1: 999 });
+    expect(saved.dropClaimRetryAtById as Record<string, number>).toEqual({ drop1: 999 });
     expect(saved.offlineChecks).toBe(1);
     expect(saved.avoidStreamerName).toBe('bad-streamer');
+    expect(saved.unverifiableRewardsByKey).toEqual({
+      '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+    });
   });
 
   test('loadTimingState restores timing from local storage', async () => {
@@ -266,6 +270,9 @@ describe('loadTimingState / saveTimingState', () => {
       recoveryNotificationSent: false,
       offlineChecks: 1,
       avoidStreamerName: 'bad-streamer',
+      unverifiableRewardsByKey: {
+        '["campaign","reward"]': { progress: 88, currentMinutes: 44, markedAt: 123_456 },
+      },
     });
 
     await loadTimingState(state);
@@ -291,6 +298,58 @@ describe('loadTimingState / saveTimingState', () => {
     expect(state.recoveryNotificationSent).toBe(false);
     expect(state.offlineChecks).toBe(1);
     expect(state.avoidStreamerName).toBe('bad-streamer');
+    expect(state.unverifiableRewardsByKey).toEqual({
+      '["campaign","reward"]': { progress: 88, currentMinutes: 44, markedAt: 123_456 },
+    });
+  });
+
+  test('loadTimingState rejects malformed unverifiable reward markers without touching other timing fields', async () => {
+    const state = createMinimalState({
+      lastTrackedProgress: 77,
+      lastTrackedMinutes: 55,
+      unverifiableRewardsByKey: {
+        '["campaign","existing"]': { progress: 50, currentMinutes: 30, markedAt: 123 },
+      },
+    });
+    mocks.storage.local._store.set('timingState', {
+      lastTrackedProgress: 88,
+      lastTrackedMinutes: 66,
+      unverifiableRewardsByKey: {
+        '["campaign","valid"]': { progress: 0, currentMinutes: 0, markedAt: 456 },
+        '["campaign","nan-progress"]': { progress: Number.NaN, currentMinutes: 1, markedAt: 456 },
+        '["campaign","negative-minutes"]': { progress: 1, currentMinutes: -1, markedAt: 456 },
+        'non-record': null,
+      },
+    });
+
+    await loadTimingState(state);
+
+    expect(state.lastTrackedProgress).toBe(88);
+    expect(state.lastTrackedMinutes).toBe(66);
+    expect(state.unverifiableRewardsByKey).toEqual({
+      '["campaign","valid"]': { progress: 0, currentMinutes: 0, markedAt: 456 },
+    });
+  });
+
+  test('loadTimingState turns a malformed marker record into an empty record', async () => {
+    const state = createMinimalState({
+      lastTrackedProgress: 77,
+      lastTrackedMinutes: 55,
+      unverifiableRewardsByKey: {
+        '["campaign","existing"]': { progress: 50, currentMinutes: 30, markedAt: 123 },
+      },
+    });
+    mocks.storage.local._store.set('timingState', {
+      lastTrackedProgress: 88,
+      lastTrackedMinutes: 66,
+      unverifiableRewardsByKey: ['not-a-record'],
+    });
+
+    await loadTimingState(state);
+
+    expect(state.lastTrackedProgress).toBe(88);
+    expect(state.lastTrackedMinutes).toBe(66);
+    expect(state.unverifiableRewardsByKey).toEqual({});
   });
 
   test('loadTimingState resets offlineChecks and avoidStreamerName when absent from storage', async () => {
@@ -340,6 +399,9 @@ describe('loadTimingState / saveTimingState', () => {
       dropClaimRetryAtById: new Map([['dropX', 98765]]),
       offlineChecks: 1,
       avoidStreamerName: 'round-trip-streamer',
+      unverifiableRewardsByKey: {
+        '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+      },
     });
 
     await saveTimingState(original);
@@ -366,6 +428,7 @@ describe('loadTimingState / saveTimingState', () => {
     expect(restored.dropClaimRetryAtById.get('dropX')).toBe(98765);
     expect(restored.offlineChecks).toBe(original.offlineChecks);
     expect(restored.avoidStreamerName).toBe(original.avoidStreamerName);
+    expect(restored.unverifiableRewardsByKey).toEqual(original.unverifiableRewardsByKey);
   });
 });
 
@@ -475,7 +538,7 @@ describe('saveState', () => {
 
     const stored = mocks.storage.local._store;
     expect((stored.get('appState') as AppState).isRunning).toBe(true);
-    expect((stored.get('dropsSnapshotCache') as any[])).toHaveLength(2);
+    expect(stored.get('dropsSnapshotCache') as any[]).toHaveLength(2);
   });
 
   test('calls broadcastStateUpdate after persisting', async () => {
@@ -559,10 +622,17 @@ describe('resetStateForInactivity', () => {
     await chrome.storage.session.set({ timingState: staleTiming });
 
     const state = createMinimalState({
-      appState: createAppState({ isRunning: true, activeStreamer: { id: 's1', name: 'streamer', displayName: 'Streamer', isLive: true }, tabId: 321 }),
+      appState: createAppState({
+        isRunning: true,
+        activeStreamer: { id: 's1', name: 'streamer', displayName: 'Streamer', isLive: true },
+        tabId: 321,
+      }),
       lastProgressAdvanceAt: 123456,
       recoveryBackoffUntil: staleTiming.recoveryBackoffUntil,
       stalledRecoveryAttempts: 3,
+      unverifiableRewardsByKey: {
+        '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
+      },
     });
 
     await resetStateForInactivity(
@@ -592,5 +662,6 @@ describe('resetStateForInactivity', () => {
     expect(mocks.storage.session._store.has('timingState')).toBe(false);
     expect(state.appState.tabId).toBeNull();
     expect(state.appState.activeStreamer).toBeNull();
+    expect(state.unverifiableRewardsByKey).toEqual({});
   });
 });

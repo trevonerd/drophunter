@@ -1,6 +1,122 @@
 // Extracted from src/popup/App.tsx (presentation formatting helpers).
-import { formatRecoveryAttemptLabel, formatRecoveryReason, formatRetryLabel } from '../shared/runtime-status';
-import type { ExpiryStatus } from '../types';
+import { getGameDisplayLabel, isSameGameIdentity } from '../shared/game-selection';
+import {
+  formatFarmingCompleteStatusLine,
+  formatRecoveryAttemptLabel,
+  formatRecoveryReason,
+  formatRetryLabel,
+} from '../shared/runtime-status';
+import type { CampaignCompletion, CampaignRemainderReason, ExpiryStatus, TwitchGame } from '../types';
+
+export type CampaignIndicatorKind =
+  | 'all-acquired'
+  | 'subscription-required'
+  | 'unverifiable-twitch'
+  | 'disconnected';
+
+export type CampaignStatusLine = {
+  readonly reason: CampaignRemainderReason | 'farming-complete';
+  readonly text: string;
+};
+
+function assertNever(value: never): never {
+  throw new TypeError(`Unhandled campaign indicator: ${String(value)}`);
+}
+
+function campaignCompletion(game: TwitchGame): CampaignCompletion {
+  return game.rewardSummary?.completion ?? (game.allDropsCompleted === true ? 'all-acquired' : 'farmable');
+}
+
+export function isCampaignFarmable(game: TwitchGame): boolean {
+  return campaignCompletion(game) === 'farmable';
+}
+
+export function isCampaignFarmingComplete(game: TwitchGame): boolean {
+  return campaignCompletion(game) === 'farming-complete';
+}
+
+function campaignRemainderStatusLine(reason: CampaignRemainderReason): CampaignStatusLine {
+  return { reason, text: formatFarmingCompleteStatusLine(reason) };
+}
+
+export function getCampaignStatusLines(game: TwitchGame): readonly CampaignStatusLine[] {
+  if (!isCampaignFarmingComplete(game)) {
+    return [];
+  }
+
+  const reasons = game.rewardSummary?.remainderReasons ?? [];
+  const statusLines: CampaignStatusLine[] = [];
+  if (reasons.includes('subscription-required')) {
+    statusLines.push(campaignRemainderStatusLine('subscription-required'));
+  }
+  if (reasons.includes('unverifiable-twitch')) {
+    statusLines.push(campaignRemainderStatusLine('unverifiable-twitch'));
+  }
+  if (statusLines.length === 0) {
+    return [{ reason: 'farming-complete', text: 'No farmable rewards remain in this campaign.' }];
+  }
+  return statusLines;
+}
+
+export function formatFarmingCompleteQueueMessage(game: TwitchGame): string {
+  const statusLines = getCampaignStatusLines(game);
+  return statusLines.length > 0
+    ? statusLines.map((line) => line.text).join(' ')
+    : 'No farmable rewards remain in this campaign.';
+}
+
+export function getCampaignIndicatorKinds(game: TwitchGame): readonly CampaignIndicatorKind[] {
+  const indicators: CampaignIndicatorKind[] = [];
+  const completion = campaignCompletion(game);
+
+  switch (completion) {
+    case 'all-acquired':
+      indicators.push('all-acquired');
+      break;
+    case 'farming-complete':
+      if (game.rewardSummary?.remainderReasons.includes('subscription-required')) {
+        indicators.push('subscription-required');
+      }
+      if (game.rewardSummary?.remainderReasons.includes('unverifiable-twitch')) {
+        indicators.push('unverifiable-twitch');
+      }
+      break;
+    case 'farmable':
+      break;
+    default:
+      return assertNever(completion);
+  }
+
+  if (game.isConnected === false) {
+    indicators.push('disconnected');
+  }
+  return indicators;
+}
+
+function campaignIndicatorGlyph(indicator: CampaignIndicatorKind): string {
+  switch (indicator) {
+    case 'all-acquired':
+      return '\u2705';
+    case 'subscription-required':
+      return '\u{1F381}';
+    case 'unverifiable-twitch':
+      return '\u2754';
+    case 'disconnected':
+      return '\u{1F512}';
+    default:
+      return assertNever(indicator);
+  }
+}
+
+export function formatCampaignOptionLabel(game: TwitchGame, queuedGames: readonly TwitchGame[] = []): string {
+  const prefixes = getCampaignIndicatorKinds(game).map(campaignIndicatorGlyph);
+  if (queuedGames.some((queuedGame) => isSameGameIdentity(queuedGame, game))) {
+    prefixes.unshift('\u2637');
+  }
+  const prefix = prefixes.join(' ');
+  const label = `${getGameDisplayLabel(game)} · ${expiryLabel(game.expiryStatus)}`;
+  return prefix ? `${prefix} ${label}` : label;
+}
 
 export function formatLastUpdated(timestamp?: number): string {
   if (!timestamp) {

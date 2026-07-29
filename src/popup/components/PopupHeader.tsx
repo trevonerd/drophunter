@@ -42,7 +42,9 @@ export function PopupHeader({
     'dh-icon-button shrink-0 disabled:opacity-45 disabled:hover:bg-transparent dh-focus';
 
   return (
-    <div className="dh-header dh-popup-header px-3 py-2">
+    <div
+      className={`dh-header dh-popup-header px-3 py-2 ${state.isRunning ? 'dh-popup-header--running' : ''}`}
+    >
       <div className="dh-popup-header-brand">
         <h1 className="min-w-0 truncate font-extrabold text-sm text-[color:var(--dh-accent-ink)]">
           DropHunter

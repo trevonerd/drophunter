@@ -31,7 +31,7 @@ export function queueEntryMatchesGame(
     return true;
   }
   const resolvedQueuedGame = resolveGameFromState(state, queuedGame);
-  return isSameQueueIdentity(resolvedQueuedGame, game);
+  return resolvedQueuedGame !== null && isSameQueueIdentity(resolvedQueuedGame, game);
 }
 
 export function queueContainsGame(state: ServiceWorkerState, game: TwitchGame): boolean {
@@ -59,6 +59,9 @@ export function promoteQueueHead(state: ServiceWorkerState): TwitchGame | null {
     return null;
   }
   const nextGame = resolveGameFromState(state, queuedGame);
+  if (!nextGame) {
+    return null;
+  }
   state.appState.queue[0] = nextGame;
   state.appState.selectedGame = nextGame;
   return nextGame;
@@ -129,7 +132,7 @@ export function removeGameFromQueue(state: ServiceWorkerState, game: TwitchGame)
   removeQueueEntriesForGame(state, game);
 }
 
-export function resolveGameFromState(state: ServiceWorkerState, game: TwitchGame): TwitchGame {
+export function resolveGameFromState(state: ServiceWorkerState, game: TwitchGame): TwitchGame | null {
   const resolved = findMatchingGame(game, state.appState.availableGames);
   if (resolved) {
     if (resolved.id !== game.id || resolved.campaignId !== game.campaignId) {
@@ -143,6 +146,14 @@ export function resolveGameFromState(state: ServiceWorkerState, game: TwitchGame
       });
     }
     return resolved;
+  }
+
+  if (game.campaignId?.trim()) {
+    const queuedResolved = findMatchingGame(game, state.appState.queue);
+    if (queuedResolved) {
+      return queuedResolved;
+    }
+    return null;
   }
 
   const byNameCandidates = state.appState.availableGames

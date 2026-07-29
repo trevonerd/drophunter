@@ -1,5 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
-import { AppState, TwitchDrop } from '../types';
+import type { AppState, TwitchDrop } from '../types';
 import {
   DROPS_SNAPSHOT_CACHE_KEY,
   GAMES_CACHE_TTL_MS,
@@ -96,6 +96,7 @@ export async function saveTimingState(state: ServiceWorkerState) {
           avoidStreamerName: state.avoidStreamerName,
           cachedCampaignChannelsMap: state.cachedCampaignChannelsMap,
           previousAllDropsCount: state.previousAllDropsCount,
+          unverifiableRewardsByKey: state.unverifiableRewardsByKey,
         };
         await browser.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
       } catch {
@@ -139,6 +140,7 @@ export async function loadTimingState(state: ServiceWorkerState) {
     state.avoidStreamerName = saved.avoidStreamerName;
     state.cachedCampaignChannelsMap = saved.cachedCampaignChannelsMap;
     state.previousAllDropsCount = saved.previousAllDropsCount;
+    state.unverifiableRewardsByKey = saved.unverifiableRewardsByKey;
   } catch (error) {
     logWarn('Failed to load timing state from local storage:', String(error));
   }
@@ -221,7 +223,10 @@ export async function loadState(
       deps.LAST_ACTIVITY_AT_KEY,
     ]);
     if (result.appState) {
-      state.appState = { ...deps.createInitialState(), ...result.appState };
+      state.appState = {
+        ...deps.createInitialState(),
+        ...(result.appState as Partial<AppState>),
+      };
       if (!Array.isArray(state.appState.queue)) {
         state.appState.queue = [];
       }
@@ -231,8 +236,9 @@ export async function loadState(
       }
     }
     state.twitchSessionCache = deps.sanitizeTwitchSession(result[deps.TWITCH_SESSION_STORAGE_KEY] as unknown);
-    state.cachedDropsSnapshot = Array.isArray(result[deps.DROPS_SNAPSHOT_CACHE_KEY])
-      ? (result[deps.DROPS_SNAPSHOT_CACHE_KEY] as TwitchDrop[])
+    const storedDropsSnapshot = result[deps.DROPS_SNAPSHOT_CACHE_KEY];
+    state.cachedDropsSnapshot = Array.isArray(storedDropsSnapshot)
+      ? (storedDropsSnapshot as TwitchDrop[])
       : [];
     state.lastActivityAt =
       typeof result[deps.LAST_ACTIVITY_AT_KEY] === 'number'
@@ -295,6 +301,7 @@ export async function resetStateForInactivity(
   state.lastRecoveryAttemptAt = 0;
   state.stalledRecoveryAttempts = 0;
   state.recoveryNotificationSent = false;
+  state.unverifiableRewardsByKey = {};
   state.lastActivityAt = Date.now();
   await browser.storage.local
     .set({

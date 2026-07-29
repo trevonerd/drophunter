@@ -1,3 +1,14 @@
+export type RewardAcquisitionMethod = 'watch-time' | 'subscription' | 'other-event' | 'unknown';
+export type RewardKind = 'in-game' | 'twitch-badge' | 'twitch-emote' | 'unknown';
+export type RewardVerificationState = 'unassessed' | 'verified' | 'unverifiable';
+export type CampaignCompletion = 'farmable' | 'farming-complete' | 'all-acquired';
+export type CampaignRemainderReason = 'subscription-required' | 'unverifiable-twitch';
+
+export type CampaignRewardSummary = {
+  readonly completion: CampaignCompletion;
+  readonly remainderReasons: readonly CampaignRemainderReason[];
+};
+
 export interface TwitchGame {
   id: string;
   name: string;
@@ -12,6 +23,7 @@ export interface TwitchGame {
   dropCount?: number;
   isConnected?: boolean;
   allDropsCompleted?: boolean;
+  rewardSummary?: CampaignRewardSummary;
   allowedChannels?: string[] | null; // null = any channel, string[] = restricted to these logins
 }
 
@@ -35,7 +47,9 @@ export interface TwitchDrop {
   requiredMinutes?: number | null;
   remainingMinutes?: number | null;
   progressSource?: DropProgressSource;
-  dropType?: DropType;
+  acquisitionMethod: RewardAcquisitionMethod;
+  rewardKind: RewardKind;
+  verificationState: RewardVerificationState;
   benefitIds?: string[];
   rewardDistributionTypes?: string[];
   startsAt?: string | null;
@@ -52,7 +66,6 @@ export interface TwitchStreamer {
 }
 
 export type ExpiryStatus = 'safe' | 'warning' | 'urgent' | 'unknown';
-export type DropType = 'time-based' | 'event-based';
 export type StreamerSelectionMode = 'low-view' | 'random' | 'top-viewers';
 
 export type DropStatus = 'active' | 'pending' | 'completed';

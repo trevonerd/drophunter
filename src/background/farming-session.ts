@@ -1,6 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
-import { isDropCompleted } from '../shared/drops';
 import { getGameDisplayLabel, replaceAvailableGames, sameCampaignId } from '../shared/game-selection';
+import { isRewardAcquired, isRewardAutomatable } from '../shared/reward-semantics.ts';
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { autoClaimClaimableDrops as autoClaimClaimableDropsExt } from './auto-claim.ts';
 import { ALARM_NAME, PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
@@ -8,7 +8,9 @@ import {
   completedDropKeys,
   dropMatchesSelectedGame as dropMatchesSelectedGameExt,
   dropStateKey,
+  markDropUnverifiable as markDropUnverifiableExt,
   projectDropsSnapshot as projectDropsSnapshotExt,
+  recomputeSelectedCampaignSummaryAfterLocalMarker as recomputeSelectedCampaignSummaryAfterLocalMarkerExt,
   splitDropsForSelectedGame as splitDropsForSelectedGameExt,
 } from './drops-projection.ts';
 import {
@@ -35,10 +37,12 @@ import { clearRotationMetadata, type ServiceWorkerState } from './runtime-state'
 import {
   advanceQueueIfCompleted as advanceQueueIfCompletedExt,
   handleStartFarming as handleStartFarmingExt,
+  resetStreamTrackingState as resetStreamTrackingStateExt,
   skipCurrentGameAndAdvanceQueue as skipCurrentGameAndAdvanceQueueExt,
   skipCurrentGameDueToStall as skipCurrentGameDueToStallExt,
   stopFarmingSession as stopFarmingSessionExt,
 } from './session-lifecycle.ts';
+import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from './stream-rotation.ts';
 import {
   acquireStreamerForSelectedGame as acquireStreamerForSelectedGameExt,
   openBestStreamerForSelectedGame as openBestStreamerForSelectedGameExt,
@@ -103,8 +107,8 @@ function evaluateDropsForGame(
 ): { allDrops: TwitchDrop[]; pendingDrops: TwitchDrop[]; hasFarmableDrops: boolean } {
   const relevantDrops = drops.filter((drop) => dropMatchesSelectedGameExt(drop, game));
   const allDrops = relevantDrops;
-  const pendingDrops = allDrops.filter((drop) => !isDropCompleted(drop));
-  const hasFarmableDrops = pendingDrops.some((drop) => drop.dropType !== 'event-based');
+  const pendingDrops = allDrops.filter((drop) => !isRewardAcquired(drop));
+  const hasFarmableDrops = pendingDrops.some(isRewardAutomatable);
   return { allDrops, pendingDrops, hasFarmableDrops };
 }
 
@@ -200,7 +204,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
       },
       {
         dropMatchesSelectedGame: dropMatchesSelectedGameExt,
-        isDropCompleted,
+        isRewardAcquired,
         getGameDisplayLabel,
         resolveCategorySlug: adapters.resolveCategorySlug,
         pickStreamerForPreferences,
@@ -314,8 +318,46 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     return { success: true };
   }
 
-  async function skipCurrentGameDueToOfflineRecovery() {
-    await skipCurrentGameDueToStallExt(state, {
+  async function handleRecoverySkip() {
+    const currentDrop = state.appState.currentDrop;
+    const exhaustedStalledRecovery =
+      state.appState.recoveryReason === 'stalled-progress' &&
+      state.stalledRecoveryAttempts >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
+    const markedUnverifiable =
+      exhaustedStalledRecovery && currentDrop ? markDropUnverifiableExt(state, currentDrop) : false;
+
+    if (!markedUnverifiable) {
+      await skipCurrentGameDueToStallExt(state, {
+        onEnsureWorkspace: ensureWorkspaceForSelectedGame,
+        onRefreshDropsData: refreshDropsData,
+        onOpenStreamer: acquireStreamerForSelectedGame,
+        onSaveState: () => adapters.saveState(state),
+        onSaveTimingState: adapters.saveTimingState,
+        onStopFarmingSession: stop,
+        onNotify: adapters.notify,
+      });
+      return;
+    }
+
+    await adapters.saveTimingState(state);
+    await refreshDropsData({
+      includeCampaignFetch: false,
+      includeInventoryFetch: false,
+      suppressNotifications: true,
+    });
+
+    const selectedFarmingComplete = recomputeSelectedCampaignSummaryAfterLocalMarkerExt(state);
+    if (
+      !selectedFarmingComplete ||
+      state.appState.currentDrop !== null ||
+      state.appState.pendingDrops.some(isRewardAutomatable)
+    ) {
+      resetStreamTrackingStateExt(state);
+      await acquireStreamerForSelectedGame();
+      return;
+    }
+
+    await skipCurrentGameAndAdvanceQueueExt(state, 'unverifiable-twitch', {
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
       onRefreshDropsData: refreshDropsData,
       onOpenStreamer: acquireStreamerForSelectedGame,
@@ -340,7 +382,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
           ...recoveryOpts,
           onNotify: adapters.notify,
         }),
-      onSkipCurrentGame: skipCurrentGameDueToOfflineRecovery,
+      onSkipCurrentGame: handleRecoverySkip,
       onForceRefreshDropsData: () =>
         refreshDropsData({
           includeCampaignFetch: true,

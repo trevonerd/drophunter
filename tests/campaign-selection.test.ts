@@ -41,6 +41,9 @@ function createDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     claimed: false,
     campaignId: 'campaign-default',
     categorySlug: 'overwatch',
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
     ...overrides,
   };
 }
@@ -109,9 +112,19 @@ describe('campaign-aware game selection', () => {
 
   test('dedupes only true duplicates with the same campaign identity', () => {
     const deduped = dedupeGamesByIdentity([
-      createGame({ id: 'campaign-1', campaignId: 'campaign-1', dropCount: 2, allowedChannels: ['ow_esports'] }),
+      createGame({
+        id: 'campaign-1',
+        campaignId: 'campaign-1',
+        dropCount: 2,
+        allowedChannels: ['ow_esports'],
+      }),
       createGame({ id: 'campaign-1', campaignId: 'campaign-1', dropCount: 4, imageUrl: 'https://img/1.png' }),
-      createGame({ id: 'campaign-2', campaignId: 'campaign-2', dropCount: 3, allowedChannels: ['ow_esports_jp'] }),
+      createGame({
+        id: 'campaign-2',
+        campaignId: 'campaign-2',
+        dropCount: 3,
+        allowedChannels: ['ow_esports_jp'],
+      }),
     ]);
 
     expect(deduped).toHaveLength(2);

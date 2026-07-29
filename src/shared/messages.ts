@@ -94,6 +94,10 @@ type NoPayloadMinimalResponseResponseByType = {
   [T in NoPayloadMinimalResponseMessageType]: { success: boolean; error?: string };
 };
 
+export const ADD_TO_QUEUE_REASONS = ['already-queued', 'already-completed', 'farming-complete'] as const;
+
+export type AddToQueueReason = (typeof ADD_TO_QUEUE_REASONS)[number];
+
 export type RuntimeRequest =
   | { type: 'GET_TWITCH_SESSION' }
   | { type: 'GET_STREAM_CONTEXT' }
@@ -152,7 +156,7 @@ export type RuntimeResponseByType = BooleanToggleResponseByType &
       preferredStreamerLanguage?: string | null;
       error?: string;
     };
-    ADD_TO_QUEUE: { success: boolean; added?: boolean; reason?: string; error?: string };
+    ADD_TO_QUEUE: { success: boolean; added?: boolean; reason?: AddToQueueReason; error?: string };
     REMOVE_FROM_QUEUE: { success: boolean; removed?: boolean; error?: string };
     REORDER_QUEUE: { success: boolean; reordered?: boolean; error?: string };
     START_FARMING: { success: boolean; error?: string };
@@ -193,6 +197,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isCampaignRewardSummaryLike(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const completion = value.completion;
+  const remainderReasons = value.remainderReasons;
+  if (
+    (completion !== 'farmable' && completion !== 'farming-complete' && completion !== 'all-acquired') ||
+    !Array.isArray(remainderReasons) ||
+    !remainderReasons.every(
+      (reason) => reason === 'subscription-required' || reason === 'unverifiable-twitch',
+    )
+  ) {
+    return false;
+  }
+
+  const hasSubscriptionRemainder = remainderReasons.includes('subscription-required');
+  const hasUnverifiableRemainder = remainderReasons.includes('unverifiable-twitch');
+  const hasCanonicalReasonOrder =
+    remainderReasons.length === 0 ||
+    (remainderReasons.length === 1 && (hasSubscriptionRemainder || hasUnverifiableRemainder)) ||
+    (remainderReasons.length === 2 &&
+      remainderReasons[0] === 'subscription-required' &&
+      remainderReasons[1] === 'unverifiable-twitch');
+
+  return hasCanonicalReasonOrder && (completion === 'farming-complete' || remainderReasons.length === 0);
+}
+
 export function validateBooleanTogglePayload(payload: unknown): payload is { enabled?: boolean } {
   return (
     payload === undefined ||
@@ -201,13 +233,34 @@ export function validateBooleanTogglePayload(payload: unknown): payload is { ena
 }
 
 function isTwitchGameLike(value: unknown): value is TwitchGame {
+  const record = isRecord(value) ? value : null;
+  const dropCount = record?.dropCount;
+  const hasValidDropCount =
+    dropCount === undefined ||
+    (typeof dropCount === 'number' &&
+      Number.isFinite(dropCount) &&
+      Number.isInteger(dropCount) &&
+      dropCount >= 0);
+  const summary = record?.rewardSummary;
+  const summaryCompletion = isRecord(summary) ? summary.completion : undefined;
+  const hasConsistentCompletionFlag =
+    record?.allDropsCompleted === undefined ||
+    summary === undefined ||
+    record.allDropsCompleted === (summaryCompletion === 'all-acquired');
+
   return (
     isRecord(value) &&
     typeof value.id === 'string' &&
     value.id.trim().length > 0 &&
     typeof value.name === 'string' &&
     value.name.trim().length > 0 &&
-    typeof value.imageUrl === 'string'
+    typeof value.imageUrl === 'string' &&
+    (value.campaignId === undefined ||
+      (typeof value.campaignId === 'string' && value.campaignId.trim().length > 0)) &&
+    hasValidDropCount &&
+    (value.allDropsCompleted === undefined || typeof value.allDropsCompleted === 'boolean') &&
+    (value.rewardSummary === undefined || isCampaignRewardSummaryLike(value.rewardSummary)) &&
+    hasConsistentCompletionFlag
   );
 }
 

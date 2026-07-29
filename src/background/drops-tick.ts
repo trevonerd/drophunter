@@ -5,6 +5,7 @@
 // shared mutable state.
 import { browser } from '../shared/browser-api.ts';
 import { gameKey } from '../shared/game-selection';
+import type { AddToQueueReason } from '../shared/messages.ts';
 import { DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
 import { detectNewlyClaimedDrops, recordClaimedDrops } from './claim-log.ts';
 import {
@@ -13,10 +14,15 @@ import {
   STREAM_VALIDATION_GRACE_MS,
   TICK_WATCHDOG_TIMEOUT_MS,
 } from './constants';
-import { completedDropKeys } from './drops-projection.ts';
+import { completedDropKeys, type DropsSnapshotProvenance } from './drops-projection.ts';
+import { rememberInspectedCampaignSummary } from './drops-projection-semantics.ts';
 import { logDebug, logWarn } from './logging';
 import { queueContainsGame, queueEntryMatchesGame, reorderQueue } from './queue-operations';
 import type { ServiceWorkerState } from './service-worker';
+
+function assertNever(value: never): never {
+  throw new TypeError(`Unhandled add-to-queue completion: ${String(value)}`);
+}
 
 export interface CheckDropProgressCallbacks {
   onEnforcePlaybackPolicy: () => Promise<void>;
@@ -174,7 +180,11 @@ export interface RefreshDropsDataCallbacks {
 export interface RefreshDropsDataDeps {
   replaceAvailableGames: (games: TwitchGame[]) => TwitchGame[];
   getGameDisplayLabel: (game: TwitchGame) => string;
-  projectDropsSnapshot: (state: ServiceWorkerState, snapshot: DropsSnapshot) => void;
+  projectDropsSnapshot: (
+    state: ServiceWorkerState,
+    snapshot: DropsSnapshot,
+    provenance: DropsSnapshotProvenance,
+  ) => void;
   normalizeQueueSelection: (state: ServiceWorkerState, games: TwitchGame[], dropVanished?: boolean) => void;
 }
 
@@ -197,22 +207,32 @@ export async function refreshDropsData(
   let games = state.appState.availableGames;
   let drops = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : state.appState.allDrops;
   let apiSnapshotUsed = false;
+  let provenance: DropsSnapshotProvenance = 'cached';
 
   if (includeCampaignFetch) {
     const apiSnapshot = await callbacks.onFetchDropsSnapshotFromApi();
     if (apiSnapshot) {
       state.lastFullRefreshAt = Date.now();
+      const hasAuthoritativeEmptyRewardSet =
+        apiSnapshot.drops.length === 0 &&
+        (apiSnapshot.games.length === 0 || apiSnapshot.games.every((game) => game.dropCount === 0));
       games =
         apiSnapshot.games.length > 0
           ? deps.replaceAvailableGames(apiSnapshot.games)
-          : state.appState.availableGames;
+          : apiSnapshot.drops.length === 0
+            ? []
+            : state.appState.availableGames;
       drops = apiSnapshot.drops;
       if (apiSnapshot.drops.length > 0) {
         state.cachedDropsSnapshot = apiSnapshot.drops;
-      } else if (apiSnapshot.games.length === 0) {
+        provenance = 'campaign-authoritative';
+      } else if (hasAuthoritativeEmptyRewardSet) {
         state.cachedDropsSnapshot = [];
+        provenance = 'campaign-authoritative';
       } else if (state.cachedDropsSnapshot.length > 0) {
         drops = state.cachedDropsSnapshot;
+      } else {
+        provenance = 'campaign-authoritative';
       }
       if (apiSnapshot.campaignChannelsMap) {
         state.cachedCampaignChannelsMap = apiSnapshot.campaignChannelsMap;
@@ -230,6 +250,7 @@ export async function refreshDropsData(
         drops = inventorySnapshot.drops;
         state.cachedDropsSnapshot = inventorySnapshot.drops;
         apiSnapshotUsed = true;
+        provenance = 'inventory-partial';
       }
     }
   }
@@ -251,11 +272,21 @@ export async function refreshDropsData(
     drops = state.appState.allDrops;
   }
 
-  deps.projectDropsSnapshot(state, {
-    games,
-    drops,
-    updatedAt: Date.now(),
-  });
+  const isAuthoritativeEmptyCampaign =
+    apiSnapshotUsed && provenance === 'campaign-authoritative' && games.length === 0 && drops.length === 0;
+  if (isAuthoritativeEmptyCampaign) {
+    state.appState.availableGames = [];
+  }
+
+  deps.projectDropsSnapshot(
+    state,
+    {
+      games,
+      drops,
+      updatedAt: Date.now(),
+    },
+    provenance,
+  );
   deps.normalizeQueueSelection(state, state.appState.availableGames);
 
   const newlyClaimed = detectNewlyClaimedDrops(drops, previousSnapshotForClaims);
@@ -284,7 +315,7 @@ export interface HandleSetSelectedGameCallbacks {
 }
 
 export interface HandleSetSelectedGameDeps {
-  resolveGameFromState: (state: ServiceWorkerState, game: TwitchGame) => TwitchGame;
+  resolveGameFromState: (state: ServiceWorkerState, game: TwitchGame) => TwitchGame | null;
   removeGameFromQueue: (state: ServiceWorkerState, game: TwitchGame) => void;
   splitDropsForSelectedGame: (state: ServiceWorkerState, allDrops: TwitchDrop[]) => void;
   getGameDisplayLabel: (game: TwitchGame) => string;
@@ -297,9 +328,12 @@ export async function handleSetSelectedGame(
   payload: { game: TwitchGame },
   callbacks: HandleSetSelectedGameCallbacks,
   deps: HandleSetSelectedGameDeps,
-): Promise<{ success: boolean }> {
+): Promise<{ success: boolean; error?: string }> {
   await callbacks.onTrackActivity('set-selected-game');
   const selectedGame = deps.resolveGameFromState(state, payload.game);
+  if (!selectedGame) {
+    return { success: false, error: 'Campaign is no longer available.' };
+  }
   deps.logDebug('Selected game changed', {
     payloadGameId: payload.game.id,
     payloadCampaignId: payload.game.campaignId ?? null,
@@ -310,6 +344,7 @@ export async function handleSetSelectedGame(
     running: state.appState.isRunning,
     availableGames: state.appState.availableGames.length,
   });
+  rememberInspectedCampaignSummary(state);
   state.appState.selectedGame = selectedGame;
   state.appState.completionNotified = false;
   state.invalidStreamChecks = 0;
@@ -331,11 +366,13 @@ export async function handleSetSelectedGame(
     forceInventoryFetch: true,
     suppressNotifications: true,
   });
+  rememberInspectedCampaignSummary(state);
   if (state.appState.selectedGame) {
     const canonicalSelected = deps.resolveGameFromState(state, state.appState.selectedGame);
     if (
-      canonicalSelected.id !== state.appState.selectedGame.id ||
-      canonicalSelected.campaignId !== state.appState.selectedGame.campaignId
+      canonicalSelected &&
+      (canonicalSelected.id !== state.appState.selectedGame.id ||
+        canonicalSelected.campaignId !== state.appState.selectedGame.campaignId)
     ) {
       deps.logDebug('Selected game canonicalized after refresh', {
         previousId: state.appState.selectedGame.id,
@@ -369,7 +406,7 @@ export async function handleSetSelectedGame(
 }
 
 export interface HandleAddToQueueDeps {
-  resolveGameFromState: (state: ServiceWorkerState, game: TwitchGame) => TwitchGame;
+  resolveGameFromState: (state: ServiceWorkerState, game: TwitchGame) => TwitchGame | null;
   evaluateDropsForGame: (
     game: TwitchGame,
     drops: TwitchDrop[],
@@ -388,7 +425,7 @@ export async function handleAddToQueue(
 ): Promise<{
   success: boolean;
   added?: boolean;
-  reason?: string;
+  reason?: AddToQueueReason;
   game?: TwitchGame;
   queueLength?: number;
   error?: string;
@@ -398,15 +435,36 @@ export async function handleAddToQueue(
     return { success: false, error: 'No game provided.' };
   }
 
-  const targetGame = deps.resolveGameFromState(state, payload.game);
+  const requestedGame = payload.game;
+  if (queueContainsGame(state, requestedGame)) {
+    return { success: true, added: false, reason: 'already-queued', game: requestedGame };
+  }
+  const requestedCampaignId = requestedGame.campaignId?.trim() ?? '';
+  const canonicalGame = state.appState.availableGames.find(
+    (candidate) => gameKey(candidate) === gameKey(requestedGame),
+  );
+  if (!canonicalGame && requestedCampaignId.length > 0) {
+    return { success: false, error: 'Campaign is no longer available.' };
+  }
+  const targetGame = canonicalGame ?? deps.resolveGameFromState(state, requestedGame);
+  if (!targetGame) {
+    return { success: false, error: 'Campaign is no longer available.' };
+  }
   if (queueContainsGame(state, targetGame)) {
     return { success: true, added: false, reason: 'already-queued', game: targetGame };
   }
 
-  const { allDrops, hasFarmableDrops } = deps.evaluateDropsForGame(targetGame, state.cachedDropsSnapshot);
-  if (allDrops.length > 0 && !hasFarmableDrops) {
-    await callbacks.onSaveState(state);
-    return { success: true, added: false, reason: 'already-completed', game: targetGame };
+  const completion = targetGame.rewardSummary?.completion;
+  switch (completion) {
+    case 'all-acquired':
+      return { success: true, added: false, reason: 'already-completed', game: targetGame };
+    case 'farming-complete':
+      return { success: true, added: false, reason: 'farming-complete', game: targetGame };
+    case 'farmable':
+    case undefined:
+      break;
+    default:
+      return assertNever(completion);
   }
 
   state.appState.queue.push(targetGame);

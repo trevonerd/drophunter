@@ -30,6 +30,72 @@ describe('getGameToStartFromQueue', () => {
     expect(gameToStart).toBe(selectedGame);
   });
 
+  test('starts a farmable queue head when the selected campaign is farming-complete', () => {
+    const selectedGame = createGame({
+      id: 'game-1',
+      campaignId: 'campaign-1',
+      rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
+    });
+    const queuedGame = createGame({
+      id: 'game-2',
+      campaignId: 'campaign-2',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    });
+
+    const gameToStart = getGameToStartFromQueue(selectedGame, [queuedGame]);
+
+    expect(gameToStart).toBe(queuedGame);
+  });
+
+  test('starts a legacy queue head with a missing reward summary when the selected campaign is farming-complete', () => {
+    const selectedGame = createGame({
+      id: 'game-1',
+      campaignId: 'campaign-1',
+      rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
+    });
+    const queuedGame: TwitchGame = {
+      id: 'game-2',
+      name: 'Game Two',
+      imageUrl: 'https://example.com/game-two.png',
+      campaignId: 'campaign-2',
+      allDropsCompleted: false,
+    };
+
+    const gameToStart = getGameToStartFromQueue(selectedGame, [queuedGame]);
+
+    expect(gameToStart).toBe(queuedGame);
+  });
+
+  test('skips terminal queue heads and chooses the first farmable campaign for idle Start', () => {
+    const terminalHead = createGame({
+      id: 'shared-game-id',
+      campaignId: 'campaign-terminal',
+      rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
+    });
+    const farmableCampaign = createGame({
+      id: 'shared-game-id',
+      campaignId: 'campaign-farmable',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    });
+
+    const gameToStart = getGameToStartFromQueue(terminalHead, [terminalHead, farmableCampaign]);
+
+    expect(gameToStart).toBe(farmableCampaign);
+  });
+
+  test('chooses the first farmable queue campaign when no campaign is selected', () => {
+    const terminalHead = createGame({
+      campaignId: 'campaign-terminal',
+      rewardSummary: { completion: 'all-acquired', remainderReasons: [] },
+    });
+    const farmableCampaign = createGame({
+      campaignId: 'campaign-farmable',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    });
+
+    expect(getGameToStartFromQueue(null, [terminalHead, farmableCampaign])).toBe(farmableCampaign);
+  });
+
   test('starts selected game when queue is empty', () => {
     const selectedGame = createGame({ id: 'game-1', campaignId: 'campaign-1' });
 
