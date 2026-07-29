@@ -158,11 +158,10 @@ export function isSameGame(left: TwitchGame, right: TwitchGame): boolean {
 
 export function findMatchingGame(target: TwitchGame, source: TwitchGame[]): TwitchGame | null {
   const targetKey = gameKey(target);
-  const exact = source.find(
-    (game) =>
-      game.id === target.id ||
-      Boolean(game.campaignId && target.campaignId && game.campaignId === target.campaignId) ||
-      gameKey(game) === targetKey,
+  const exact = source.find((game) =>
+    target.campaignId
+      ? game.campaignId === target.campaignId
+      : game.id === target.id || gameKey(game) === targetKey,
   );
   if (exact) {
     return exact;

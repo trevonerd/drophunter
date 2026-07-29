@@ -1,20 +1,21 @@
-import { describe, expect, test, beforeEach, afterEach, vi } from 'bun:test';
-import { setupChromeMocks } from './mocks/chrome.ts';
-import type { ChromeMocks } from './mocks/chrome.ts';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'bun:test';
 import {
   applyAutoClaimDropsSetting,
-  shouldAttemptAutoClaimDrops,
-  canRetryDropClaim,
-  markDropClaimedLocally,
-  markDropClaimedInSnapshot,
-  claimDropViaApi,
   autoClaimClaimableDrops,
+  canRetryDropClaim,
+  claimDropViaApi,
+  markDropClaimedInSnapshot,
+  markDropClaimedLocally,
+  shouldAttemptAutoClaimDrops,
 } from '../src/background/auto-claim.ts';
-import { createInitialState } from '../src/shared/utils.ts';
-import type { ServiceWorkerState } from '../src/background/service-worker.ts';
-import type { TwitchDrop } from '../src/types/index.ts';
-import type { TwitchSession } from '../src/background/twitch-api/types.ts';
+import { loadClaimLog } from '../src/background/claim-log.ts';
 import { DROP_CLAIM_RETRY_COOLDOWN_MS } from '../src/background/constants.ts';
+import type { ServiceWorkerState } from '../src/background/service-worker.ts';
+import type { TwitchSession } from '../src/background/twitch-api/types.ts';
+import { createInitialState } from '../src/shared/utils.ts';
+import type { TwitchDrop } from '../src/types/index.ts';
+import type { ChromeMocks } from './mocks/chrome.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
 
 const mockClaimDropReward = vi.fn<[string], Promise<boolean>>();
 const originalFetch = globalThis.fetch;
@@ -55,8 +56,6 @@ function setupFetchMock() {
 function restoreFetchMock() {
   globalThis.fetch = originalFetch;
 }
-
-
 
 function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
@@ -104,12 +103,16 @@ function makeDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     gameName: 'Test Game',
     gameId: 'game-1',
     benefitId: 'ben-1',
-    dropType: 'default',
+    imageUrl: '',
     claimed: false,
     claimable: false,
     progress: 0,
+    currentMinutes: 0,
     remainingMinutes: 60,
     status: 'active',
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
     startAt: new Date().toISOString(),
     endAt: new Date(Date.now() + 86400000).toISOString(),
     ...overrides,
@@ -134,18 +137,12 @@ describe('applyAutoClaimDropsSetting', () => {
   });
 
   test('disabling the setting updates app state', () => {
-    const next = applyAutoClaimDropsSetting(
-      { ...createInitialState(), autoClaimDrops: true },
-      false,
-    );
+    const next = applyAutoClaimDropsSetting({ ...createInitialState(), autoClaimDrops: true }, false);
     expect(next.autoClaimDrops).toBe(false);
   });
 
   test('undefined disables the setting', () => {
-    const next = applyAutoClaimDropsSetting(
-      { ...createInitialState(), autoClaimDrops: true },
-      undefined,
-    );
+    const next = applyAutoClaimDropsSetting({ ...createInitialState(), autoClaimDrops: true }, undefined);
     expect(next.autoClaimDrops).toBe(false);
   });
 });
@@ -442,7 +439,6 @@ describe('autoClaimClaimableDrops', () => {
       claimId: 'auto-claim-1',
       claimable: true,
       claimed: false,
-      dropType: 'default',
     });
     const state = createMinimalState({
       appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true, allDrops: [claimableDrop] },
@@ -455,6 +451,28 @@ describe('autoClaimClaimableDrops', () => {
     expect(result).toBe(true);
     expect(state.appState.totalDropsClaimed).toBe(1);
     expect(mockClaimDropReward).toHaveBeenCalledWith('auto-claim-1');
+    expect((await loadClaimLog()).map((entry) => entry.dropId)).toEqual(['drop-1']);
+  });
+
+  test('projects a successful Twitch-native auto-claim to verified acquisition before logging', async () => {
+    const claimableDrop = makeDrop({
+      id: 'auto-native-claim',
+      claimId: 'auto-native-claim-id',
+      claimable: true,
+      claimed: false,
+      rewardKind: 'twitch-badge',
+      verificationState: 'unassessed',
+    });
+    const state = createMinimalState({
+      appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true },
+      cachedDropsSnapshot: [claimableDrop],
+    });
+    const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+
+    expect(await autoClaimClaimableDrops(state, getSession)).toBe(true);
+    expect(state.cachedDropsSnapshot[0]?.verificationState).toBe('verified');
+    expect(state.appState.totalDropsClaimed).toBe(1);
+    expect((await loadClaimLog()).map((entry) => entry.dropId)).toEqual(['auto-native-claim']);
   });
 
   test('calls onDropClaimed callback when provided', async () => {
@@ -471,8 +489,13 @@ describe('autoClaimClaimableDrops', () => {
     expect(onDropClaimed).toHaveBeenCalledWith(claimableDrop);
   });
 
-  test('filters out event-based drops', async () => {
-    const eventDrop = makeDrop({ claimId: 'event-claim', claimable: true, claimed: false, dropType: 'event-based' });
+  test('filters out subscription-gated rewards', async () => {
+    const eventDrop = makeDrop({
+      claimId: 'event-claim',
+      claimable: true,
+      claimed: false,
+      acquisitionMethod: 'subscription',
+    });
     const state = createMinimalState({
       appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true },
       cachedDropsSnapshot: [eventDrop],
@@ -483,6 +506,46 @@ describe('autoClaimClaimableDrops', () => {
 
     expect(result).toBe(false);
     expect(mockClaimDropReward).not.toHaveBeenCalled();
+  });
+
+  test('targets only automatable rewards while keeping unknown rewards eligible', async () => {
+    const watchTimeDrop = makeDrop({
+      claimId: 'watch-time-claim',
+      claimable: true,
+      claimed: false,
+      acquisitionMethod: 'watch-time',
+    });
+    const unknownDrop = makeDrop({
+      claimId: 'unknown-claim',
+      claimable: true,
+      claimed: false,
+      acquisitionMethod: 'unknown',
+    });
+    const subscriptionDrop = makeDrop({
+      claimId: 'subscription-claim',
+      claimable: true,
+      claimed: false,
+      acquisitionMethod: 'subscription',
+    });
+    const unverifiableNativeDrop = makeDrop({
+      claimId: 'unverifiable-claim',
+      claimable: true,
+      claimed: false,
+      rewardKind: 'twitch-badge',
+      verificationState: 'unverifiable',
+    });
+    const state = createMinimalState({
+      appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true },
+      cachedDropsSnapshot: [watchTimeDrop, unknownDrop, subscriptionDrop, unverifiableNativeDrop],
+    });
+    const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+
+    const result = await autoClaimClaimableDrops(state, getSession);
+
+    expect(result).toBe(true);
+    expect(mockClaimDropReward).toHaveBeenCalledTimes(2);
+    expect(mockClaimDropReward).toHaveBeenNthCalledWith(1, 'watch-time-claim');
+    expect(mockClaimDropReward).toHaveBeenNthCalledWith(2, 'unknown-claim');
   });
 
   test('clears stale retry timestamps before processing', async () => {

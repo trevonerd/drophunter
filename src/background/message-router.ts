@@ -4,6 +4,7 @@ import {
   isRuntimeMessageType,
   isRuntimeRequest,
   type RuntimeRequest,
+  type RuntimeResponseByType,
 } from '../shared/messages.ts';
 
 type MaybePromise<T> = T | Promise<T>;
@@ -20,11 +21,16 @@ type RuntimeMessageHandler<T extends RuntimeRequest['type']> = (
   sender: RuntimeSender,
 ) => MaybePromise<unknown>;
 
+type AddToQueueRuntimeMessageHandler = (
+  message: Extract<RuntimeRequest, { type: 'ADD_TO_QUEUE' }>,
+  sender: RuntimeSender,
+) => MaybePromise<RuntimeResponseByType['ADD_TO_QUEUE']>;
+
 export interface RuntimeMessageHandlers {
   ensureGamesCache: RuntimeMessageHandler<'ENSURE_GAMES_CACHE'>;
   openDropsPageAndRefresh: RuntimeMessageHandler<'OPEN_DROPS_PAGE_AND_REFRESH'>;
   markDropsRefreshNoticeSeen: RuntimeMessageHandler<'MARK_DROPS_REFRESH_NOTICE_SEEN'>;
-  addToQueue: RuntimeMessageHandler<'ADD_TO_QUEUE'>;
+  addToQueue: AddToQueueRuntimeMessageHandler;
   removeFromQueue: RuntimeMessageHandler<'REMOVE_FROM_QUEUE'>;
   reorderQueue: RuntimeMessageHandler<'REORDER_QUEUE'>;
   clearQueue: RuntimeMessageHandler<'CLEAR_QUEUE'>;

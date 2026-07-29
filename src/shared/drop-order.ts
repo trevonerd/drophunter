@@ -1,4 +1,5 @@
 import type { TwitchDrop } from '../types/index';
+import { isRewardAutomatable } from './reward-semantics';
 
 function etaOrInfinity(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : Number.POSITIVE_INFINITY;
@@ -9,10 +10,9 @@ function expiryOrInfinity(value: number | null | undefined): number {
 }
 
 export function comparePendingDrops(a: TwitchDrop, b: TwitchDrop): number {
-  // Event-based (sub-only) drops always sort after time-based drops
-  const aEvent = a.dropType === 'event-based' ? 1 : 0;
-  const bEvent = b.dropType === 'event-based' ? 1 : 0;
-  if (aEvent !== bEvent) return aEvent - bEvent;
+  const aAutomationOrder = isRewardAutomatable(a) ? 0 : 1;
+  const bAutomationOrder = isRewardAutomatable(b) ? 0 : 1;
+  if (aAutomationOrder !== bAutomationOrder) return aAutomationOrder - bAutomationOrder;
 
   const etaOrder = etaOrInfinity(a.remainingMinutes) - etaOrInfinity(b.remainingMinutes);
   if (etaOrder !== 0) {
@@ -39,7 +39,6 @@ export function pickNearestDrop(pendingDrops: TwitchDrop[]): TwitchDrop | null {
   if (!Array.isArray(pendingDrops) || pendingDrops.length === 0) {
     return null;
   }
-  // Exclude event-based (sub-only) drops — monitor only shows farmable drops
-  const farmable = pendingDrops.filter((d) => d.dropType !== 'event-based');
+  const farmable = pendingDrops.filter(isRewardAutomatable);
   return farmable.length > 0 ? (sortPendingDrops(farmable)[0] ?? null) : null;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { markDropClaimedLocally, markDropClaimedInSnapshot } from '../src/background/auto-claim.ts';
+import { markDropClaimedInSnapshot, markDropClaimedLocally } from '../src/background/auto-claim.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import type { TwitchDrop } from '../src/types/index.ts';
 
@@ -16,6 +16,9 @@ function makeDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     currentMinutes: 60,
     claimed: false,
     claimable: true,
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
     ...overrides,
   };
 }

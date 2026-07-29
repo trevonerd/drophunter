@@ -159,7 +159,6 @@ const ensureGamesCacheDeps: EnsureGamesCacheDeps = {
   shouldRefreshGamesCache: shouldRefreshGamesCacheExt,
   refreshGamesCacheFromHiddenFetch: (options) =>
     refreshGamesCacheFromHiddenFetch(state, options, gamesCacheRefreshDeps),
-  annotateGameCompletion: annotateGameCompletionExt,
   saveState: saveStateExt,
 };
 const dropsPageRefresher = createDropsPageRefresher(state, {

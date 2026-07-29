@@ -7,10 +7,11 @@ export function normalizeStoredAppState(value: unknown): AppState {
   if (!value || typeof value !== 'object') {
     return createInitialState();
   }
-  return {
+  const storedState = {
     ...createInitialState(),
     ...(value as Partial<AppState>),
   };
+  return storedState;
 }
 
 export async function loadStoredAppState(): Promise<AppState> {

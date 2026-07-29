@@ -1,9 +1,19 @@
-import type { TwitchGame } from '../../types/index.ts';
+import type { RewardAcquisitionMethod, RewardKind, TwitchGame } from '../../types/index.ts';
 
 const MAX_IMAGE_SEARCH_DEPTH = 6;
 
 export function normalizeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+export function extractRecordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (item): item is Record<string, unknown> =>
+      item !== null && typeof item === 'object' && !Array.isArray(item),
+  );
 }
 
 export function toNumber(value: unknown): number | null {
@@ -143,4 +153,66 @@ export function extractBenefitDistributionTypes(drop: Record<string, unknown>): 
       return normalizeText((benefit as Record<string, unknown>).distributionType).toUpperCase();
     })
     .filter((value) => value.length > 0);
+}
+
+export type RewardCampaignCandidate = {
+  readonly gameName: string;
+  readonly campaignIdentity: string;
+  readonly benefitIds: readonly string[];
+};
+
+export function rewardBenefitKey(gameName: string, benefitId: string): string {
+  return `${normalizeText(gameName).toLowerCase()}\u0000${normalizeText(benefitId)}`;
+}
+
+export function buildConflictedRewardBenefitKeys(
+  candidates: readonly RewardCampaignCandidate[],
+): ReadonlySet<string> {
+  const firstCampaignByBenefit = new Map<string, string>();
+  const conflicts = new Set<string>();
+
+  for (const candidate of candidates) {
+    for (const benefitId of candidate.benefitIds) {
+      const key = rewardBenefitKey(candidate.gameName, benefitId);
+      const firstCampaign = firstCampaignByBenefit.get(key);
+      if (firstCampaign === undefined) {
+        firstCampaignByBenefit.set(key, candidate.campaignIdentity);
+      } else if (firstCampaign !== candidate.campaignIdentity) {
+        conflicts.add(key);
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+export type RewardAcquisitionFallback = 'subscription' | 'unknown';
+
+export function classifyRewardAcquisitionMethod(
+  requiredMinutes: number | null,
+  fallback: RewardAcquisitionFallback,
+): RewardAcquisitionMethod {
+  if (requiredMinutes === 0) return 'subscription';
+  if (requiredMinutes !== null && Number.isFinite(requiredMinutes) && requiredMinutes > 0) {
+    return 'watch-time';
+  }
+  return fallback;
+}
+
+export function classifyRewardKind(distributionTypes: readonly string[]): RewardKind {
+  const normalizedTypes = [
+    ...new Set(distributionTypes.map((value) => normalizeText(value).toUpperCase()).filter(Boolean)),
+  ];
+  if (normalizedTypes.length !== 1) return 'unknown';
+
+  switch (normalizedTypes[0]) {
+    case 'BADGE':
+      return 'twitch-badge';
+    case 'EMOTE':
+      return 'twitch-emote';
+    case 'DIRECT_ENTITLEMENT':
+      return 'in-game';
+    default:
+      return 'unknown';
+  }
 }

@@ -142,7 +142,9 @@ describe('false recovery proof guard (freshTimingState)', () => {
       claimed: false,
       claimable: false,
       status: 'active' as const,
-      dropType: 'time-based' as const,
+      acquisitionMethod: 'watch-time' as const,
+      rewardKind: 'in-game' as const,
+      verificationState: 'unassessed' as const,
     };
 
     splitDropsForSelectedGame(state, [drop]);
@@ -174,7 +176,9 @@ describe('false recovery proof guard (freshTimingState)', () => {
       claimed: false,
       claimable: false,
       status: 'active' as const,
-      dropType: 'time-based' as const,
+      acquisitionMethod: 'watch-time' as const,
+      rewardKind: 'in-game' as const,
+      verificationState: 'unassessed' as const,
     };
 
     splitDropsForSelectedGame(state, [drop]);

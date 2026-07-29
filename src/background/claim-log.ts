@@ -1,5 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
 import { getGameDisplayLabel } from '../shared/game-selection.ts';
+import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import type { AppState, ClaimLogEntry, TwitchDrop, TwitchGame } from '../types/index.ts';
 import { CLAIM_LOG_KEY } from './constants.ts';
 import { dropStateKey } from './drops-projection.ts';
@@ -127,9 +128,9 @@ export async function clearClaimLog(): Promise<void> {
 export function detectNewlyClaimedDrops(nextDrops: TwitchDrop[], previousDrops: TwitchDrop[]): TwitchDrop[] {
   const previousByKey = new Map(previousDrops.map((drop) => [dropStateKey(drop), drop]));
   return nextDrops.filter((drop) => {
-    if (!drop.claimed) return false;
+    if (!isRewardAcquired(drop)) return false;
     const previous = previousByKey.get(dropStateKey(drop));
-    return previous !== undefined && !previous.claimed;
+    return previous !== undefined && !isRewardAcquired(previous);
   });
 }
 
@@ -142,8 +143,11 @@ export async function recordClaimedDrops(
   drops: TwitchDrop[],
   claimedAt = Date.now(),
 ): Promise<number> {
-  if (drops.length === 0) return 0;
-  const entries = drops.map((drop) => createClaimLogEntry(drop, target.appState.availableGames, claimedAt));
+  const acquiredDrops = drops.filter(isRewardAcquired);
+  if (acquiredDrops.length === 0) return 0;
+  const entries = acquiredDrops.map((drop) =>
+    createClaimLogEntry(drop, target.appState.availableGames, claimedAt),
+  );
   const { added, entries: recordedEntries } = await appendClaimLogEntries(entries);
   target.appState.totalDropsClaimed += added;
   if (added > 0 && claimRecordedHandler) {

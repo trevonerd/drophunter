@@ -1,9 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { projectDropsSnapshot, splitDropsForSelectedGame } from '../src/background/drops-projection.ts';
-import { checkDropProgress, handleReorderQueue, refreshDropsData } from '../src/background/drops-tick.ts';
+import {
+  dropStateKey,
+  projectDropsSnapshot,
+  splitDropsForSelectedGame,
+} from '../src/background/drops-projection.ts';
+import {
+  checkDropProgress,
+  handleReorderQueue,
+  handleSetSelectedGame,
+  refreshDropsData,
+} from '../src/background/drops-tick.ts';
+import { createFarmingSession, type FarmingSessionAdapters } from '../src/background/farming-session.ts';
 import {
   normalizeQueueSelection,
   pushGameToQueue,
+  queueContainsGame,
   removeGameFromQueue,
   reorderQueue,
   resolveGameFromState,
@@ -39,6 +50,7 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
   return {
     appState: createInitialState(),
     monitorTickInFlight: false,
+    tickGeneration: 0,
     invalidStreamChecks: 0,
     lastStreamRotationAt: 0,
     streamValidationGraceUntil: 0,
@@ -70,7 +82,10 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastRecoveryAttemptAt: 0,
     stalledRecoveryAttempts: 0,
     recoveryNotificationSent: false,
+    lastHeartbeatAt: 0,
     lastGamesCacheRefreshAt: 0,
+    emptyCampaignRefreshStreak: 0,
+    unverifiableRewardsByKey: {},
     ...overrides,
   };
 }
@@ -106,9 +121,116 @@ function createDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     progress: 0,
     currentMinutes: 0,
     claimed: false,
-    dropType: 'time-based',
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
     ...overrides,
   };
+}
+
+function createFarmingSessionAdapters(
+  overrides: Partial<FarmingSessionAdapters> = {},
+): FarmingSessionAdapters {
+  return {
+    getInitPromise: () => null,
+    trackActivity: async () => {},
+    ensureTwitchSession: async () => null,
+    fetchDropsSnapshotFromApi: async () => null,
+    fetchInventorySnapshotFromApi: async () => null,
+    fetchDirectoryStreamersFromApi: async () => Object.assign([], { languageFilterApplied: true }),
+    fetchStreamContext: async () => null,
+    resolveCategorySlug: async (game) => game.categorySlug ?? '',
+    openForegroundChannel: async () => {},
+    enforcePlaybackPolicyOnStreamTab: async () => {},
+    attemptPlaybackSelfHeal: async () => {},
+    attemptAutoClaimChannelPointsBonus: async () => false,
+    closeManagedTabIfSafe: async () => true,
+    clearManagedTabOwnership: () => {},
+    openMonitorDashboardWindow: async () => undefined,
+    sendAlert: async () => {},
+    notify: async () => {},
+    saveState: async () => {},
+    saveTimingState: async () => {},
+    broadcastStateUpdate: () => {},
+    monitorAutoOpenDelayMs: 0,
+    ...overrides,
+  };
+}
+
+function createExhaustedRecoveryFixture(options: {
+  progress: number;
+  currentMinutes: number;
+  campaignId?: string;
+  rewardKind?: TwitchDrop['rewardKind'];
+  additionalDrops?: TwitchDrop[];
+}) {
+  const campaignId = options.campaignId ?? 'native-campaign';
+  const game = createGame({
+    id: 'native-game',
+    name: 'Native Game',
+    campaignId,
+    categorySlug: 'native-game',
+    dropCount: 1 + (options.additionalDrops?.length ?? 0),
+    rewardSummary: { completion: 'farmable', remainderReasons: [] },
+  });
+  const nativeReward = createDrop({
+    id: 'native-reward',
+    gameId: game.id,
+    gameName: game.name,
+    campaignId,
+    categorySlug: game.categorySlug,
+    progress: options.progress,
+    currentMinutes: options.currentMinutes,
+    requiredMinutes: 60,
+    remainingMinutes: Math.max(0, 60 - options.currentMinutes),
+    acquisitionMethod: 'watch-time',
+    rewardKind: options.rewardKind ?? 'twitch-badge',
+    verificationState: 'unassessed',
+  });
+  const rewards = [nativeReward, ...(options.additionalDrops ?? [])];
+  const state = createMinimalState();
+  state.appState.isRunning = true;
+  state.appState.selectedGame = game;
+  state.appState.availableGames = [game];
+  state.appState.queue = [game];
+  state.appState.allDrops = rewards;
+  state.appState.pendingDrops = rewards;
+  state.appState.currentDrop = nativeReward;
+  state.appState.tabId = 123;
+  state.appState.activeStreamer = createStreamer({ name: 'stalled-streamer' });
+  state.appState.recoveryReason = 'stalled-progress';
+  state.appState.recoveryAttempts = MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
+  state.cachedDropsSnapshot = rewards;
+  state.previousAllDropsCount = rewards.length;
+  state.lastFullRefreshAt = Date.now();
+  state.lastTrackedDropKey = dropStateKey(nativeReward);
+  state.lastTrackedProgress = options.progress;
+  state.lastTrackedMinutes = options.currentMinutes;
+  state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
+  state.stalledRecoveryAttempts = MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
+  return { game, nativeReward, state };
+}
+
+function createStalledRecoverySession(
+  state: ServiceWorkerState,
+  overrides: Partial<FarmingSessionAdapters> = {},
+) {
+  return createFarmingSession(
+    state,
+    createFarmingSessionAdapters({
+      fetchStreamContext: async () => ({
+        channelName: 'stalled-streamer',
+        categorySlug: 'native-game',
+        categoryLabel: 'Native Game',
+        streamTitle: 'Drops',
+        titleContainsDrops: true,
+        hasDropsSignal: true,
+        isLive: true,
+        pageUrl: 'https://twitch.tv/stalled-streamer',
+      }),
+      ...overrides,
+    }),
+  );
 }
 
 describe('normalizeQueueSelection', () => {
@@ -249,7 +371,7 @@ describe('resolveGameFromState', () => {
     const resolved = createGame({ id: 'game-1', name: 'Test Game', campaignId: 'campaign-1' });
     state.appState.availableGames = [resolved];
     const result = resolveGameFromState(state, game);
-    expect(result.campaignId).toBe('campaign-1');
+    expect(result?.campaignId).toBe('campaign-1');
   });
 
   test('returns original game when not found in availableGames', () => {
@@ -257,7 +379,7 @@ describe('resolveGameFromState', () => {
     const game = createGame({ id: 'game-1', name: 'Test Game' });
     state.appState.availableGames = [];
     const result = resolveGameFromState(state, game);
-    expect(result.id).toBe('game-1');
+    expect(result?.id).toBe('game-1');
   });
 
   test('falls back to name matching when exact match not found', () => {
@@ -266,7 +388,7 @@ describe('resolveGameFromState', () => {
     const nameMatch = createGame({ id: 'new-id', name: 'Test Game', campaignId: 'campaign-1' });
     state.appState.availableGames = [nameMatch];
     const result = resolveGameFromState(state, game);
-    expect(result.id).toBe('new-id');
+    expect(result?.id).toBe('new-id');
   });
 
   test('prefers campaigns without campaignId over those with', () => {
@@ -276,7 +398,225 @@ describe('resolveGameFromState', () => {
     const withCampaign = createGame({ id: 'new-2', name: 'Test Game', campaignId: 'campaign-1' });
     state.appState.availableGames = [withCampaign, withoutCampaign];
     const result = resolveGameFromState(state, game);
-    expect(result.id).toBe('new-1');
+    expect(result?.id).toBe('new-1');
+  });
+
+  test('does not rebind an explicit missing campaign to a sibling by name', () => {
+    const state = createMinimalState();
+    const requestedCampaign = createGame({
+      id: 'shared-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-missing',
+    });
+    const siblingCampaign = createGame({
+      id: 'canonical-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-sibling',
+    });
+    state.appState.availableGames = [siblingCampaign];
+
+    expect(resolveGameFromState(state, requestedCampaign)).toBeNull();
+  });
+
+  test('resolves an explicit campaign from the queue when availableGames is stale', () => {
+    const state = createMinimalState();
+    const queuedCampaign = createGame({
+      id: 'shared-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-queued',
+    });
+    const requestedCampaign = { ...queuedCampaign };
+    state.appState.availableGames = [];
+    state.appState.queue = [queuedCampaign];
+
+    expect(resolveGameFromState(state, requestedCampaign)).toBe(queuedCampaign);
+  });
+
+  test('keeps explicit campaign queue identity distinct from a sibling with the same name', () => {
+    const state = createMinimalState();
+    const queuedCampaign = createGame({
+      id: 'shared-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-queued',
+    });
+    const siblingCampaign = createGame({
+      id: 'canonical-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-sibling',
+    });
+    state.appState.availableGames = [siblingCampaign];
+    state.appState.queue = [queuedCampaign];
+
+    expect(queueContainsGame(state, siblingCampaign)).toBe(false);
+  });
+});
+
+describe('explicit campaign selection guards', () => {
+  test('rejects START for an unavailable campaign before mutating queue or session state', async () => {
+    const state = createMinimalState();
+    const existingGame = createGame({ id: 'existing-game', campaignId: 'campaign-existing' });
+    const requestedCampaign = createGame({
+      id: 'shared-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-missing',
+    });
+    const siblingCampaign = createGame({
+      id: 'canonical-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-sibling',
+    });
+    state.appState.availableGames = [siblingCampaign];
+    state.appState.queue = [existingGame];
+    state.appState.selectedGame = existingGame;
+    state.appState.isPaused = true;
+    const queueBefore = [...state.appState.queue];
+    let ensureCalls = 0;
+    let refreshCalls = 0;
+
+    const result = await handleStartFarming(
+      state,
+      { game: requestedCampaign },
+      {
+        onEnsureWorkspace: async () => {
+          ensureCalls += 1;
+        },
+        onRefreshDropsData: async () => {
+          refreshCalls += 1;
+        },
+      },
+    );
+
+    expect(result).toEqual({ success: false, error: 'Campaign is no longer available.' });
+    expect(state.appState.queue).toEqual(queueBefore);
+    expect(state.appState.selectedGame).toBe(existingGame);
+    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.isPaused).toBe(true);
+    expect(ensureCalls).toBe(0);
+    expect(refreshCalls).toBe(0);
+  });
+
+  test('starts an exact available campaign and preserves legacy no-campaign fallback', async () => {
+    const exactState = createMinimalState();
+    const exactGame = createGame({ id: 'exact-game', name: 'Exact Game', campaignId: 'campaign-exact' });
+    exactState.appState.availableGames = [exactGame];
+    exactState.appState.pendingDrops = [
+      createDrop({ gameId: exactGame.id, gameName: exactGame.name, campaignId: exactGame.campaignId }),
+    ];
+
+    const exactResult = await handleStartFarming(exactState, { game: { ...exactGame } });
+
+    expect(exactResult.success).toBe(true);
+    expect(exactState.appState.selectedGame).toBe(exactGame);
+    expect(exactState.appState.queue[0]).toBe(exactGame);
+
+    const legacyState = createMinimalState();
+    const legacyCanonical = createGame({
+      id: 'legacy-canonical',
+      name: 'Legacy Game',
+      campaignId: 'campaign-legacy',
+    });
+    legacyState.appState.availableGames = [legacyCanonical];
+    legacyState.appState.pendingDrops = [
+      createDrop({
+        gameId: legacyCanonical.id,
+        gameName: legacyCanonical.name,
+        campaignId: legacyCanonical.campaignId,
+      }),
+    ];
+
+    const legacyResult = await handleStartFarming(legacyState, {
+      game: createGame({ id: 'legacy-stale-id', name: legacyCanonical.name }),
+    });
+
+    expect(legacyResult.success).toBe(true);
+    expect(legacyState.appState.selectedGame).toBe(legacyCanonical);
+    expect(legacyState.appState.queue[0]).toBe(legacyCanonical);
+  });
+
+  test('rejects SET_SELECTED_GAME for an unavailable campaign without changing selection or queue', async () => {
+    const state = createMinimalState();
+    const existingGame = createGame({ id: 'existing-game', campaignId: 'campaign-existing' });
+    const requestedCampaign = createGame({
+      id: 'shared-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-missing',
+    });
+    const siblingCampaign = createGame({
+      id: 'canonical-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-sibling',
+    });
+    state.appState.availableGames = [siblingCampaign];
+    state.appState.queue = [existingGame];
+    state.appState.selectedGame = existingGame;
+    const queueBefore = [...state.appState.queue];
+    let refreshCalls = 0;
+    let saveCalls = 0;
+
+    const result = await handleSetSelectedGame(
+      state,
+      { game: requestedCampaign },
+      {
+        onTrackActivity: async () => undefined,
+        onEnsureWorkspace: async () => undefined,
+        onRefreshDropsData: async () => {
+          refreshCalls += 1;
+        },
+        onOpenBestStreamer: async () => true,
+        onSaveState: async () => {
+          saveCalls += 1;
+        },
+        onSaveTimingState: async () => undefined,
+      },
+      {
+        resolveGameFromState,
+        removeGameFromQueue,
+        splitDropsForSelectedGame: () => undefined,
+        getGameDisplayLabel: (game) => game.name,
+        logDebug: () => undefined,
+        logWarn: () => undefined,
+      },
+    );
+
+    expect(result).toEqual({ success: false, error: 'Campaign is no longer available.' });
+    expect(state.appState.selectedGame).toBe(existingGame);
+    expect(state.appState.queue).toEqual(queueBefore);
+    expect(refreshCalls).toBe(0);
+    expect(saveCalls).toBe(0);
+  });
+
+  test('selects an exact campaign from the queue when availability is temporarily stale', async () => {
+    const state = createMinimalState();
+    const queuedCampaign = createGame({
+      id: 'queued-game',
+      name: 'Queued Game',
+      campaignId: 'campaign-queued',
+    });
+    state.appState.queue = [queuedCampaign];
+
+    const result = await handleSetSelectedGame(
+      state,
+      { game: { ...queuedCampaign } },
+      {
+        onTrackActivity: async () => undefined,
+        onEnsureWorkspace: async () => undefined,
+        onRefreshDropsData: async () => undefined,
+        onOpenBestStreamer: async () => true,
+        onSaveState: async () => undefined,
+        onSaveTimingState: async () => undefined,
+      },
+      {
+        resolveGameFromState,
+        removeGameFromQueue,
+        splitDropsForSelectedGame: () => undefined,
+        getGameDisplayLabel: (game) => game.name,
+        logDebug: () => undefined,
+        logWarn: () => undefined,
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(state.appState.selectedGame).toBe(queuedCampaign);
   });
 });
 
@@ -692,6 +1032,55 @@ describe('skipCurrentGameAndAdvanceQueue', () => {
     }
   });
 
+  test('skips farming-complete queue entries after a stalled campaign', async () => {
+    const current = createGame({ id: 'game-1', campaignId: 'campaign-1' });
+    const terminalGame = createGame({
+      id: 'game-2',
+      campaignId: 'campaign-2',
+      rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
+    });
+    const farmableGame = createGame({
+      id: 'game-3',
+      campaignId: 'campaign-3',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    });
+    const state = createMinimalState();
+    state.appState.selectedGame = current;
+    state.appState.queue = [current, terminalGame, farmableGame];
+    state.appState.availableGames = [current, terminalGame, farmableGame];
+    let refreshCalls = 0;
+
+    await skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', {
+      onSaveTimingState: async () => {},
+      onRefreshDropsData: async () => {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
+          const terminalDrop = createDrop({
+            id: 'terminal-drop',
+            campaignId: terminalGame.campaignId,
+            rewardKind: 'twitch-emote',
+            verificationState: 'unverifiable',
+          });
+          state.appState.selectedGame = terminalGame;
+          state.appState.allDrops = [terminalDrop];
+          state.appState.pendingDrops = [terminalDrop];
+          state.appState.currentDrop = null;
+          return;
+        }
+        const farmableDrop = createDrop({ id: 'farmable-drop', campaignId: farmableGame.campaignId });
+        state.appState.selectedGame = farmableGame;
+        state.appState.allDrops = [farmableDrop];
+        state.appState.pendingDrops = [farmableDrop];
+        state.appState.currentDrop = farmableDrop;
+      },
+      onOpenStreamer: async () => true,
+    });
+
+    expect(refreshCalls).toBe(2);
+    expect(state.appState.selectedGame).toBe(farmableGame);
+    expect(state.appState.queue).toEqual([farmableGame]);
+  });
+
   test('stops cleanly when no-streamers skip exhausts the queue', async () => {
     const current = createGame({ id: 'game-1', name: 'No Live Game' });
     const state = createMinimalState();
@@ -758,6 +1147,66 @@ describe('skipCurrentGameAndAdvanceQueue', () => {
     expect(notification?.message).toContain('Stalled Game');
     expect(notification?.message).toContain('opened a stream but drop progress did not resume');
     expect(notification?.message).not.toContain('No live streamers found');
+  });
+
+  test('uses truthful unverifiable-Twitch terminal state when no games remain', async () => {
+    const current = createGame({
+      id: 'game-1',
+      name: 'Unverifiable Game',
+      rewardSummary: {
+        completion: 'farming-complete',
+        remainderReasons: ['unverifiable-twitch'],
+      },
+    });
+    const state = createMinimalState();
+    state.appState.selectedGame = current;
+    state.appState.queue = [current];
+
+    let stop:
+      | { stopReason: string; stopMessage: string; notification: { title: string; message: string } }
+      | undefined;
+    await skipCurrentGameAndAdvanceQueue(state, 'unverifiable-twitch', {
+      onStopFarmingSession: async (options) => {
+        stop = options;
+      },
+    });
+
+    expect(stop?.stopReason).toBe('unverifiable-twitch');
+    expect(stop?.stopMessage).toContain('could not be verified');
+    expect(stop?.notification.message).toContain('could not be verified');
+    expect(stop?.stopMessage).not.toMatch(/all rewards (claimed|acquired|complete)/i);
+    expect(state.appState.selectedGame).toEqual(current);
+  });
+
+  test('advances with truthful unverifiable-Twitch copy when another game is queued', async () => {
+    const current = createGame({ id: 'game-1', name: 'Unverifiable Game', campaignId: 'campaign-1' });
+    const next = createGame({ id: 'game-2', name: 'Farmable Game', campaignId: 'campaign-2' });
+    const nextDrop = createDrop({ id: 'next-drop', campaignId: next.campaignId });
+    const state = createMinimalState();
+    state.appState.selectedGame = current;
+    state.appState.queue = [current, next];
+    state.appState.availableGames = [current, next];
+    const notifications: Array<{ title: string; message: string }> = [];
+
+    await skipCurrentGameAndAdvanceQueue(state, 'unverifiable-twitch', {
+      onSaveTimingState: async () => {},
+      onRefreshDropsData: async () => {
+        state.appState.allDrops = [nextDrop];
+        state.appState.pendingDrops = [nextDrop];
+        state.appState.currentDrop = nextDrop;
+      },
+      onOpenStreamer: async () => true,
+      onNotify: async (title, message) => {
+        notifications.push({ title, message });
+      },
+    });
+
+    expect(state.appState.selectedGame?.campaignId).toBe(next.campaignId);
+    expect(state.appState.queue).toEqual([next]);
+    expect(notifications[0]?.title).toBe('Campaign farming finished');
+    expect(notifications[0]?.message).toContain('could not be verified');
+    expect(notifications[0]?.message).toContain('Now farming Farmable Game');
+    expect(notifications[0]?.message).not.toMatch(/all rewards (claimed|acquired|complete)/i);
   });
 });
 
@@ -1058,6 +1507,74 @@ describe('advanceQueueIfCompleted', () => {
     expect(openStreamerCalled).toBe(true);
   });
 
+  test('promotes a farmable sibling when a terminal campaign shares its game id', async () => {
+    // Given: the selected terminal campaign is first, followed by a distinct farmable sibling.
+    const state = createMinimalState();
+    const terminalCampaign = createGame({
+      id: 'shared-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-terminal',
+      rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
+    });
+    const farmableSibling = createGame({
+      id: 'shared-game-id',
+      name: 'Shared Game',
+      campaignId: 'campaign-farmable',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    });
+    state.appState.isRunning = true;
+    state.appState.selectedGame = terminalCampaign;
+    state.appState.availableGames = [terminalCampaign, farmableSibling];
+    state.appState.queue = [terminalCampaign, farmableSibling];
+    state.appState.allDrops = [];
+    state.appState.pendingDrops = [];
+    state.appState.currentDrop = null;
+    const events: string[] = [];
+
+    // When: lifecycle advancement removes the terminal selection and starts the next campaign.
+    const advanced = await advanceQueueIfCompleted(state, {
+      onSaveTimingState: async () => {
+        events.push(`timing:${state.appState.selectedGame?.campaignId ?? 'none'}`);
+      },
+      onEnsureWorkspace: async () => {
+        events.push(`workspace:${state.appState.selectedGame?.campaignId ?? 'none'}`);
+      },
+      onRefreshDropsData: async () => {
+        events.push(`refresh:${state.appState.selectedGame?.campaignId ?? 'none'}`);
+        const siblingDrop = createDrop({
+          id: 'sibling-drop',
+          gameId: farmableSibling.id,
+          gameName: farmableSibling.name,
+          campaignId: farmableSibling.campaignId,
+        });
+        state.appState.allDrops = [siblingDrop];
+        state.appState.pendingDrops = [siblingDrop];
+        state.appState.currentDrop = siblingDrop;
+      },
+      onOpenStreamer: async () => {
+        events.push(`open:${state.appState.selectedGame?.campaignId ?? 'none'}`);
+        return true;
+      },
+      onSaveState: async () => {
+        events.push(`persist:${state.appState.selectedGame?.campaignId ?? 'none'}`);
+      },
+    });
+
+    // Then: only the exact terminal campaign is removed and the sibling remains running.
+    expect(advanced).toBe(true);
+    expect(state.appState.selectedGame).toBe(farmableSibling);
+    expect(state.appState.selectedGame?.campaignId).toBe('campaign-farmable');
+    expect(state.appState.queue).toEqual([farmableSibling]);
+    expect(state.appState.isRunning).toBe(true);
+    expect(events).toEqual([
+      'timing:campaign-farmable',
+      'workspace:campaign-farmable',
+      'refresh:campaign-farmable',
+      'open:campaign-farmable',
+      'persist:campaign-farmable',
+    ]);
+  });
+
   test('skips completed games in queue', async () => {
     const state = createMinimalState();
     state.appState.isRunning = true;
@@ -1091,7 +1608,199 @@ describe('advanceQueueIfCompleted', () => {
     expect(state.appState.selectedGame?.id).toBe('game-3');
   });
 
-  test('stops farming when queue is empty', async () => {
+  test('skips queued farming-complete campaigns and advances to the next farmable campaign', async () => {
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = createGame({ id: 'game-1', campaignId: 'campaign-1' });
+    state.appState.allDrops = [createDrop({ id: 'drop-1', claimed: true })];
+    state.appState.pendingDrops = [];
+    state.appState.currentDrop = null;
+    state.previousAllDropsCount = 1;
+    const terminalGame = createGame({
+      id: 'game-2',
+      campaignId: 'campaign-2',
+      rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
+    });
+    const farmableGame = createGame({
+      id: 'game-3',
+      campaignId: 'campaign-3',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    });
+    state.appState.queue = [terminalGame, farmableGame];
+    state.appState.availableGames = [terminalGame, farmableGame];
+    let refreshCalls = 0;
+
+    await advanceQueueIfCompleted(state, {
+      onRefreshDropsData: async () => {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
+          const terminalDrop = createDrop({
+            id: 'terminal-drop',
+            campaignId: terminalGame.campaignId,
+            rewardKind: 'twitch-badge',
+            verificationState: 'unverifiable',
+          });
+          state.appState.selectedGame = terminalGame;
+          state.appState.allDrops = [terminalDrop];
+          state.appState.pendingDrops = [terminalDrop];
+          state.appState.currentDrop = null;
+          return;
+        }
+        const farmableDrop = createDrop({ id: 'farmable-drop', campaignId: farmableGame.campaignId });
+        state.appState.selectedGame = farmableGame;
+        state.appState.allDrops = [farmableDrop];
+        state.appState.pendingDrops = [farmableDrop];
+        state.appState.currentDrop = farmableDrop;
+      },
+      onOpenStreamer: async () => true,
+    });
+
+    expect(refreshCalls).toBe(2);
+    expect(state.appState.selectedGame).toBe(farmableGame);
+    expect(state.appState.queue).toEqual([farmableGame]);
+  });
+
+  test('retains a subscription-only campaign when farming-complete exhausts the queue', async () => {
+    // Given: the selected campaign has only a subscription-gated remainder and no queued successor.
+    const state = createMinimalState();
+    const terminalGame = createGame({
+      id: 'subscription-game',
+      name: 'Subscription Game',
+      campaignId: 'subscription-campaign',
+      rewardSummary: {
+        completion: 'farming-complete',
+        remainderReasons: ['subscription-required'],
+      },
+    });
+    state.appState.isRunning = true;
+    state.appState.selectedGame = terminalGame;
+    state.appState.availableGames = [terminalGame];
+    state.appState.queue = [terminalGame];
+    state.appState.allDrops = [
+      createDrop({
+        id: 'subscription-reward',
+        campaignId: terminalGame.campaignId,
+        acquisitionMethod: 'subscription',
+      }),
+    ];
+    state.appState.pendingDrops = [...state.appState.allDrops];
+    state.appState.currentDrop = null;
+    const alerts: Array<{ kind: string; message: string }> = [];
+
+    // When: lifecycle advancement reaches the end of the queue.
+    const advanced = await advanceQueueIfCompleted(state, {
+      onApplyStopState: applyStopState,
+      onSendAlert: async (kind, message) => {
+        alerts.push({ kind, message });
+      },
+    });
+
+    // Then: terminal state keeps the campaign inspectable and does not announce all acquired.
+    expect(advanced).toBe(false);
+    expect(state.appState.selectedGame).toEqual(terminalGame);
+    expect(state.appState.lastStopReason).toBe('farming-complete');
+    expect(state.appState.lastStopMessage).toBe(
+      'All farmable rewards claimed · Subscription required for remaining rewards',
+    );
+    expect(alerts).toEqual([]);
+  });
+
+  test('retains an unverifiable-only campaign when farming-complete exhausts the queue', async () => {
+    // Given: the selected campaign has only an unverifiable Twitch-native remainder.
+    const state = createMinimalState();
+    const terminalGame = createGame({
+      id: 'unverifiable-game',
+      name: 'Unverifiable Game',
+      campaignId: 'unverifiable-campaign',
+      rewardSummary: {
+        completion: 'farming-complete',
+        remainderReasons: ['unverifiable-twitch'],
+      },
+    });
+    state.appState.isRunning = true;
+    state.appState.selectedGame = terminalGame;
+    state.appState.availableGames = [terminalGame];
+    state.appState.queue = [terminalGame];
+    state.appState.allDrops = [
+      createDrop({
+        id: 'unverifiable-reward',
+        campaignId: terminalGame.campaignId,
+        rewardKind: 'twitch-emote',
+        verificationState: 'unverifiable',
+      }),
+    ];
+    state.appState.pendingDrops = [...state.appState.allDrops];
+    state.appState.currentDrop = null;
+    const alerts: Array<{ kind: string; message: string }> = [];
+
+    // When: lifecycle advancement reaches the end of the queue.
+    const advanced = await advanceQueueIfCompleted(state, {
+      onApplyStopState: applyStopState,
+      onSendAlert: async (kind, message) => {
+        alerts.push({ kind, message });
+      },
+    });
+
+    // Then: the terminal reason stays truthful and no all-complete alert is emitted.
+    expect(advanced).toBe(false);
+    expect(state.appState.selectedGame).toEqual(terminalGame);
+    expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
+    expect(state.appState.lastStopMessage).toBe(
+      'Farming finished · Twitch reward acquisition could not be verified',
+    );
+    expect(alerts).toEqual([]);
+  });
+
+  test('retains both ordered remainder lines when farming-complete exhausts the queue', async () => {
+    // Given: the selected campaign has subscription and unverifiable remainders.
+    const state = createMinimalState();
+    const terminalGame = createGame({
+      id: 'combined-game',
+      name: 'Combined Game',
+      campaignId: 'combined-campaign',
+      rewardSummary: {
+        completion: 'farming-complete',
+        remainderReasons: ['unverifiable-twitch', 'subscription-required'],
+      },
+    });
+    state.appState.isRunning = true;
+    state.appState.selectedGame = terminalGame;
+    state.appState.availableGames = [terminalGame];
+    state.appState.queue = [terminalGame];
+    state.appState.pendingDrops = [
+      createDrop({ acquisitionMethod: 'subscription', campaignId: terminalGame.campaignId }),
+      createDrop({
+        id: 'unverifiable-reward',
+        rewardKind: 'twitch-badge',
+        verificationState: 'unverifiable',
+        campaignId: terminalGame.campaignId,
+      }),
+    ];
+    state.appState.allDrops = [...state.appState.pendingDrops];
+    state.appState.currentDrop = null;
+    const alerts: Array<{ kind: string; message: string }> = [];
+
+    // When: lifecycle advancement reaches the end of the queue.
+    const advanced = await advanceQueueIfCompleted(state, {
+      onApplyStopState: applyStopState,
+      onSendAlert: async (kind, message) => {
+        alerts.push({ kind, message });
+      },
+    });
+
+    // Then: the canonical subscription-then-unverifiable lines are persisted separately.
+    expect(advanced).toBe(false);
+    expect(state.appState.selectedGame).toEqual(terminalGame);
+    expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
+    expect(state.appState.lastStopMessage?.split('\n')).toEqual([
+      'All farmable rewards claimed · Subscription required for remaining rewards',
+      'Farming finished · Twitch reward acquisition could not be verified',
+    ]);
+    expect(alerts).toEqual([]);
+  });
+
+  test('keeps ordinary all-acquired queue completion unchanged', async () => {
+    // Given: the selected campaign has acquired every reward.
     const state = createMinimalState();
     state.appState.isRunning = true;
     state.appState.selectedGame = createGame({ id: 'game-1' });
@@ -1102,21 +1811,54 @@ describe('advanceQueueIfCompleted', () => {
     state.previousAllDropsCount = 1;
 
     let stopMonitoringCalled = false;
-    let alertSent = false;
+    const alerts: Array<{ kind: string; message: string }> = [];
 
+    // When: lifecycle advancement reaches the end of the queue.
     await advanceQueueIfCompleted(state, {
       onStopMonitoring: () => {
         stopMonitoringCalled = true;
       },
-      onSendAlert: async () => {
-        alertSent = true;
+      onSendAlert: async (kind, message) => {
+        alerts.push({ kind, message });
       },
-      onApplyStopState: () => {},
+      onApplyStopState: applyStopState,
     });
 
+    // Then: the legacy queue-complete stop and all-complete alert remain intact.
     expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.lastStopReason).toBe('queue-complete');
+    expect(state.appState.lastStopMessage).toBe('Queue completed. No pending rewards left.');
     expect(stopMonitoringCalled).toBe(true);
-    expect(alertSent).toBe(true);
+    expect(alerts).toEqual([{ kind: 'all-complete', message: 'Queue completed. No pending rewards left.' }]);
+  });
+
+  test('keeps ordinary expired queue completion unchanged', async () => {
+    // Given: the selected campaign vanished after previously exposing rewards.
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = createGame({ id: 'expired-game' });
+    state.appState.allDrops = [];
+    state.appState.pendingDrops = [];
+    state.appState.currentDrop = null;
+    state.appState.queue = [];
+    state.previousAllDropsCount = 1;
+    const alerts: Array<{ kind: string; message: string }> = [];
+
+    // When: lifecycle advancement reaches the end of the queue.
+    const advanced = await advanceQueueIfCompleted(state, {
+      onApplyStopState: applyStopState,
+      onSendAlert: async (kind, message) => {
+        alerts.push({ kind, message });
+      },
+    });
+
+    // Then: expiration still follows ordinary queue completion.
+    expect(advanced).toBe(false);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.lastStopReason).toBe('queue-complete');
+    expect(state.appState.lastStopMessage).toBe('Queue completed. No pending rewards left.');
+    expect(alerts).toEqual([{ kind: 'all-complete', message: 'Queue completed. No pending rewards left.' }]);
   });
 
   test('closes managed tab when queue completes', async () => {
@@ -1364,6 +2106,45 @@ describe('handleStartFarming', () => {
     expect(result.error).toBe('No game selected.');
   });
 
+  test('rejects a farming-complete campaign before mutating the farming session', async () => {
+    const state = createMinimalState();
+    const terminalGame = createGame({
+      id: 'terminal-game',
+      campaignId: 'terminal-campaign',
+      rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
+    });
+    const queuedGame = createGame({ id: 'queued-game', campaignId: 'queued-campaign' });
+    state.appState.availableGames = [terminalGame, queuedGame];
+    state.appState.queue = [queuedGame];
+    state.appState.pendingDrops = [
+      createDrop({
+        campaignId: terminalGame.campaignId,
+        rewardKind: 'twitch-badge',
+        verificationState: 'unverifiable',
+      }),
+    ];
+    let refreshCalls = 0;
+
+    const result = await handleStartFarming(
+      state,
+      { game: terminalGame },
+      {
+        onRefreshDropsData: async () => {
+          refreshCalls += 1;
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Farming finished · Twitch reward acquisition could not be verified',
+    });
+    expect(refreshCalls).toBe(0);
+    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.queue).toEqual([queuedGame]);
+  });
+
   test('tracks activity on start', async () => {
     const state = createMinimalState();
     let trackActivityCalled = false;
@@ -1453,6 +2234,42 @@ describe('handleStartFarming', () => {
     expect(state.appState.isRunning).toBe(false);
   });
 
+  test('rejects Start when refresh makes the selected campaign farming-complete', async () => {
+    const state = createMinimalState();
+    const game = createGame({ id: 'game-1', campaignId: 'campaign-1' });
+    state.appState.availableGames = [game];
+
+    const result = await handleStartFarming(
+      state,
+      { game },
+      {
+        onRefreshDropsData: async () => {
+          const farmingCompleteGame = createGame({
+            ...game,
+            rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
+          });
+          state.appState.availableGames = [farmingCompleteGame];
+          state.appState.selectedGame = farmingCompleteGame;
+          state.appState.pendingDrops = [
+            createDrop({
+              campaignId: game.campaignId,
+              rewardKind: 'twitch-emote',
+              verificationState: 'unverifiable',
+            }),
+          ];
+          state.appState.currentDrop = null;
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Farming finished · Twitch reward acquisition could not be verified',
+    });
+    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.selectedGame).toBeNull();
+  });
+
   test('removes game from queue when no farmable drops', async () => {
     const state = createMinimalState();
     const game = createGame({ id: 'game-1' });
@@ -1526,6 +2343,31 @@ describe('handleStartFarming', () => {
     const result = await handleStartFarming(state, { game: createGame() });
 
     expect(result.success).toBe(true);
+  });
+
+  test('allows Start for a fresh zero-percent Twitch-native reward', async () => {
+    const state = createMinimalState();
+    const game = createGame({
+      id: 'game-1',
+      campaignId: 'campaign-1',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    });
+    const freshReward = createDrop({
+      campaignId: game.campaignId,
+      progress: 0,
+      currentMinutes: 0,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'unassessed',
+    });
+    state.appState.availableGames = [game];
+    state.appState.pendingDrops = [freshReward];
+    state.appState.currentDrop = freshReward;
+
+    const result = await handleStartFarming(state, { game });
+
+    expect(result).toEqual({ success: true });
+    expect(state.appState.selectedGame).toBe(game);
   });
 
   test('calls onSaveState on success', async () => {
@@ -2017,6 +2859,98 @@ describe('checkDropProgress', () => {
   });
 });
 
+async function runFarmingSessionStreamerAcquisition(rewardOverrides: Partial<TwitchDrop>) {
+  const state = createMinimalState();
+  const game = createGame({ campaignId: 'native-campaign', categorySlug: 'native-game' });
+  const reward = createDrop({
+    campaignId: game.campaignId,
+    categorySlug: game.categorySlug,
+    ...rewardOverrides,
+  });
+  state.appState.selectedGame = game;
+  state.cachedDropsSnapshot = [reward];
+  let fetchCalls = 0;
+  const openedStreamers: string[] = [];
+  const session = createFarmingSession(
+    state,
+    createFarmingSessionAdapters({
+      fetchDirectoryStreamersFromApi: async () => {
+        fetchCalls += 1;
+        return Object.assign([createStreamer()], { languageFilterApplied: false });
+      },
+      openForegroundChannel: async (streamer) => {
+        openedStreamers.push(streamer.name);
+      },
+    }),
+  );
+
+  const opened = await session.acquireStreamerForSelectedGame();
+  return { opened, fetchCalls, openedStreamers };
+}
+
+describe('farming session streamer acquisition semantics', () => {
+  test('opens a streamer for a 100%-progress Twitch-native reward without verified acquisition', async () => {
+    // Given: Twitch reports full progress for a native reward but no strict award proof.
+    const reward = {
+      progress: 100,
+      currentMinutes: 60,
+      requiredMinutes: 60,
+      remainingMinutes: 0,
+      claimable: false,
+      rewardKind: 'twitch-badge',
+      verificationState: 'unassessed',
+    } satisfies Partial<TwitchDrop>;
+
+    // When: the production farming-session seam acquires a streamer.
+    const result = await runFarmingSessionStreamerAcquisition(reward);
+
+    // Then: the still-unacquired native reward reaches directory fetch and opens.
+    expect(result).toEqual({
+      opened: true,
+      fetchCalls: 1,
+      openedStreamers: ['streamer-1'],
+    });
+  });
+
+  test('suppresses streamer acquisition for a verified Twitch-native reward', async () => {
+    // Given: strict Twitch evidence verifies the native reward acquisition.
+    const reward = {
+      progress: 100,
+      currentMinutes: 60,
+      requiredMinutes: 60,
+      remainingMinutes: 0,
+      claimable: false,
+      rewardKind: 'twitch-emote',
+      verificationState: 'verified',
+    } satisfies Partial<TwitchDrop>;
+
+    // When: the production farming-session seam acquires a streamer.
+    const result = await runFarmingSessionStreamerAcquisition(reward);
+
+    // Then: an acquired native reward never reaches directory fetch.
+    expect(result).toEqual({ opened: false, fetchCalls: 0, openedStreamers: [] });
+  });
+
+  test('preserves streamer suppression for an ordinary completed reward', async () => {
+    // Given: an ordinary in-game reward is complete under the existing progress rule.
+    const reward = {
+      progress: 100,
+      currentMinutes: 60,
+      requiredMinutes: 60,
+      remainingMinutes: 0,
+      claimable: false,
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    } satisfies Partial<TwitchDrop>;
+
+    // When: the production farming-session seam acquires a streamer.
+    const result = await runFarmingSessionStreamerAcquisition(reward);
+
+    // Then: ordinary completed behavior remains suppressed.
+    expect(result).toEqual({ opened: false, fetchCalls: 0, openedStreamers: [] });
+  });
+});
+
 describe('openBestStreamerForSelectedGame', () => {
   test('does not open streamers when allowed filter removes every candidate without language fallback', async () => {
     const state = createMinimalState();
@@ -2043,7 +2977,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => false,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'test-game',
         pickStreamerForPreferences: (candidates) => {
@@ -2102,7 +3036,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => false,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'test-game',
         pickStreamerForPreferences: (candidates, prefs, _randomFn, filterApplied) => {
@@ -2166,7 +3100,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => false,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'test-game',
         pickStreamerForPreferences: (candidates) => {
@@ -2208,7 +3142,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => false,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'test-game',
         pickStreamerForPreferences: (candidates) => {
@@ -2247,7 +3181,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => false,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'test-game',
         pickStreamerForPreferences: (candidates) => {
@@ -2289,7 +3223,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => true,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'no-live-game',
         pickStreamerForPreferences: () => ({
@@ -2327,7 +3261,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => false,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'test-game',
         pickStreamerForPreferences: (candidates) => {
@@ -2365,7 +3299,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => false,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'test-game',
         pickStreamerForPreferences: (candidates) => {
@@ -2399,7 +3333,7 @@ describe('openBestStreamerForSelectedGame', () => {
       },
       {
         dropMatchesSelectedGame: () => false,
-        isDropCompleted: () => false,
+        isRewardAcquired: () => false,
         getGameDisplayLabel: (item) => item.name,
         resolveCategorySlug: async () => 'test-game',
         pickStreamerForPreferences: () => ({
@@ -2573,6 +3507,200 @@ describe('refreshDropsData light refresh', () => {
   });
 });
 
+describe('createFarmingSession exhausted stalled recovery', () => {
+  let mocks: ChromeMocks;
+
+  beforeEach(() => {
+    mocks = setupChromeMocks();
+    chrome.alarms.clear = async () => true;
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/stalled-streamer' });
+  });
+
+  afterEach(() => {
+    mocks.teardown();
+  });
+
+  test('marks an identified Twitch-native reward at 99 percent before terminal queue mutation', async () => {
+    const realDateNow = Date.now;
+    const now = realDateNow();
+    Date.now = () => now;
+    const { game, state } = createExhaustedRecoveryFixture({ progress: 99, currentMinutes: 59 });
+    const events: string[] = [];
+    let markerRecorded = false;
+    let reprojectRecorded = false;
+    let queueMutationRecorded = false;
+
+    try {
+      const session = createStalledRecoverySession(state, {
+        saveTimingState: async (nextState) => {
+          if (!markerRecorded && Object.keys(nextState.unverifiableRewardsByKey).length === 1) {
+            markerRecorded = true;
+            events.push('marker-save');
+            expect(nextState.appState.queue.map((queuedGame) => queuedGame.campaignId)).toEqual([
+              game.campaignId,
+            ]);
+          }
+        },
+        saveState: async (nextState) => {
+          if (
+            markerRecorded &&
+            !reprojectRecorded &&
+            nextState.appState.currentDrop === null &&
+            nextState.appState.queue.length === 1
+          ) {
+            reprojectRecorded = true;
+            events.push('reproject');
+          }
+          if (markerRecorded && !queueMutationRecorded && nextState.appState.queue.length === 0) {
+            queueMutationRecorded = true;
+            events.push('queue-mutation');
+          }
+        },
+      });
+
+      await session.checkDropProgress();
+
+      expect(events.slice(0, 3)).toEqual(['marker-save', 'reproject', 'queue-mutation']);
+      expect(Object.values(state.unverifiableRewardsByKey)).toEqual([
+        { progress: 99, currentMinutes: 59, markedAt: now },
+      ]);
+      expect(state.appState.pendingDrops[0]?.progress).toBe(99);
+      expect(state.appState.pendingDrops[0]?.verificationState).toBe('unverifiable');
+      expect(state.appState.availableGames[0]?.rewardSummary).toEqual({
+        completion: 'farming-complete',
+        remainderReasons: ['unverifiable-twitch'],
+      });
+      expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
+      expect(state.appState.lastStopMessage).not.toMatch(/all rewards (claimed|acquired|complete)/i);
+    } finally {
+      Date.now = realDateNow;
+    }
+  });
+
+  test('preserves exact zero-percent progress when third-attempt recovery becomes unverifiable', async () => {
+    const realDateNow = Date.now;
+    const now = realDateNow();
+    Date.now = () => now;
+    const { state } = createExhaustedRecoveryFixture({ progress: 0, currentMinutes: 0 });
+
+    try {
+      await createStalledRecoverySession(state).checkDropProgress();
+
+      expect(Object.values(state.unverifiableRewardsByKey)).toEqual([
+        { progress: 0, currentMinutes: 0, markedAt: now },
+      ]);
+      expect(state.appState.pendingDrops[0]?.progress).toBe(0);
+      expect(state.appState.pendingDrops[0]?.currentMinutes).toBe(0);
+      expect(state.appState.pendingDrops[0]?.verificationState).toBe('unverifiable');
+      expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
+    } finally {
+      Date.now = realDateNow;
+    }
+  });
+
+  test('does not mark a Twitch-native reward during the first recovery attempt', async () => {
+    const { game, state } = createExhaustedRecoveryFixture({ progress: 99, currentMinutes: 59 });
+    state.stalledRecoveryAttempts = 0;
+    state.appState.recoveryAttempts = null;
+    let selfHealCalls = 0;
+
+    await createStalledRecoverySession(state, {
+      attemptPlaybackSelfHeal: async () => {
+        selfHealCalls += 1;
+      },
+    }).checkDropProgress();
+
+    expect(selfHealCalls).toBe(1);
+    expect(state.stalledRecoveryAttempts).toBe(1);
+    expect(state.unverifiableRewardsByKey).toEqual({});
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
+  });
+
+  test('keeps the ordinary stalled-progress path when campaign identity is blank', async () => {
+    const { state } = createExhaustedRecoveryFixture({
+      progress: 99,
+      currentMinutes: 59,
+      campaignId: '   ',
+    });
+
+    await createStalledRecoverySession(state).checkDropProgress();
+
+    expect(state.unverifiableRewardsByKey).toEqual({});
+    expect(state.appState.lastStopReason).toBe('stall-skipped');
+    expect(state.appState.lastStopMessage).toContain('drop progress did not resume');
+  });
+
+  for (const rewardKind of ['in-game', 'unknown'] as const) {
+    test(`keeps ${rewardKind} rewards on the ordinary third-attempt stall path`, async () => {
+      const { state } = createExhaustedRecoveryFixture({
+        progress: 99,
+        currentMinutes: 59,
+        rewardKind,
+      });
+
+      await createStalledRecoverySession(state).checkDropProgress();
+
+      expect(state.unverifiableRewardsByKey).toEqual({});
+      expect(state.appState.lastStopReason).toBe('stall-skipped');
+      expect(state.appState.lastStopMessage).toContain('drop progress did not resume');
+    });
+  }
+
+  test('reprojects and reacquires the same mixed campaign when another automatable reward remains', async () => {
+    const nextReward = createDrop({
+      id: 'next-reward',
+      gameId: 'native-game',
+      gameName: 'Native Game',
+      campaignId: 'native-campaign',
+      categorySlug: 'native-game',
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    });
+    const { game, nativeReward, state } = createExhaustedRecoveryFixture({
+      progress: 99,
+      currentMinutes: 59,
+      additionalDrops: [nextReward],
+    });
+    const events: string[] = [];
+    let markerRecorded = false;
+    let reprojectRecorded = false;
+
+    await createStalledRecoverySession(state, {
+      fetchDirectoryStreamersFromApi: async () =>
+        Object.assign([createStreamer({ id: 'replacement', name: 'replacement' })], {
+          languageFilterApplied: true,
+        }),
+      openForegroundChannel: async () => {
+        events.push('reacquire');
+      },
+      saveTimingState: async (nextState) => {
+        if (!markerRecorded && Object.keys(nextState.unverifiableRewardsByKey).length === 1) {
+          markerRecorded = true;
+          events.push('marker-save');
+        }
+      },
+      saveState: async (nextState) => {
+        if (markerRecorded && !reprojectRecorded && nextState.appState.currentDrop?.id === nextReward.id) {
+          reprojectRecorded = true;
+          events.push('reproject');
+        }
+      },
+    }).checkDropProgress();
+
+    expect(events.slice(0, 3)).toEqual(['marker-save', 'reproject', 'reacquire']);
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
+    expect(state.appState.queue.map((queuedGame) => queuedGame.campaignId)).toEqual([game.campaignId]);
+    expect(state.appState.currentDrop?.id).toBe(nextReward.id);
+    expect(state.appState.pendingDrops.find((drop) => drop.id === nativeReward.id)?.verificationState).toBe(
+      'unverifiable',
+    );
+    expect(state.appState.lastStopReason).toBeNull();
+  });
+});
+
 describe('rotateStreamerIfInvalid', () => {
   let mocks: ChromeMocks;
 
@@ -2583,6 +3711,45 @@ describe('rotateStreamerIfInvalid', () => {
   afterEach(() => {
     mocks.teardown();
   });
+
+  async function runNoDropsSignalScenario(options: {
+    pendingDrops?: TwitchDrop[];
+    currentDrop?: TwitchDrop;
+  }): Promise<{ state: ServiceWorkerState; rotateCalls: number }> {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    state.appState.tabId = 123;
+    state.appState.pendingDrops = options.pendingDrops ?? [];
+    if (options.currentDrop) {
+      state.appState.currentDrop = options.currentDrop;
+    }
+
+    mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
+
+    let rotateCalls = 0;
+    const opts = {
+      onFetchStreamContext: async () => ({
+        channelName: 'streamer',
+        categorySlug: 'test-game',
+        categoryLabel: 'Test Game',
+        streamTitle: 'Stream Title',
+        titleContainsDrops: false,
+        hasDropsSignal: false,
+        isLive: true,
+        pageUrl: 'https://twitch.tv/streamer',
+      }),
+      onResolveCategorySlug: async () => 'test-game',
+      onRotateStreamer: async () => {
+        rotateCalls += 1;
+      },
+    };
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await rotateStreamerIfInvalid(state, opts);
+    }
+
+    return { state, rotateCalls };
+  }
 
   test('returns early if no selected game', async () => {
     const state = createMinimalState();
@@ -3180,6 +4347,64 @@ describe('rotateStreamerIfInvalid', () => {
       onResolveCategorySlug: async () => 'test-game',
     });
 
+    expect(state.invalidStreamChecks).toBe(0);
+  });
+
+  test('does not recover for a pending unverifiable Twitch-native reward without Drops signal', async () => {
+    const { state, rotateCalls } = await runNoDropsSignalScenario({
+      pendingDrops: [
+        createDrop({
+          rewardKind: 'twitch-badge',
+          verificationState: 'unverifiable',
+        }),
+      ],
+    });
+
+    expect(rotateCalls).toBe(0);
+    expect(state.invalidStreamChecks).toBe(0);
+  });
+
+  test('does not recover for a pending subscription-gated remainder without Drops signal', async () => {
+    const { state, rotateCalls } = await runNoDropsSignalScenario({
+      pendingDrops: [createDrop({ acquisitionMethod: 'subscription' })],
+    });
+
+    expect(rotateCalls).toBe(0);
+    expect(state.invalidStreamChecks).toBe(0);
+  });
+
+  test('does not recover when the current reward is a non-automatable remainder', async () => {
+    const { state, rotateCalls } = await runNoDropsSignalScenario({
+      currentDrop: createDrop({ acquisitionMethod: 'subscription' }),
+    });
+
+    expect(rotateCalls).toBe(0);
+    expect(state.invalidStreamChecks).toBe(0);
+  });
+
+  test('keeps Drops-signal recovery for pending watch-time, unknown, and fresh Twitch-native rewards', async () => {
+    const { state, rotateCalls } = await runNoDropsSignalScenario({
+      pendingDrops: [
+        createDrop({ id: 'watch-time', acquisitionMethod: 'watch-time' }),
+        createDrop({ id: 'unknown', acquisitionMethod: 'unknown' }),
+        createDrop({
+          id: 'fresh-twitch-native',
+          rewardKind: 'twitch-emote',
+          verificationState: 'unassessed',
+        }),
+      ],
+    });
+
+    expect(rotateCalls).toBe(1);
+    expect(state.invalidStreamChecks).toBe(0);
+  });
+
+  test('does not recover for an event-only pending remainder without Drops signal', async () => {
+    const { state, rotateCalls } = await runNoDropsSignalScenario({
+      pendingDrops: [createDrop({ acquisitionMethod: 'other-event' })],
+    });
+
+    expect(rotateCalls).toBe(0);
     expect(state.invalidStreamChecks).toBe(0);
   });
 

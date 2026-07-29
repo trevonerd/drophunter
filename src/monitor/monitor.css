@@ -56,6 +56,10 @@ body {
   gap: 8px;
 }
 
+.monitor-header > div {
+  min-width: 0;
+}
+
 .monitor-title {
   margin: 0;
   font-size: 15px;
@@ -66,6 +70,7 @@ body {
   margin: 3px 0 0;
   font-size: 11px;
   color: var(--dh-muted);
+  overflow-wrap: break-word;
 }
 
 .monitor-pill {
@@ -94,7 +99,8 @@ body {
   border-color: oklch(0.8 0.16 85 / 0.55);
 }
 
-.monitor-pill--idle {
+.monitor-pill--idle,
+.monitor-pill--stopped {
   background: oklch(0.38 0.02 292 / 0.52);
   color: var(--dh-text-soft);
   border-color: var(--dh-border);
@@ -113,12 +119,14 @@ body {
   font-size: 14px;
   font-weight: 700;
   color: var(--dh-text);
+  overflow-wrap: break-word;
 }
 
 .monitor-drop-meta {
   margin-top: 3px;
   color: var(--dh-muted);
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .monitor-progress-track {
@@ -168,13 +176,18 @@ body {
 }
 
 .monitor-channel {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 11px;
   color: oklch(0.82 0.09 304);
+  overflow-wrap: anywhere;
 }
 
 .monitor-updated {
+  flex: 0 0 auto;
   font-size: 10px;
   color: var(--dh-muted);
+  white-space: nowrap;
 }
 
 .monitor-rotation-reason {
@@ -182,6 +195,19 @@ body {
   font-size: 10px;
   color: var(--dh-warning);
   opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.monitor-reward-status {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.monitor-reward-status-label {
+  margin: 0;
+  font-size: 10px;
+  color: var(--dh-warning);
+  font-weight: 700;
 }
 
 .monitor-empty {

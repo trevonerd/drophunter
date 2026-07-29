@@ -15,10 +15,14 @@ import {
 } from './claimed-rewards';
 import { TwitchGqlTransport } from './gql';
 import {
+  buildConflictedRewardBenefitKeys,
+  classifyRewardAcquisitionMethod,
+  classifyRewardKind,
   computeExpiry,
   extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
+  extractRecordArray,
   getFirstImageUrl,
   normalizeImageUrl,
   normalizeText,
@@ -64,6 +68,7 @@ const INVENTORY_QUERY = {
 
 const CAMPAIGN_DETAILS_HASH = '039277bf98f3130929262cc7c6efd9c141ca3749cb6dca442fc8ead9a53f77c1';
 const CAMPAIGN_DETAILS_BATCH_SIZE = 20;
+const EMPTY_CONFLICTED_REWARD_BENEFITS: ReadonlySet<string> = new Set();
 
 const DIRECTORY_GAME_QUERY_HASH = '76cb069d835b8a02914c08dc42c421d0dafda8af5b113a3f19141824b901402f';
 const CLAIM_DROP_REWARD_QUERY = {
@@ -85,8 +90,11 @@ export type { ClaimedRewardEntry, ClaimedRewardLookup };
 export {
   applyEarlyTwitchRewardClaimsToDrops,
   buildClaimedRewardLookup,
+  buildConflictedRewardBenefitKeys,
   buildGlobalClaimedIdCounts,
   buildGlobalClaimedRewardEntry,
+  classifyRewardAcquisitionMethod,
+  classifyRewardKind,
   computeExpiry,
   extractBenefitDistributionTypes,
   extractBenefitIds,
@@ -145,9 +153,7 @@ export function buildInventoryDropMaps(inventoryRaw: unknown): InventoryDropMaps
     return { byCampaignDrop, byDropId };
   }
 
-  const campaigns = Array.isArray(inventory.dropCampaignsInProgress)
-    ? (inventory.dropCampaignsInProgress as Array<Record<string, unknown>>)
-    : [];
+  const campaigns = extractRecordArray(inventory.dropCampaignsInProgress);
 
   campaigns.forEach((campaign) => {
     if (!campaign || typeof campaign !== 'object') {
@@ -159,9 +165,7 @@ export function buildInventoryDropMaps(inventoryRaw: unknown): InventoryDropMaps
       return;
     }
 
-    const timeBasedDrops = Array.isArray(campaign.timeBasedDrops)
-      ? (campaign.timeBasedDrops as Array<Record<string, unknown>>)
-      : [];
+    const timeBasedDrops = extractRecordArray(campaign.timeBasedDrops);
     timeBasedDrops.forEach((drop) => {
       if (!drop || typeof drop !== 'object') {
         return;
@@ -279,43 +283,16 @@ function isCampaignConnected(campaign: Record<string, unknown>): boolean {
   return isConnected !== false || isTwitchNativeCampaign(campaign);
 }
 
-function collectCampaignText(value: unknown, depth = 0): string[] {
-  if (depth > 5 || value == null) {
-    return [];
-  }
-  if (typeof value === 'string') {
-    const text = value.trim().toLowerCase();
-    return text ? [text] : [];
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap((item) => collectCampaignText(item, depth + 1));
-  }
-  if (typeof value !== 'object') {
-    return [];
-  }
-  return Object.values(value as Record<string, unknown>).flatMap((item) =>
-    collectCampaignText(item, depth + 1),
-  );
+function extractCampaignRewardDrops(campaign: Record<string, unknown>): Record<string, unknown>[] {
+  return [...extractRecordArray(campaign.timeBasedDrops), ...extractRecordArray(campaign.eventBasedDrops)];
 }
 
 function campaignHasBadgeOrEmoteDrop(campaign: Record<string, unknown>): boolean {
-  const drops = [
-    ...(Array.isArray(campaign.timeBasedDrops)
-      ? (campaign.timeBasedDrops as Array<Record<string, unknown>>)
-      : []),
-    ...(Array.isArray(campaign.eventBasedDrops)
-      ? (campaign.eventBasedDrops as Array<Record<string, unknown>>)
-      : []),
-  ];
-  return drops.some((drop) => isBadgeOrEmoteDrop(drop));
+  return extractCampaignRewardDrops(campaign).some((drop) => isBadgeOrEmoteDrop(drop));
 }
 
 function isTwitchNativeCampaign(campaign: Record<string, unknown>): boolean {
-  const text = collectCampaignText(campaign).join(' ');
-  const hasBadgeReward = /\b(?:badge|badges|chat badge|stemma|emblema)\b/i.test(text);
-  const hasTwitchConSignal = /\b(?:twitchcon|roadtotwitchcon|road to twitchcon)\b/i.test(text);
-  const hasTwitchBadgeSignal = /\btwitch\b/i.test(text) && hasBadgeReward;
-  return hasTwitchConSignal || hasTwitchBadgeSignal || campaignHasBadgeOrEmoteDrop(campaign);
+  return campaignHasBadgeOrEmoteDrop(campaign);
 }
 
 function isBadgeOrEmoteDrop(drop: Record<string, unknown>): boolean {
@@ -395,6 +372,7 @@ export function parseCampaignDrops(
   inventoryMaps: InventoryDropMaps,
   claimedRewards: ClaimedRewardLookup,
   globalClaimedRewards: ClaimedRewardEntry,
+  conflictedBenefitKeys: ReadonlySet<string> = EMPTY_CONFLICTED_REWARD_BENEFITS,
 ): TwitchDrop[] {
   const campaignId = normalizeText(campaign.id) || game.campaignId || '';
   const campaignStartsAt = toIsoDate(campaign.startAt);
@@ -406,9 +384,7 @@ export function parseCampaignDrops(
     return [];
   }
 
-  const timeBasedDrops = Array.isArray(campaign.timeBasedDrops)
-    ? (campaign.timeBasedDrops as Array<Record<string, unknown>>)
-    : [];
+  const timeBasedDrops = extractRecordArray(campaign.timeBasedDrops);
   const gameClaimedRewards = claimedRewards.get(game.name.toLowerCase());
 
   const parsedDrops = timeBasedDrops.map((drop, index) => {
@@ -431,6 +407,8 @@ export function parseCampaignDrops(
     const benefitNames = extractBenefitNames(drop);
     const benefitIds = extractBenefitIds(drop);
     const rewardDistributionTypes = extractBenefitDistributionTypes(drop);
+    const acquisitionMethod = classifyRewardAcquisitionMethod(requiredMinutes, 'unknown');
+    const rewardKind = classifyRewardKind(rewardDistributionTypes);
     const dropStartsAt = toIsoDate(drop.startAt) ?? campaignStartsAt;
     const dropEndsAt = toIsoDate(drop.endAt) ?? campaignEndsAt;
     const allowMissingGlobalAwardedAt = isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign);
@@ -445,14 +423,16 @@ export function parseCampaignDrops(
     );
     const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
     const claimedFromInventory = inventoryState?.claimed ?? Boolean(self.isClaimed ?? drop.isClaimed);
-    const isEarlyAwardable = isEarlyAwardableTwitchReward(rewardDistributionTypes);
+    const isEarlyAwardable = rewardKind === 'twitch-badge' || rewardKind === 'twitch-emote';
     // When inventory state already pins this drop to a specific campaign, only a
     // same-game, timestamp-in-window game-event match may override it — a same-named
     // or same-ID benefit claimed by a sibling campaign must not count.
     const strictClaimedFromGameEvents = isEarlyAwardable
-      ? hasClaimedGameEventReward(benefitIds, game.name, claimedRewards, {
-          startsAt: dropStartsAt,
-          endsAt: dropEndsAt,
+      ? hasClaimedGameEventReward(claimedRewards, {
+          benefitIds,
+          gameName: game.name,
+          window: { startsAt: dropStartsAt, endsAt: dropEndsAt },
+          conflictedBenefitKeys,
         })
       : false;
     const claimed = resolveDropClaimedStatus(
@@ -487,10 +467,6 @@ export function parseCampaignDrops(
     const imageUrl = normalizeImageUrl(getFirstImageUrl(drop)) || game.imageUrl;
     const endsAt = inventoryState?.endsAt ?? toIsoDate(drop.endAt) ?? campaignEndsAt;
 
-    // Drops with no watch-time requirement are not farmable (e.g. sub-only rewards
-    // that the Twitch API places in timeBasedDrops instead of eventBasedDrops)
-    const isFarmable = requiredMinutes !== null && requiredMinutes > 0;
-
     return {
       id: dropId,
       claimId: claimId || undefined,
@@ -511,9 +487,11 @@ export function parseCampaignDrops(
       requiredMinutes,
       remainingMinutes,
       progressSource: 'campaign',
+      acquisitionMethod,
+      rewardKind,
+      verificationState: strictClaimedFromGameEvents ? 'verified' : 'unassessed',
       benefitIds,
       rewardDistributionTypes,
-      ...(!isFarmable && { dropType: 'event-based' as const }),
     } satisfies TwitchDrop;
   });
 
@@ -525,13 +503,12 @@ function parseEventBasedDrops(
   game: TwitchGame,
   claimedRewards: ClaimedRewardLookup,
   globalClaimedRewards: ClaimedRewardEntry,
+  conflictedBenefitKeys: ReadonlySet<string> = EMPTY_CONFLICTED_REWARD_BENEFITS,
 ): TwitchDrop[] {
   const campaignId = normalizeText(campaign.id) || game.campaignId || '';
   const campaignStartsAt = toIsoDate(campaign.startAt);
   const campaignEndsAt = toIsoDate(campaign.endAt);
-  const eventBasedDrops = Array.isArray(campaign.eventBasedDrops)
-    ? (campaign.eventBasedDrops as Array<Record<string, unknown>>)
-    : [];
+  const eventBasedDrops = extractRecordArray(campaign.eventBasedDrops);
   const gameClaimedRewards = claimedRewards.get(game.name.toLowerCase());
 
   return eventBasedDrops.map((drop, index) => {
@@ -539,6 +516,8 @@ function parseEventBasedDrops(
     const benefitNames = extractBenefitNames(drop);
     const benefitIds = extractBenefitIds(drop);
     const rewardDistributionTypes = extractBenefitDistributionTypes(drop);
+    const acquisitionMethod = classifyRewardAcquisitionMethod(null, 'subscription');
+    const rewardKind = classifyRewardKind(rewardDistributionTypes);
     const dropStartsAt = toIsoDate(drop.startAt) ?? campaignStartsAt;
     const dropEndsAt = toIsoDate(drop.endAt) ?? campaignEndsAt;
     const allowMissingGlobalAwardedAt = isBadgeOrEmoteDrop(drop) || isTwitchNativeCampaign(campaign);
@@ -551,7 +530,23 @@ function parseEventBasedDrops(
       true,
       allowMissingGlobalAwardedAt,
     );
-    const claimed = idMatch || nameMatch || globalIdMatch;
+    const claimedFromGameEvents = idMatch || nameMatch || globalIdMatch;
+    const isEarlyAwardable = rewardKind === 'twitch-badge' || rewardKind === 'twitch-emote';
+    const strictClaimedFromGameEvents = isEarlyAwardable
+      ? hasClaimedGameEventReward(claimedRewards, {
+          benefitIds,
+          gameName: game.name,
+          window: { startsAt: dropStartsAt, endsAt: dropEndsAt },
+          conflictedBenefitKeys,
+        })
+      : false;
+    const claimed = resolveDropClaimedStatus(
+      false,
+      claimedFromGameEvents,
+      strictClaimedFromGameEvents,
+      false,
+      isEarlyAwardable,
+    );
     const dropId = parsedDropId || `${game.id}-event-drop-${index + 1}`;
     const name = normalizeText(drop.name) || `Event Drop ${index + 1}`;
     const imageUrl = normalizeImageUrl(getFirstImageUrl(drop)) || game.imageUrl;
@@ -577,9 +572,11 @@ function parseEventBasedDrops(
       requiredMinutes: null,
       remainingMinutes: null,
       progressSource: 'campaign',
+      acquisitionMethod,
+      rewardKind,
+      verificationState: strictClaimedFromGameEvents ? 'verified' : 'unassessed',
       benefitIds,
       rewardDistributionTypes,
-      dropType: 'event-based',
     } satisfies TwitchDrop;
   });
 }
@@ -740,21 +737,37 @@ export class TwitchApiClient {
         ? await this.fetchCampaignDetailsBatch(campaignIds)
         : new Map<string, Record<string, unknown>>();
 
+    const parsedCampaigns = usableCampaigns.flatMap((campaign, index) => {
+      const campaignId = normalizeText(campaign.id);
+      const details = campaignId ? detailsMap.get(campaignId) : undefined;
+      const mergedCampaign = details ? { ...campaign, ...details } : campaign;
+      const game = parseGameFromCampaign(mergedCampaign);
+      return game
+        ? [
+            {
+              campaign: mergedCampaign,
+              game,
+              campaignIdentity: campaignId || `${game.id}-${index}`,
+            },
+          ]
+        : [];
+    });
+    const conflictedBenefitKeys = buildConflictedRewardBenefitKeys(
+      parsedCampaigns.flatMap(({ campaign, game, campaignIdentity }) =>
+        extractCampaignRewardDrops(campaign).map((drop) => ({
+          gameName: game.name,
+          campaignIdentity,
+          benefitIds: extractBenefitIds(drop),
+        })),
+      ),
+    );
+
     const games: TwitchGame[] = [];
     const drops: TwitchDrop[] = [];
     const campaignChannelsMap: Record<string, string[] | null> = {};
 
-    usableCampaigns.forEach((campaign) => {
-      // Merge campaign details (with timeBasedDrops) BEFORE parsing the game
-      // so parseGameFromCampaign can access game.slug from DropCampaignDetails
+    parsedCampaigns.forEach(({ campaign, game }) => {
       const campaignId = normalizeText(campaign.id);
-      const details = campaignId ? detailsMap.get(campaignId) : undefined;
-      const mergedCampaign = details ? { ...campaign, ...details } : campaign;
-
-      const game = parseGameFromCampaign(mergedCampaign);
-      if (!game) {
-        return;
-      }
 
       // Store allowed channels for this campaign
       if (campaignId) {
@@ -762,20 +775,24 @@ export class TwitchApiClient {
       }
 
       const campaignDrops = parseCampaignDrops(
-        mergedCampaign,
+        campaign,
         game,
         inventoryMaps,
         claimedRewards,
         globalClaimedRewards,
+        conflictedBenefitKeys,
       );
 
-      // Parse event-based (subscribe to redeem) drops
-      const eventDrops = parseEventBasedDrops(mergedCampaign, game, claimedRewards, globalClaimedRewards);
+      const eventDrops = parseEventBasedDrops(
+        campaign,
+        game,
+        claimedRewards,
+        globalClaimedRewards,
+        conflictedBenefitKeys,
+      );
 
       const allCampaignDrops = [...campaignDrops, ...eventDrops];
-      // Only include game if campaign has at least one farmable drop
-      const hasFarmableDrops = campaignDrops.some((d) => d.dropType !== 'event-based');
-      if (hasFarmableDrops) {
+      if (allCampaignDrops.length > 0) {
         games.push({
           ...game,
           dropCount: allCampaignDrops.length,

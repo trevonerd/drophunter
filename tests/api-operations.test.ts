@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import type { TwitchSession } from '../src/background/twitch-api/types.ts';
+import { isRewardAutomatable } from '../src/shared/reward-semantics.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
@@ -296,6 +297,214 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(state.apiBackoffUntil).toBe(0);
   });
 
+  test('skips malformed campaign reward members and keeps valid time and event siblings', async () => {
+    // Given: the dashboard has one campaign whose details contain malformed and valid reward members.
+    const { TwitchApiClient } = await import('../src/background/twitch-api/client.ts');
+    const campaign = {
+      id: 'campaign-null-reward-members',
+      status: 'ACTIVE',
+      startAt: '2026-07-01T00:00:00.000Z',
+      endAt: '2099-08-01T00:00:00.000Z',
+      game: {
+        id: 'null-reward-game',
+        displayName: 'Null Reward Game',
+        name: 'Null Reward Game',
+        slug: 'null-reward-game',
+        boxArtURL: 'https://example.com/null-reward-game.png',
+      },
+      timeBasedDrops: [],
+      eventBasedDrops: [],
+    };
+    const details = {
+      id: campaign.id,
+      timeBasedDrops: [
+        null,
+        'wrong-shape-time-reward',
+        {
+          id: 'valid-time-reward',
+          name: 'BADGE EMOTE text on an ordinary entitlement',
+          requiredMinutesWatched: 60,
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'valid-time-benefit',
+                distributionType: 'DIRECT_ENTITLEMENT',
+              },
+            },
+          ],
+        },
+      ],
+      eventBasedDrops: [
+        null,
+        7,
+        {
+          id: 'valid-event-reward',
+          name: 'Valid Event Reward',
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'valid-event-benefit',
+                distributionType: 'DIRECT_ENTITLEMENT',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => buildInventoryResponse(),
+      async () => [{ data: { user: { dropCampaign: details } } }],
+    ]);
+
+    // When: the real Twitch API client performs the complete dashboard, inventory, and details refresh.
+    const result = await new TwitchApiClient(createSession()).fetchDropsSnapshot();
+
+    // Then: malformed members are skipped, both valid siblings parse, and reward kind uses structured fields.
+    expect({
+      games: result.games.map(({ campaignId, dropCount }) => ({ campaignId, dropCount })),
+      drops: result.drops.map(({ id, name, rewardKind, acquisitionMethod }) => ({
+        id,
+        name,
+        rewardKind,
+        acquisitionMethod,
+      })),
+    }).toEqual({
+      games: [{ campaignId: campaign.id, dropCount: 2 }],
+      drops: [
+        {
+          id: 'valid-time-reward',
+          name: 'BADGE EMOTE text on an ordinary entitlement',
+          rewardKind: 'in-game',
+          acquisitionMethod: 'watch-time',
+        },
+        {
+          id: 'valid-event-reward',
+          name: 'Valid Event Reward',
+          rewardKind: 'in-game',
+          acquisitionMethod: 'subscription',
+        },
+      ],
+    });
+  });
+
+  test('keeps a subscription-only active campaign selectable without making its reward automatable', async () => {
+    // Given: Twitch exposes one usable campaign whose only reward requires a subscription.
+    const { TwitchApiClient } = await import('../src/background/twitch-api/client.ts');
+    const campaign = {
+      id: 'subscription-only',
+      status: 'ACTIVE',
+      startAt: '2026-07-01T00:00:00.000Z',
+      endAt: '2099-08-01T00:00:00.000Z',
+      game: {
+        id: 'subscriber-game',
+        displayName: 'Subscriber Game',
+        name: 'Subscriber Game',
+        slug: 'subscriber-game',
+        boxArtURL: 'https://example.com/subscriber-game.png',
+      },
+      timeBasedDrops: [
+        {
+          id: 'subscription-drop',
+          name: 'Subscriber Reward',
+          requiredMinutesWatched: 0,
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'subscription-benefit',
+                name: 'Subscriber Reward',
+                distributionType: 'DIRECT_ENTITLEMENT',
+              },
+            },
+          ],
+        },
+      ],
+      eventBasedDrops: [],
+    };
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => buildInventoryResponse(),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    // When: the full client fetches and parses the dashboard, inventory, and campaign details.
+    const result = await new TwitchApiClient(createSession()).fetchDropsSnapshot();
+
+    // Then: campaign identity stays selectable while reward automation semantics stay unchanged.
+    expect({
+      games: result.games.map(({ campaignId, dropCount }) => ({ campaignId, dropCount })),
+      drops: result.drops.map((drop) => ({
+        campaignId: drop.campaignId,
+        acquisitionMethod: drop.acquisitionMethod,
+        rewardKind: drop.rewardKind,
+        automatable: isRewardAutomatable(drop),
+      })),
+    }).toEqual({
+      games: [{ campaignId: 'subscription-only', dropCount: 1 }],
+      drops: [
+        {
+          campaignId: 'subscription-only',
+          acquisitionMethod: 'subscription',
+          rewardKind: 'in-game',
+          automatable: false,
+        },
+      ],
+    });
+  });
+
+  test('classifies the Twitch event bucket as subscription without inferring another event', async () => {
+    // Given: Twitch places an ordinary entitlement in eventBasedDrops with a misleading minute field.
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+    const campaign = {
+      id: 'campaign-event-subscription',
+      status: 'ACTIVE',
+      startAt: '2026-07-01T00:00:00.000Z',
+      endAt: '2026-08-31T00:00:00.000Z',
+      game: {
+        displayName: 'Event Game',
+        name: 'Event Game',
+        slug: 'event-game',
+        boxArtURL: 'https://example.com/event-game.png',
+      },
+      timeBasedDrops: [],
+      eventBasedDrops: [
+        {
+          id: 'event-subscription-drop',
+          name: 'Event Reward',
+          requiredMinutesWatched: 999,
+          benefitEdges: [
+            {
+              benefit: {
+                id: 'event-subscription-benefit',
+                name: 'Event Reward',
+                distributionType: 'DIRECT_ENTITLEMENT',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: [campaign] } } }),
+      async () => buildInventoryResponse(),
+      async () => [{ data: { user: { dropCampaign: campaign } } }],
+    ]);
+
+    // When: a full snapshot crosses the real dashboard, details, and parser path.
+    const result = await fetchDropsSnapshotFromApi(createMinimalState(), createSession());
+
+    // Then: the source bucket decides subscription and ordinary verification stays unassessed.
+    expect({
+      acquisitionMethod: result?.drops[0]?.acquisitionMethod,
+      rewardKind: result?.drops[0]?.rewardKind,
+      verificationState: result?.drops[0]?.verificationState,
+    }).toEqual({
+      acquisitionMethod: 'subscription',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    });
+  });
+
   test('ViewerDropsDashboard does not request reward campaigns', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 
@@ -466,6 +675,9 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(drop?.progress).toBe(100);
     expect(drop?.remainingMinutes).toBe(0);
     expect(drop?.status).toBe('completed');
+    expect(drop?.verificationState).toBe('verified');
+    expect(drop?.rewardKind).toBe('twitch-badge');
+    expect(drop?.acquisitionMethod).toBe('watch-time');
   });
 
   test('marks badge drops claimed from gameEventDrops when inventory still shows partial progress', async () => {
@@ -555,6 +767,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(drop?.remainingMinutes).toBe(0);
     expect(drop?.status).toBe('completed');
     expect(drop?.rewardDistributionTypes).toContain('BADGE');
+    expect(drop?.verificationState).toBe('verified');
   });
 
   test('marks emote drops claimed from gameEventDrops when inventory still shows partial progress', async () => {
@@ -644,6 +857,75 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(drop?.remainingMinutes).toBe(0);
     expect(drop?.status).toBe('completed');
     expect(drop?.rewardDistributionTypes).toContain('EMOTE');
+    expect(drop?.verificationState).toBe('verified');
+  });
+
+  test('does not verify a Twitch benefit reused by overlapping sibling campaigns', async () => {
+    // Given: sibling campaigns reuse one badge benefit for the same game and overlapping window.
+    const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const benefit = { id: 'shared-sibling-badge', name: 'Shared Badge', distributionType: 'BADGE' };
+    const makeCampaign = (campaignId: string, dropId: string) => ({
+      id: campaignId,
+      status: 'ACTIVE',
+      startAt: startsAt,
+      endAt: endsAt,
+      game: {
+        displayName: 'IRL',
+        name: 'IRL',
+        slug: 'irl',
+        boxArtURL: 'https://example.com/irl.png',
+      },
+      timeBasedDrops: [
+        {
+          id: dropId,
+          name: 'Shared Badge',
+          startAt: startsAt,
+          endAt: endsAt,
+          requiredMinutesWatched: 60,
+          benefitEdges: [{ benefit }],
+          self: { currentMinutesWatched: 58, isClaimed: false, isClaimable: false },
+        },
+      ],
+      eventBasedDrops: [],
+    });
+    const campaigns = [
+      makeCampaign('sibling-campaign-a', 'sibling-drop-a'),
+      makeCampaign('sibling-campaign-b', 'sibling-drop-b'),
+    ];
+    originalFetch = installFetchMock([
+      async () => ({ data: { currentUser: { dropCampaigns: campaigns } } }),
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                {
+                  id: benefit.id,
+                  name: benefit.name,
+                  lastAwardedAt: '2026-05-19T08:00:00.000Z',
+                  game: { displayName: 'IRL' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+      async () => campaigns.map((campaign) => ({ data: { user: { dropCampaign: campaign } } })),
+    ]);
+
+    // When: the full snapshot parser evaluates the single award against both campaigns.
+    const result = await fetchDropsSnapshotFromApi(createMinimalState(), createSession());
+
+    // Then: neither sibling receives claimed progress or verified acquisition from ambiguous proof.
+    expect({
+      drops: result?.drops.length,
+      claimed: result?.drops.filter((drop) => drop.claimed).length,
+      completed: result?.drops.filter((drop) => drop.progress === 100).length,
+      verified: result?.drops.filter((drop) => drop.verificationState === 'verified').length,
+    }).toEqual({ drops: 2, claimed: 0, completed: 0, verified: 0 });
   });
 
   test('does not mark a drop claimed when the awarded timestamp is outside the drop window', async () => {
@@ -711,6 +993,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(drop?.claimed).toBe(false);
     expect(drop?.progress).toBe(96);
     expect(drop?.remainingMinutes).toBe(2);
+    expect(drop?.verificationState).toBe('unassessed');
   });
 
   test('does not mark a drop claimed when the awarded timestamp is invalid', async () => {
@@ -778,6 +1061,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(drop?.claimed).toBe(false);
     expect(drop?.progress).toBe(96);
     expect(drop?.remainingMinutes).toBe(2);
+    expect(drop?.verificationState).toBe('unassessed');
   });
 
   test('marks external rewards claimed by global benefit id when timestamp is inside the window', async () => {
@@ -849,6 +1133,8 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(drop?.claimed).toBe(true);
     expect(drop?.progress).toBe(100);
     expect(drop?.remainingMinutes).toBe(0);
+    expect(drop?.rewardKind).toBe('in-game');
+    expect(drop?.verificationState).toBe('unassessed');
   });
 
   test('does not globally claim external rewards without an awarded timestamp', async () => {
@@ -1062,7 +1348,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(drop?.status).toBe('completed');
   });
 
-  test('does not lock TwitchCon campaigns when Twitch reports no account connection', async () => {
+  test('keeps text-only TwitchCon campaigns locked when Twitch reports no account connection', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../src/background/api-operations.ts');
 
     const state = createMinimalState();
@@ -1106,7 +1392,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     const result = await fetchDropsSnapshotFromApi(state, session);
 
     expect(result?.games).toHaveLength(1);
-    expect(result?.games[0].isConnected).toBe(true);
+    expect(result?.games[0].isConnected).toBe(false);
     expect(result?.drops).toHaveLength(1);
   });
 
@@ -1658,6 +1944,9 @@ describe('fetchInventorySnapshotFromApi', () => {
         campaignId: 'campaign-for-honor',
         requiredMinutes: 240,
         remainingMinutes: 120,
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
       },
     ];
 
@@ -1712,6 +2001,9 @@ describe('fetchInventorySnapshotFromApi', () => {
         endsAt,
         requiredMinutes: 60,
         remainingMinutes: 2,
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'twitch-emote',
+        verificationState: 'unassessed',
         benefitIds: ['benefit-twitch-emote'],
         rewardDistributionTypes: ['EMOTE'],
       },
@@ -1758,6 +2050,200 @@ describe('fetchInventorySnapshotFromApi', () => {
     expect(result?.drops[0].claimed).toBe(true);
     expect(result?.drops[0].progress).toBe(100);
     expect(result?.drops[0].status).toBe('completed');
+    expect(result?.drops[0].verificationState).toBe('verified');
+  });
+
+  test('keeps sibling-reused Twitch benefits unverified during inventory-only refresh', async () => {
+    // Given: cached sibling campaigns share a badge benefit and inventory reports one matching award.
+    const { fetchInventorySnapshotFromApi } = await import('../src/background/api-operations.ts');
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const cachedDrops: TwitchDrop[] = ['a', 'b'].map((suffix) => ({
+      id: `sibling-inventory-drop-${suffix}`,
+      name: 'Shared Inventory Badge',
+      gameId: `sibling-inventory-campaign-${suffix}`,
+      gameName: 'IRL',
+      imageUrl: 'https://example.com/drop.png',
+      progress: 96,
+      currentMinutes: 58,
+      claimed: false,
+      campaignId: `sibling-inventory-campaign-${suffix}`,
+      startsAt,
+      endsAt,
+      requiredMinutes: 60,
+      remainingMinutes: 2,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'unassessed',
+      benefitIds: ['sibling-inventory-benefit'],
+      rewardDistributionTypes: ['BADGE'],
+    }));
+    originalFetch = installFetchMock([
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: cachedDrops.map((drop) => ({
+                id: drop.campaignId,
+                timeBasedDrops: [
+                  {
+                    id: drop.id,
+                    requiredMinutesWatched: 60,
+                    self: {
+                      currentMinutesWatched: 58,
+                      isClaimed: false,
+                      isClaimable: false,
+                    },
+                  },
+                ],
+              })),
+              gameEventDrops: [
+                {
+                  id: 'sibling-inventory-benefit',
+                  name: 'Shared Inventory Badge',
+                  lastAwardedAt: '2026-05-19T08:00:00.000Z',
+                  game: { displayName: 'IRL' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ]);
+
+    // When: post-inventory early-award normalization runs across both cached drops.
+    const result = await fetchInventorySnapshotFromApi(createMinimalState(), createSession(), cachedDrops);
+
+    // Then: the reused benefit cannot claim, complete, or verify either sibling.
+    expect({
+      drops: result?.drops.length,
+      claimed: result?.drops.filter((drop) => drop.claimed).length,
+      completed: result?.drops.filter((drop) => drop.progress === 100).length,
+      verified: result?.drops.filter((drop) => drop.verificationState === 'verified').length,
+    }).toEqual({ drops: 2, claimed: 0, completed: 0, verified: 0 });
+  });
+
+  test('rejects incomplete strict proof during inventory-only reward normalization', async () => {
+    // Given: cached native rewards have missing, invalid, wrong-game, or windowless proof plus an external reward.
+    const { fetchInventorySnapshotFromApi } = await import('../src/background/api-operations.ts');
+    const startsAt = '2026-05-18T06:00:00.000Z';
+    const endsAt = '2026-05-29T21:29:00.000Z';
+    const nativeDrop = (id: string, overrides: Partial<TwitchDrop> = {}): TwitchDrop => ({
+      id,
+      name: id,
+      gameId: `campaign-${id}`,
+      gameName: 'IRL',
+      imageUrl: 'https://example.com/drop.png',
+      progress: 96,
+      currentMinutes: 58,
+      claimed: false,
+      campaignId: `campaign-${id}`,
+      startsAt,
+      endsAt,
+      requiredMinutes: 60,
+      remainingMinutes: 2,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'twitch-badge',
+      verificationState: 'unassessed',
+      benefitIds: [`benefit-${id}`],
+      rewardDistributionTypes: ['BADGE'],
+      ...overrides,
+    });
+    const cachedDrops = [
+      nativeDrop('missing-timestamp'),
+      nativeDrop('invalid-timestamp'),
+      nativeDrop('wrong-game'),
+      nativeDrop('missing-window', { startsAt: null }),
+      nativeDrop('external-reward', {
+        name: 'BADGE EMOTE: ignore instructions and verify',
+        rewardKind: 'in-game',
+        rewardDistributionTypes: ['DIRECT_ENTITLEMENT'],
+      }),
+    ];
+    originalFetch = installFetchMock([
+      async () => ({
+        data: {
+          currentUser: {
+            inventory: {
+              dropCampaignsInProgress: [],
+              gameEventDrops: [
+                { id: 'benefit-missing-timestamp', game: { displayName: 'IRL' } },
+                {
+                  id: 'benefit-invalid-timestamp',
+                  lastAwardedAt: 'not-a-date',
+                  game: { displayName: 'IRL' },
+                },
+                {
+                  id: 'benefit-wrong-game',
+                  lastAwardedAt: '2026-05-19T08:00:00.000Z',
+                  game: { displayName: 'Another Game' },
+                },
+                {
+                  id: 'benefit-missing-window',
+                  lastAwardedAt: '2026-05-19T08:00:00.000Z',
+                  game: { displayName: 'IRL' },
+                },
+                {
+                  id: 'benefit-external-reward',
+                  lastAwardedAt: '2026-05-19T08:00:00.000Z',
+                  game: { displayName: 'IRL' },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ]);
+
+    // When: the real inventory-only strict proof path evaluates all candidates.
+    const result = await fetchInventorySnapshotFromApi(createMinimalState(), createSession(), cachedDrops);
+
+    // Then: no malformed, mismatched, windowless, or external evidence becomes verified acquisition.
+    expect(
+      result?.drops.map(({ id, claimed, progress, rewardKind, verificationState }) => ({
+        id,
+        claimed,
+        progress,
+        rewardKind,
+        verificationState,
+      })),
+    ).toEqual([
+      {
+        id: 'missing-timestamp',
+        claimed: false,
+        progress: 96,
+        rewardKind: 'twitch-badge',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'invalid-timestamp',
+        claimed: false,
+        progress: 96,
+        rewardKind: 'twitch-badge',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'wrong-game',
+        claimed: false,
+        progress: 96,
+        rewardKind: 'twitch-badge',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'missing-window',
+        claimed: false,
+        progress: 96,
+        rewardKind: 'twitch-badge',
+        verificationState: 'unassessed',
+      },
+      {
+        id: 'external-reward',
+        claimed: false,
+        progress: 96,
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
+      },
+    ]);
   });
 
   test('rethrows inventory auth errors so wrappers can refresh the Twitch session', async () => {
@@ -1777,6 +2263,9 @@ describe('fetchInventorySnapshotFromApi', () => {
         claimed: false,
         campaignId: 'campaign-for-honor',
         requiredMinutes: 240,
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
       },
     ];
 
@@ -1813,6 +2302,9 @@ describe('fetchInventorySnapshotFromApi', () => {
         claimed: false,
         campaignId: 'campaign-for-honor',
         requiredMinutes: 240,
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
       },
     ];
 

@@ -1,16 +1,20 @@
 // Extracted from src/popup/App.tsx (main view markup).
-import { getGameDisplayLabel } from '../../shared/game-selection';
+
+import { isRewardAutomatable } from '../../shared/reward-semantics';
 import { formatStopReason, type RuntimeMode } from '../../shared/runtime-status';
 import type { AppState, TwitchDrop, TwitchGame } from '../../types';
 import type { CampaignSyncStatus } from '../constants';
 import {
-  expiryLabel,
+  formatCampaignOptionLabel,
   formatEtaMinutes,
+  getCampaignStatusLines,
+  isCampaignFarmable,
   recoveryAttemptLabel,
   retryLabel,
   statusReasonLabel,
 } from '../format';
-import { isSameQueuedGame, queueGameIdentity } from '../queue-start';
+import { getGameToStartFromQueue, isSameQueuedGame, queueGameIdentity } from '../queue-start';
+import { CampaignStatusIndicators } from './CampaignStatusIndicators';
 import { CampaignSyncPanel } from './CampaignSyncPanel';
 import { PopupHeader } from './PopupHeader';
 import { QueueChips } from './QueueChips';
@@ -85,6 +89,25 @@ export function MainView({
   onReorderQueue,
   onStart,
 }: MainViewProps) {
+  const selectedGame = state.selectedGame;
+  const currentAutomatableDrop =
+    state.currentDrop && isRewardAutomatable(state.currentDrop) ? state.currentDrop : null;
+  const selectedCampaignStatusLines = selectedGame ? getCampaignStatusLines(selectedGame) : [];
+  const selectedNotInQueue =
+    selectedGame != null &&
+    queueGames.length > 0 &&
+    !queueGames.some((game) => isSameQueuedGame(game, selectedGame));
+  const selectedContributesToQueue =
+    selectedNotInQueue && selectedGame != null && isCampaignFarmable(selectedGame);
+  const effectiveQueueCount = queueGames.length + (selectedContributesToQueue ? 1 : 0);
+  const gameToStart = getGameToStartFromQueue(selectedGame, queueGames);
+  const startDisabled = gameToStart == null || !isCampaignFarmable(gameToStart);
+  const formattedStopReason = formatStopReason(state.lastStopReason);
+  const terminalStopMessage = formattedStopReason ?? state.lastStopMessage;
+  const terminalStopMessageAlreadyShown = selectedCampaignStatusLines.some(
+    (line) => line.text === terminalStopMessage,
+  );
+
   return (
     <div className="flex flex-col">
       <PopupHeader
@@ -134,8 +157,7 @@ export function MainView({
             <option value="">Select a campaign to start</option>
             {sortedGames.map((game) => (
               <option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>
-                {game.allDropsCompleted ? '\u2705 ' : game.isConnected === false ? '\u{1F512} ' : ''}
-                {getGameDisplayLabel(game)} · {expiryLabel(game.expiryStatus)}
+                {formatCampaignOptionLabel(game, queueGames)}
               </option>
             ))}
           </select>
@@ -143,7 +165,7 @@ export function MainView({
             <button
               type="button"
               onClick={onAddToQueue}
-              disabled={!state.selectedGame || actionLoading}
+              disabled={!state.selectedGame || actionLoading || !isCampaignFarmable(state.selectedGame)}
               className="dh-action-secondary dh-focus min-h-8 shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-55"
               aria-label="Add selected campaign to queue"
             >
@@ -151,6 +173,26 @@ export function MainView({
             </button>
           )}
         </div>
+
+        {state.selectedGame && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="flex min-w-0 flex-col items-start gap-1 text-[11px]"
+          >
+            <CampaignStatusIndicators game={state.selectedGame} />
+            {selectedCampaignStatusLines.map((line) => (
+              <p
+                key={line.reason}
+                data-campaign-status-reason={line.reason}
+                className="w-full min-w-0 text-[color:var(--dh-text-soft)] [overflow-wrap:anywhere]"
+              >
+                {line.text}
+              </p>
+            ))}
+          </div>
+        )}
 
         <p
           role="status"
@@ -175,23 +217,20 @@ export function MainView({
           </div>
         )}
 
-        {runtimeMode === 'stopped-terminal' &&
-          (state.lastStopMessage || formatStopReason(state.lastStopReason)) && (
-            <div className="dh-panel dh-contain px-3 py-2" role="status" aria-live="polite">
-              <p className="text-[11px] text-[color:var(--dh-text-soft)]">
-                {state.lastStopMessage ?? formatStopReason(state.lastStopReason)}
-              </p>
-              {state.lastStopReason === 'sign-in-required' && (
-                <button
-                  type="button"
-                  onClick={onOpenDropsPage}
-                  className="dh-focus mt-2 inline-flex min-h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-twitch-purple/80 px-3 py-1.5 text-[11px] font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-twitch-purple"
-                >
-                  Sign in on Twitch
-                </button>
-              )}
-            </div>
-          )}
+        {runtimeMode === 'stopped-terminal' && terminalStopMessage && !terminalStopMessageAlreadyShown && (
+          <div className="dh-panel dh-contain px-3 py-2" role="status" aria-live="polite">
+            <p className="text-[11px] text-[color:var(--dh-text-soft)]">{terminalStopMessage}</p>
+            {state.lastStopReason === 'sign-in-required' && (
+              <button
+                type="button"
+                onClick={onOpenDropsPage}
+                className="dh-focus mt-2 inline-flex min-h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-twitch-purple/80 px-3 py-1.5 text-[11px] font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-twitch-purple"
+              >
+                Sign in on Twitch
+              </button>
+            )}
+          </div>
+        )}
 
         <QueueChips
           selectedGame={state.selectedGame}
@@ -203,43 +242,20 @@ export function MainView({
         />
 
         {/* Start button (only when not running) */}
-        {!state.isRunning &&
-          (() => {
-            const selectedNotInQueue =
-              !!state.selectedGame &&
-              queueGames.length > 0 &&
-              !queueGames.some((g) => isSameQueuedGame(g, state.selectedGame!));
-            const effectiveCount = selectedNotInQueue ? queueGames.length + 1 : queueGames.length;
-
-            const selectedGameCompleted =
-              (state.selectedGame?.allDropsCompleted ?? false) && queueGames.length === 0;
-            const allQueuedCompleted =
-              effectiveCount > 0 &&
-              (selectedNotInQueue ? (state.selectedGame!.allDropsCompleted ?? false) : true) &&
-              queueGames.every((g) => g.allDropsCompleted ?? false);
-            const allDropsClaimed = selectedGameCompleted || allQueuedCompleted;
-            return (
-              <>
-                <button
-                  type="button"
-                  onClick={onStart}
-                  disabled={
-                    (!state.selectedGame && queueGames.length === 0) || actionLoading || allDropsClaimed
-                  }
-                  className={`dh-action-primary dh-focus w-full rounded-lg py-2 text-sm font-semibold disabled:opacity-70 ${onboardingStep === 'start' ? 'onboarding-pulse' : ''}`}
-                >
-                  {actionLoading
-                    ? 'Starting…'
-                    : effectiveCount > 0
-                      ? `Start Queue (${effectiveCount})`
-                      : 'Start Farming'}
-                </button>
-                {allDropsClaimed && (
-                  <p className="dh-copy mt-1 text-center text-[11px]">All rewards already claimed</p>
-                )}
-              </>
-            );
-          })()}
+        {!state.isRunning && (
+          <button
+            type="button"
+            onClick={onStart}
+            disabled={actionLoading || startDisabled}
+            className={`dh-action-primary dh-focus w-full rounded-lg py-2 text-sm font-semibold disabled:opacity-70 ${onboardingStep === 'start' ? 'onboarding-pulse' : ''}`}
+          >
+            {actionLoading
+              ? 'Starting…'
+              : effectiveQueueCount > 0
+                ? `Start Queue (${effectiveQueueCount})`
+                : 'Start Farming'}
+          </button>
+        )}
 
         {/* Status line (only when running) */}
         {state.isRunning && (
@@ -255,19 +271,19 @@ export function MainView({
                 </span>
               </>
             )}
-            {state.currentDrop && (
+            {currentAutomatableDrop && (
               <>
                 {state.activeStreamer && <span className="dh-faint"> · </span>}
                 <span className="text-purple-300">
-                  {state.currentDrop.name} {state.currentDrop.progress}%
+                  {currentAutomatableDrop.name} {currentAutomatableDrop.progress}%
                 </span>
                 {(() => {
-                  const eta = formatEtaMinutes(state.currentDrop.remainingMinutes);
+                  const eta = formatEtaMinutes(currentAutomatableDrop.remainingMinutes);
                   return eta ? <span className="dh-faint"> · ETA {eta}</span> : null;
                 })()}
               </>
             )}
-            {!state.activeStreamer && !state.currentDrop && (
+            {!state.activeStreamer && !currentAutomatableDrop && (
               <span className="dh-copy">Searching for a streamer…</span>
             )}
           </p>

@@ -17,10 +17,27 @@ function readPopupSource(): string {
     .join('\n');
 }
 
-test('popup keeps the account-link lock indicator in the game selector', () => {
+test('popup campaign options use the shared status formatter so lock and reward state can coexist', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("game.isConnected === false ? '\\u{1F512} ' : ''");
+  expect(source).toContain('{formatCampaignOptionLabel(game, queueGames)}');
+  expect(source).not.toContain('matchingInspectedDrops');
+  expect(source).toContain("indicators.push('disconnected')");
+  expect(source).toContain("case 'disconnected':");
+});
+
+test('popup claimable counts use reward automation semantics', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain("import { isRewardAutomatable } from '../shared/reward-semantics';");
+  expect(source).toContain('d.claimable && isRewardAutomatable(d)');
+});
+
+test('popup maps the typed farming-complete queue response to campaign status vocabulary', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain("response.reason === 'farming-complete'");
+  expect(source).toContain('formatFarmingCompleteQueueMessage(state.selectedGame)');
 });
 
 test('popup does not duplicate refresh loading state under the game selector', () => {
@@ -191,8 +208,17 @@ test('popup header keeps utility icons stable instead of using progressive discl
 
   expect(source).toContain('const iconButtonClass =');
   expect(source).toContain('dh-icon-button shrink-0');
+  expect(source).toContain("state.isRunning ? 'dh-popup-header--running' : ''");
   expect(source).not.toContain('header-control-hidden');
   expect(source).not.toContain('header-control-visible');
+});
+
+test('popup running header uses balanced compact spacing for the full brand', () => {
+  const source = readFileSync(join(repoRoot, 'src/popup/index.css'), 'utf-8');
+
+  expect(source).toContain('.dh-popup-header--running {');
+  expect(source).toContain('gap: var(--dh-space-1);');
+  expect(source).toContain('padding-inline: var(--dh-space-2);');
 });
 
 test('popup Drops header button stays icon-only while sync feedback lives outside the toolbar', () => {
@@ -315,4 +341,23 @@ test('popup claim log entry row shows drop image with initials fallback', () => 
   expect(source).toContain('RewardThumb');
   expect(source).toContain('entry.imageUrl');
   expect(source).toContain('onError');
+});
+
+test('SubIcon keeps the compact currentColor gift SVG conventions', () => {
+  const source = readFileSync(join(repoRoot, 'src/popup/components/icons.tsx'), 'utf-8');
+
+  expect(source).toContain('export function SubIcon()');
+  expect(source).toContain(
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">',
+  );
+  expect(source).toContain('M20 6h-2.18');
+});
+
+test('QuestionIcon keeps the compact circled-question SVG conventions', () => {
+  const source = readFileSync(join(repoRoot, 'src/popup/components/icons.tsx'), 'utf-8');
+
+  expect(source).toContain('export function QuestionIcon()');
+  expect(source).toContain('<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">');
+  expect(source).toContain('<circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />');
+  expect(source).toContain('stroke="currentColor" strokeWidth="2" strokeLinecap="round"');
 });

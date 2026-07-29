@@ -1,10 +1,10 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { setupChromeMocks, type ChromeMocks } from './mocks/chrome';
-import type { AppState, Message, TwitchGame } from '../src/types/index.ts';
 import {
   clearPendingTimingStateSaveForTests,
   setTimingSaveDebounceMsForTests,
 } from '../src/background/state-persistence.ts';
+import type { AppState, Message, TwitchGame } from '../src/types/index.ts';
+import { type ChromeMocks, setupChromeMocks } from './mocks/chrome';
 
 const chromeMocks = setupChromeMocks();
 setTimingSaveDebounceMsForTests(0);
@@ -260,13 +260,14 @@ function installFetchMock() {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
 
-    const jsonResponse = (json: unknown, options: Omit<MockFetchResponse, 'json'> = {}) => ({
-      ok: options.ok ?? true,
-      status: options.status ?? 200,
-      async json() {
-        return json;
-      },
-    }) as Response;
+    const jsonResponse = (json: unknown, options: Omit<MockFetchResponse, 'json'> = {}) =>
+      ({
+        ok: options.ok ?? true,
+        status: options.status ?? 200,
+        async json() {
+          return json;
+        },
+      }) as Response;
 
     if (Array.isArray(body)) {
       const scenario = activeSnapshotScenario;
@@ -379,7 +380,9 @@ function installFetchMock() {
       }
 
       default:
-        throw new Error(`Unexpected fetch operation in auto-claim-cross-game test: ${body?.operationName ?? 'unknown'}`);
+        throw new Error(
+          `Unexpected fetch operation in auto-claim-cross-game test: ${body?.operationName ?? 'unknown'}`,
+        );
     }
   }) as typeof fetch;
 }
@@ -460,7 +463,10 @@ async function waitForCondition(check: () => boolean, message: string) {
   throw new Error(message);
 }
 
-async function dispatchMessage(message: Message, sender: chrome.runtime.MessageSender = {}): Promise<unknown> {
+async function dispatchMessage(
+  message: Message,
+  sender: chrome.runtime.MessageSender = {},
+): Promise<unknown> {
   const handler = chromeMocks.runtime.onMessage._handlers[0];
   if (!handler) {
     throw new Error('service worker onMessage handler not registered');
@@ -478,22 +484,25 @@ async function resetWorkerState() {
 }
 
 async function syncTestSession() {
-  await dispatchMessage({
-    type: 'SYNC_TWITCH_SESSION',
-    payload: {
-      session: {
-        oauthToken: 'oauth-token-with-valid-length-1234567890',
-        userId: '123456',
-        deviceId: 'device-12345678',
-        uuid: 'uuid-1',
+  await dispatchMessage(
+    {
+      type: 'SYNC_TWITCH_SESSION',
+      payload: {
+        session: {
+          oauthToken: 'oauth-token-with-valid-length-1234567890',
+          userId: '123456',
+          deviceId: 'device-12345678',
+          uuid: 'uuid-1',
+        },
       },
     },
-  }, {
-    tab: {
-      id: 999,
-      url: 'https://www.twitch.tv/drops/campaigns',
+    {
+      tab: {
+        id: 999,
+        url: 'https://www.twitch.tv/drops/campaigns',
+      },
     },
-  });
+  );
 }
 
 async function triggerMonitorAlarm() {
@@ -501,7 +510,10 @@ async function triggerMonitorAlarm() {
   await sleepTick();
 }
 
-async function triggerMonitorAlarmForScenario(dropSpecs: SnapshotDropSpec[], postClaimDropSpecs?: SnapshotDropSpec[]) {
+async function triggerMonitorAlarmForScenario(
+  dropSpecs: SnapshotDropSpec[],
+  postClaimDropSpecs?: SnapshotDropSpec[],
+) {
   enqueueDropsSnapshot(dropSpecs);
   if (postClaimDropSpecs) {
     enqueueDropsSnapshot(postClaimDropSpecs);
@@ -607,7 +619,7 @@ describe('auto-claim cross-game alarm integration', () => {
     expect(claimRequests).toHaveLength(0);
   });
 
-  test('Toggle ON → trigger alarm with 1 claimable time-based drop → totalDropsClaimed becomes 1', async () => {
+  test('Toggle ON → trigger alarm with 1 claimable watch reward → totalDropsClaimed becomes 1', async () => {
     await startRunningFarm();
     const baselineClaims = getAppStateFromStorage().totalDropsClaimed;
 
@@ -761,7 +773,7 @@ describe('auto-claim cross-game alarm integration', () => {
     expect(claimRequests).toEqual(['claim-cross-one', 'claim-cross-two', 'claim-cross-three']);
   });
 
-  test('Toggle ON → trigger alarm with 1 event-based claimable drop → totalDropsClaimed stays 0', async () => {
+  test('Toggle ON → trigger alarm with 1 subscription-gated claimable reward → totalDropsClaimed stays 0', async () => {
     await startRunningFarm();
     const baselineClaims = getAppStateFromStorage().totalDropsClaimed;
 
@@ -769,8 +781,8 @@ describe('auto-claim cross-game alarm integration', () => {
       createSeedDrop(),
       {
         game: crossGameOne,
-        dropId: 'event-based-drop',
-        claimId: 'claim-event-based',
+        dropId: 'subscription-reward',
+        claimId: 'claim-subscription-reward',
         currentMinutes: 0,
         requiredMinutes: 0,
         claimed: false,
@@ -782,8 +794,8 @@ describe('auto-claim cross-game alarm integration', () => {
       createSeedDrop(),
       {
         game: crossGameOne,
-        dropId: 'event-based-drop',
-        claimId: 'claim-event-based',
+        dropId: 'subscription-reward',
+        claimId: 'claim-subscription-reward',
         currentMinutes: 0,
         requiredMinutes: 0,
         claimed: false,

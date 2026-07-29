@@ -1,4 +1,5 @@
 // Extracted from src/popup/App.tsx (RewardList component).
+import { isRewardAutomatable } from '../../shared/reward-semantics';
 import type { TwitchDrop } from '../../types';
 import { CompactDropCard } from './DropCard';
 
@@ -18,11 +19,17 @@ export function RewardList({
   claimableCount,
 }: RewardListProps) {
   const isLoading = rewardsLoading || syncLoading;
+  const hasOnlyNonAutomatableRewards =
+    pendingDrops.length > 0 && pendingDrops.every((drop) => !isRewardAutomatable(drop));
+  const groupLabel = hasOnlyNonAutomatableRewards ? 'Remaining' : 'Pending';
   return (
     <>
       <div className={`dh-panel dh-contain ${syncLoading ? 'opacity-75' : ''}`}>
         <div className="px-3 py-2 flex items-center justify-between">
-          <h3 className="dh-title text-xs">Pending{!isLoading && ` (${pendingDrops.length})`}</h3>
+          <h3 className="dh-title text-xs">
+            {groupLabel}
+            {!isLoading && ` (${pendingDrops.length})`}
+          </h3>
           {!isLoading && claimableCount > 0 && (
             <span className="text-[11px] text-yellow-300 font-medium">{claimableCount} claimable</span>
           )}

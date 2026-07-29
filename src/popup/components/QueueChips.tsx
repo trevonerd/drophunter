@@ -2,8 +2,10 @@
 import { useEffect, useState } from 'react';
 import { getGameDisplayLabel } from '../../shared/game-selection';
 import type { TwitchGame } from '../../types';
+import { isCampaignFarmable } from '../format';
 import { useQueueDragReorder } from '../hooks/useQueueDragReorder';
 import { isSameQueuedGame, queueGameIdentity } from '../queue-start';
+import { CampaignStatusIndicators } from './CampaignStatusIndicators';
 
 const CLEAR_CONFIRM_TIMEOUT_MS = 3000;
 
@@ -44,23 +46,24 @@ export function QueueChips({
     setConfirmingClear(true);
   };
 
-  const selectedNotInQueue =
+  const selectedStartsBeforeQueue =
     !isRunning &&
     !!selectedGame &&
+    isCampaignFarmable(selectedGame) &&
     queueGames.length > 0 &&
     !queueGames.some((g) => isSameQueuedGame(g, selectedGame));
 
-  if (queueGames.length === 0 && !selectedNotInQueue) {
+  if (queueGames.length === 0 && !selectedStartsBeforeQueue) {
     return null;
   }
 
   return (
     <div className="flex flex-wrap gap-1 items-center">
       <span className="dh-faint text-[11px]">Queue</span>
-      {selectedNotInQueue && (
+      {selectedStartsBeforeQueue && (
         <span className="inline-flex max-w-full items-center gap-0.5 rounded-full border border-green-500/40 bg-green-700/45 px-2 py-0.5 text-[11px] text-green-200">
-          {selectedGame.allDropsCompleted ? '✅ ' : ''}
-          <span className="truncate">{getGameDisplayLabel(selectedGame)}</span>
+          <CampaignStatusIndicators game={selectedGame} />
+          <span className="min-w-0 truncate">{getGameDisplayLabel(selectedGame)}</span>
           <span className="ml-1 text-green-400/80">↑ first</span>
         </span>
       )}
@@ -100,8 +103,8 @@ export function QueueChips({
                   ⠿
                 </button>
               )}
-              {game.allDropsCompleted ? '✅ ' : ''}
-              <span className="truncate">{label}</span>
+              <CampaignStatusIndicators game={game} />
+              <span className="min-w-0 truncate">{label}</span>
               {!isRunning && (
                 <button
                   type="button"

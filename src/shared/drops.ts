@@ -1,5 +1,9 @@
 import type { TwitchDrop } from '../types/index.ts';
 
+function retainKnownClassification<T extends string>(nextClassification: T, previousClassification: T): T {
+  return nextClassification === 'unknown' ? previousClassification : nextClassification;
+}
+
 export function mergeDropProgressMonotonic(nextDrop: TwitchDrop, previousDrop: TwitchDrop): TwitchDrop {
   const mergedProgress = Math.max(nextDrop.progress, previousDrop.progress);
   const mergedClaimed = nextDrop.claimed || previousDrop.claimed;
@@ -24,7 +28,10 @@ export function mergeDropProgressMonotonic(nextDrop: TwitchDrop, previousDrop: T
     requiredMinutes: mergedRequiredMinutes,
     remainingMinutes: mergedRemainingMinutes,
     progressSource: nextDrop.progressSource ?? previousDrop.progressSource,
-    dropType: nextDrop.dropType ?? previousDrop.dropType,
+    acquisitionMethod: retainKnownClassification(nextDrop.acquisitionMethod, previousDrop.acquisitionMethod),
+    rewardKind: retainKnownClassification(nextDrop.rewardKind, previousDrop.rewardKind),
+    verificationState:
+      previousDrop.verificationState === 'verified' ? 'verified' : nextDrop.verificationState,
     status: mergedClaimed
       ? 'completed'
       : mergedClaimable

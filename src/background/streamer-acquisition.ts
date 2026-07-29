@@ -17,6 +17,7 @@ import { browser } from '../shared/browser-api.ts';
 import { haveAllDropsExpiredOrVanished } from '../shared/drops';
 import { getGameDisplayLabel } from '../shared/game-selection';
 import { normalizeToken } from '../shared/matching';
+import { isRewardAutomatable } from '../shared/reward-semantics';
 import { TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { INVALID_STREAM_THRESHOLD, STREAM_ROTATE_COOLDOWN_MS } from './constants';
 import { logDebug, logInfo, logWarn } from './logging';
@@ -366,9 +367,10 @@ export async function rotateStreamerIfInvalid(
       ? true
       : selectedCategorySlug === contextCategorySlug;
   const campaignGone = haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
+  const automatablePendingDrops = state.appState.pendingDrops.some(isRewardAutomatable);
   const expectsDropsSignal =
-    state.appState.currentDrop != null ||
-    state.appState.pendingDrops.some((drop) => drop.dropType !== 'event-based') ||
+    (state.appState.currentDrop != null && isRewardAutomatable(state.appState.currentDrop)) ||
+    automatablePendingDrops ||
     campaignGone;
 
   logDebug('Stream health inputs', {
@@ -376,7 +378,7 @@ export async function rotateStreamerIfInvalid(
     hasDropsSignal,
     campaignGone,
     currentDrop: !!state.appState.currentDrop,
-    farmablePending: state.appState.pendingDrops.some((d) => d.dropType !== 'event-based'),
+    farmablePending: automatablePendingDrops,
   });
 
   // A stream that expects but shows no Drops signal is likely the wrong channel; shorten its
@@ -603,7 +605,7 @@ export async function openBestStreamerForSelectedGame(
   callbacks: OpenBestStreamerCallbacks,
   deps: {
     dropMatchesSelectedGame: (drop: TwitchDrop, selected: TwitchGame) => boolean;
-    isDropCompleted: (drop: TwitchDrop) => boolean;
+    isRewardAcquired: (drop: TwitchDrop) => boolean;
     getGameDisplayLabel: (game: TwitchGame) => string;
     resolveCategorySlug: (game: TwitchGame) => Promise<string>;
     pickStreamerForPreferences: (
@@ -624,7 +626,7 @@ export async function openBestStreamerForSelectedGame(
   const dropsForGame = state.cachedDropsSnapshot.filter((drop) =>
     deps.dropMatchesSelectedGame(drop, state.appState.selectedGame!),
   );
-  if (dropsForGame.length > 0 && dropsForGame.every((d) => deps.isDropCompleted(d))) {
+  if (dropsForGame.length > 0 && dropsForGame.every((drop) => deps.isRewardAcquired(drop))) {
     logInfo('Skipping streamer: all drops completed', {
       game: deps.getGameDisplayLabel(state.appState.selectedGame),
     });
@@ -654,7 +656,7 @@ export async function openBestStreamerForSelectedGame(
   }
 
   // Per-campaign channel filtering — only use allowedChannels from PENDING campaigns
-  const pendingDropsForGame = dropsForGame.filter((d) => !deps.isDropCompleted(d));
+  const pendingDropsForGame = dropsForGame.filter((drop) => !deps.isRewardAcquired(drop));
   const pendingCampaignIds = new Set(
     pendingDropsForGame.map((d) => d.campaignId).filter((id): id is string => Boolean(id)),
   );

@@ -5,10 +5,12 @@ import {
   clearRecoveryStatus,
   clearTerminalStopStatus,
   deriveRuntimeMode,
+  formatFarmingCompleteStatusLines,
   formatRecoveryAttemptLabel,
   formatRecoveryReason,
   formatRetryLabel,
   formatRotationReason,
+  formatStopReason,
   getRecoveryState,
   getTerminalStopState,
 } from '../src/shared/runtime-status.ts';
@@ -132,6 +134,41 @@ describe('runtime status selectors', () => {
 });
 
 describe('runtime status formatting', () => {
+  test('preserves terminal stop reason labels', () => {
+    const reasons = [
+      ['no-active-campaigns', 'No active Twitch Drops campaigns found'],
+      ['queue-complete', 'Queue complete'],
+      ['farming-complete', 'Farming finished'],
+      ['sign-in-required', 'Twitch sign-in required'],
+      ['stall-skipped', 'Stopped after repeated stalls'],
+      ['user-stop', 'Stopped'],
+    ] as const;
+
+    for (const [reason, label] of reasons) {
+      expect(formatStopReason(reason)).toBe(label);
+    }
+  });
+
+  test('formats an unverifiable Twitch terminal reason without claiming rewards are complete', () => {
+    const label = formatStopReason('unverifiable-twitch');
+
+    expect(label).toBe('Farming finished · Twitch reward acquisition could not be verified');
+    expect(label?.toLowerCase()).not.toMatch(/all (rewards )?(claimed|complete|completed)/);
+  });
+
+  test('formats farming-complete remainder lines in canonical order', () => {
+    expect(formatFarmingCompleteStatusLines(['subscription-required'])).toEqual([
+      'All farmable rewards claimed · Subscription required for remaining rewards',
+    ]);
+    expect(formatFarmingCompleteStatusLines(['unverifiable-twitch'])).toEqual([
+      'Farming finished · Twitch reward acquisition could not be verified',
+    ]);
+    expect(formatFarmingCompleteStatusLines(['unverifiable-twitch', 'subscription-required'])).toEqual([
+      'All farmable rewards claimed · Subscription required for remaining rewards',
+      'Farming finished · Twitch reward acquisition could not be verified',
+    ]);
+  });
+
   test('formats rotation and recovery reasons for the UI', () => {
     expect(formatRotationReason('drops-inactive')).toBe('Drops signal missing');
     expect(formatRotationReason('open-failed')).toBe('Could not open stream');

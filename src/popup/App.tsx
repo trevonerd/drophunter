@@ -3,6 +3,7 @@ import { browser } from '../shared/browser-api.ts';
 import { sortPendingDrops } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
 import { sendRuntimeMessage } from '../shared/messages';
+import { isRewardAutomatable } from '../shared/reward-semantics';
 import { deriveRuntimeMode } from '../shared/runtime-status';
 import { isExpiredGame } from '../shared/utils';
 import type { TwitchGame } from '../types';
@@ -10,6 +11,7 @@ import { ClaimLogView } from './components/ClaimLogView';
 import { MainView } from './components/MainView';
 import { SettingsView } from './components/SettingsView';
 import { type CampaignSyncStatus, REWARDS_LOADING_FALLBACK_MS, STALE_THRESHOLD_MS } from './constants';
+import { formatFarmingCompleteQueueMessage } from './format';
 import { useAppState } from './hooks/useAppState';
 import { useDropsRefresh } from './hooks/useDropsRefresh';
 import { useOnboarding } from './hooks/useOnboarding';
@@ -59,7 +61,7 @@ function App() {
   const pendingDrops = useMemo(() => sortPendingDrops(state.pendingDrops), [state.pendingDrops]);
   const completedDrops = state.completedDrops;
   const claimableCount = useMemo(
-    () => state.pendingDrops.filter((d) => d.claimable && d.dropType !== 'event-based').length,
+    () => state.pendingDrops.filter((d) => d.claimable && isRewardAutomatable(d)).length,
     [state.pendingDrops],
   );
   const sortedGames = useMemo(
@@ -151,6 +153,10 @@ function App() {
       }
       if (response.added) {
         setQueueMessage(`Added "${getGameDisplayLabel(state.selectedGame)}" to queue.`);
+        return;
+      }
+      if (response.reason === 'farming-complete') {
+        setQueueMessage(formatFarmingCompleteQueueMessage(state.selectedGame));
         return;
       }
       if (response.reason === 'already-completed') {

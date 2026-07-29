@@ -1,6 +1,8 @@
 import { haveAllDropsExpiredOrVanished } from '../shared/drops';
-import { findMatchingGame, getGameDisplayLabel } from '../shared/game-selection';
-import { TwitchGame } from '../types';
+import { dropMatchesGame, findMatchingGame, getGameDisplayLabel } from '../shared/game-selection';
+import { isRewardAutomatable } from '../shared/reward-semantics.ts';
+import { formatFarmingCompleteStatusLines } from '../shared/runtime-status.ts';
+import type { TwitchGame } from '../types';
 import { logDebug, logInfo, logWarn } from './logging';
 import {
   normalizeQueueSelection,
@@ -31,6 +33,33 @@ function selectedGameMarkedCompleted(state: ServiceWorkerState): boolean {
     return true;
   }
   return findMatchingGame(selectedGame, state.appState.availableGames)?.allDropsCompleted === true;
+}
+
+function selectedFarmingCompleteGame(state: ServiceWorkerState): TwitchGame | null {
+  const selectedGame = state.appState.selectedGame;
+  if (!selectedGame) {
+    return null;
+  }
+  const hasCurrentAutomatableReward = state.appState.pendingDrops.some(
+    (drop) => dropMatchesGame(drop, selectedGame) && isRewardAutomatable(drop),
+  );
+  if (hasCurrentAutomatableReward) {
+    return null;
+  }
+  const currentGame = findMatchingGame(selectedGame, state.appState.availableGames) ?? selectedGame;
+  return currentGame.rewardSummary?.completion === 'farming-complete' ? currentGame : null;
+}
+
+function startRejectionMessage(game: TwitchGame): string | null {
+  const summary = game.rewardSummary;
+  if (!summary || summary.completion === 'farmable') {
+    return null;
+  }
+  if (summary.completion === 'all-acquired') {
+    return 'All campaign rewards are already acquired.';
+  }
+  const statusLines = formatFarmingCompleteStatusLines(summary.remainderReasons);
+  return statusLines.length > 0 ? statusLines.join('\n') : 'No automatable rewards remain for this campaign.';
 }
 
 export function resetStreamTrackingState(state: ServiceWorkerState) {
@@ -138,12 +167,14 @@ export async function advanceQueueIfCompleted(
     return false;
   }
 
-  const hasFarmablePending = state.appState.pendingDrops.some((d) => d.dropType !== 'event-based');
+  const hasFarmablePending = state.appState.pendingDrops.some(isRewardAutomatable);
   const selectedMarkedCompleted = selectedGameMarkedCompleted(state);
+  let terminalFarmingCompleteGame = selectedFarmingCompleteGame(state);
   const knownCompletedCurrent =
-    (state.appState.allDrops.length > 0 || selectedMarkedCompleted) &&
-    !hasFarmablePending &&
-    state.appState.currentDrop === null;
+    terminalFarmingCompleteGame !== null ||
+    ((state.appState.allDrops.length > 0 || selectedMarkedCompleted) &&
+      !hasFarmablePending &&
+      state.appState.currentDrop === null);
   const campaignExpiredOrVanished = haveAllDropsExpiredOrVanished(
     state.appState.allDrops,
     state.previousAllDropsCount,
@@ -206,17 +237,22 @@ export async function advanceQueueIfCompleted(
       });
     }
 
-    const hasFarmablePendingNext = state.appState.pendingDrops.some((d) => d.dropType !== 'event-based');
+    const hasFarmablePendingNext = state.appState.pendingDrops.some(isRewardAutomatable);
     const nextMarkedCompleted = selectedGameMarkedCompleted(state);
+    const nextFarmingCompleteGame = selectedFarmingCompleteGame(state);
     const knownCompletedNext =
-      (state.appState.allDrops.length > 0 || nextMarkedCompleted) &&
-      !hasFarmablePendingNext &&
-      state.appState.currentDrop === null;
+      nextFarmingCompleteGame !== null ||
+      ((state.appState.allDrops.length > 0 || nextMarkedCompleted) &&
+        !hasFarmablePendingNext &&
+        state.appState.currentDrop === null);
     const campaignExpiredNext = haveAllDropsExpiredOrVanished(
       state.appState.allDrops,
       state.previousAllDropsCount,
     );
     if (knownCompletedNext || campaignExpiredNext) {
+      if (nextFarmingCompleteGame) {
+        terminalFarmingCompleteGame = nextFarmingCompleteGame;
+      }
       state.previousAllDropsCount = 0;
       removeQueueEntriesForHeadGame(state, nextGame);
       continue;
@@ -239,7 +275,7 @@ export async function advanceQueueIfCompleted(
   }
   state.appState.isRunning = false;
   state.appState.isPaused = false;
-  state.appState.selectedGame = null;
+  state.appState.selectedGame = terminalFarmingCompleteGame;
   state.appState.completionNotified = false;
   state.appState.lastRotationReason = null;
   state.appState.lastRotationAt = null;
@@ -249,16 +285,30 @@ export async function advanceQueueIfCompleted(
   const queueCompleteNotificationMessage = completedWhileNoStreamers
     ? `No live streamers found for ${completedGameName}. DropHunter has stopped.`
     : queueCompleteMessage;
+  const farmingCompleteReasons = terminalFarmingCompleteGame?.rewardSummary?.remainderReasons ?? [];
+  const farmingCompleteLines = formatFarmingCompleteStatusLines(farmingCompleteReasons);
   if (opts?.onApplyStopState) {
-    opts.onApplyStopState(state, 'queue-complete', queueCompleteMessage);
+    opts.onApplyStopState(
+      state,
+      terminalFarmingCompleteGame
+        ? farmingCompleteReasons.includes('unverifiable-twitch')
+          ? 'unverifiable-twitch'
+          : 'farming-complete'
+        : 'queue-complete',
+      terminalFarmingCompleteGame
+        ? farmingCompleteLines.join('\n') || 'Farming finished.'
+        : queueCompleteMessage,
+    );
   }
   if (opts?.onStopMonitoring) {
     opts.onStopMonitoring();
   }
-  if (completedWhileNoStreamers && opts?.onNotify) {
-    await opts.onNotify('Queue completed', queueCompleteNotificationMessage);
-  } else if (opts?.onSendAlert) {
-    await opts.onSendAlert('all-complete', queueCompleteMessage);
+  if (!terminalFarmingCompleteGame) {
+    if (completedWhileNoStreamers && opts?.onNotify) {
+      await opts.onNotify('Queue completed', queueCompleteNotificationMessage);
+    } else if (opts?.onSendAlert) {
+      await opts.onSendAlert('all-complete', queueCompleteMessage);
+    }
   }
   if (opts?.onSaveState) {
     await opts.onSaveState();
@@ -266,30 +316,45 @@ export async function advanceQueueIfCompleted(
   return false;
 }
 
-export type QueueSkipReason = 'stalled-progress' | 'no-streamers';
+export type QueueSkipReason = 'stalled-progress' | 'no-streamers' | 'unverifiable-twitch';
 
 function queueSkipCopy(reason: QueueSkipReason, gameName: string) {
-  if (reason === 'no-streamers') {
-    return {
-      logMessage: 'Skipping game because no live streamers were found',
-      skipNotificationTitle: 'Game skipped: no live streamers',
-      skipMessage: `Skipped ${gameName} — no live streamers were found.`,
-      terminalNotificationTitle: 'Queue completed',
-      terminalMessage: `Queue completed. No live streamers found for ${gameName}.`,
-      terminalNotificationMessage: `No live streamers found for ${gameName}. DropHunter has stopped.`,
-      stopReason: 'queue-complete',
-    } as const;
+  switch (reason) {
+    case 'no-streamers':
+      return {
+        logMessage: 'Skipping game because no live streamers were found',
+        skipNotificationTitle: 'Game skipped: no live streamers',
+        skipMessage: `Skipped ${gameName} — no live streamers were found.`,
+        terminalNotificationTitle: 'Queue completed',
+        terminalMessage: `Queue completed. No live streamers found for ${gameName}.`,
+        terminalNotificationMessage: `No live streamers found for ${gameName}. DropHunter has stopped.`,
+        stopReason: 'queue-complete',
+      } as const;
+    case 'unverifiable-twitch':
+      return {
+        logMessage: 'Finishing campaign because Twitch reward acquisition could not be verified',
+        skipNotificationTitle: 'Campaign farming finished',
+        skipMessage: `Finished farming ${gameName} — Twitch reward acquisition could not be verified.`,
+        terminalNotificationTitle: 'Farming finished',
+        terminalMessage: `Farming finished for ${gameName} — Twitch reward acquisition could not be verified and no other farmable games are queued.`,
+        terminalNotificationMessage: `Twitch reward acquisition could not be verified for ${gameName}. DropHunter has stopped.`,
+        stopReason: 'unverifiable-twitch',
+      } as const;
+    case 'stalled-progress':
+      return {
+        logMessage: 'Giving up on game after stalled drop progress',
+        skipNotificationTitle: 'Game skipped: no drop progress',
+        skipMessage: `Skipped ${gameName} — stream opened but drop progress did not resume.`,
+        terminalNotificationTitle: 'Farming stopped: no drop progress',
+        terminalMessage: `Farming stopped — ${gameName} opened a stream but drop progress did not resume and no other games are queued.`,
+        terminalNotificationMessage: `${gameName} opened a stream but drop progress did not resume. DropHunter has stopped.`,
+        stopReason: 'stall-skipped',
+      } as const;
+    default: {
+      const exhaustiveReason: never = reason;
+      throw new TypeError(`Unhandled queue skip reason: ${exhaustiveReason}`);
+    }
   }
-
-  return {
-    logMessage: 'Giving up on game after stalled drop progress',
-    skipNotificationTitle: 'Game skipped: no drop progress',
-    skipMessage: `Skipped ${gameName} — stream opened but drop progress did not resume.`,
-    terminalNotificationTitle: 'Farming stopped: no drop progress',
-    terminalMessage: `Farming stopped — ${gameName} opened a stream but drop progress did not resume and no other games are queued.`,
-    terminalNotificationMessage: `${gameName} opened a stream but drop progress did not resume. DropHunter has stopped.`,
-    stopReason: 'stall-skipped',
-  } as const;
 }
 
 export async function skipCurrentGameAndAdvanceQueue(
@@ -359,9 +424,14 @@ export async function skipCurrentGameAndAdvanceQueue(
       });
     }
 
-    const hasFarmablePendingNext = state.appState.pendingDrops.some((d) => d.dropType !== 'event-based');
+    const hasFarmablePendingNext = state.appState.pendingDrops.some(isRewardAutomatable);
+    const nextMarkedCompleted = selectedGameMarkedCompleted(state);
+    const nextFarmingComplete = selectedFarmingCompleteGame(state) !== null;
     const knownCompletedNext =
-      state.appState.allDrops.length > 0 && !hasFarmablePendingNext && state.appState.currentDrop === null;
+      nextFarmingComplete ||
+      ((state.appState.allDrops.length > 0 || nextMarkedCompleted) &&
+        !hasFarmablePendingNext &&
+        state.appState.currentDrop === null);
     if (knownCompletedNext) {
       removeQueueEntriesForHeadGame(state, nextGame);
       continue;
@@ -380,7 +450,9 @@ export async function skipCurrentGameAndAdvanceQueue(
     return;
   }
 
-  state.appState.selectedGame = null;
+  if (reason !== 'unverifiable-twitch') {
+    state.appState.selectedGame = null;
+  }
   if (opts?.onStopFarmingSession) {
     await opts.onStopFarmingSession({
       stopReason: copy.stopReason,
@@ -429,6 +501,16 @@ export async function handleStartFarming(
   }
 
   const requestedGame = resolveGameFromState(state, payload.game);
+  if (!requestedGame) {
+    return { success: false, error: 'Campaign is no longer available.' };
+  }
+  const hasRequestedAutomatableReward = state.appState.pendingDrops.some(
+    (drop) => dropMatchesGame(drop, requestedGame) && isRewardAutomatable(drop),
+  );
+  const requestedStartRejection = startRejectionMessage(requestedGame);
+  if (requestedStartRejection && !hasRequestedAutomatableReward) {
+    return { success: false, error: requestedStartRejection };
+  }
   removeQueueEntriesForGame(state, requestedGame);
   state.appState.queue = [requestedGame, ...state.appState.queue];
   normalizeQueueSelection(state, state.appState.availableGames);
@@ -457,8 +539,14 @@ export async function handleStartFarming(
     });
   }
 
-  const hasFarmablePendingNow = state.appState.pendingDrops.some((d) => d.dropType !== 'event-based');
-  if (!hasFarmablePendingNow && state.appState.currentDrop === null) {
+  const hasFarmablePendingNow = state.appState.pendingDrops.some(isRewardAutomatable);
+  const selectedGame = state.appState.selectedGame
+    ? (findMatchingGame(state.appState.selectedGame, state.appState.availableGames) ??
+      state.appState.selectedGame)
+    : null;
+  const selectedStartRejection =
+    !hasFarmablePendingNow && selectedGame ? startRejectionMessage(selectedGame) : null;
+  if (selectedStartRejection || (!hasFarmablePendingNow && state.appState.currentDrop === null)) {
     removeGameFromQueue(state, requestedGame);
     state.appState.isRunning = false;
     state.appState.isPaused = false;
@@ -472,7 +560,10 @@ export async function handleStartFarming(
     if (opts?.onBroadcastStateUpdate) {
       opts.onBroadcastStateUpdate();
     }
-    return { success: false, error: 'No farmable drops for this game.' };
+    return {
+      success: false,
+      error: selectedStartRejection ?? 'No farmable drops for this game.',
+    };
   }
 
   if (opts?.onSaveState) {

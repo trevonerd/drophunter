@@ -1,16 +1,42 @@
-import { isDropCompleted, mergeDropProgressMonotonic } from '../shared/drops.ts';
+import { mergeDropProgressMonotonic } from '../shared/drops.ts';
 import {
   applyGameDisplayNames,
   compareGamesForDisplayOrder,
   dropMatchesGame,
   findMatchingGame,
+  isSameGameIdentity,
 } from '../shared/game-selection.ts';
 import { normalizeToken, tokenOverlapScore } from '../shared/matching.ts';
+import { isRewardAcquired, isRewardAutomatable } from '../shared/reward-semantics.ts';
 import { clearRecoveryStatus } from '../shared/runtime-status.ts';
 import { isExpiredGame } from '../shared/utils.ts';
-import { DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
+import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
+import {
+  annotateGameCompletion,
+  completedDropKeys,
+  type DropsSnapshotProvenance,
+  dropStateKey,
+  isDropCampaignExpired,
+  preserveGameCompletionSummaries,
+  recomputeKnownCompleteGameSummary,
+  reconcileUnverifiableRewardMarkers,
+} from './drops-projection-semantics.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { detectRecoveryProof, didDropMinutesAdvance } from './stream-rotation.ts';
+
+export type { DropsSnapshotProvenance } from './drops-projection-semantics.ts';
+export {
+  annotateGameCompletion,
+  applyUnverifiableRewardMarker,
+  clearUnverifiableRewardMarker,
+  completedDropKeys,
+  dropStateKey,
+  hasCompleteIdentifiedRewardSet,
+  isDropCampaignExpired,
+  markDropUnverifiable,
+  recomputeKnownCompleteGameSummary,
+  reconcileUnverifiableRewardMarkers,
+} from './drops-projection-semantics.ts';
 
 export function dropRemainingMinutes(drop: TwitchDrop): number {
   if (typeof drop.remainingMinutes === 'number' && Number.isFinite(drop.remainingMinutes)) {
@@ -30,20 +56,6 @@ export function compareDropPriority(a: TwitchDrop, b: TwitchDrop): number {
   return a.name.localeCompare(b.name);
 }
 
-export function dropStateKey(drop: TwitchDrop): string {
-  return `${drop.id}::${drop.campaignId ?? ''}`;
-}
-
-export function completedDropKeys(drops: TwitchDrop[]): Set<string> {
-  return new Set(drops.map((drop) => dropStateKey(drop)));
-}
-
-export function isDropCampaignExpired(drop: TwitchDrop): boolean {
-  if (!drop.endsAt) return false;
-  const endsAtMs = new Date(drop.endsAt).getTime();
-  return Number.isFinite(endsAtMs) && endsAtMs <= Date.now();
-}
-
 export function dropMatchesSelectedGame(drop: TwitchDrop, selected: TwitchGame): boolean {
   return dropMatchesGame(drop, selected);
 }
@@ -58,6 +70,25 @@ export function normalizeGameSelection(state: ServiceWorkerState, games: TwitchG
   } else if (dropVanished && state.appState.selectedGame.campaignId) {
     state.appState.selectedGame = null;
   }
+}
+
+export function recomputeSelectedCampaignSummaryAfterLocalMarker(state: ServiceWorkerState): boolean {
+  const selectedGame = state.appState.selectedGame;
+  if (!selectedGame) {
+    return false;
+  }
+  const knownCompleteGame = findMatchingGame(selectedGame, state.appState.availableGames) ?? selectedGame;
+  const recomputedGame = recomputeKnownCompleteGameSummary(knownCompleteGame, state.appState.allDrops);
+  if (recomputedGame === knownCompleteGame) {
+    return false;
+  }
+
+  const replaceSelectedCampaign = (game: TwitchGame) =>
+    isSameGameIdentity(game, knownCompleteGame) ? recomputedGame : game;
+  state.appState.availableGames = state.appState.availableGames.map(replaceSelectedCampaign);
+  state.appState.queue = state.appState.queue.map(replaceSelectedCampaign);
+  state.appState.selectedGame = recomputedGame;
+  return recomputedGame.rewardSummary?.completion === 'farming-complete';
 }
 
 export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: TwitchDrop[]) {
@@ -110,18 +141,18 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
     .forEach((drop) => mergedRelevant.push(drop));
 
   const relevantForState = mergedRelevant.filter(
-    (drop) => isDropCompleted(drop) || !isDropCampaignExpired(drop),
+    (drop) => isRewardAcquired(drop) || !isDropCampaignExpired(drop),
   );
 
   const completed = relevantForState
-    .filter((drop) => isDropCompleted(drop))
+    .filter((drop) => isRewardAcquired(drop))
     .map((drop) => ({ ...drop, status: 'completed' as const }));
-  const pending = relevantForState.filter((drop) => !isDropCompleted(drop));
+  const pending = relevantForState.filter((drop) => !isRewardAcquired(drop));
   const normalizedPending = pending.map((drop) => ({
     ...drop,
     status: drop.progress > 0 || drop.claimable === true ? ('active' as const) : ('pending' as const),
   }));
-  const farmablePending = normalizedPending.filter((drop) => drop.dropType !== 'event-based');
+  const farmablePending = normalizedPending.filter(isRewardAutomatable);
   const activeCandidates = farmablePending.filter((drop) => drop.progress > 0 || Boolean(drop.claimable));
   const activeDrop =
     (activeCandidates.length > 0 ? activeCandidates : farmablePending).slice().sort(compareDropPriority)[0] ??
@@ -161,21 +192,9 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
     nextCompletedKeys,
   });
 
-  if (recoveryProof) {
-    state.lastProgressAdvanceAt = Date.now();
-    state.noProgressRotationAttempts = 0;
-    state.offlineChecks = 0;
-    state.avoidStreamerName = null;
-    state.recoveryBackoffUntil = 0;
-    state.lastRecoveryAttemptAt = 0;
-    state.stalledRecoveryAttempts = 0;
-    state.recoveryNotificationSent = false;
-    state.appState = clearRecoveryStatus(state.appState);
-  }
-
   const minuteAdvance =
     !recoveryProof && nextDropKey !== null && didDropMinutesAdvance(prevTrackedMinutes, nextCurrentMinutes);
-  if (minuteAdvance) {
+  if (recoveryProof || minuteAdvance) {
     state.lastProgressAdvanceAt = Date.now();
     state.noProgressRotationAttempts = 0;
     state.offlineChecks = 0;
@@ -188,19 +207,16 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
   }
 }
 
-export function annotateGameCompletion(games: TwitchGame[], drops: TwitchDrop[]): TwitchGame[] {
-  return games.map((game) => {
-    const matching = drops.filter((drop) => dropMatchesSelectedGame(drop, game));
-    const allCompleted = matching.length > 0 && matching.every((d) => isDropCompleted(d));
-    return allCompleted !== (game.allDropsCompleted ?? false)
-      ? { ...game, allDropsCompleted: allCompleted }
-      : game;
-  });
-}
-
-export function projectDropsSnapshot(state: ServiceWorkerState, snapshot: DropsSnapshot) {
-  if (Array.isArray(snapshot.drops) && snapshot.drops.length > 0) {
-    state.cachedDropsSnapshot = snapshot.drops as TwitchDrop[];
+export function projectDropsSnapshot(
+  state: ServiceWorkerState,
+  snapshot: DropsSnapshot,
+  provenance: DropsSnapshotProvenance,
+): void {
+  const reconciledDrops = reconcileUnverifiableRewardMarkers(state, snapshot, provenance);
+  if (reconciledDrops.length > 0) {
+    state.cachedDropsSnapshot = reconciledDrops;
+  } else if (provenance === 'campaign-authoritative' && snapshot.games.length === 0) {
+    state.cachedDropsSnapshot = [];
   }
   if (snapshot.campaignChannelsMap) {
     state.cachedCampaignChannelsMap = snapshot.campaignChannelsMap;
@@ -219,10 +235,14 @@ export function projectDropsSnapshot(state: ServiceWorkerState, snapshot: DropsS
             }),
         )
       : state.appState.availableGames;
-  const annotatedGames = annotateGameCompletion(orderedGames, snapshot.drops);
+  const gamesWithPreservedSummaries = preserveGameCompletionSummaries(
+    orderedGames,
+    state.appState.availableGames,
+  );
+  const annotatedGames = annotateGameCompletion(gamesWithPreservedSummaries, reconciledDrops, provenance);
   state.appState.availableGames = annotatedGames;
   normalizeGameSelection(state, annotatedGames);
-  splitDropsForSelectedGame(state, snapshot.drops);
+  splitDropsForSelectedGame(state, reconciledDrops);
 }
 
 // Idle-campaign clearing policy: when farming is idle, the selected game has no
@@ -238,9 +258,7 @@ export function clearSelectedCompletedIdleCampaignExt(state: ServiceWorkerState)
   const selected = state.appState.selectedGame;
   const selectedDrops = state.cachedDropsSnapshot.filter((drop) => dropMatchesSelectedGame(drop, selected));
   const hasKnownDrops = selectedDrops.length > 0;
-  const hasFarmablePending = selectedDrops.some(
-    (drop) => !isDropCompleted(drop) && drop.dropType !== 'event-based',
-  );
+  const hasFarmablePending = selectedDrops.some(isRewardAutomatable);
 
   if (!hasKnownDrops || hasFarmablePending) {
     return;
@@ -255,7 +273,6 @@ export function clearSelectedCompletedIdleCampaignExt(state: ServiceWorkerState)
   state.previousAllDropsCount = 0;
 }
 
-// Pure 12-field state reset for the authoritative-empty campaign flow.
 // Caller (service-worker wrapper) owns the farmingSession.stop / terminal-stop
 // clearing / lastSuccessfulRefreshAt / lastGamesCacheRefreshAt / resetStreamTrackingState
 // / saveState orchestration.
@@ -271,6 +288,7 @@ export function resetStateForAuthoritativeEmptyCampaignExt(state: ServiceWorkerS
   state.cachedDropsSnapshot = [];
   state.cachedCampaignChannelsMap = {};
   state.previousAllDropsCount = 0;
+  state.unverifiableRewardsByKey = {};
 }
 
 // Streak policy for one-shot callers that can't internally retry: bump the
