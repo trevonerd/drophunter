@@ -18,7 +18,7 @@ export function CampaignStatusIndicators({ game }: CampaignStatusIndicatorsProps
   }
 
   return (
-    <span className="inline-flex shrink-0 items-center gap-1">
+    <span className="inline-flex min-h-[1lh] shrink-0 items-center gap-1">
       {isAllAcquired && (
         <span
           role="img"
@@ -56,8 +56,8 @@ export function CampaignStatusIndicators({ game }: CampaignStatusIndicatorsProps
         <span
           role="img"
           data-campaign-indicator="disconnected"
-          aria-label="Twitch account disconnected"
-          title="Twitch account disconnected"
+          aria-label="Game account connection required"
+          title="Game account connection required"
         >
           🔒
         </span>

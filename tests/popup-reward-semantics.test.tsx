@@ -151,7 +151,20 @@ test('all-acquired stays exclusive while disconnected account status remains ind
   expect(markup).not.toContain('data-campaign-indicator="unverifiable-twitch"');
 });
 
-test('subscription-required renders the gift indicator independently', () => {
+test('selected disconnected campaign explains why it is locked', () => {
+  // Given
+  const selectedGame = game({ isConnected: false });
+
+  // When
+  const markup = renderMainView(appState(selectedGame));
+
+  // Then
+  expect(markup).toContain('data-campaign-indicator="disconnected"');
+  expect(markup).toContain('data-campaign-status-reason="disconnected"');
+  expect(markup).toContain('Connect your game account on Twitch to unlock this campaign.');
+});
+
+test('subscription-required renders the payment-card indicator independently', () => {
   // Given
   const campaign = game({
     rewardSummary: { completion: 'farming-complete', remainderReasons: ['subscription-required'] },
@@ -162,6 +175,8 @@ test('subscription-required renders the gift indicator independently', () => {
 
   // Then
   expect(markup).toContain('data-campaign-indicator="subscription-required"');
+  expect(markup).toContain('data-subscription-icon="payment-card"');
+  expect(markup).toContain('<rect x="3" y="5" width="18" height="14" rx="2"');
   expect(markup).not.toContain('data-campaign-indicator="unverifiable-twitch"');
   expect(markup).not.toContain('data-campaign-indicator="all-acquired"');
 });
@@ -192,12 +207,12 @@ test('combined farming-complete indicators stay payment then question with no gr
 
   // When
   const markup = renderToStaticMarkup(<CampaignStatusIndicators game={campaign} />);
-  const giftIndex = markup.indexOf('data-campaign-indicator="subscription-required"');
+  const subscriptionIndex = markup.indexOf('data-campaign-indicator="subscription-required"');
   const questionIndex = markup.indexOf('data-campaign-indicator="unverifiable-twitch"');
 
   // Then
-  expect(giftIndex).toBeGreaterThan(-1);
-  expect(questionIndex).toBeGreaterThan(giftIndex);
+  expect(subscriptionIndex).toBeGreaterThan(-1);
+  expect(questionIndex).toBeGreaterThan(subscriptionIndex);
   expect(markup.match(/data-campaign-indicator=/g)).toHaveLength(2);
   expect(markup).not.toContain('data-campaign-indicator="all-acquired"');
 });
@@ -216,8 +231,26 @@ test('native option label keeps campaign identity and compact ordered status pre
   const markup = renderMainView(appState(selectedGame));
 
   // Then
-  expect(markup).toContain('🎁 ❔ 🔒 Example Game · Example Campaign · Expiry: unknown');
+  expect(markup).toContain('💳 ❔ 🔒 Example Game · Example Campaign · Expiry: unknown');
   expect(markup).not.toContain('✅ Example Game · Example Campaign');
+});
+
+test('selected subscription status aligns its cost icon beside wrapped copy', () => {
+  // Given
+  const selectedGame = game({
+    rewardSummary: { completion: 'farming-complete', remainderReasons: ['subscription-required'] },
+  });
+
+  // When
+  const markup = renderMainView(appState(selectedGame));
+
+  // Then
+  expect(markup).toContain('class="flex min-w-0 items-start gap-1.5 text-[11px]"');
+  expect(markup).toContain('class="inline-flex min-h-[1lh] shrink-0 items-center gap-1"');
+  expect(markup).toContain('class="min-w-0 flex-1 space-y-1"');
+  expect(markup.indexOf('data-campaign-indicator="subscription-required"')).toBeLessThan(
+    markup.indexOf('data-campaign-status-reason="subscription-required"'),
+  );
 });
 
 test('native option lock remains independent from the all-acquired prefix', () => {
@@ -273,6 +306,9 @@ test('subscription reward card uses the exact redemption copy', () => {
   // Then
   expect(markup).toContain('Subscription required');
   expect(markup).toContain('Subscribe to redeem this reward');
+  expect(markup).toContain('class="mt-1 text-[10px] text-orange-400"');
+  expect(markup).not.toContain('opacity-60');
+  expect(markup).not.toContain('text-orange-400/70');
   expect(markup).not.toContain('Sub only');
 });
 
@@ -697,6 +733,15 @@ test('evidence states preserve happy, terminal, and long-label popup semantics',
     name: 'Subscriber Crown',
     acquisitionMethod: 'subscription',
   });
+  const subscriptionOnlyGame = game({
+    campaignId: 'subscription-only-campaign',
+    campaignName: 'Subscription Remainder Campaign',
+    rewardSummary: { completion: 'farming-complete', remainderReasons: ['subscription-required'] },
+  });
+  const subscriptionOnlyState = {
+    ...appState(subscriptionOnlyGame),
+    pendingDrops: [subscriptionReward],
+  } satisfies AppState;
   const unverifiableReward = drop({
     id: 'unverifiable-reward',
     name: 'Twitch Emote Reward',
@@ -734,6 +779,7 @@ test('evidence states preserve happy, terminal, and long-label popup semantics',
   // When
   const happyMarkup = renderMainView(happyState);
   const acquiredMarkup = renderMainView(appState(acquiredGame));
+  const subscriptionOnlyMarkup = renderMainView(subscriptionOnlyState);
   const terminalMarkup = renderMainView(terminalState, [], { runtimeMode: 'stopped-terminal' });
   const longMarkup = renderMainView(longState, [longQueueGame]);
 
@@ -744,6 +790,10 @@ test('evidence states preserve happy, terminal, and long-label popup semantics',
   expect(acquiredMarkup).toContain('data-campaign-indicator="disconnected"');
   expect(acquiredMarkup).not.toContain('data-campaign-indicator="subscription-required"');
   expect(acquiredMarkup).not.toContain('data-campaign-indicator="unverifiable-twitch"');
+  expect(subscriptionOnlyMarkup).toContain('data-subscription-icon="payment-card"');
+  expect(subscriptionOnlyMarkup).toContain(
+    'All farmable rewards claimed · Subscription required for remaining rewards',
+  );
   expect(terminalMarkup).toContain('data-campaign-status-reason="subscription-required"');
   expect(terminalMarkup).toContain('data-campaign-status-reason="unverifiable-twitch"');
   expect(terminalMarkup).not.toContain('All rewards claimed');
@@ -783,6 +833,7 @@ test('evidence states preserve happy, terminal, and long-label popup semantics',
 <body>
   ${frame('Happy · fresh 0% Twitch-native reward', happyMarkup)}
   ${frame('Acquired · exclusive green check with independent lock', acquiredMarkup)}
+  ${frame('Terminal · subscription-only remainder', subscriptionOnlyMarkup)}
   ${frame('Terminal · mixed non-automatable remainder', terminalMarkup)}
   ${frame('Stress · long unbroken campaign and reward labels', longMarkup)}
   <script>

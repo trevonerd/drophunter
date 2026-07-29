@@ -343,14 +343,15 @@ test('popup claim log entry row shows drop image with initials fallback', () => 
   expect(source).toContain('onError');
 });
 
-test('SubIcon keeps the compact currentColor gift SVG conventions', () => {
+test('SubIcon uses the compact currentColor payment-card SVG conventions', () => {
   const source = readFileSync(join(repoRoot, 'src/popup/components/icons.tsx'), 'utf-8');
 
   expect(source).toContain('export function SubIcon()');
+  expect(source).toContain('data-subscription-icon="payment-card"');
   expect(source).toContain(
-    '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">',
+    '<rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />',
   );
-  expect(source).toContain('M20 6h-2.18');
+  expect(source).toContain('<path d="M3 9h18" stroke="currentColor" strokeWidth="2" />');
 });
 
 test('QuestionIcon keeps the compact circled-question SVG conventions', () => {

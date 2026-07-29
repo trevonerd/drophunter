@@ -15,7 +15,7 @@ export type CampaignIndicatorKind =
   | 'disconnected';
 
 export type CampaignStatusLine = {
-  readonly reason: CampaignRemainderReason | 'farming-complete';
+  readonly reason: CampaignRemainderReason | 'farming-complete' | 'disconnected';
   readonly text: string;
 };
 
@@ -40,20 +40,24 @@ function campaignRemainderStatusLine(reason: CampaignRemainderReason): CampaignS
 }
 
 export function getCampaignStatusLines(game: TwitchGame): readonly CampaignStatusLine[] {
-  if (!isCampaignFarmingComplete(game)) {
-    return [];
-  }
-
-  const reasons = game.rewardSummary?.remainderReasons ?? [];
   const statusLines: CampaignStatusLine[] = [];
-  if (reasons.includes('subscription-required')) {
-    statusLines.push(campaignRemainderStatusLine('subscription-required'));
+  if (isCampaignFarmingComplete(game)) {
+    const reasons = game.rewardSummary?.remainderReasons ?? [];
+    if (reasons.includes('subscription-required')) {
+      statusLines.push(campaignRemainderStatusLine('subscription-required'));
+    }
+    if (reasons.includes('unverifiable-twitch')) {
+      statusLines.push(campaignRemainderStatusLine('unverifiable-twitch'));
+    }
+    if (statusLines.length === 0) {
+      statusLines.push({ reason: 'farming-complete', text: 'No farmable rewards remain in this campaign.' });
+    }
   }
-  if (reasons.includes('unverifiable-twitch')) {
-    statusLines.push(campaignRemainderStatusLine('unverifiable-twitch'));
-  }
-  if (statusLines.length === 0) {
-    return [{ reason: 'farming-complete', text: 'No farmable rewards remain in this campaign.' }];
+  if (game.isConnected === false) {
+    statusLines.push({
+      reason: 'disconnected',
+      text: 'Connect your game account on Twitch to unlock this campaign.',
+    });
   }
   return statusLines;
 }
@@ -98,7 +102,7 @@ function campaignIndicatorGlyph(indicator: CampaignIndicatorKind): string {
     case 'all-acquired':
       return '\u2705';
     case 'subscription-required':
-      return '\u{1F381}';
+      return '\u{1F4B3}';
     case 'unverifiable-twitch':
       return '\u2754';
     case 'disconnected':

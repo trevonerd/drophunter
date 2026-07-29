@@ -28,11 +28,11 @@ test('campaign option shows the queue symbol only for the matching campaign iden
   const siblingLabel = formatCampaignOptionLabel(siblingCampaign, [queuedCampaign]);
 
   // Then
-  expect(queuedLabel).toStartWith('☷ 🎁 ');
+  expect(queuedLabel).toStartWith('☷ 💳 ');
   expect(siblingLabel).not.toContain('☷');
 });
 
-test('campaign option waits for a saved inspection summary before showing the subscription symbol', () => {
+test('campaign option waits for a saved inspection summary before showing the payment-card symbol', () => {
   // Given
   const uninspectedCampaign = campaign();
   const inspectedCampaign = campaign({
@@ -44,8 +44,8 @@ test('campaign option waits for a saved inspection summary before showing the su
   const inspectedLabel = formatCampaignOptionLabel(inspectedCampaign);
 
   // Then
-  expect(uninspectedLabel).not.toContain('🎁');
-  expect(inspectedLabel).toStartWith('🎁 ');
+  expect(uninspectedLabel).not.toContain('💳');
+  expect(inspectedLabel).toStartWith('💳 ');
 });
 
 test('campaign option does not derive a terminal symbol from an unsaved partial inspection', () => {
@@ -56,5 +56,5 @@ test('campaign option does not derive a terminal symbol from an unsaved partial 
   const label = formatCampaignOptionLabel(inspectedCampaign);
 
   // Then
-  expect(label).not.toContain('🎁');
+  expect(label).not.toContain('💳');
 });

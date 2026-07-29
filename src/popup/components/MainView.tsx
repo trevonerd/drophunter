@@ -179,18 +179,20 @@ export function MainView({
             role="status"
             aria-live="polite"
             aria-atomic="true"
-            className="flex min-w-0 flex-col items-start gap-1 text-[11px]"
+            className="flex min-w-0 items-start gap-1.5 text-[11px]"
           >
             <CampaignStatusIndicators game={state.selectedGame} />
-            {selectedCampaignStatusLines.map((line) => (
-              <p
-                key={line.reason}
-                data-campaign-status-reason={line.reason}
-                className="w-full min-w-0 text-[color:var(--dh-text-soft)] [overflow-wrap:anywhere]"
-              >
-                {line.text}
-              </p>
-            ))}
+            <div className="min-w-0 flex-1 space-y-1">
+              {selectedCampaignStatusLines.map((line) => (
+                <p
+                  key={line.reason}
+                  data-campaign-status-reason={line.reason}
+                  className="w-full min-w-0 text-[color:var(--dh-text-soft)] [overflow-wrap:anywhere]"
+                >
+                  {line.text}
+                </p>
+              ))}
+            </div>
           </div>
         )}
 
