@@ -56,9 +56,7 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
   }
 
   return (
-    <div
-      className={`flex items-center gap-2.5 px-3 py-2${isSubscription && !isAcquired ? ' opacity-60' : ''}`}
-    >
+    <div className="flex items-center gap-2.5 px-3 py-2">
       <CompactDropImage drop={drop} />
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
@@ -84,7 +82,7 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
           </span>
         </div>
         {isSubscription ? (
-          <p className="mt-1 text-[10px] text-orange-400/70">Subscribe to redeem this reward</p>
+          <p className="mt-1 text-[10px] text-orange-400">Subscribe to redeem this reward</p>
         ) : (
           <>
             {isUnverifiableTwitchReward && (
