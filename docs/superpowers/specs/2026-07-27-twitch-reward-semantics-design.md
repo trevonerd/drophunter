@@ -129,6 +129,8 @@ A badge or emote becomes verified and acquired only from positive evidence that 
 - valid `lastAwardedAt` inside the reward/campaign window;
 - no conflicting campaign identity.
 
+A successful campaign-specific `ClaimDrop` mutation response is also positive Twitch evidence when it is tied to the exact drop instance ID requested by DropHunter.
+
 When verified, the existing completion normalization applies: claimed, 100%, not claimable, zero remaining minutes, and completed status.
 
 ### Fresh and progressing rewards
@@ -140,6 +142,8 @@ A newly discovered reward at 0% is `unassessed`, not unverifiable. It appears re
 A reused benefit ID with no timestamp or invalid campaign attribution never marks multiple candidate campaigns claimed or unverifiable. Each candidate remains ready to farm until real progress or exhausted recovery provides campaign-specific evidence.
 
 An ambiguous award hint may qualify one reward as unverifiable only when its campaign and reward identity are otherwise unique. It still does not become acquired.
+
+If Twitch reports a native reward as claimed without the strict timestamp/campaign proof above, DropHunter preserves the claimed observation but does not assert acquisition. The reward is an unverifiable, non-automatable remainder immediately, so it cannot pin `currentDrop` or consume the stall ladder.
 
 ### Exhausted recovery
 
