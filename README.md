@@ -20,6 +20,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Filter streamers by preferred language (30+ languages supported)
 - Automatically claim free channel points bonuses on open Twitch channel tabs
 - Show desktop alerts for important farming events and claimed channel points, with a Settings toggle to mute them
+- Optionally send claimed-Drop alerts through your own Telegram bot and chat
 - Show a separate live monitor window for at-a-glance progress
 - Let you choose whether the monitor opens automatically when farming starts
 - Control whether farming tabs are muted from Settings
@@ -84,6 +85,7 @@ DropHunter includes a few runtime controls in the popup so you can tune how aggr
 - toggle auto-claim for channel points bonuses
 - toggle auto-claim for completed drops
 - review and clear the local drop claim log
+- configure optional Telegram claim alerts with your own bot and chat ID
 - switch between low-view, random, and top-viewer streamer selection
 - prefer a specific streamer language when one is available
 - choose whether the farming tab stays muted

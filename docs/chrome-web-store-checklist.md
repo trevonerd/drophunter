@@ -32,8 +32,8 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 ## Privacy disclosures
 
 - The listing explains that DropHunter reads Twitch session credentials already present in the browser.
-- The listing explains that data remains local to the browser and requests are sent only to Twitch.
-- The listing explains that optional Telegram alerts send claim notifications to api.telegram.org only after the user enables the feature and provides their own bot credentials.
+- The listing explains that core data remains local to the browser and core requests go only to Twitch.
+- The listing and privacy policy explain that optional Telegram alerts store the user-provided bot token and chat ID locally, then send claim notifications to api.telegram.org only after the user configures and enables the feature.
 - The listing explicitly says there is no third-party analytics, ads, telemetry, or remote logging.
 - The listing explains that Twitch credentials are not sent to developer-owned servers.
 

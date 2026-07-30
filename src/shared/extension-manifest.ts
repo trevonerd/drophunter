@@ -4,7 +4,7 @@ export const EXTENSION_MANIFEST = {
   name: 'DropHunter',
   short_name: 'DropHunter',
   description:
-    'Automatically farm and collect Twitch Drops - queue multiple campaigns, track progress in real time, and never miss a reward.',
+    'Farm Twitch Drops with a campaign queue, live progress, auto-claim, and recovery controls — all from your browser.',
   homepage_url: 'https://github.com/trevonerd/drophunter',
   minimum_chrome_version: '120',
   permissions: ['storage', 'scripting', 'alarms'],
