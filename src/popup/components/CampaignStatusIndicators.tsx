@@ -1,6 +1,6 @@
 import type { TwitchGame } from '../../types';
 import { getCampaignIndicatorKinds } from '../format';
-import { QuestionIcon, SubIcon } from './icons';
+import { CheckIcon, LockIcon, QuestionIcon, SubIcon } from './icons';
 
 export type CampaignStatusIndicatorsProps = {
   readonly game: TwitchGame;
@@ -27,7 +27,7 @@ export function CampaignStatusIndicators({ game }: CampaignStatusIndicatorsProps
           aria-label="All campaign rewards acquired"
           title="All campaign rewards acquired"
         >
-          ✓
+          <CheckIcon />
         </span>
       )}
       {hasSubscriptionRemainder && (
@@ -59,7 +59,7 @@ export function CampaignStatusIndicators({ game }: CampaignStatusIndicatorsProps
           aria-label="Game account connection required"
           title="Game account connection required"
         >
-          🔒
+          <LockIcon />
         </span>
       )}
     </span>

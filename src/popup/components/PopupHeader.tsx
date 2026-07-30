@@ -1,25 +1,13 @@
 // Extracted from src/popup/App.tsx (PopupHeader component).
 import type { AppState } from '../../types';
-import {
-  BellIcon,
-  DropsIcon,
-  MonitorIcon,
-  PauseIcon,
-  PlayIcon,
-  SettingsIcon,
-  SpeakerIcon,
-  StopIcon,
-} from './icons';
+import { MonitorIcon, PauseIcon, PlayIcon, SettingsIcon, SpeakerIcon, StopIcon } from './icons';
 
 export interface PopupHeaderProps {
   state: AppState;
   actionLoading: boolean;
-  dropsRefreshLoading: boolean;
   onMuteToggle: () => void;
-  onOpenDropsPage: () => void;
   onOpenMonitor: () => void;
   onOpenSettings: () => void;
-  onNotificationsToggle: () => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
@@ -28,12 +16,9 @@ export interface PopupHeaderProps {
 export function PopupHeader({
   state,
   actionLoading,
-  dropsRefreshLoading,
   onMuteToggle,
-  onOpenDropsPage,
   onOpenMonitor,
   onOpenSettings,
-  onNotificationsToggle,
   onPause,
   onResume,
   onStop,
@@ -42,7 +27,7 @@ export function PopupHeader({
     'dh-icon-button shrink-0 disabled:opacity-45 disabled:hover:bg-transparent dh-focus';
 
   return (
-    <div
+    <header
       className={`dh-header dh-popup-header px-3 py-2 ${state.isRunning ? 'dh-popup-header--running' : ''}`}
     >
       <div className="dh-popup-header-brand">
@@ -52,12 +37,12 @@ export function PopupHeader({
         {state.isRunning && (
           <span
             className={`dh-runtime-badge ${
-              state.isPaused
+              state.isPaused || state.recoveryReason
                 ? 'border-yellow-700/35 bg-yellow-950/20 text-yellow-950'
                 : 'border-green-900/30 bg-green-950/15 text-green-950'
             }`}
           >
-            {state.isPaused ? 'PAUSED' : 'RUNNING'}
+            {state.isPaused ? 'PAUSED' : state.recoveryReason ? 'RECOVERING' : 'RUNNING'}
           </span>
         )}
       </div>
@@ -87,27 +72,19 @@ export function PopupHeader({
           </div>
         )}
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={onMuteToggle}
-            className={`${iconButtonClass} text-[color:var(--dh-accent-ink)] ${
-              state.muteFarmingTab ? 'dh-header-button-on' : 'dh-header-button-off'
-            }`}
-            aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
-            title={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
-          >
-            <SpeakerIcon muted={state.muteFarmingTab} />
-          </button>
-          <button
-            type="button"
-            onClick={onOpenDropsPage}
-            disabled={dropsRefreshLoading}
-            className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
-            aria-label={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Open Twitch Drops'}
-            title={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Twitch Drops'}
-          >
-            <DropsIcon />
-          </button>
+          {state.isRunning && (
+            <button
+              type="button"
+              onClick={onMuteToggle}
+              className={`${iconButtonClass} text-[color:var(--dh-accent-ink)] ${
+                state.muteFarmingTab ? 'dh-header-button-on' : 'dh-header-button-off'
+              }`}
+              aria-label={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+              title={state.muteFarmingTab ? 'Turn stream audio on' : 'Mute stream audio'}
+            >
+              <SpeakerIcon muted={state.muteFarmingTab} />
+            </button>
+          )}
           <button
             type="button"
             onClick={onOpenMonitor}
@@ -126,19 +103,8 @@ export function PopupHeader({
           >
             <SettingsIcon />
           </button>
-          <button
-            type="button"
-            onClick={onNotificationsToggle}
-            className={`${iconButtonClass} ${
-              state.notificationsEnabled ? 'text-[color:var(--dh-accent-ink)]' : 'dh-header-muted'
-            }`}
-            aria-label={state.notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
-            title={state.notificationsEnabled ? 'Notifications on' : 'Notifications off'}
-          >
-            <BellIcon muted={!state.notificationsEnabled} />
-          </button>
         </div>
       </div>
-    </div>
+    </header>
   );
 }

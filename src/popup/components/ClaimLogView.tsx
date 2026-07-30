@@ -158,7 +158,7 @@ export function ClaimLogView({ onBack }: ClaimLogViewProps) {
 
   return (
     <div className="flex flex-col">
-      <div className="dh-header flex items-center justify-between px-3 py-2">
+      <header className="dh-header flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -176,9 +176,9 @@ export function ClaimLogView({ onBack }: ClaimLogViewProps) {
         <span className="dh-header-label text-[10px] font-semibold uppercase tracking-[0.14em]">
           DropHunter
         </span>
-      </div>
+      </header>
 
-      <div className="dh-view dh-page dh-page--wide">
+      <main className="dh-view dh-page dh-page--wide">
         <div className="dh-panel dh-contain overflow-hidden">
           {entries !== null && entries.length > 0 && (
             <div className="flex items-center justify-between px-3 py-2 border-b border-[color:var(--dh-border)]">
@@ -261,7 +261,7 @@ export function ClaimLogView({ onBack }: ClaimLogViewProps) {
             </div>
           )}
         </div>
-      </div>
+      </main>
     </div>
   );
 }

@@ -81,7 +81,7 @@ test('popup clears game switch state in handleGameSelect', () => {
 test('popup campaign selector uses campaign-aware option identities', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("value={state.selectedGame ? queueGameIdentity(state.selectedGame) : ''}");
+  expect(source).toContain("value={selectedGame ? queueGameIdentity(selectedGame) : ''}");
   expect(source).toContain('<option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>');
   expect(source).not.toContain('value={selectedGame?.id ??');
 });
@@ -96,7 +96,7 @@ test('popup uses a single campaign sync panel for empty, stale, syncing, failed,
   expect(source).toContain('aria-live="polite"');
   expect(source).toContain('Sign in to Twitch');
   expect(source).toContain('Updating Twitch Drops and campaigns…');
-  expect(source).toContain('Not synced yet');
+  expect(source).toContain('Waiting for first sync');
   expect(source).toContain('Could not update. Old data is still shown.');
   expect(source).toContain('Could not update yet. No campaign data is shown.');
   expect(source).toContain('hasCachedCampaigns={state.availableGames.length > 0}');
@@ -171,7 +171,8 @@ test('popup auto-dismisses first-sync confirmation after 30 seconds', () => {
 test('popup applies onboarding-pulse class to campaign selector when step is selector', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("onboardingStep === 'selector' ? 'onboarding-pulse' : ''");
+  expect(source).toContain("highlighted={onboardingStep === 'selector'}");
+  expect(source).toContain("highlighted ? 'onboarding-pulse' : ''");
 });
 
 test('popup applies onboarding-pulse class to start button when step is start', () => {
@@ -203,14 +204,14 @@ test('popup advances onboarding step on game select', () => {
   expect(source).toContain("setOnboardingStep('start')");
 });
 
-test('popup header keeps utility icons stable instead of using progressive disclosure', () => {
+test('popup header progressively discloses session controls while keeping core utilities stable', () => {
   const source = readPopupSource();
 
   expect(source).toContain('const iconButtonClass =');
   expect(source).toContain('dh-icon-button shrink-0');
   expect(source).toContain("state.isRunning ? 'dh-popup-header--running' : ''");
-  expect(source).not.toContain('header-control-hidden');
-  expect(source).not.toContain('header-control-visible');
+  expect(source).toContain('{state.isRunning && (');
+  expect(source).not.toContain('<BellIcon');
 });
 
 test('popup running header uses balanced compact spacing for the full brand', () => {
@@ -221,18 +222,19 @@ test('popup running header uses balanced compact spacing for the full brand', ()
   expect(source).toContain('padding-inline: var(--dh-space-2);');
 });
 
-test('popup Drops header button stays icon-only while sync feedback lives outside the toolbar', () => {
+test('popup keeps Twitch Drops access contextual instead of placing it in the header toolbar', () => {
   const source = readPopupSource();
 
-  expect(source).toContain(
-    "aria-label={dropsRefreshLoading ? 'Twitch Drops sync in progress' : 'Open Twitch Drops'}",
-  );
-  expect(source).toContain('<DropsIcon />');
+  const headerSource = readFileSync(join(repoRoot, 'src/popup/components/PopupHeader.tsx'), 'utf-8');
+  const syncPanelSource = readFileSync(join(repoRoot, 'src/popup/components/CampaignSyncPanel.tsx'), 'utf-8');
+
+  expect(headerSource).not.toContain('DropsIcon');
+  expect(headerSource).not.toContain('BellIcon');
+  expect(syncPanelSource).toContain('DropsIcon');
   expect(source).not.toContain('Refreshing Twitch Drops');
-  expect(source).not.toContain('<span>Refreshing…</span>');
 });
 
-test('popup opens Twitch Drops in the foreground from the header Drops action', () => {
+test('popup opens Twitch Drops in the foreground from contextual Drops actions', () => {
   const source = readPopupSource();
 
   expect(source).toContain('onOpenDropsPage={() => void openDropsPage()}');
@@ -267,7 +269,8 @@ test('popup shows stale warning for idle cached campaigns', () => {
     expect(isStaleMatch[1]).toContain('state.availableGames.length > 0');
     expect(isStaleMatch[1]).not.toMatch(/(^|\s)state\.isRunning\s*&&/);
   }
-  expect(source).toContain(": isStale\n          ? 'syncing'");
+  expect(source).toContain('const campaignSyncStatus = deriveCampaignSyncStatus({');
+  expect(source).toContain('isStale,');
 });
 
 test('popup onboardingCompleted stays out of PopupHeader progressive disclosure props', () => {

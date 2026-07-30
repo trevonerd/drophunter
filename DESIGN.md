@@ -35,7 +35,7 @@ This is an existing-system extraction. The source surfaces are src/popup/index.c
 | Faint text | --dh-faint | oklch(0.55 0.03 292) | not declared | Dividers-in-copy, subdued labels |
 | Accent | --dh-accent | oklch(0.66 0.24 302) | oklch(0.66 0.24 302) | Primary action, progress start, queue target ring |
 | Strong accent | --dh-accent-strong | oklch(0.73 0.2 305) | oklch(0.73 0.2 305) | Hover action, focus-adjacent border, scrollbar gradient |
-| Accent ink | --dh-accent-ink | oklch(0.18 0.06 296) | not declared | Text/icons on the bright popup header |
+| Accent ink | --dh-accent-ink | oklch(0.18 0.06 296) | not declared | Text/icons on the bright popup header and primary accent actions |
 | Info | --dh-info | oklch(0.72 0.14 240) | not declared | Reserved informational semantic token |
 | Success | --dh-success | oklch(0.72 0.16 150) | oklch(0.72 0.16 150) | Reserved success semantic token; running/claimed utilities also exist |
 | Warning | --dh-warning | oklch(0.8 0.16 85) | oklch(0.8 0.16 85) | Claimable, paused/recovering, retry copy |
@@ -196,17 +196,27 @@ The following primitives and repeated components are the reusable surface langua
 ### Popup header and icon actions
 
 - Structure: .dh-header gradient → .dh-popup-header grid → brand/runtime badge and a compact action cluster. Settings and log reuse the same header treatment with a back icon.
-- Variants: idle header; running header adds pause/resume and stop actions; muted/unmuted, notifications on/off, sync-disabled states.
+- Variants: idle or signed-out header shows Monitor and Settings; running header adds pause/resume, stop, and farming-tab audio actions. Notification configuration belongs in Settings; Twitch Drops access is contextual in sync and reward panels.
 - Spacing: 12px horizontal/8px vertical header padding; 8px brand/grid gap; 4px action gap; icon buttons are 28×28px with 6px radius.
 - States: default, hover translucent light fill, active darker fill, disabled opacity, visible 2px focus ring, running/paused badge.
 - Accessibility: every icon-only button has an aria-label and title; SVGs are aria-hidden; focus uses .dh-focus/.dh-icon-button:focus-visible.
 - Motion: 180ms background/color/opacity transitions; no entry animation.
 - Layout/scroll: fixed-width grid region inside the popup's body scroll owner; header itself is not sticky.
 
+### SessionSummary
+
+- Structure: one persistent compact status section immediately below the popup header. Running reuses the standard compact reward row under a `Running` heading; other modes use a mode label, campaign/reward subject, and a state-specific readout.
+- Variants: ready, running, paused, recovering, complete, and attention-required. Running/complete use success accents; paused/recovering use warning accents; attention-required uses the existing danger or violet accent treatment; ready uses neutral surface tokens.
+- Spacing: inline `dh-contain` panel with 12px padding and the existing 8px internal rhythm. It remains subordinate to the header and primary campaign action.
+- States: signed-out and sync failure name the required action; idle names the selected campaign or asks for a selection; running presents the active reward exactly once through `CompactDropCard`; paused and recovering preserve the compact progress readout while explicitly saying progress is not advancing; terminal states explain what happens next.
+- Accessibility: one `role=status`, `aria-live=polite`, `aria-atomic=true` region. Machine-readable `data-session-mode` and `data-progress-state` attributes mirror visible truth without adding announcements.
+- Motion: state changes are immediate; no pulse, animation, or live dot.
+- Layout/scroll: normal popup flow with no nested scroll; long campaign and reward names wrap inside `min-w-0` content.
+
 ### Campaign selector and queue cluster
 
 - Structure: .dh-input select plus optional secondary Queue button, status paragraph, and QueueChips wrapping list.
-- Variants: no selection, selected campaign, disabled while running, onboarding pulse, selected-not-in-queue “first” chip, draggable/reorderable queue, clear confirmation.
+- Variants: no selection, selected campaign, selector hidden while running, onboarding pulse, selected-not-in-queue “first” chip, draggable/reorderable queue, running “Up next” list that excludes the current campaign, clear confirmation.
 - Spacing: selector cluster gap 6px; control padding 8px/6px; queue chips use 4px/8px utility spacing and full-pill radius.
 - States: default, hover border, focus ring, disabled while farming, action loading, queue message, drag target ring, clear confirmation.
 - Accessibility: select has aria-label=Campaign; queue/remove/clear/reorder controls have explicit labels; reorder also supports arrow keys; queueMessage is role=status aria-live=polite aria-atomic=true.
@@ -228,11 +238,11 @@ CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is 
 
 ### RewardList, CompactDropCard, and progress rail
 
-- Structure: dh-panel heading row → loading row, scrollable compact drop rows, or empty copy; completed rewards render as a compact text summary below. Each row has an image/initial fallback, name/status, and a progress rail.
+- Structure: dh-panel heading row → loading row, scrollable compact drop rows, or empty copy; completed rewards render in a native disclosure with a `Completed (N)` summary and structured list. While farming, the active reward belongs only to the Running section, Pending contains only not-yet-started rewards, and the Pending panel is omitted when that filtered group is empty. Each reward row has an image/initial fallback, name/status, and a progress rail.
 - Variants: pending, loading, sync-loading (reduced opacity), empty, completed summary, claimed, claimable, active, pending, event/sub-only, and unverifiable Twitch-native reward.
 - Spacing: heading px-3 py-2; row px-3 py-2 with 10px gap; progress rail uses 4px height in popup and 8px in monitor; reward list max-height 240px.
 - States: default, image error fallback to reward initials, loading spinner, event-based disabled opacity, claimable warning fill, claimed green label, active blue label, pending muted label, and an explicit unverifiable qualifier that does not imply a newly available 0% reward is complete.
-- Accessibility: images carry the reward name as alt text; failed images preserve initials; loading uses aria-live=polite; the list remains readable when progress is unavailable. Do not encode event/subscription-only as watch-time progress.
+- Accessibility: images carry the reward name as alt text; failed images preserve initials; loading uses aria-live=polite; watch-time progress rails expose reward-specific progressbar semantics and numeric values; the completed disclosure uses native details/summary and list semantics. Do not encode event/subscription-only as watch-time progress.
 - Motion: progress uses transform: scaleX(--dh-progress) with 500ms popup / 400ms monitor easing; reduced-motion media rule collapses the transition.
 - Layout/scroll: reward rows are the popup's named nested scroll owner; monitor progress is contained by the card and cannot scroll.
 

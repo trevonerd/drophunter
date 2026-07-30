@@ -5,6 +5,8 @@ import type { TwitchDrop } from '../../types';
 import { formatEtaMinutes, rewardInitials } from '../format';
 import { QuestionIcon, SubIcon } from './icons';
 
+type ProgressStyle = CSSProperties & Record<'--dh-progress', number>;
+
 function CompactDropImage({ drop }: { drop: TwitchDrop }) {
   const [hasError, setHasError] = useState(false);
   if (!drop.imageUrl || hasError) {
@@ -32,6 +34,8 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
   const isSubscription = drop.acquisitionMethod === 'subscription';
   const isUnverifiableTwitchReward = isTwitchNativeAcquisitionUnverifiable(drop);
   const eta = formatEtaMinutes(drop.remainingMinutes);
+  const progress = Math.max(0, Math.min(100, drop.progress));
+  const progressStyle: ProgressStyle = { '--dh-progress': progress / 100 };
   let statusText: string;
   let statusClass: string;
 
@@ -75,9 +79,9 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
           </p>
           <span className="shrink-0 whitespace-nowrap text-right text-[11px]">
             <span className={statusClass}>{statusText}</span>
-            {!isSubscription && <span className="dh-faint"> · {drop.progress}%</span>}
+            {!isSubscription && <span className="dh-copy"> · {drop.progress}%</span>}
             {!isSubscription && !isUnverifiableTwitchReward && eta && !isAcquired && !drop.claimable && (
-              <span className="dh-faint"> · ETA {eta}</span>
+              <span className="dh-copy"> · ETA {eta}</span>
             )}
           </span>
         </div>
@@ -90,12 +94,19 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
                 Acquisition could not be verified on Twitch
               </p>
             )}
-            <div className="dh-progress-track mt-1 h-1 w-full overflow-hidden rounded-full">
+            <div
+              className="dh-progress-track mt-1 h-1 w-full overflow-hidden rounded-full"
+              role="progressbar"
+              aria-label={`${drop.name} progress`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress}
+            >
               <div
                 className={`dh-progress-fill h-1 w-full rounded-full ${
                   drop.claimable ? 'dh-progress-fill--claimable' : ''
                 }`}
-                style={{ '--dh-progress': Math.max(0, Math.min(100, drop.progress)) / 100 } as CSSProperties}
+                style={progressStyle}
               />
             </div>
           </>

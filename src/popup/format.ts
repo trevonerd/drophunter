@@ -124,7 +124,7 @@ export function formatCampaignOptionLabel(game: TwitchGame, queuedGames: readonl
 
 export function formatLastUpdated(timestamp?: number): string {
   if (!timestamp) {
-    return 'Never updated';
+    return 'Waiting for first sync';
   }
   const elapsedMs = Date.now() - timestamp;
   if (elapsedMs < 60_000) {

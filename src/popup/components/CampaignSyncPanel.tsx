@@ -53,12 +53,7 @@ export function CampaignSyncPanel({
           : status === 'signed-out'
             ? 'DropHunter needs an active Twitch session. Open Twitch, sign in, then come back here.'
             : 'Signed in, but no active Drops campaigns were found. Open Twitch Drops to check again.';
-  const detail =
-    status === 'failed' && error
-      ? error
-      : status === 'empty' && !lastUpdated
-        ? 'Not synced yet'
-        : formatLastUpdated(lastUpdated);
+  const detail = status === 'failed' && error ? error : formatLastUpdated(lastUpdated);
   const buttonLabel = status === 'signed-out' ? 'Open Twitch' : 'Open Twitch Drops';
 
   return (
@@ -72,7 +67,7 @@ export function CampaignSyncPanel({
         <div className="min-w-0">
           <p className="dh-title text-xs">{title}</p>
           <p className="mt-1 text-xs text-[color:var(--dh-text-soft)]">{description}</p>
-          <p className="dh-faint mt-1 break-words text-[11px]">{detail}</p>
+          <p className="mt-1 break-words text-[11px] text-[color:var(--dh-muted)]">{detail}</p>
         </div>
         {isSyncing || status === 'stale' ? (
           <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent shrink-0 mt-0.5" />
@@ -80,7 +75,7 @@ export function CampaignSyncPanel({
           <button
             type="button"
             onClick={onRefresh}
-            className="dh-focus inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg bg-twitch-purple/80 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-twitch-purple"
+            className="dh-focus inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-lg bg-twitch-purple/70 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-twitch-purple/75"
           >
             <DropsIcon size={14} />
             {buttonLabel}
