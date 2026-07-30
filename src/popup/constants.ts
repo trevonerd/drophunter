@@ -56,3 +56,28 @@ export const STREAMER_LANGUAGE_OPTIONS = [
 ];
 
 export type CampaignSyncStatus = 'empty' | 'signed-out' | 'fresh' | 'stale' | 'syncing' | 'failed';
+
+export interface CampaignSyncStatusInput {
+  dropsRefreshLoading: boolean;
+  activeSyncError: string | null;
+  gamesLoading: boolean;
+  availableCampaignCount: number;
+  twitchSessionDetected: boolean;
+  isStale: boolean;
+}
+
+export function deriveCampaignSyncStatus({
+  dropsRefreshLoading,
+  activeSyncError,
+  gamesLoading,
+  availableCampaignCount,
+  twitchSessionDetected,
+  isStale,
+}: CampaignSyncStatusInput): CampaignSyncStatus {
+  if (!gamesLoading && !twitchSessionDetected) return 'signed-out';
+  if (dropsRefreshLoading) return 'syncing';
+  if (activeSyncError) return 'failed';
+  if (!gamesLoading && availableCampaignCount === 0) return 'empty';
+  if (isStale) return 'syncing';
+  return 'fresh';
+}

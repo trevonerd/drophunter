@@ -92,7 +92,7 @@ export function SettingsView({
 }: SettingsViewProps) {
   return (
     <div className="flex flex-col">
-      <div className="dh-header flex items-center justify-between px-3 py-2">
+      <header className="dh-header flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -108,9 +108,9 @@ export function SettingsView({
         <span className="dh-header-label text-[10px] font-semibold uppercase tracking-[0.14em]">
           DropHunter
         </span>
-      </div>
+      </header>
 
-      <div className="dh-view dh-page dh-page--wide">
+      <main className="dh-view dh-page dh-page--wide">
         <div className="dh-panel dh-contain px-3 py-2.5">
           <div className="mb-2 flex items-center justify-between">
             <p className="dh-title text-xs">Statistics</p>
@@ -306,7 +306,7 @@ export function SettingsView({
             Buy Me a Coffee
           </button>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

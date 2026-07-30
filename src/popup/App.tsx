@@ -10,7 +10,7 @@ import type { TwitchGame } from '../types';
 import { ClaimLogView } from './components/ClaimLogView';
 import { MainView } from './components/MainView';
 import { SettingsView } from './components/SettingsView';
-import { type CampaignSyncStatus, REWARDS_LOADING_FALLBACK_MS, STALE_THRESHOLD_MS } from './constants';
+import { deriveCampaignSyncStatus, REWARDS_LOADING_FALLBACK_MS, STALE_THRESHOLD_MS } from './constants';
 import { formatFarmingCompleteQueueMessage } from './format';
 import { useAppState } from './hooks/useAppState';
 import { useDropsRefresh } from './hooks/useDropsRefresh';
@@ -80,17 +80,14 @@ function App() {
       q.campaignId ? (fallbackByCampaignId.get(q.campaignId) ?? q) : (fallbackById.get(q.id) ?? q),
     );
   }, [state.queue, sortedGames]);
-  const campaignSyncStatus: CampaignSyncStatus = dropsRefreshLoading
-    ? 'syncing'
-    : activeSyncError
-      ? 'failed'
-      : !gamesLoading && state.availableGames.length === 0
-        ? state.twitchSessionDetected
-          ? 'empty'
-          : 'signed-out'
-        : isStale
-          ? 'syncing'
-          : 'fresh';
+  const campaignSyncStatus = deriveCampaignSyncStatus({
+    dropsRefreshLoading,
+    activeSyncError,
+    gamesLoading,
+    availableCampaignCount: state.availableGames.length,
+    twitchSessionDetected: state.twitchSessionDetected,
+    isStale,
+  });
   const runtimeMode = deriveRuntimeMode(state);
   const recoveryNow = useRecoveryClock(runtimeMode);
 
@@ -283,13 +280,13 @@ function App() {
 
   if (loading) {
     return (
-      <div
+      <main
         className="dh-view flex items-center justify-center py-12 text-[color:var(--dh-text-soft)]"
         role="status"
         aria-live="polite"
       >
         <div className="spinner rounded-full h-8 w-8 border-[3px] border-twitch-purple border-t-transparent" />
-      </div>
+      </main>
     );
   }
 
@@ -345,7 +342,6 @@ function App() {
           onOpenDropsPage={() => void openDropsPage()}
           onOpenMonitor={openMiniDashboard}
           onOpenSettings={() => setActiveView('settings')}
-          onNotificationsToggle={() => void handleNotificationsEnabledToggle()}
           onPause={handlePause}
           onResume={handleResume}
           onStop={handleStop}

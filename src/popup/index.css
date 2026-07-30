@@ -263,7 +263,7 @@ body {
 
 .dh-action-primary {
   background: var(--dh-accent);
-  color: var(--dh-text);
+  color: var(--dh-accent-ink);
   transition:
     background-color 180ms var(--dh-ease),
     box-shadow 180ms var(--dh-ease),
