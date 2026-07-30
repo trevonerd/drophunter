@@ -4,11 +4,15 @@
 
 ## Data accessed
 
-DropHunter accesses the following data exclusively from **twitch.tv**:
+DropHunter accesses the following data from **twitch.tv**:
 
 - **Twitch session credentials** (OAuth token, user ID, device ID) — read from your existing browser session on Twitch to authenticate API requests on your behalf.
 - **Drop campaign data** — game names, drop names, progress percentages, reward images, and campaign metadata fetched from Twitch's API.
 - **Stream metadata** — channel names, viewer counts, and category information used to select an appropriate stream for farming.
+
+If you configure and enable **Telegram alerts**, DropHunter also accesses:
+
+- **Telegram bot token and chat ID** — supplied by you to authenticate with the Telegram Bot API and select the chat that receives claim alerts.
 
 ## How data is used
 
@@ -18,6 +22,7 @@ All data is used **solely** to operate the extension's core functionality:
 2. Opening and managing stream tabs for watch-time accrual
 3. Tracking drop progress and claiming rewards automatically
 4. Displaying status information in the extension popup and live monitor
+5. Sending an optional claim notification through Telegram only after you configure the feature, grant its optional host permission, and enable alerts
 
 ## Data storage
 
@@ -25,20 +30,17 @@ All operational state is stored **locally** in your browser:
 
 - `chrome.storage.local` stores extension state such as your campaign queue, cached drop progress, monitor preferences, and the last known Twitch session snapshot needed for recovery.
 - `chrome.storage.local` also stores runtime recovery metadata such as backoff windows, progress polling state, and integrity fallback state so the extension can recover after Chrome suspends or restarts its service worker.
+- If you configure Telegram alerts, `chrome.storage.local` stores your bot token and chat ID locally so the extension can send the alerts you enabled.
 
 No data is written to external servers, databases, analytics tools, or cloud services controlled by the developer.
 
 ## Data sharing
 
-DropHunter does **not**:
+DropHunter does not sell user data, use it for advertising or analytics, or send it to developer-owned servers. It does not store or log your Twitch credentials outside your browser's existing Twitch session.
 
-- Collect, transmit, or sell any personal information
-- Send data to any third-party server, analytics service, or advertising platform
-- Store or log your Twitch credentials outside of your browser's existing session
+Core network requests are directed to **twitch.tv** domains, using your existing Twitch session to perform the same actions you would perform manually: checking campaigns, watching eligible streams, and claiming Drops.
 
-The only network requests made by the extension are directed to **twitch.tv** domains, using your existing Twitch session, to perform the same actions you would perform manually (watching streams and claiming drops).
-
-If you optionally enable **Telegram alerts**, DropHunter also sends claim notifications to **api.telegram.org** using a bot token and chat ID that you provide. Only drop alert content you configure the feature to send (such as drop name, campaign label, and reward image URL from Twitch) is transmitted, and only to the Telegram chat you specify.
+If you explicitly configure and enable **Telegram alerts**, DropHunter sends a claim notification to **api.telegram.org** through the bot and chat ID you provide. Telegram receives the bot token and chat ID needed to deliver the alert, plus the claimed Drop name, benefit name when available, campaign or game label, claim time, selected farming campaign, active streamer name, and reward image URL when available. This data is sent only to the Telegram chat you specify. Telegram alerts are disabled by default and require optional host permission.
 
 DropHunter does **not** include:
 
