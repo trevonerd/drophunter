@@ -5,6 +5,7 @@ import {
   loadState as loadPersistedState,
   setTimingSaveDebounceMsForTests,
 } from '../src/background/state-persistence.ts';
+import { STORAGE_SCHEMA_VERSION, STORAGE_SCHEMA_VERSION_KEY } from '../src/background/storage-migrations.ts';
 import type { RuntimeRequest } from '../src/shared/messages.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { AppState, TwitchGame } from '../src/types/index.ts';
@@ -67,6 +68,11 @@ function installServiceWorkerSupportMocks(mocks: ChromeMocks) {
     async set(items: Record<string, unknown>) {
       for (const [key, value] of Object.entries(items)) {
         syncStore.set(key, value);
+      }
+    },
+    async remove(keys: string | string[]) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) {
+        syncStore.delete(key);
       }
     },
     async clear() {
@@ -447,7 +453,10 @@ async function dispatchMessageFromMocks(
 async function importServiceWorkerWithBlockedInitialLoad(testId: string, appState: AppState) {
   const isolatedMocks = setupChromeMocks();
   installServiceWorkerSupportMocks(isolatedMocks);
-  await isolatedMocks.storage.local.set({ appState });
+  await isolatedMocks.storage.local.set({
+    appState,
+    [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
+  });
 
   const chromeAny = (globalThis as unknown as { chrome: Record<string, any> }).chrome;
   const originalGet = chromeAny.storage.local.get.bind(chromeAny.storage.local);

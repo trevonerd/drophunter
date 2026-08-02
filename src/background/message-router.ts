@@ -77,7 +77,14 @@ function unsupportedTarget(sendResponse: RuntimeSendResponse) {
   return true;
 }
 
-export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): RuntimeMessageListener {
+export interface RuntimeMessageListenerOptions {
+  beforeHandle?: () => MaybePromise<void>;
+}
+
+export function createRuntimeMessageListener(
+  handlers: RuntimeMessageHandlers,
+  options: RuntimeMessageListenerOptions = {},
+): RuntimeMessageListener {
   return (message: unknown, sender, sendResponse) => {
     const type = message && typeof message === 'object' ? (message as { type?: unknown }).type : undefined;
     if (!isRuntimeMessageType(type)) {
@@ -88,6 +95,12 @@ export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): 
       sendResponse({ success: false, error: 'Invalid message payload' });
       return true;
     }
+
+    const respond = (handler: () => MaybePromise<unknown>) =>
+      respondAsync(async () => {
+        await options.beforeHandle?.();
+        return handler();
+      }, sendResponse);
 
     switch (message.type) {
       case 'GET_TWITCH_SESSION':
@@ -100,69 +113,69 @@ export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): 
         return unsupportedTarget(sendResponse);
 
       case 'ENSURE_GAMES_CACHE':
-        return respondAsync(() => handlers.ensureGamesCache(message, sender), sendResponse);
+        return respond(() => handlers.ensureGamesCache(message, sender));
       case 'OPEN_DROPS_PAGE_AND_REFRESH':
-        return respondAsync(() => handlers.openDropsPageAndRefresh(message, sender), sendResponse);
+        return respond(() => handlers.openDropsPageAndRefresh(message, sender));
       case 'MARK_DROPS_REFRESH_NOTICE_SEEN':
-        return respondAsync(() => handlers.markDropsRefreshNoticeSeen(message, sender), sendResponse);
+        return respond(() => handlers.markDropsRefreshNoticeSeen(message, sender));
       case 'ADD_TO_QUEUE':
-        return respondAsync(() => handlers.addToQueue(message, sender), sendResponse);
+        return respond(() => handlers.addToQueue(message, sender));
       case 'REMOVE_FROM_QUEUE':
-        return respondAsync(() => handlers.removeFromQueue(message, sender), sendResponse);
+        return respond(() => handlers.removeFromQueue(message, sender));
       case 'REORDER_QUEUE':
-        return respondAsync(() => handlers.reorderQueue(message, sender), sendResponse);
+        return respond(() => handlers.reorderQueue(message, sender));
       case 'CLEAR_QUEUE':
-        return respondAsync(() => handlers.clearQueue(message, sender), sendResponse);
+        return respond(() => handlers.clearQueue(message, sender));
       case 'START_FARMING':
-        return respondAsync(() => handlers.startFarming(message, sender), sendResponse);
+        return respond(() => handlers.startFarming(message, sender));
       case 'SET_SELECTED_GAME':
-        return respondAsync(() => handlers.setSelectedGame(message, sender), sendResponse);
+        return respond(() => handlers.setSelectedGame(message, sender));
       case 'PAUSE_FARMING':
-        return respondAsync(() => handlers.pauseFarming(message, sender), sendResponse);
+        return respond(() => handlers.pauseFarming(message, sender));
       case 'SET_AUTO_RESUME_ON_STARTUP':
-        return respondAsync(() => handlers.setAutoResumeOnStartup(message, sender), sendResponse);
+        return respond(() => handlers.setAutoResumeOnStartup(message, sender));
       case 'RESUME_FARMING':
-        return respondAsync(() => handlers.resumeFarming(message, sender), sendResponse);
+        return respond(() => handlers.resumeFarming(message, sender));
       case 'STOP_FARMING':
-        return respondAsync(() => handlers.stopFarming(message, sender), sendResponse);
+        return respond(() => handlers.stopFarming(message, sender));
       case 'UPDATE_GAMES':
-        return respondAsync(() => handlers.updateGames(message, sender), sendResponse);
+        return respond(() => handlers.updateGames(message, sender));
       case 'SYNC_TWITCH_SESSION':
-        return respondAsync(() => handlers.syncTwitchSession(message, sender), sendResponse);
+        return respond(() => handlers.syncTwitchSession(message, sender));
       case 'SYNC_TWITCH_INTEGRITY':
-        return respondAsync(() => handlers.syncTwitchIntegrity(message, sender), sendResponse);
+        return respond(() => handlers.syncTwitchIntegrity(message, sender));
       case 'REFRESH_DROPS':
-        return respondAsync(() => handlers.refreshDrops(message, sender), sendResponse);
+        return respond(() => handlers.refreshDrops(message, sender));
       case 'SET_MONITOR_AUTO_OPEN':
-        return respondAsync(() => handlers.setMonitorAutoOpen(message, sender), sendResponse);
+        return respond(() => handlers.setMonitorAutoOpen(message, sender));
       case 'SET_MUTE_FARMING_TAB':
-        return respondAsync(() => handlers.setMuteFarmingTab(message, sender), sendResponse);
+        return respond(() => handlers.setMuteFarmingTab(message, sender));
       case 'SET_NOTIFICATIONS_ENABLED':
-        return respondAsync(() => handlers.setNotificationsEnabled(message, sender), sendResponse);
+        return respond(() => handlers.setNotificationsEnabled(message, sender));
       case 'SET_TELEGRAM_ALERTS_ENABLED':
-        return respondAsync(() => handlers.setTelegramAlertsEnabled(message, sender), sendResponse);
+        return respond(() => handlers.setTelegramAlertsEnabled(message, sender));
       case 'SET_TELEGRAM_CREDENTIALS':
-        return respondAsync(() => handlers.setTelegramCredentials(message, sender), sendResponse);
+        return respond(() => handlers.setTelegramCredentials(message, sender));
       case 'TEST_TELEGRAM_ALERTS':
-        return respondAsync(() => handlers.testTelegramAlerts(message, sender), sendResponse);
+        return respond(() => handlers.testTelegramAlerts(message, sender));
       case 'GET_TELEGRAM_SETTINGS':
-        return respondAsync(() => handlers.getTelegramSettings(message, sender), sendResponse);
+        return respond(() => handlers.getTelegramSettings(message, sender));
       case 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS':
-        return respondAsync(() => handlers.setAutoClaimChannelPointsBonus(message, sender), sendResponse);
+        return respond(() => handlers.setAutoClaimChannelPointsBonus(message, sender));
       case 'CHANNEL_POINTS_BONUS_CLAIMED':
-        return respondAsync(() => handlers.channelPointsBonusClaimed(message, sender), sendResponse);
+        return respond(() => handlers.channelPointsBonusClaimed(message, sender));
       case 'SET_AUTO_CLAIM_DROPS':
-        return respondAsync(() => handlers.setAutoClaimDrops(message, sender), sendResponse);
+        return respond(() => handlers.setAutoClaimDrops(message, sender));
       case 'SET_STREAMER_SELECTION_MODE':
-        return respondAsync(() => handlers.setStreamerSelectionMode(message, sender), sendResponse);
+        return respond(() => handlers.setStreamerSelectionMode(message, sender));
       case 'SET_PREFERRED_STREAMER_LANGUAGE':
-        return respondAsync(() => handlers.setPreferredStreamerLanguage(message, sender), sendResponse);
+        return respond(() => handlers.setPreferredStreamerLanguage(message, sender));
       case 'OPEN_MONITOR_DASHBOARD':
-        return respondAsync(() => handlers.openMonitorDashboard(message, sender), sendResponse);
+        return respond(() => handlers.openMonitorDashboard(message, sender));
       case 'GET_CLAIM_LOG':
-        return respondAsync(() => handlers.getClaimLog(message, sender), sendResponse);
+        return respond(() => handlers.getClaimLog(message, sender));
       case 'CLEAR_CLAIM_LOG':
-        return respondAsync(() => handlers.clearClaimLog(message, sender), sendResponse);
+        return respond(() => handlers.clearClaimLog(message, sender));
 
       default:
         assertNever(message);
@@ -170,6 +183,9 @@ export function createRuntimeMessageListener(handlers: RuntimeMessageHandlers): 
   };
 }
 
-export function registerRuntimeMessageRouter(handlers: RuntimeMessageHandlers) {
-  browser.runtime.onMessage.addListener(createRuntimeMessageListener(handlers));
+export function registerRuntimeMessageRouter(
+  handlers: RuntimeMessageHandlers,
+  options: RuntimeMessageListenerOptions = {},
+) {
+  browser.runtime.onMessage.addListener(createRuntimeMessageListener(handlers, options));
 }
