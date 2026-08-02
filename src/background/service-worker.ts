@@ -100,6 +100,7 @@ import {
   sessionDebugSummary as sessionDebugSummaryExt,
   shouldRefreshGamesCache as shouldRefreshGamesCacheExt,
 } from './state-persistence';
+import { initializeAfterStorageMigration } from './storage-migrations.ts';
 import {
   applyPreferredStreamerLanguageSetting,
   applyStreamerSelectionModeSetting,
@@ -794,12 +795,12 @@ export function startServiceWorker(): void {
 
   // Initialize state as soon as the SW starts. This handles the common case where
   // a browser alarm wakes the SW from dormancy without onStartup/onInstalled.
-  initPromise = loadState().catch((error) => {
-    logWarn('SW initialization failed:', String(error));
-  });
-  initPromise = initPromise.then(async () => {
+  initPromise = initializeAfterStorageMigration(loadState).then(async () => {
     await notificationController.syncPermissionState();
     await telegramNotifier.syncPermissionState();
+  });
+  void initPromise.catch((error) => {
+    logWarn('SW initialization failed:', String(error));
   });
 
   registerExtensionLifecycleListeners({
@@ -813,40 +814,50 @@ export function startServiceWorker(): void {
     logWarn,
   });
 
-  registerRuntimeMessageRouter({
-    ensureGamesCache: (message) => handleEnsureGamesCache(state, message.payload, ensureGamesCacheDeps),
-    openDropsPageAndRefresh: (message) => openDropsPageAndRefresh(message),
-    markDropsRefreshNoticeSeen: (message) => handleMarkDropsRefreshNoticeSeen(message.payload),
-    addToQueue: (message) => farmingSession.handleAddToQueue(message.payload),
-    removeFromQueue: (message) => farmingSession.handleRemoveFromQueue(message.payload),
-    reorderQueue: (message) => farmingSession.handleReorderQueue(message.payload),
-    clearQueue: () => farmingSession.handleClearQueue(),
-    startFarming: (message) => farmingSession.handleStartFarming(message.payload),
-    setSelectedGame: (message) => farmingSession.handleSetSelectedGame(message.payload),
-    pauseFarming: () => farmingSession.handlePauseFarming(),
-    setAutoResumeOnStartup: (message) => handleSetAutoResumeOnStartup(message.payload),
-    resumeFarming: () => farmingSession.handleResumeFarming(),
-    stopFarming: () => farmingSession.handleStopFarming(),
-    updateGames: (message) => handleUpdateGames(message.payload),
-    syncTwitchSession: (message, sender) => handleSyncTwitchSession(message.payload, sender),
-    syncTwitchIntegrity: (message, sender) => handleSyncTwitchIntegrity(message.payload, sender),
-    refreshDrops: () => farmingSession.handleRefreshDrops(),
-    setMonitorAutoOpen: (message) => handleSetMonitorAutoOpen(message.payload),
-    setMuteFarmingTab: (message) => handleSetMuteFarmingTab(message.payload),
-    setNotificationsEnabled: (message) => handleSetNotificationsEnabled(message.payload),
-    setTelegramAlertsEnabled: (message) => handleSetTelegramAlertsEnabled(message.payload),
-    setTelegramCredentials: (message) => handleSetTelegramCredentials(message.payload),
-    testTelegramAlerts: () => handleTestTelegramAlerts(),
-    getTelegramSettings: () => handleGetTelegramSettings(),
-    setAutoClaimChannelPointsBonus: (message) => handleSetAutoClaimChannelPointsBonus(message.payload),
-    channelPointsBonusClaimed: (message, sender) => handleChannelPointsBonusClaimed(message.payload, sender),
-    setAutoClaimDrops: (message) => handleSetAutoClaimDrops(message.payload),
-    setStreamerSelectionMode: (message) => handleSetStreamerSelectionMode(message.payload),
-    setPreferredStreamerLanguage: (message) => handleSetPreferredStreamerLanguage(message.payload),
-    openMonitorDashboard: (message) => openMonitorDashboardWindow(message.payload ?? {}),
-    getClaimLog: () => handleGetClaimLog(),
-    clearClaimLog: () => handleClearClaimLog(),
-  });
+  registerRuntimeMessageRouter(
+    {
+      ensureGamesCache: (message) => handleEnsureGamesCache(state, message.payload, ensureGamesCacheDeps),
+      openDropsPageAndRefresh: (message) => openDropsPageAndRefresh(message),
+      markDropsRefreshNoticeSeen: (message) => handleMarkDropsRefreshNoticeSeen(message.payload),
+      addToQueue: (message) => farmingSession.handleAddToQueue(message.payload),
+      removeFromQueue: (message) => farmingSession.handleRemoveFromQueue(message.payload),
+      reorderQueue: (message) => farmingSession.handleReorderQueue(message.payload),
+      clearQueue: () => farmingSession.handleClearQueue(),
+      startFarming: (message) => farmingSession.handleStartFarming(message.payload),
+      setSelectedGame: (message) => farmingSession.handleSetSelectedGame(message.payload),
+      pauseFarming: () => farmingSession.handlePauseFarming(),
+      setAutoResumeOnStartup: (message) => handleSetAutoResumeOnStartup(message.payload),
+      resumeFarming: () => farmingSession.handleResumeFarming(),
+      stopFarming: () => farmingSession.handleStopFarming(),
+      updateGames: (message) => handleUpdateGames(message.payload),
+      syncTwitchSession: (message, sender) => handleSyncTwitchSession(message.payload, sender),
+      syncTwitchIntegrity: (message, sender) => handleSyncTwitchIntegrity(message.payload, sender),
+      refreshDrops: () => farmingSession.handleRefreshDrops(),
+      setMonitorAutoOpen: (message) => handleSetMonitorAutoOpen(message.payload),
+      setMuteFarmingTab: (message) => handleSetMuteFarmingTab(message.payload),
+      setNotificationsEnabled: (message) => handleSetNotificationsEnabled(message.payload),
+      setTelegramAlertsEnabled: (message) => handleSetTelegramAlertsEnabled(message.payload),
+      setTelegramCredentials: (message) => handleSetTelegramCredentials(message.payload),
+      testTelegramAlerts: () => handleTestTelegramAlerts(),
+      getTelegramSettings: () => handleGetTelegramSettings(),
+      setAutoClaimChannelPointsBonus: (message) => handleSetAutoClaimChannelPointsBonus(message.payload),
+      channelPointsBonusClaimed: (message, sender) =>
+        handleChannelPointsBonusClaimed(message.payload, sender),
+      setAutoClaimDrops: (message) => handleSetAutoClaimDrops(message.payload),
+      setStreamerSelectionMode: (message) => handleSetStreamerSelectionMode(message.payload),
+      setPreferredStreamerLanguage: (message) => handleSetPreferredStreamerLanguage(message.payload),
+      openMonitorDashboard: (message) => openMonitorDashboardWindow(message.payload ?? {}),
+      getClaimLog: () => handleGetClaimLog(),
+      clearClaimLog: () => handleClearClaimLog(),
+    },
+    {
+      beforeHandle: async () => {
+        if (initPromise) {
+          await initPromise;
+        }
+      },
+    },
+  );
 
   logDebug('DropHunter service worker loaded');
 }

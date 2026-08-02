@@ -81,11 +81,25 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
     if (alarm.name !== options.alarmName) {
       return;
     }
-    reportAsyncError(options.onAlarm(alarm), 'Monitoring error', options.logWarn);
+    reportAsyncError(
+      (async () => {
+        await awaitInitialization(options.getInitPromise);
+        await options.onAlarm(alarm);
+      })(),
+      'Monitoring error',
+      options.logWarn,
+    );
   });
 
   api.tabs.onRemoved.addListener((removedTabId) => {
-    reportAsyncError(options.onManagedTabRemoved(removedTabId), 'tabs.onRemoved error', options.logWarn);
+    reportAsyncError(
+      (async () => {
+        await awaitInitialization(options.getInitPromise);
+        await options.onManagedTabRemoved(removedTabId);
+      })(),
+      'tabs.onRemoved error',
+      options.logWarn,
+    );
   });
 
   api.tabs.onUpdated.addListener((updatedTabId, changeInfo) => {
@@ -93,7 +107,10 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
       return;
     }
     reportAsyncError(
-      options.onManagedTabNavigatedAway(updatedTabId, changeInfo.url),
+      (async () => {
+        await awaitInitialization(options.getInitPromise);
+        await options.onManagedTabNavigatedAway(updatedTabId, changeInfo.url as string);
+      })(),
       'tabs.onUpdated error',
       options.logWarn,
     );
@@ -101,7 +118,10 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
 
   api.windows.onRemoved.addListener((removedWindowId) => {
     reportAsyncError(
-      options.onMonitorWindowRemoved(removedWindowId),
+      (async () => {
+        await awaitInitialization(options.getInitPromise);
+        await options.onMonitorWindowRemoved(removedWindowId);
+      })(),
       'windows.onRemoved error',
       options.logWarn,
     );

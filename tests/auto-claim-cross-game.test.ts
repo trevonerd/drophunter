@@ -65,6 +65,11 @@ function installServiceWorkerSupportMocks(mocks: ChromeMocks) {
         syncStore.set(key, value);
       }
     },
+    async remove(keys: string | string[]) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) {
+        syncStore.delete(key);
+      }
+    },
     async clear() {
       syncStore.clear();
     },

@@ -44,6 +44,45 @@ async function flushAsyncListeners() {
 }
 
 describe('extension lifecycle listeners', () => {
+  test('waits for initialization before handling alarms and tab or window changes', async () => {
+    const api = createLifecycleApi();
+    const calls: string[] = [];
+    let releaseInitialization: () => void = () => undefined;
+    const initialization = new Promise<void>((resolve) => {
+      releaseInitialization = resolve;
+    });
+    registerExtensionLifecycleListeners({
+      api,
+      alarmName: 'dropCheck',
+      getInitPromise: () => initialization,
+      onExtensionUpdate: async () => {},
+      onAlarm: async () => {
+        calls.push('alarm');
+      },
+      onManagedTabRemoved: async () => {
+        calls.push('tab-removed');
+      },
+      onManagedTabNavigatedAway: async () => {
+        calls.push('tab-updated');
+      },
+      onMonitorWindowRemoved: async () => {
+        calls.push('window-removed');
+      },
+      logWarn: () => {},
+    });
+
+    api.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: 1 });
+    api.tabs.onRemoved.trigger(10);
+    api.tabs.onUpdated.trigger(10, { url: 'https://example.com/' });
+    api.windows.onRemoved.trigger(20);
+    await flushAsyncListeners();
+
+    expect(calls).toEqual([]);
+    releaseInitialization();
+    await flushAsyncListeners();
+    expect(calls).toEqual(['alarm', 'tab-removed', 'tab-updated', 'window-removed']);
+  });
+
   test('awaits initialization before handling an extension update', async () => {
     const api = createLifecycleApi();
     const calls: string[] = [];
@@ -68,6 +107,46 @@ describe('extension lifecycle listeners', () => {
     await flushAsyncListeners();
 
     expect(calls).toEqual(['init', 'update']);
+  });
+
+  test('does not invoke lifecycle handlers when initialization fails', async () => {
+    const api = createLifecycleApi();
+    const calls: string[] = [];
+    const warnings: string[] = [];
+    registerExtensionLifecycleListeners({
+      api,
+      alarmName: 'dropCheck',
+      getInitPromise: () => Promise.reject(new Error('storage migration failed')),
+      onExtensionUpdate: async () => {
+        calls.push('update');
+      },
+      onAlarm: async () => {
+        calls.push('alarm');
+      },
+      onManagedTabRemoved: async () => {
+        calls.push('tab-removed');
+      },
+      onManagedTabNavigatedAway: async () => {
+        calls.push('tab-updated');
+      },
+      onMonitorWindowRemoved: async () => {
+        calls.push('window-removed');
+      },
+      logWarn: (...args) => {
+        warnings.push(args.join(' '));
+      },
+    });
+
+    api.runtime.onInstalled.trigger({ reason: 'update', previousVersion: '3.5.1' });
+    api.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: 1 });
+    api.tabs.onRemoved.trigger(10);
+    api.tabs.onUpdated.trigger(10, { url: 'https://example.com/' });
+    api.windows.onRemoved.trigger(20);
+    await flushAsyncListeners();
+
+    expect(calls).toEqual([]);
+    expect(warnings).toHaveLength(5);
+    expect(warnings.every((warning) => warning.includes('storage migration failed'))).toBe(true);
   });
 
   test('runs monitor ticks only for the configured alarm name', async () => {
