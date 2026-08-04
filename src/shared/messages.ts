@@ -1,11 +1,14 @@
 import type { TwitchSession } from '../background/twitch-api/types';
 import type {
   AppState,
+  CampaignPriorityMode,
   ClaimLogEntry,
+  FarmCategoryScope,
   PlaybackPrepResult,
   StreamerSelectionMode,
   TwitchGame,
   TwitchStreamer,
+  WatchTransportMode,
 } from '../types';
 import { browser } from './browser-api.ts';
 
@@ -26,6 +29,12 @@ export const RUNTIME_MESSAGE_TYPES = [
   'GET_TELEGRAM_SETTINGS',
   'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
   'SET_AUTO_CLAIM_DROPS',
+  'SET_GAME_FAVORITE',
+  'SET_CAMPAIGN_PRIORITY_MODE',
+  'SET_FARM_CATEGORY_SCOPE',
+  'SET_AUTO_START_FAVORITES',
+  'SET_WATCH_TRANSPORT_MODE',
+  'EVALUATE_AUTO_START',
   'SET_STREAMER_SELECTION_MODE',
   'SET_PREFERRED_STREAMER_LANGUAGE',
   'ADD_TO_QUEUE',
@@ -61,6 +70,7 @@ export const BOOLEAN_TOGGLE_MESSAGES = {
   SET_TELEGRAM_ALERTS_ENABLED: { responseField: 'telegramAlertsEnabled' },
   SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS: { responseField: 'autoClaimChannelPointsBonus' },
   SET_AUTO_CLAIM_DROPS: { responseField: 'autoClaimDrops' },
+  SET_AUTO_START_FAVORITES: { responseField: 'autoStartFavoriteGames' },
 } as const satisfies Partial<Record<RuntimeMessageType, { responseField: keyof AppState }>>;
 
 type BooleanToggleMessageType = keyof typeof BOOLEAN_TOGGLE_MESSAGES;
@@ -114,6 +124,11 @@ export type RuntimeRequest =
   | { type: 'GET_TELEGRAM_SETTINGS' }
   | { type: 'SET_STREAMER_SELECTION_MODE'; payload?: { mode?: StreamerSelectionMode } }
   | { type: 'SET_PREFERRED_STREAMER_LANGUAGE'; payload?: { language?: string | null } }
+  | { type: 'SET_GAME_FAVORITE'; payload: { game: TwitchGame; favorite: boolean } }
+  | { type: 'SET_CAMPAIGN_PRIORITY_MODE'; payload: { mode: CampaignPriorityMode } }
+  | { type: 'SET_FARM_CATEGORY_SCOPE'; payload: { scope: FarmCategoryScope } }
+  | { type: 'SET_WATCH_TRANSPORT_MODE'; payload: { mode: WatchTransportMode } }
+  | { type: 'EVALUATE_AUTO_START' }
   | { type: 'ADD_TO_QUEUE'; payload: { game?: TwitchGame } }
   | { type: 'REMOVE_FROM_QUEUE'; payload: { game?: TwitchGame; gameId?: string; campaignId?: string } }
   | { type: 'REORDER_QUEUE'; payload: { fromIndex: number; toIndex: number } }
@@ -156,8 +171,30 @@ export type RuntimeResponseByType = BooleanToggleResponseByType &
       preferredStreamerLanguage?: string | null;
       error?: string;
     };
+    SET_GAME_FAVORITE: {
+      success: boolean;
+      favorite?: boolean;
+      removedQueueEntries?: number;
+      error?: string;
+    };
+    SET_CAMPAIGN_PRIORITY_MODE: {
+      success: boolean;
+      campaignPriorityMode?: CampaignPriorityMode;
+      error?: string;
+    };
+    SET_FARM_CATEGORY_SCOPE: {
+      success: boolean;
+      farmCategoryScope?: FarmCategoryScope;
+      error?: string;
+    };
+    SET_WATCH_TRANSPORT_MODE: {
+      success: boolean;
+      watchTransportPreference?: WatchTransportMode;
+      error?: string;
+    };
+    EVALUATE_AUTO_START: { success: boolean; started?: boolean; reason?: string; error?: string };
     ADD_TO_QUEUE: { success: boolean; added?: boolean; reason?: AddToQueueReason; error?: string };
-    REMOVE_FROM_QUEUE: { success: boolean; removed?: boolean; error?: string };
+    REMOVE_FROM_QUEUE: { success: boolean; removed?: number; queueLength?: number; error?: string };
     REORDER_QUEUE: { success: boolean; reordered?: boolean; error?: string };
     START_FARMING: { success: boolean; error?: string };
     SET_SELECTED_GAME: { success: boolean; selectedGame?: TwitchGame | null; error?: string };
@@ -372,6 +409,21 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
             payload.language === null ||
             typeof payload.language === 'string'))
       );
+    case 'SET_GAME_FAVORITE':
+      return isRecord(payload) && isTwitchGameLike(payload.game) && typeof payload.favorite === 'boolean';
+    case 'SET_CAMPAIGN_PRIORITY_MODE':
+      return (
+        isRecord(payload) &&
+        (payload.mode === 'ending-soonest' ||
+          payload.mode === 'lowest-availability' ||
+          payload.mode === 'priority-list-only')
+      );
+    case 'SET_FARM_CATEGORY_SCOPE':
+      return isRecord(payload) && (payload.scope === 'all' || payload.scope === 'favorites-only');
+    case 'SET_WATCH_TRANSPORT_MODE':
+      return isRecord(payload) && (payload.mode === 'managed-tab' || payload.mode === 'tabless');
+    case 'EVALUATE_AUTO_START':
+      return payload === undefined;
     case 'PLAY_ALERT':
       return (
         payload === undefined ||

@@ -55,7 +55,10 @@ describe('extension storage migration', () => {
 
     await migrateExtensionStorage();
 
-    expect(mocks.storage.local._store.get('appState')).toEqual(appState);
+    expect(mocks.storage.local._store.get('appState')).toEqual({
+      ...appState,
+      campaignPriorityMode: 'priority-list-only',
+    });
     expect(mocks.storage.local._store.get('onboardingCompleted')).toBe(true);
     expect(mocks.storage.local._store.get('telegramCredentials')).toEqual(telegramCredentials);
     expect(mocks.storage.local._store.get('claimLog')).toEqual(claimLog);
@@ -93,7 +96,11 @@ describe('extension storage migration', () => {
     });
 
     expect(hydratedSession).toBeUndefined();
-    expect(hydratedAppState).toEqual({ totalDropsClaimed: 42, monitorAutoOpen: false });
+    expect(hydratedAppState).toEqual({
+      totalDropsClaimed: 42,
+      monitorAutoOpen: false,
+      campaignPriorityMode: 'priority-list-only',
+    });
   });
 
   test('does not advance the schema or overwrite app state when cleanup fails', async () => {
@@ -126,5 +133,20 @@ describe('extension storage migration', () => {
 
     expect(removeCalls).toBe(0);
     expect(mocks.storage.local._store.get('twitchSession')).toEqual(currentSession);
+  });
+
+  test('preserves the current queue behavior for existing installations', async () => {
+    await mocks.storage.local.set({
+      [STORAGE_SCHEMA_VERSION_KEY]: 1,
+      appState: { queue: [{ id: 'game-1', campaignId: 'campaign-1' }] },
+    });
+
+    await migrateExtensionStorage();
+
+    expect(mocks.storage.local._store.get('appState')).toEqual({
+      queue: [{ id: 'game-1', campaignId: 'campaign-1' }],
+      campaignPriorityMode: 'priority-list-only',
+    });
+    expect(mocks.storage.local._store.get(STORAGE_SCHEMA_VERSION_KEY)).toBe(STORAGE_SCHEMA_VERSION);
   });
 });

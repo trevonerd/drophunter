@@ -56,6 +56,12 @@ export interface RuntimeMessageHandlers {
   setAutoClaimDrops: RuntimeMessageHandler<'SET_AUTO_CLAIM_DROPS'>;
   setStreamerSelectionMode: RuntimeMessageHandler<'SET_STREAMER_SELECTION_MODE'>;
   setPreferredStreamerLanguage: RuntimeMessageHandler<'SET_PREFERRED_STREAMER_LANGUAGE'>;
+  setGameFavorite: RuntimeMessageHandler<'SET_GAME_FAVORITE'>;
+  setCampaignPriorityMode: RuntimeMessageHandler<'SET_CAMPAIGN_PRIORITY_MODE'>;
+  setFarmCategoryScope: RuntimeMessageHandler<'SET_FARM_CATEGORY_SCOPE'>;
+  setAutoStartFavorites: RuntimeMessageHandler<'SET_AUTO_START_FAVORITES'>;
+  setWatchTransportMode: RuntimeMessageHandler<'SET_WATCH_TRANSPORT_MODE'>;
+  evaluateAutoStart: RuntimeMessageHandler<'EVALUATE_AUTO_START'>;
   openMonitorDashboard: RuntimeMessageHandler<'OPEN_MONITOR_DASHBOARD'>;
   getClaimLog: RuntimeMessageHandler<'GET_CLAIM_LOG'>;
   clearClaimLog: RuntimeMessageHandler<'CLEAR_CLAIM_LOG'>;
@@ -170,6 +176,18 @@ export function createRuntimeMessageListener(
         return respond(() => handlers.setStreamerSelectionMode(message, sender));
       case 'SET_PREFERRED_STREAMER_LANGUAGE':
         return respond(() => handlers.setPreferredStreamerLanguage(message, sender));
+      case 'SET_GAME_FAVORITE':
+        return respond(() => handlers.setGameFavorite(message, sender));
+      case 'SET_CAMPAIGN_PRIORITY_MODE':
+        return respond(() => handlers.setCampaignPriorityMode(message, sender));
+      case 'SET_FARM_CATEGORY_SCOPE':
+        return respond(() => handlers.setFarmCategoryScope(message, sender));
+      case 'SET_AUTO_START_FAVORITES':
+        return respond(() => handlers.setAutoStartFavorites(message, sender));
+      case 'SET_WATCH_TRANSPORT_MODE':
+        return respond(() => handlers.setWatchTransportMode(message, sender));
+      case 'EVALUATE_AUTO_START':
+        return respond(() => handlers.evaluateAutoStart(message, sender));
       case 'OPEN_MONITOR_DASHBOARD':
         return respond(() => handlers.openMonitorDashboard(message, sender));
       case 'GET_CLAIM_LOG':

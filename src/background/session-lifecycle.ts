@@ -1,10 +1,11 @@
 import { haveAllDropsExpiredOrVanished } from '../shared/drops';
 import { dropMatchesGame, findMatchingGame, getGameDisplayLabel } from '../shared/game-selection';
-import { isRewardAutomatable } from '../shared/reward-semantics.ts';
+import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { formatFarmingCompleteStatusLines } from '../shared/runtime-status.ts';
 import type { TwitchGame } from '../types';
 import { logDebug, logInfo, logWarn } from './logging';
 import {
+  markQueueEntryManual,
   normalizeQueueSelection,
   promoteQueueHead,
   removeGameFromQueue,
@@ -41,7 +42,7 @@ function selectedFarmingCompleteGame(state: ServiceWorkerState): TwitchGame | nu
     return null;
   }
   const hasCurrentAutomatableReward = state.appState.pendingDrops.some(
-    (drop) => dropMatchesGame(drop, selectedGame) && isRewardAutomatable(drop),
+    (drop) => dropMatchesGame(drop, selectedGame) && isRewardFarmableNow(drop),
   );
   if (hasCurrentAutomatableReward) {
     return null;
@@ -167,11 +168,14 @@ export async function advanceQueueIfCompleted(
     return false;
   }
 
-  const hasFarmablePending = state.appState.pendingDrops.some(isRewardAutomatable);
+  const hasFarmablePending = state.appState.pendingDrops.some(isRewardFarmableNow);
+  const hasKnownNonFarmableRemainder =
+    state.appState.pendingDrops.length > 0 && !hasFarmablePending && state.appState.currentDrop === null;
   const selectedMarkedCompleted = selectedGameMarkedCompleted(state);
   let terminalFarmingCompleteGame = selectedFarmingCompleteGame(state);
   const knownCompletedCurrent =
     terminalFarmingCompleteGame !== null ||
+    hasKnownNonFarmableRemainder ||
     ((state.appState.allDrops.length > 0 || selectedMarkedCompleted) &&
       !hasFarmablePending &&
       state.appState.currentDrop === null);
@@ -237,7 +241,7 @@ export async function advanceQueueIfCompleted(
       });
     }
 
-    const hasFarmablePendingNext = state.appState.pendingDrops.some(isRewardAutomatable);
+    const hasFarmablePendingNext = state.appState.pendingDrops.some(isRewardFarmableNow);
     const nextMarkedCompleted = selectedGameMarkedCompleted(state);
     const nextFarmingCompleteGame = selectedFarmingCompleteGame(state);
     const knownCompletedNext =
@@ -424,7 +428,7 @@ export async function skipCurrentGameAndAdvanceQueue(
       });
     }
 
-    const hasFarmablePendingNext = state.appState.pendingDrops.some(isRewardAutomatable);
+    const hasFarmablePendingNext = state.appState.pendingDrops.some(isRewardFarmableNow);
     const nextMarkedCompleted = selectedGameMarkedCompleted(state);
     const nextFarmingComplete = selectedFarmingCompleteGame(state) !== null;
     const knownCompletedNext =
@@ -505,7 +509,7 @@ export async function handleStartFarming(
     return { success: false, error: 'Campaign is no longer available.' };
   }
   const hasRequestedAutomatableReward = state.appState.pendingDrops.some(
-    (drop) => dropMatchesGame(drop, requestedGame) && isRewardAutomatable(drop),
+    (drop) => dropMatchesGame(drop, requestedGame) && isRewardFarmableNow(drop),
   );
   const requestedStartRejection = startRejectionMessage(requestedGame);
   if (requestedStartRejection && !hasRequestedAutomatableReward) {
@@ -513,6 +517,7 @@ export async function handleStartFarming(
   }
   removeQueueEntriesForGame(state, requestedGame);
   state.appState.queue = [requestedGame, ...state.appState.queue];
+  markQueueEntryManual(state, requestedGame);
   normalizeQueueSelection(state, state.appState.availableGames);
   state.appState.selectedGame = state.appState.queue[0] ?? requestedGame;
   state.appState.isRunning = true;
@@ -539,7 +544,7 @@ export async function handleStartFarming(
     });
   }
 
-  const hasFarmablePendingNow = state.appState.pendingDrops.some(isRewardAutomatable);
+  const hasFarmablePendingNow = state.appState.pendingDrops.some(isRewardFarmableNow);
   const selectedGame = state.appState.selectedGame
     ? (findMatchingGame(state.appState.selectedGame, state.appState.availableGames) ??
       state.appState.selectedGame)

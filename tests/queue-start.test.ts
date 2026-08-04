@@ -21,13 +21,13 @@ describe('getGameToStartFromQueue', () => {
     expect(gameToStart).toBe(firstQueued);
   });
 
-  test('starts selected game first when selected game is not queued', () => {
+  test('starts the queue head when a stale selected campaign is not queued', () => {
     const selectedGame = createGame({ id: 'game-1', campaignId: 'campaign-1' });
     const queuedGame = createGame({ id: 'game-2', campaignId: 'campaign-2' });
 
     const gameToStart = getGameToStartFromQueue(selectedGame, [queuedGame]);
 
-    expect(gameToStart).toBe(selectedGame);
+    expect(gameToStart).toBe(queuedGame);
   });
 
   test('starts a farmable queue head when the selected campaign is farming-complete', () => {
@@ -126,11 +126,11 @@ describe('getGameToStartFromQueue', () => {
     expect(getGameToStartFromQueue(selectedGame, [queuedGame])).toBe(queuedGame);
   });
 
-  test('does not collapse duplicate campaigns that share a game id', () => {
+  test('does not let a stale sibling campaign jump ahead of the queue head', () => {
     const firstCampaign = createGame({ id: 'shared-game-id', campaignId: 'campaign-a' });
     const selectedCampaign = createGame({ id: 'shared-game-id', campaignId: 'campaign-b' });
 
     expect(isSameQueuedGame(firstCampaign, selectedCampaign)).toBe(false);
-    expect(getGameToStartFromQueue(selectedCampaign, [firstCampaign])).toBe(selectedCampaign);
+    expect(getGameToStartFromQueue(selectedCampaign, [firstCampaign])).toBe(firstCampaign);
   });
 });

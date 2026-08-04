@@ -1,13 +1,22 @@
 import { browser } from '../shared/browser-api.ts';
 import {
+  dropMatchesGame,
+  gameKey,
+  isFavoriteGame,
   replaceAvailableGames,
   resolveCategorySlug as resolveCategorySlugExt,
 } from '../shared/game-selection';
+import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
-import { createInitialState } from '../shared/utils';
-import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
+import { createInitialState, isExpiredGame } from '../shared/utils';
+import { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer, WatchTransportMode } from '../types';
 import { applyAutoClaimDropsSetting } from './auto-claim.ts';
+import { type AutoStartCandidate, createAutoStartCoordinator } from './auto-start-coordinator.ts';
+import { clearAutoStartSnooze, isAutoStartSnoozed, setAutoStartSnoozed } from './auto-start-session.ts';
+import { recordAutomationActivity } from './automation-activity.ts';
+import { automationNotificationPersistence } from './automation-notification-persistence.ts';
+import { orderCampaignCandidates } from './campaign-priority.ts';
 import {
   applyAutoClaimChannelPointsBonusSetting,
   attemptAutoClaimChannelPointsBonusExt,
@@ -72,12 +81,14 @@ import {
 } from './drops-projection.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import { createFarmingSession, type StreamContext } from './farming-session.ts';
+import { discoverFavoriteCampaigns, setGameFavorite } from './favorite-games.ts';
 import {
   type EnsureGamesCacheDeps,
   type GamesCacheRefreshDeps,
   handleEnsureGamesCache,
   refreshGamesCacheFromHiddenFetch,
 } from './games-cache-orchestration.ts';
+import { detectManualViewing } from './manual-watch-detector.ts';
 import { normalizeQueueSelection as normalizeQueueSelectionExt } from './queue-operations.ts';
 import { resetStreamTrackingState as resetStreamTrackingStateExt } from './session-lifecycle.ts';
 import {
@@ -106,7 +117,16 @@ import {
   applyStreamerSelectionModeSetting,
 } from './streamer-selection';
 import { TwitchApiClient } from './twitch-api/client';
-import { isLikelyAuthError, sanitizeTwitchSession, TwitchSession } from './twitch-api/types';
+import { createTwitchSpadeHeartbeat } from './twitch-api/spade-heartbeat.ts';
+import {
+  DEFAULT_TWITCH_CLIENT_ID,
+  isLikelyAuthError,
+  sanitizeTwitchSession,
+  TwitchSession,
+} from './twitch-api/types';
+import { dropsForFarmingTarget } from './watch-target.ts';
+import type { FarmingTarget } from './watch-transport.ts';
+import { createWatchTransportCoordinator } from './watch-transport-coordinator.ts';
 
 export const MONITOR_AUTO_OPEN_DELAY_MS = 450;
 export const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
@@ -116,12 +136,24 @@ export const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
 export const ALARM_NAME = 'dropCheck';
 export const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000; // 3 days
 export const STREAM_CONTEXT_TIMEOUT_MS = 12_000;
+export const AUTO_START_ALARM_NAME = 'favoriteCampaignCheck';
+export const LINK_RECHECK_ALARM_PREFIX = 'campaignLinkRecheck:';
+export const AUTO_START_CHECK_INTERVAL_MS = 2 * 60_000;
+const CAMPAIGN_AVAILABILITY_CACHE_MS = 60_000;
 
 let initPromise: Promise<void> | null = null;
+let autoStartSnoozedForSession = false;
 const state = createServiceWorkerState();
 
 const notificationController = createNotificationController(state, {
   saveState: () => saveStateExt(state),
+  automationNotificationPersistence,
+  openDropHunter: () => openMonitorDashboardWindow({ toggle: false }),
+  pauseFarming: async () => {
+    autoStartSnoozedForSession = true;
+    await setAutoStartSnoozed();
+    await farmingSession.handlePauseFarming();
+  },
 });
 const telegramNotifier = createTelegramNotifier(state, {
   saveState: () => saveStateExt(state),
@@ -181,6 +213,68 @@ const playbackOrchestrator = createPlaybackOrchestrator(state, {
   notify,
   streamerWatchUrl: streamerWatchUrlExt,
 });
+const twitchSpadeHeartbeat = createTwitchSpadeHeartbeat({
+  clientId: DEFAULT_TWITCH_CLIENT_ID,
+});
+const watchTransport = createWatchTransportCoordinator({
+  state,
+  enabled: true,
+  heartbeat: async (target) => {
+    const session = state.twitchSessionCache ?? (await ensureTwitchSession());
+    const userId = session?.userId?.trim();
+    if (!userId) {
+      return { accepted: false, isLive: true, reason: 'error' };
+    }
+    const heartbeat = await twitchSpadeHeartbeat.heartbeat(target, userId);
+    const progress = await currentInventoryProgress(target);
+    return { ...heartbeat, progress };
+  },
+  managedTab: {
+    open: async (target) => {
+      const streamer: TwitchStreamer = {
+        id: target.channelName,
+        name: target.channelName,
+        displayName: target.channelName,
+        isLive: true,
+      };
+      const tabId = await openManagedWatchChannel(streamer);
+      return tabId === null ? null : { owner: 'drophunter', tabId };
+    },
+    probe: async (session, target) => {
+      const context = await fetchStreamContext(session.tabId);
+      const selected = state.appState.selectedGame;
+      const sameChannel = context?.channelName.toLowerCase() === target.channelName.toLowerCase();
+      const sameGame =
+        selected?.id === target.gameId ||
+        (Boolean(selected?.categorySlug) && context?.categorySlug === selected?.categorySlug);
+      return {
+        accepted: Boolean(context) && sameChannel && sameGame && context?.isPlaybackReady === true,
+        isLive: context?.isLive,
+        sameChannel,
+        sameGame,
+        hasDropsSignal: context?.hasDropsSignal,
+        progress: state.appState.currentDrop?.currentMinutes ?? null,
+        reason: !context
+          ? 'heartbeat-failed'
+          : !sameChannel
+            ? 'wrong-channel'
+            : !sameGame
+              ? 'wrong-game'
+              : context.isPlaybackReady !== true
+                ? 'playback-inactive'
+                : 'heartbeat',
+      };
+    },
+    close: async (session) => {
+      await closeManagedTabIfSafeExt(session.tabId);
+      if (state.appState.tabId === session.tabId) {
+        state.appState.tabId = null;
+      }
+    },
+  },
+  persist: () => saveStateExt(state),
+  broadcast: () => broadcastStateUpdateExt(state.appState),
+});
 const farmingSession = createFarmingSession(state, {
   getInitPromise: () => initPromise,
   trackActivity,
@@ -203,6 +297,210 @@ const farmingSession = createFarmingSession(state, {
   saveTimingState: saveTimingStateExt,
   broadcastStateUpdate: broadcastStateUpdateExt,
   monitorAutoOpenDelayMs: MONITOR_AUTO_OPEN_DELAY_MS,
+  watchTransport,
+});
+
+const campaignAvailabilityCache = new Map<string, { readonly count: number; readonly cachedAt: number }>();
+let manualWatchResumeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function formatRemainingTime(targetAt: string | null | undefined, now = Date.now()): string {
+  if (!targetAt) return 'unknown';
+  const remainingMs = Date.parse(targetAt) - now;
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return 'now';
+  const minutes = Math.ceil(remainingMs / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.ceil(hours / 24)}d`;
+}
+
+function activityId(kind: string, game: TwitchGame, at: number): string {
+  return `${kind}:${game.campaignId ?? game.id}:${at}`;
+}
+
+async function eligibleStreamerCount(game: TwitchGame): Promise<number> {
+  const key = game.campaignId ?? game.id;
+  const cached = campaignAvailabilityCache.get(key);
+  if (cached && Date.now() - cached.cachedAt < CAMPAIGN_AVAILABILITY_CACHE_MS) {
+    return cached.count;
+  }
+  const streamers = await fetchDirectoryStreamersFromApi(
+    game,
+    false,
+    state.appState.preferredStreamerLanguage ?? '',
+  );
+  const allowed = game.allowedChannels;
+  const count =
+    allowed === null || allowed === undefined
+      ? streamers.length
+      : streamers.filter((streamer) =>
+          allowed.some((channel) => channel.toLowerCase() === streamer.name.toLowerCase()),
+        ).length;
+  campaignAvailabilityCache.set(key, { count, cachedAt: Date.now() });
+  state.appState.campaignAvailabilityByKey[gameKey(game)] = {
+    eligibleStreamerCount: count,
+    updatedAt: Date.now(),
+  };
+  return count;
+}
+
+async function discoverAutoStartCandidates(): Promise<readonly AutoStartCandidate[]> {
+  const discovery = discoverFavoriteCampaigns(state.appState, Date.now());
+  if (discovery.added.length > 0) {
+    await notifyFavoriteAdditions(discovery.added);
+    await saveStateExt(state);
+  }
+  const favoriteIds = new Set(state.appState.favoriteGames.map((favorite) => favorite.gameId));
+  const favoriteCampaigns = state.appState.availableGames.filter((game) => isFavoriteGame(game, favoriteIds));
+  return Promise.all(
+    favoriteCampaigns.map(async (game): Promise<AutoStartCandidate> => {
+      const campaignDrops =
+        state.appState.campaignDropsByKey[gameKey(game)] ??
+        state.appState.allDrops.filter((drop) => dropMatchesGame(drop, game));
+      return {
+        game,
+        eligibleStreamerCount: await eligibleStreamerCount(game),
+        hasStartedReward: campaignDrops.some((drop) => drop.progress > 0 && !drop.claimed),
+        hasFarmableReward: campaignDrops.some((drop) => !drop.claimed && isRewardFarmableNow(drop)),
+        isActive:
+          !isExpiredGame(game) &&
+          (game.rewardSummary?.completion === undefined || game.rewardSummary.completion === 'farmable'),
+        isFavorite: true,
+      };
+    }),
+  );
+}
+
+async function notifyFavoriteAdditions(
+  additions: ReturnType<typeof discoverFavoriteCampaigns>['added'],
+): Promise<void> {
+  for (const addition of additions) {
+    const message = `${addition.game.name} was added because a new favorite campaign is available.`;
+    const at = Date.now();
+    recordAutomationActivity(state.appState, {
+      id: activityId('favorite-added', addition.game, at),
+      kind: 'favorite-added',
+      at,
+      campaignId: addition.game.campaignId,
+      message,
+    });
+    await notificationController.notifyAutomation({
+      event: 'favorite-added',
+      campaignId: addition.game.campaignId ?? addition.game.id,
+      title: 'Favorite campaign added',
+      message,
+    });
+  }
+}
+
+const autoStartCoordinator = createAutoStartCoordinator({
+  getState: () => ({
+    autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
+    notificationsEnabled: state.appState.notificationsEnabled,
+    isRunning: state.appState.isRunning,
+    isPaused: state.appState.isPaused,
+    selectedGame: state.appState.selectedGame,
+    manualWatchActive: state.appState.manualWatchState !== 'inactive',
+    autoStartSnoozed: autoStartSnoozedForSession,
+    twitchSessionValid: state.twitchSessionCache !== null,
+  }),
+  refreshDrops: async () => {
+    await farmingSession.handleRefreshDrops();
+  },
+  discoverCandidates: discoverAutoStartCandidates,
+  rankCandidates: (candidates) => {
+    const candidateByKey = new Map(
+      candidates.map((candidate) => [candidate.game.campaignId ?? candidate.game.id, candidate]),
+    );
+    return orderCampaignCandidates(candidates, {
+      mode: state.appState.campaignPriorityMode,
+      scope: state.appState.farmCategoryScope,
+      favoriteGameIds: new Set(state.appState.favoriteGames.map((favorite) => favorite.gameId)),
+      priorityList: state.appState.queue,
+    }).flatMap((ranked) => {
+      const candidate = candidateByKey.get(ranked.game.campaignId ?? ranked.game.id);
+      return candidate ? [candidate] : [];
+    });
+  },
+  onRankedCampaigns: async (ranked) => {
+    const discovery = discoverFavoriteCampaigns(state.appState, Date.now());
+    await notifyFavoriteAdditions(discovery.added);
+    const target = ranked[0]?.game;
+    if (target) {
+      const manual = await detectManualViewing({
+        target,
+        managedTabId: state.appState.tabId,
+        automationActive: true,
+        now: Date.now(),
+        queryTabs: async () =>
+          (await browser.tabs.query({ url: ['https://www.twitch.tv/*', 'https://twitch.tv/*'] })).map(
+            (tab) => ({ id: tab.id, active: tab.active, url: tab.url }),
+          ),
+        getStreamContext: fetchStreamContext,
+      });
+      state.appState.manualWatchState = manual.kind;
+      if (manual.kind !== 'inactive' && manualWatchResumeTimer === null) {
+        manualWatchResumeTimer = setTimeout(() => {
+          manualWatchResumeTimer = null;
+          void autoStartCoordinator.evaluate('periodic');
+        }, 20_000);
+      }
+    } else {
+      state.appState.manualWatchState = 'inactive';
+    }
+    state.appState.nextAutomationCheckAt = Date.now() + AUTO_START_CHECK_INTERVAL_MS;
+    await saveStateExt(state);
+  },
+  hasNotificationPermission: notificationController.hasNotificationPermission,
+  startFarming: async (campaign, context) => {
+    const result = await farmingSession.handleStartFarming({ game: campaign });
+    if (!result.success) {
+      throw new Error(result.error ?? 'Unable to start farming.');
+    }
+    const at = Date.now();
+    const nextReward = state.appState.pendingDrops.find((drop) => dropMatchesGame(drop, campaign));
+    if (context.preempted && context.currentCampaign) {
+      const earlierMs = Math.max(
+        0,
+        Date.parse(context.currentCampaign.endsAt ?? '') - Date.parse(campaign.endsAt ?? ''),
+      );
+      const earlier = formatRemainingTime(new Date(Date.now() + earlierMs).toISOString());
+      const message = `${campaign.name} starts now because its campaign ends ${earlier} earlier.`;
+      recordAutomationActivity(state.appState, {
+        id: activityId('preempted', campaign, at),
+        kind: 'preempted',
+        at,
+        campaignId: campaign.campaignId,
+        message,
+      });
+      await notificationController.notifyAutomation({
+        event: 'preemption',
+        campaignId: campaign.campaignId ?? campaign.id,
+        title: 'Campaign priority changed',
+        message,
+      });
+    } else {
+      const campaignLabel = campaign.campaignName ?? campaign.name;
+      const rewardEta = nextReward?.remainingMinutes
+        ? `${Math.ceil(nextReward.remainingMinutes)}m`
+        : 'calculating';
+      const message = `${campaignLabel} · Next reward in ${rewardEta} · Ends in ${formatRemainingTime(campaign.endsAt)}`;
+      recordAutomationActivity(state.appState, {
+        id: activityId('auto-started', campaign, at),
+        kind: 'auto-started',
+        at,
+        campaignId: campaign.campaignId,
+        message: `${campaign.name} started automatically.`,
+      });
+      await notificationController.notifyAutomation({
+        event: 'start',
+        campaignId: campaign.campaignId ?? campaign.id,
+        title: `DropHunter started ${campaign.name}`,
+        message,
+      });
+    }
+    await saveStateExt(state);
+  },
 });
 
 const GAMES_STALE_THRESHOLD_MS = 60 * 60_000;
@@ -519,6 +817,24 @@ async function openForegroundChannel(streamer: TwitchStreamer) {
   await playbackOrchestrator.openForegroundChannel(streamer);
 }
 
+async function openManagedWatchChannel(streamer: TwitchStreamer): Promise<number | null> {
+  return playbackOrchestrator.openForegroundChannel(streamer, { focus: false });
+}
+
+async function currentInventoryProgress(target: FarmingTarget): Promise<number | null> {
+  const cached = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : state.appState.allDrops;
+  const baseDrops = dropsForFarmingTarget(cached, target);
+  if (baseDrops.length === 0) {
+    return state.appState.currentDrop?.currentMinutes ?? null;
+  }
+  const snapshot = await fetchInventorySnapshotFromApi(baseDrops, true);
+  const drops = snapshot?.drops ?? baseDrops;
+  const progress = dropsForFarmingTarget(drops, target)
+    .map((drop) => drop.currentMinutes)
+    .filter((minutes) => Number.isFinite(minutes));
+  return progress.length > 0 ? Math.max(...progress) : null;
+}
+
 async function enforcePlaybackPolicyOnStreamTab() {
   await playbackOrchestrator.enforcePlaybackPolicyOnStreamTab();
 }
@@ -574,6 +890,96 @@ async function handleSetAutoResumeOnStartup(payload?: { enabled?: boolean }) {
   return { success: true, autoResumeOnStartup: state.appState.autoResumeOnStartup };
 }
 
+async function handleSetGameFavorite(payload: { game: TwitchGame; favorite: boolean }) {
+  await trackActivity('set-game-favorite');
+  const result = setGameFavorite(state.appState, payload.game, payload.favorite, Date.now());
+  let additions: ReturnType<typeof discoverFavoriteCampaigns>['added'] = [];
+  if (payload.favorite) {
+    additions = discoverFavoriteCampaigns(state.appState, Date.now()).added;
+  }
+  await notifyFavoriteAdditions(additions);
+  await saveStateExt(state);
+  if (payload.favorite && state.appState.autoStartFavoriteGames) {
+    void autoStartCoordinator.evaluate('campaign-refresh');
+  }
+  return {
+    success: true,
+    favorite: isFavoriteGame(
+      payload.game,
+      new Set(state.appState.favoriteGames.map((favorite) => favorite.gameId)),
+    ),
+    removedQueueEntries: result.removedQueueEntries,
+  };
+}
+
+async function handleSetCampaignPriorityMode(payload: {
+  mode: 'ending-soonest' | 'lowest-availability' | 'priority-list-only';
+}) {
+  await trackActivity('set-campaign-priority-mode');
+  state.appState.campaignPriorityMode = payload.mode;
+  discoverFavoriteCampaigns(state.appState, Date.now());
+  await saveStateExt(state);
+  if (state.appState.autoStartFavoriteGames) {
+    void autoStartCoordinator.evaluate('campaign-refresh');
+  }
+  return { success: true, campaignPriorityMode: state.appState.campaignPriorityMode };
+}
+
+async function handleSetFarmCategoryScope(payload: { scope: 'all' | 'favorites-only' }) {
+  await trackActivity('set-farm-category-scope');
+  state.appState.farmCategoryScope = payload.scope;
+  await saveStateExt(state);
+  if (state.appState.autoStartFavoriteGames) {
+    void autoStartCoordinator.evaluate('campaign-refresh');
+  }
+  return { success: true, farmCategoryScope: state.appState.farmCategoryScope };
+}
+
+async function handleSetAutoStartFavorites(payload?: { enabled?: boolean }) {
+  await trackActivity('set-auto-start-favorites');
+  if (payload?.enabled !== true) {
+    state.appState.autoStartFavoriteGames = false;
+    await saveStateExt(state);
+    return { success: true, autoStartFavoriteGames: false };
+  }
+  const notificationResult = await notificationController.setNotificationsEnabled(true);
+  state.appState.autoStartFavoriteGames = notificationResult.success;
+  await saveStateExt(state);
+  if (notificationResult.success) {
+    void autoStartCoordinator.evaluate('campaign-refresh');
+  }
+  return {
+    success: notificationResult.success,
+    autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
+    error: notificationResult.error,
+  };
+}
+
+async function handleSetWatchTransportMode(payload: { mode: WatchTransportMode }) {
+  await trackActivity('set-watch-transport-mode');
+  const currentStreamer = state.appState.activeStreamer;
+  if (state.appState.isRunning && !state.appState.isPaused && currentStreamer) {
+    await watchTransport.stop();
+  }
+  await watchTransport.setPreference(payload.mode);
+  if (state.appState.isRunning && !state.appState.isPaused && currentStreamer) {
+    await watchTransport.start(currentStreamer);
+  }
+  return {
+    success: true,
+    watchTransportPreference: state.appState.watchTransportPreference,
+  };
+}
+
+async function handleEvaluateAutoStart() {
+  const result = await autoStartCoordinator.evaluate('campaign-refresh');
+  return {
+    success: true,
+    started: result.started,
+    reason: result.started ? 'Campaign started automatically.' : result.skipReason,
+  };
+}
+
 async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
   await trackActivity('set-mute-farming-tab');
   state.appState.muteFarmingTab = payload?.enabled !== false;
@@ -583,7 +989,12 @@ async function handleSetMuteFarmingTab(payload?: { enabled?: boolean }) {
 
 async function handleSetNotificationsEnabled(payload?: { enabled?: boolean }) {
   await trackActivity('set-notifications-enabled');
-  return notificationController.setNotificationsEnabled(payload?.enabled !== false);
+  const result = await notificationController.setNotificationsEnabled(payload?.enabled !== false);
+  if (!result.notificationsEnabled && state.appState.autoStartFavoriteGames) {
+    state.appState.autoStartFavoriteGames = false;
+    await saveStateExt(state);
+  }
+  return result;
 }
 
 async function handleSetTelegramAlertsEnabled(payload?: { enabled?: boolean }) {
@@ -798,6 +1209,10 @@ export function startServiceWorker(): void {
   initPromise = initializeAfterStorageMigration(loadState).then(async () => {
     await notificationController.syncPermissionState();
     await telegramNotifier.syncPermissionState();
+    autoStartSnoozedForSession = await isAutoStartSnoozed();
+    browser.alarms.create(AUTO_START_ALARM_NAME, {
+      periodInMinutes: AUTO_START_CHECK_INTERVAL_MS / 60_000,
+    });
   });
   void initPromise.catch((error) => {
     logWarn('SW initialization failed:', String(error));
@@ -805,9 +1220,18 @@ export function startServiceWorker(): void {
 
   registerExtensionLifecycleListeners({
     alarmName: ALARM_NAME,
+    automationAlarmName: AUTO_START_ALARM_NAME,
+    linkRecheckAlarmPrefix: LINK_RECHECK_ALARM_PREFIX,
     getInitPromise: () => initPromise,
+    onBrowserStartup: async () => {
+      await clearAutoStartSnooze();
+      autoStartSnoozedForSession = false;
+      await autoStartCoordinator.evaluate('browser-start');
+    },
     onExtensionUpdate: handleExtensionUpdate,
     onAlarm: () => farmingSession.checkDropProgress(),
+    onAutomationAlarm: () => autoStartCoordinator.evaluate('periodic'),
+    onLinkRecheckAlarm: () => farmingSession.handleRefreshDrops(),
     onManagedTabRemoved: (removedTabId) => handleManagedTabRemoved(removedTabId),
     onManagedTabNavigatedAway: (updatedTabId, url) => handleManagedTabNavigatedAway(updatedTabId, url),
     onMonitorWindowRemoved: (removedWindowId) => handleMonitorWindowRemoved(removedWindowId),
@@ -825,10 +1249,18 @@ export function startServiceWorker(): void {
       clearQueue: () => farmingSession.handleClearQueue(),
       startFarming: (message) => farmingSession.handleStartFarming(message.payload),
       setSelectedGame: (message) => farmingSession.handleSetSelectedGame(message.payload),
-      pauseFarming: () => farmingSession.handlePauseFarming(),
+      pauseFarming: async () => {
+        autoStartSnoozedForSession = true;
+        await setAutoStartSnoozed();
+        return farmingSession.handlePauseFarming();
+      },
       setAutoResumeOnStartup: (message) => handleSetAutoResumeOnStartup(message.payload),
       resumeFarming: () => farmingSession.handleResumeFarming(),
-      stopFarming: () => farmingSession.handleStopFarming(),
+      stopFarming: async () => {
+        autoStartSnoozedForSession = true;
+        await setAutoStartSnoozed();
+        return farmingSession.handleStopFarming();
+      },
       updateGames: (message) => handleUpdateGames(message.payload),
       syncTwitchSession: (message, sender) => handleSyncTwitchSession(message.payload, sender),
       syncTwitchIntegrity: (message, sender) => handleSyncTwitchIntegrity(message.payload, sender),
@@ -846,6 +1278,12 @@ export function startServiceWorker(): void {
       setAutoClaimDrops: (message) => handleSetAutoClaimDrops(message.payload),
       setStreamerSelectionMode: (message) => handleSetStreamerSelectionMode(message.payload),
       setPreferredStreamerLanguage: (message) => handleSetPreferredStreamerLanguage(message.payload),
+      setGameFavorite: (message) => handleSetGameFavorite(message.payload),
+      setCampaignPriorityMode: (message) => handleSetCampaignPriorityMode(message.payload),
+      setFarmCategoryScope: (message) => handleSetFarmCategoryScope(message.payload),
+      setAutoStartFavorites: (message) => handleSetAutoStartFavorites(message.payload),
+      setWatchTransportMode: (message) => handleSetWatchTransportMode(message.payload),
+      evaluateAutoStart: () => handleEvaluateAutoStart(),
       openMonitorDashboard: (message) => openMonitorDashboardWindow(message.payload ?? {}),
       getClaimLog: () => handleGetClaimLog(),
       clearClaimLog: () => handleClearClaimLog(),

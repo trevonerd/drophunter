@@ -24,5 +24,32 @@ describe('normalizeStoredAppState', () => {
     expect(state.preferredStreamerLanguage).toBeNull();
     expect(state.recoveryReason).toBeNull();
     expect(state.lastStopReason).toBeNull();
+    expect(state.favoriteGames).toEqual([]);
+    expect(state.campaignPriorityMode).toBe('ending-soonest');
+    expect(state.farmCategoryScope).toBe('all');
+    expect(state.autoStartFavoriteGames).toBe(false);
+    expect(state.queueEntryMetadataByKey).toEqual({});
+    expect(state.automationActivity).toEqual([]);
+    expect(state.lastAutomationMessage).toBeNull();
+    expect(state.nextAutomationCheckAt).toBeNull();
+    expect(state.manualWatchState).toBe('inactive');
+    expect(state.campaignAvailabilityByKey).toEqual({});
+    expect(state.campaignDropsByKey).toEqual({});
+  });
+
+  test('normalizes invalid automation preferences fail-closed', () => {
+    const state = normalizeStoredAppState({
+      favoriteGames: [{ gameId: 'valorant', lastKnownName: 'Valorant', addedAt: 123 }],
+      campaignPriorityMode: 'fastest',
+      farmCategoryScope: 'everything',
+      autoStartFavoriteGames: 'yes',
+      queueEntryMetadataByKey: { broken: { source: 'unknown' } },
+    });
+
+    expect(state.favoriteGames).toEqual([{ gameId: 'valorant', lastKnownName: 'Valorant', addedAt: 123 }]);
+    expect(state.campaignPriorityMode).toBe('ending-soonest');
+    expect(state.farmCategoryScope).toBe('all');
+    expect(state.autoStartFavoriteGames).toBe(false);
+    expect(state.queueEntryMetadataByKey).toEqual({});
   });
 });

@@ -17,7 +17,7 @@ import { browser } from '../shared/browser-api.ts';
 import { haveAllDropsExpiredOrVanished } from '../shared/drops';
 import { getGameDisplayLabel } from '../shared/game-selection';
 import { normalizeToken } from '../shared/matching';
-import { isRewardAutomatable } from '../shared/reward-semantics';
+import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { INVALID_STREAM_THRESHOLD, STREAM_ROTATE_COOLDOWN_MS } from './constants';
 import { logDebug, logInfo, logWarn } from './logging';
@@ -90,6 +90,7 @@ export interface OpenBestStreamerCallbacks {
     language?: string,
   ) => Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>;
   onOpenForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;
+  onOpenWatchTransport?: (streamer: TwitchStreamer) => Promise<boolean>;
 }
 
 // ============================================================================
@@ -255,6 +256,7 @@ export async function rotateStreamerIfInvalid(
     ) => Promise<void>;
     onSkipCurrentGame?: () => Promise<void>;
     onForceRefreshDropsData?: () => Promise<void>;
+    onTablessWatchActive?: () => boolean;
   },
 ) {
   if (!state.appState.selectedGame) {
@@ -262,6 +264,9 @@ export async function rotateStreamerIfInvalid(
   }
 
   if (!state.appState.tabId) {
+    if (opts?.onTablessWatchActive?.()) {
+      return;
+    }
     if (
       state.recoveryBackoffUntil > 0 &&
       Date.now() < state.recoveryBackoffUntil &&
@@ -367,9 +372,9 @@ export async function rotateStreamerIfInvalid(
       ? true
       : selectedCategorySlug === contextCategorySlug;
   const campaignGone = haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
-  const automatablePendingDrops = state.appState.pendingDrops.some(isRewardAutomatable);
+  const automatablePendingDrops = state.appState.pendingDrops.some(isRewardFarmableNow);
   const expectsDropsSignal =
-    (state.appState.currentDrop != null && isRewardAutomatable(state.appState.currentDrop)) ||
+    (state.appState.currentDrop != null && isRewardFarmableNow(state.appState.currentDrop)) ||
     automatablePendingDrops ||
     campaignGone;
 
@@ -776,6 +781,9 @@ export async function openBestStreamerForSelectedGame(
       candidates: candidates.length,
     });
     state.avoidStreamerName = null;
+    if (callbacks.onOpenWatchTransport) {
+      return callbacks.onOpenWatchTransport(streamer);
+    }
     await callbacks.onOpenForegroundChannel(streamer);
     return true;
   }

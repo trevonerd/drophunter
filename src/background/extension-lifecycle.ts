@@ -29,9 +29,14 @@ export interface ExtensionLifecycleApi {
 interface ExtensionLifecycleOptions {
   api?: ExtensionLifecycleApi;
   alarmName: string;
+  automationAlarmName?: string;
+  linkRecheckAlarmPrefix?: string;
   getInitPromise: () => Promise<void> | null;
   onExtensionUpdate: (details: chrome.runtime.InstalledDetails) => Promise<unknown> | unknown;
+  onBrowserStartup?: () => Promise<unknown> | unknown;
   onAlarm: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
+  onAutomationAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
+  onLinkRecheckAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
   onManagedTabRemoved: (tabId: number) => Promise<unknown> | unknown;
   onManagedTabNavigatedAway: (tabId: number, url: string) => Promise<unknown> | unknown;
   onMonitorWindowRemoved: (windowId: number) => Promise<unknown> | unknown;
@@ -61,7 +66,14 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
   const api = options.api ?? browser;
 
   api.runtime.onStartup.addListener(() => {
-    reportAsyncError(awaitInitialization(options.getInitPromise), 'onStartup error', options.logWarn);
+    reportAsyncError(
+      (async () => {
+        await awaitInitialization(options.getInitPromise);
+        await options.onBrowserStartup?.();
+      })(),
+      'onStartup error',
+      options.logWarn,
+    );
   });
 
   api.runtime.onInstalled.addListener((details) => {
@@ -78,13 +90,24 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
   });
 
   api.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name !== options.alarmName) {
+    const isMonitoringAlarm = alarm.name === options.alarmName;
+    const isAutomationAlarm =
+      options.automationAlarmName !== undefined && alarm.name === options.automationAlarmName;
+    const isLinkRecheckAlarm =
+      options.linkRecheckAlarmPrefix !== undefined && alarm.name.startsWith(options.linkRecheckAlarmPrefix);
+    if (!isMonitoringAlarm && !isAutomationAlarm && !isLinkRecheckAlarm) {
       return;
     }
     reportAsyncError(
       (async () => {
         await awaitInitialization(options.getInitPromise);
-        await options.onAlarm(alarm);
+        if (isMonitoringAlarm) {
+          await options.onAlarm(alarm);
+        } else if (isAutomationAlarm) {
+          await options.onAutomationAlarm?.(alarm);
+        } else {
+          await options.onLinkRecheckAlarm?.(alarm);
+        }
       })(),
       'Monitoring error',
       options.logWarn,

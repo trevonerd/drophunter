@@ -201,6 +201,9 @@ export function setupChromeMocks(): ChromeMocks {
       create(name: string, info: AlarmInfo) {
         createdAlarms.push({ name, info });
       },
+      clear(_name: string): Promise<boolean> {
+        return Promise.resolve(true);
+      },
       onAlarm,
     },
     tabs: {
@@ -245,6 +248,7 @@ export function setupChromeMocks(): ChromeMocks {
     runtime: { onMessage, sendMessage: mockChrome.runtime.sendMessage },
     alarms: {
       create: mockChrome.alarms.create.bind(mockChrome.alarms),
+      clear: mockChrome.alarms.clear.bind(mockChrome.alarms),
       _created: createdAlarms,
       onAlarm,
     },

@@ -11,3 +11,27 @@ export function isExpectedTwitchPlaybackInterruption(error: unknown): boolean {
     error.message,
   );
 }
+
+export interface PlayableVideo {
+  muted: boolean;
+  paused: boolean;
+  play(): Promise<void>;
+}
+
+export async function startMutedPlayback(
+  video: PlayableVideo,
+): Promise<{ played: boolean; error?: unknown }> {
+  if (!video.paused) return { played: true };
+  try {
+    await video.play();
+    return { played: true };
+  } catch {
+    video.muted = true;
+    try {
+      await video.play();
+      return { played: true };
+    } catch (error) {
+      return { played: false, error };
+    }
+  }
+}

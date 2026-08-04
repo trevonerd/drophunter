@@ -184,6 +184,32 @@ test('monitor does not add a nested keyboard scroll owner', () => {
   expect(html).not.toContain('aria-label="Monitor details"');
 });
 
+test('monitor announces automation transitions and manual viewing without touching the user tab', () => {
+  const automation = renderMonitor({
+    lastAutomationMessage: 'Switching to Valorant — its campaign ends 3h earlier.',
+  });
+  const manual = renderMonitor({
+    manualWatchState: 'eligible-manual',
+  });
+
+  expect(automation).toContain('Switching to Valorant — its campaign ends 3h earlier.');
+  expect(automation).toContain('role="status"');
+  expect(manual).toContain('Manual viewing is earning progress. DropHunter will not control this tab.');
+});
+
+test('monitor reward progress exposes native progressbar semantics', () => {
+  const html = renderMonitor({
+    isRunning: true,
+    selectedGame: createGame({ completion: 'farmable', remainderReasons: [] }),
+    pendingDrops: [createDrop({ progress: 42 })],
+  });
+
+  expect(html).toContain('role="progressbar"');
+  expect(html).toContain('aria-valuenow="42"');
+  expect(html).toContain('aria-valuemin="0"');
+  expect(html).toContain('aria-valuemax="100"');
+});
+
 test('monitor CSS keeps the approved single-layer layout contract', () => {
   const css = readFileSync(resolve(import.meta.dir, '../src/monitor/monitor.css'), 'utf8');
 

@@ -1,3 +1,4 @@
+import { normalizeStoredAppState } from '../shared/app-state-sync.ts';
 import { browser } from '../shared/browser-api.ts';
 import type { AppState, TwitchDrop } from '../types';
 import {
@@ -223,10 +224,7 @@ export async function loadState(
       deps.LAST_ACTIVITY_AT_KEY,
     ]);
     if (result.appState) {
-      state.appState = {
-        ...deps.createInitialState(),
-        ...(result.appState as Partial<AppState>),
-      };
+      state.appState = normalizeStoredAppState(result.appState);
       if (!Array.isArray(state.appState.queue)) {
         state.appState.queue = [];
       }
@@ -278,14 +276,28 @@ export async function resetStateForInactivity(
     TIMING_STATE_KEY: string;
   },
 ): Promise<void> {
-  const lifetimeStats = {
+  const persistentState = {
     totalDropsClaimed: state.appState.totalDropsClaimed,
     totalChannelPointsClaimed: state.appState.totalChannelPointsClaimed,
+    monitorAutoOpen: state.appState.monitorAutoOpen,
+    autoResumeOnStartup: state.appState.autoResumeOnStartup,
+    muteFarmingTab: state.appState.muteFarmingTab,
+    notificationsEnabled: state.appState.notificationsEnabled,
+    telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+    autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus,
+    autoClaimDrops: state.appState.autoClaimDrops,
+    streamerSelectionMode: state.appState.streamerSelectionMode,
+    preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
+    favoriteGames: state.appState.favoriteGames,
+    campaignPriorityMode: state.appState.campaignPriorityMode,
+    farmCategoryScope: state.appState.farmCategoryScope,
+    autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
+    watchTransportPreference: state.appState.watchTransportPreference,
   };
   callbacks.onStopMonitoring();
   state.appState = callbacks.onClearRotationMetadata({
     ...deps.createInitialState(),
-    ...lifetimeStats,
+    ...persistentState,
   });
   state.cachedDropsSnapshot = [];
   state.cachedCampaignChannelsMap = {};
