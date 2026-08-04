@@ -74,8 +74,6 @@ export function useOnboarding(state: AppState) {
     onboardingStep,
     setOnboardingStep,
     firstSyncConfirmation,
-    setFirstSyncConfirmation,
     firstSyncCampaignCount,
-    setFirstSyncCampaignCount,
   };
 }

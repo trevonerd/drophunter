@@ -2,11 +2,18 @@ import type { CSSProperties } from 'react';
 import { getGameDisplayLabel } from '../../shared/game-selection';
 import { formatStopReason, type RuntimeMode } from '../../shared/runtime-status';
 import type { AppState, TwitchDrop } from '../../types';
-import type { CampaignSyncStatus } from '../constants';
 import { formatEtaMinutes, recoveryAttemptLabel, retryLabel, statusReasonLabel } from '../format';
 import { CompactDropCard } from './DropCard';
+import { EyeOffIcon, MonitorIcon } from './icons';
 
-type SessionSummaryMode = 'ready' | 'running' | 'paused' | 'recovering' | 'complete' | 'attention-required';
+type SessionSummaryMode =
+  | 'ready'
+  | 'running'
+  | 'paused'
+  | 'recovering'
+  | 'stopped'
+  | 'complete'
+  | 'attention-required';
 
 type ProgressState = 'waiting' | 'tracking' | 'paused' | 'recovering' | 'complete' | 'unavailable';
 type ProgressStyle = CSSProperties & Record<'--dh-progress', number>;
@@ -20,44 +27,69 @@ type SessionSummaryModel = {
   tone: 'neutral' | 'success' | 'warning' | 'danger' | 'accent';
 };
 
+type EffectiveTransport = {
+  readonly mode: 'hidden' | 'tab' | 'manual-tab';
+  readonly label: 'Hidden' | 'Tab' | 'Manual tab';
+  readonly icon: 'eye-off' | 'monitor';
+};
+
 export interface SessionSummaryProps {
   state: AppState;
   runtimeMode: RuntimeMode;
-  campaignSyncStatus: CampaignSyncStatus;
   currentAutomatableDrop: TwitchDrop | null;
   recoveryNow: number;
+  actionLoading: boolean;
+  startDisabled: boolean;
+  queueCount: number;
+  startHighlighted: boolean;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onOpenTwitch: () => void;
 }
 
 function campaignSubject(state: AppState): string {
   return state.selectedGame ? getGameDisplayLabel(state.selectedGame) : 'No campaign selected';
 }
 
-function rewardSubject(state: AppState, currentDrop: TwitchDrop | null): string {
-  const campaign = state.selectedGame ? getGameDisplayLabel(state.selectedGame) : null;
-  return [campaign, currentDrop?.name].filter((value): value is string => Boolean(value)).join(' · ');
-}
-
 function trackedProgress(drop: TwitchDrop): number {
   return Math.max(0, Math.min(100, drop.progress));
+}
+
+function effectiveTransport(state: AppState): EffectiveTransport | null {
+  if (!state.isRunning) return null;
+  if ((state.manualWatchState ?? 'inactive') !== 'inactive') {
+    return { mode: 'manual-tab', label: 'Manual tab', icon: 'monitor' };
+  }
+  switch (state.watchTransportMode) {
+    case 'tabless':
+      return { mode: 'hidden', label: 'Hidden', icon: 'eye-off' };
+    case 'managed-tab':
+      return { mode: 'tab', label: 'Tab', icon: 'monitor' };
+  }
 }
 
 function createSessionSummaryModel({
   state,
   runtimeMode,
-  campaignSyncStatus,
   currentAutomatableDrop,
   recoveryNow,
 }: SessionSummaryProps): SessionSummaryModel {
-  const subject = rewardSubject(state, currentAutomatableDrop) || campaignSubject(state);
+  const subject = campaignSubject(state);
+  const manualWatchState = state.manualWatchState ?? 'inactive';
 
-  if (campaignSyncStatus === 'signed-out') {
+  if (manualWatchState !== 'inactive' && runtimeMode === 'idle') {
     return {
-      mode: 'attention-required',
-      progressState: 'unavailable',
-      label: 'Attention required',
-      subject: 'Twitch session unavailable',
-      detail: 'Sign in to Twitch below to sync campaigns and start farming.',
-      tone: 'accent',
+      mode: 'ready',
+      progressState: manualWatchState === 'eligible-manual' ? 'tracking' : 'waiting',
+      label: 'Manual viewing',
+      subject,
+      detail:
+        manualWatchState === 'eligible-manual'
+          ? 'Twitch is advancing this campaign in your open tab. Automation will wait.'
+          : 'Automation is waiting for manual viewing to end.',
+      tone: 'neutral',
     };
   }
 
@@ -72,7 +104,7 @@ function createSessionSummaryModel({
       progressState: 'recovering',
       label: 'Recovering',
       subject,
-      detail: `${recoveryParts.join(' · ') || 'Restoring the farming session'}. Progress is paused; DropHunter will retry automatically.`,
+      detail: `${recoveryParts.join(' · ') || 'Restoring the farming session'}. Progress is paused; retry is automatic.`,
       tone: 'warning',
     };
   }
@@ -84,8 +116,8 @@ function createSessionSummaryModel({
       label: 'Paused',
       subject,
       detail: currentAutomatableDrop
-        ? `Progress is paused at ${trackedProgress(currentAutomatableDrop)}%. Resume when ready.`
-        : 'The farming session is paused. Resume when ready.',
+        ? `Progress paused at ${trackedProgress(currentAutomatableDrop)}%.`
+        : 'Farming is paused.',
       tone: 'warning',
     };
   }
@@ -118,11 +150,11 @@ function createSessionSummaryModel({
     const stopReason = formatStopReason(state.lastStopReason) ?? state.lastStopMessage ?? 'Farming stopped';
     if (state.lastStopReason === 'user-stop') {
       return {
-        mode: 'ready',
+        mode: 'stopped',
         progressState: 'waiting',
-        label: 'Ready',
+        label: 'Stopped',
         subject: campaignSubject(state),
-        detail: 'The previous farming session was stopped. Start again when ready.',
+        detail: '',
         tone: 'neutral',
       };
     }
@@ -150,47 +182,12 @@ function createSessionSummaryModel({
     };
   }
 
-  if (campaignSyncStatus === 'failed') {
-    return {
-      mode: 'attention-required',
-      progressState: 'unavailable',
-      label: 'Attention required',
-      subject: campaignSubject(state),
-      detail: 'Campaign sync failed. Retry from the panel below.',
-      tone: 'danger',
-    };
-  }
-
-  if (campaignSyncStatus === 'empty') {
-    return {
-      mode: 'attention-required',
-      progressState: 'unavailable',
-      label: 'Attention required',
-      subject: 'No active campaigns',
-      detail: 'Open Twitch Drops below to check for active campaigns.',
-      tone: 'accent',
-    };
-  }
-
-  if (campaignSyncStatus === 'syncing' || campaignSyncStatus === 'stale') {
-    return {
-      mode: 'ready',
-      progressState: 'waiting',
-      label: 'Getting ready',
-      subject: campaignSubject(state),
-      detail: 'Refreshing campaigns before the next farming session.',
-      tone: 'neutral',
-    };
-  }
-
   return {
     mode: 'ready',
     progressState: 'waiting',
     label: 'Ready',
     subject: campaignSubject(state),
-    detail: state.selectedGame
-      ? 'This campaign is ready. Press Start to begin farming.'
-      : 'Select a campaign to begin.',
+    detail: state.selectedGame ? '' : 'Choose a campaign below.',
     tone: 'neutral',
   };
 }
@@ -213,60 +210,134 @@ const labelClasses: Record<SessionSummaryModel['tone'], string> = {
 
 export function SessionSummary(props: SessionSummaryProps) {
   const model = createSessionSummaryModel(props);
-
-  if (model.mode === 'running' && props.currentAutomatableDrop) {
-    return (
-      <section
-        className="dh-panel dh-contain overflow-hidden"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        aria-label="Current farming reward"
-        data-session-mode={model.mode}
-        data-progress-state={model.progressState}
-      >
-        <div className="flex items-center justify-between px-3 py-2">
-          <h2 className="text-xs font-bold text-green-300">Running</h2>
-        </div>
-        <CompactDropCard drop={props.currentAutomatableDrop} />
-      </section>
-    );
-  }
-
+  const transport = effectiveTransport(props.state);
   const progress = props.currentAutomatableDrop ? trackedProgress(props.currentAutomatableDrop) : null;
   const progressStyle: ProgressStyle | null = progress === null ? null : { '--dh-progress': progress / 100 };
   const showLiveProgress =
     progress !== null && progressStyle !== null && (model.mode === 'paused' || model.mode === 'recovering');
+  const isRunning = model.mode === 'running';
+  const isPaused = model.mode === 'paused';
+  const isRecovering = model.mode === 'recovering';
+  const needsTwitch =
+    model.mode === 'attention-required' && props.state.lastStopReason === 'sign-in-required';
+  const canStart = !isRunning && !isPaused && !isRecovering && !needsTwitch;
+  const startLabel = props.actionLoading
+    ? 'Starting…'
+    : props.queueCount > 0
+      ? `Start Queue (${props.queueCount})`
+      : 'Start Farming';
+  const crashRecoveryCopy =
+    props.state.resumedFromCrash != null && (isRunning || isRecovering)
+      ? 'Resumed after a browser interruption; checking progress.'
+      : null;
 
   return (
     <section
-      className={`dh-contain rounded-lg border px-3 py-2.5 ${toneClasses[model.tone]}`}
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
+      className={`dh-contain overflow-hidden rounded-lg border ${
+        isRunning ? 'dh-panel-strong' : toneClasses[model.tone]
+      }`}
       aria-label="Current farming session"
       data-session-mode={model.mode}
       data-progress-state={model.progressState}
     >
-      <div className="flex min-w-0 items-baseline justify-between gap-2">
-        <p className={`text-xs font-bold ${labelClasses[model.tone]}`}>{model.label}</p>
-        <p className="min-w-0 truncate text-right text-xs font-semibold text-[color:var(--dh-text)]">
-          {model.subject}
-        </p>
+      <div className="px-3 py-2.5" role="status" aria-live="polite" aria-atomic="true">
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <p className={`min-w-0 flex-1 break-words text-xs font-bold ${labelClasses[model.tone]}`}>
+            {model.label} <span className="text-[color:var(--dh-muted)]">·</span>{' '}
+            <span className="text-[color:var(--dh-text)]">{model.subject}</span>
+          </p>
+          {transport && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] px-1.5 py-0.5 text-[10px] font-semibold text-[color:var(--dh-text-soft)]"
+              data-watch-transport={transport.mode}
+              role="img"
+              aria-label={transport.label}
+            >
+              {transport.icon === 'eye-off' ? <EyeOffIcon /> : <MonitorIcon />}
+              <span>{transport.label}</span>
+            </span>
+          )}
+        </div>
+        {!isRunning && model.detail && (
+          <p className="mt-1 text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{model.detail}</p>
+        )}
+        {crashRecoveryCopy && (
+          <p className="mt-1 text-[10px] leading-snug text-yellow-300">{crashRecoveryCopy}</p>
+        )}
+        {isRunning && !props.currentAutomatableDrop && (
+          <p className="mt-1 text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{model.detail}</p>
+        )}
+        {showLiveProgress && props.currentAutomatableDrop && (
+          <div
+            className="dh-progress-track mt-2 h-1.5 w-full overflow-hidden rounded-full"
+            role="progressbar"
+            aria-label={`${props.currentAutomatableDrop.name} live progress`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+          >
+            <div className="dh-progress-fill h-1.5 w-full rounded-full" style={progressStyle} />
+          </div>
+        )}
       </div>
-      <p className="mt-1 text-xs leading-snug text-[color:var(--dh-text-soft)]">{model.detail}</p>
-      {showLiveProgress && props.currentAutomatableDrop && (
-        <div
-          className="dh-progress-track mt-2 h-1.5 w-full overflow-hidden rounded-full"
-          role="progressbar"
-          aria-label={`${props.currentAutomatableDrop.name} live progress`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progress}
-        >
-          <div className="dh-progress-fill h-1.5 w-full rounded-full" style={progressStyle} />
+      {isRunning && props.currentAutomatableDrop && (
+        <div className="border-t border-[color:var(--dh-border)]">
+          <CompactDropCard drop={props.currentAutomatableDrop} />
         </div>
       )}
+      <div className="flex gap-1.5 border-t border-[color:var(--dh-border)] px-3 py-2">
+        {canStart && (
+          <button
+            type="button"
+            onClick={props.onStart}
+            disabled={props.actionLoading || props.startDisabled}
+            className={`dh-focus inline-flex min-h-8 flex-1 items-center justify-center rounded-lg bg-twitch-purple/70 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-twitch-purple/75 disabled:cursor-not-allowed disabled:opacity-45 ${
+              props.startHighlighted ? 'onboarding-pulse' : ''
+            }`}
+          >
+            {startLabel}
+          </button>
+        )}
+        {isRunning && (
+          <button
+            type="button"
+            onClick={props.onPause}
+            disabled={props.actionLoading}
+            className="dh-focus min-h-8 flex-1 rounded-lg border border-[color:var(--dh-border-strong)] px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] disabled:opacity-45"
+          >
+            Pause
+          </button>
+        )}
+        {isPaused && (
+          <button
+            type="button"
+            onClick={props.onResume}
+            disabled={props.actionLoading}
+            className="dh-focus min-h-8 flex-1 rounded-lg bg-twitch-purple/70 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] disabled:opacity-45"
+          >
+            Resume
+          </button>
+        )}
+        {(isRunning || isPaused || isRecovering) && (
+          <button
+            type="button"
+            onClick={props.onStop}
+            disabled={props.actionLoading}
+            className="dh-focus min-h-8 flex-1 rounded-lg border border-red-500/35 px-3 py-1.5 text-xs font-semibold text-red-300 disabled:opacity-45"
+          >
+            Stop
+          </button>
+        )}
+        {needsTwitch && (
+          <button
+            type="button"
+            onClick={props.onOpenTwitch}
+            className="dh-focus min-h-8 flex-1 rounded-lg bg-twitch-purple/70 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)]"
+          >
+            Open Twitch
+          </button>
+        )}
+      </div>
     </section>
   );
 }

@@ -35,6 +35,8 @@ body {
   margin: 0;
   padding: 0;
   width: 400px;
+  max-width: 100%;
+  min-height: 128px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -45,6 +47,7 @@ body {
 }
 
 #root {
+  min-height: 128px;
   width: 100%;
 }
 
@@ -136,28 +139,71 @@ body {
   min-width: max-content;
 }
 
-.dh-popup-header--running {
-  gap: var(--dh-space-1);
-  padding-inline: var(--dh-space-2);
-}
+@media (max-width: 280px) {
+  .dh-popup-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
-.dh-runtime-badge {
-  border-radius: 999px;
-  border-style: solid;
-  border-width: 1px;
-  flex: 0 0 auto;
-  font-size: 0.625rem;
-  font-weight: 700;
-  line-height: 1rem;
-  padding: 0 0.375rem;
+  .dh-popup-header-brand {
+    justify-content: space-between;
+  }
+
+  .dh-popup-header-actions {
+    justify-content: flex-end;
+  }
+
+  .dh-header-label {
+    display: none;
+  }
+
+  .dh-drop-card-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .dh-drop-card-status {
+    text-align: left;
+  }
+
+  .dh-campaign-browser-heading,
+  .dh-campaign-card-header,
+  .dh-setting-row-body,
+  .dh-setting-section-header,
+  .dh-setting-control-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dh-setting-row-body .dh-switch {
+    align-self: flex-start;
+  }
+
+  .dh-session-summary-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dh-campaign-card-actions {
+    align-self: flex-start;
+  }
+
+  .dh-game-campaign-count {
+    display: none;
+  }
+
+  .dh-setting-select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .dh-stat-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .dh-header-label {
   color: oklch(0.25 0.07 296 / 0.82);
-}
-
-.dh-header-divider {
-  border-color: oklch(0.18 0.06 296 / 0.2);
 }
 
 .dh-header-button-on {
@@ -328,6 +374,58 @@ body {
   outline: none;
 }
 
+.dh-catalog-tool {
+  position: relative;
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--dh-border);
+  border-radius: 0.5rem;
+  background: var(--dh-surface-2);
+  color: var(--dh-text-soft);
+}
+
+.dh-catalog-tool:hover {
+  border-color: var(--dh-border-strong);
+  color: var(--dh-text);
+}
+
+.dh-catalog-tool select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.dh-game-group--running,
+.dh-campaign--running {
+  border-color: oklch(0.7 0.16 205 / 0.7);
+  background: oklch(0.3 0.055 225 / 0.42);
+}
+
+.dh-game-group--subscription-only,
+.dh-campaign--subscription-only {
+  border-color: oklch(0.7 0.14 65 / 0.45);
+  background: oklch(0.28 0.045 55 / 0.32);
+}
+
+.dh-running-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border-radius: 0.25rem;
+  background: oklch(0.7 0.16 205 / 0.18);
+  padding: 1px 0.25rem;
+  color: oklch(0.86 0.1 205);
+  font-size: 9px;
+  font-weight: 700;
+}
+
 .dh-progress-track {
   background: oklch(0.16 0.015 292);
 }
@@ -341,6 +439,10 @@ body {
 
 .dh-progress-fill--claimable {
   background: var(--dh-warning);
+}
+
+.dh-progress-fill--running {
+  background: linear-gradient(90deg, oklch(0.72 0.16 205) 0%, oklch(0.78 0.14 175) 100%);
 }
 
 /* Loading spinner */

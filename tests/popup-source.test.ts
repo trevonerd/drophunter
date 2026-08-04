@@ -17,27 +17,26 @@ function readPopupSource(): string {
     .join('\n');
 }
 
-test('popup campaign options use the shared status formatter so lock and reward state can coexist', () => {
+test('popup campaign catalog groups campaigns with the shared category identity', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('{formatCampaignOptionLabel(game, queueGames)}');
-  expect(source).not.toContain('matchingInspectedDrops');
-  expect(source).toContain("indicators.push('disconnected')");
-  expect(source).toContain("case 'disconnected':");
+  expect(source).toContain('const key = gameCategoryKey(campaign);');
+  expect(source).toContain('campaigns: groupedCampaigns');
+  expect(source).not.toContain('CampaignSelector');
 });
 
-test('popup claimable counts use reward automation semantics', () => {
+test('popup reward grouping uses reward automation semantics', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("import { isRewardAutomatable } from '../shared/reward-semantics';");
-  expect(source).toContain('d.claimable && isRewardAutomatable(d)');
+  expect(source).toContain("import { isRewardAutomatable } from '../../shared/reward-semantics';");
+  expect(source).toContain('pendingDrops.every((drop) => !isRewardAutomatable(drop))');
 });
 
 test('popup maps the typed farming-complete queue response to campaign status vocabulary', () => {
   const source = readPopupSource();
 
   expect(source).toContain("response.reason === 'farming-complete'");
-  expect(source).toContain('formatFarmingCompleteQueueMessage(state.selectedGame)');
+  expect(source).toContain('formatFarmingCompleteQueueMessage(requestedGame)');
 });
 
 test('popup does not duplicate refresh loading state under the game selector', () => {
@@ -66,23 +65,26 @@ test('popup does not silently refresh campaigns on mount', () => {
   expect(source).not.toContain('fetchAvailableGames');
 });
 
-test('popup clears game switch state in handleGameSelect', () => {
+test('popup no longer carries the removed dropdown selection workflow', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('const handleGameSelect = async (gameId: string) => {');
-  expect(source).toContain('const selected = sortedGames.find((g) => queueGameIdentity(g) === gameId);');
-  expect(source).toContain('selectedGame: selected,');
-  expect(source).toContain('pendingDrops: [],');
-  expect(source).toContain('completedDrops: [],');
-  expect(source).toContain('currentDrop: null,');
-  expect(source).toContain('completionNotified: false,');
+  expect(source).not.toContain('const handleGameSelect = async (gameId: string) => {');
+  expect(source).not.toContain('beginRewardsLoad');
+  expect(source).not.toContain('pendingGameRef');
 });
 
-test('popup campaign selector uses campaign-aware option identities', () => {
+test('popup favorite updates use the same category aliases as durable storage', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("value={selectedGame ? queueGameIdentity(selectedGame) : ''}");
-  expect(source).toContain('<option key={queueGameIdentity(game)} value={queueGameIdentity(game)}>');
+  expect(source).toContain('isFavoriteGame(game, favoriteGameIdentityKeys(prev.favoriteGames))');
+  expect(source).toContain('[entry.gameId, ...(entry.identityKeys ?? [])]');
+});
+
+test('popup campaign catalog and queue use campaign-aware identities', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain('key={queueGameIdentity(game)}');
+  expect(source).toContain('data-campaign-key={key}');
   expect(source).not.toContain('value={selectedGame?.id ??');
 });
 
@@ -94,11 +96,11 @@ test('popup uses a single campaign sync panel for empty, stale, syncing, failed,
   );
   expect(source).toContain('function CampaignSyncPanel');
   expect(source).toContain('aria-live="polite"');
-  expect(source).toContain('Sign in to Twitch');
-  expect(source).toContain('Updating Twitch Drops and campaigns…');
+  expect(source).toContain('function TwitchSessionGate');
+  expect(source).toContain('Updating campaigns…');
   expect(source).toContain('Waiting for first sync');
-  expect(source).toContain('Could not update. Old data is still shown.');
-  expect(source).toContain('Could not update yet. No campaign data is shown.');
+  expect(source).toContain('Campaign update failed. Showing saved data.');
+  expect(source).toContain('Campaign update failed. No campaigns are available yet.');
   expect(source).toContain('hasCachedCampaigns={state.availableGames.length > 0}');
 });
 
@@ -114,7 +116,8 @@ test('popup queue chips support drag-and-drop reordering', () => {
   const source = readPopupSource();
 
   expect(source).toContain("type: 'REORDER_QUEUE'");
-  expect(source).toContain('<ul className="contents">');
+  expect(source).toContain('<ol className="flex flex-col gap-1">');
+  expect(source).toContain('data-queue-item="campaign"');
   expect(source).toContain('draggable');
   expect(source).toContain('useQueueDragReorder');
   expect(source).toContain('onReorder={onReorderQueue}');
@@ -139,13 +142,12 @@ test('popup exposes a quick audio toggle for the farming tab', () => {
   expect(source).toContain('<SpeakerIcon muted={state.muteFarmingTab} />');
 });
 
-test('popup campaign selector uses improved placeholder text', () => {
+test('popup campaign catalog replaces the old selector with search and explicit queue copy', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('<option value="">Select a campaign to start</option>');
+  expect(source).toContain('placeholder="Search games, campaigns or Drops"');
   expect(source).toContain("setQueueMessage('Select a campaign to start farming.')");
-  expect(source).not.toContain('<option value="">Select a campaign…</option>');
-  expect(source).not.toContain('<option value="">Select a game to start</option>');
+  expect(source).not.toContain('Select a game to start');
 });
 
 test('popup renders first-sync confirmation banner with campaign count', () => {
@@ -154,7 +156,7 @@ test('popup renders first-sync confirmation banner with campaign count', () => {
   expect(source).toContain(
     '{!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null &&',
   );
-  expect(source).toContain('campaigns loaded. Select a campaign below and press Start.');
+  expect(source).toContain('campaigns loaded.');
   expect(source).toContain('firstSyncCampaignCount');
   expect(source).toContain('hasUnseenRefreshSuccess');
   expect(source).toContain('MARK_DROPS_REFRESH_NOTICE_SEEN');
@@ -168,17 +170,26 @@ test('popup auto-dismisses first-sync confirmation after 30 seconds', () => {
   expect(source).toContain('}, 30000');
 });
 
-test('popup applies onboarding-pulse class to campaign selector when step is selector', () => {
+test('popup applies onboarding-pulse class to campaign list when step is selector', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("highlighted={onboardingStep === 'selector'}");
-  expect(source).toContain("highlighted ? 'onboarding-pulse' : ''");
+  expect(source).toContain("onboardingStep === 'selector' ? 'onboarding-pulse rounded-lg' : ''");
+  expect(source).toContain('<CampaignList');
+});
+
+test('favorite campaign highlight lasts exactly 180 milliseconds without bounce', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain('setActiveHighlightKey(null), 180');
+  expect(source).toContain('duration-[180ms]');
+  expect(source).not.toContain('animate-bounce');
 });
 
 test('popup applies onboarding-pulse class to start button when step is start', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("onboardingStep === 'start' ? 'onboarding-pulse' : ''");
+  expect(source).toContain("startHighlighted={onboardingStep === 'start'}");
+  expect(source).toContain("props.startHighlighted ? 'onboarding-pulse' : ''");
 });
 
 test('popup saves onboardingCompleted to chrome.storage.local after first start', () => {
@@ -196,30 +207,46 @@ test('popup loads onboardingCompleted from chrome.storage.local on mount', () =>
   expect(source).toContain('stored.onboardingCompleted === true');
 });
 
-test('popup advances onboarding step on game select', () => {
+test('popup advances onboarding after a campaign is added to the queue', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('setFirstSyncConfirmation(false)');
-  expect(source).toContain("onboardingStep === 'selector'");
-  expect(source).toContain("setOnboardingStep('start')");
+  expect(source).toContain("if (onboardingStep === 'selector') setOnboardingStep('start');");
+  expect(source).toContain("if (added > 0 && onboardingStep === 'selector') setOnboardingStep('start');");
 });
 
-test('popup header progressively discloses session controls while keeping core utilities stable', () => {
+test('popup header keeps global utilities while session controls stay in SessionSummary', () => {
+  const source = readPopupSource();
+  const headerSource = readFileSync(join(repoRoot, 'src/popup/components/PopupHeader.tsx'), 'utf-8');
+
+  expect(headerSource).toContain('const iconButtonClass =');
+  expect(headerSource).toContain('dh-icon-button shrink-0');
+  expect(headerSource).toContain('{hasManagedFarmingTab && (');
+  expect(headerSource).not.toContain('PauseIcon');
+  expect(headerSource).not.toContain('StopIcon');
+  expect(headerSource).not.toContain('dh-runtime-badge');
+  expect(source).toContain('onClick={props.onPause}');
+  expect(source).toContain('onClick={props.onStop}');
+});
+
+test('running session uses the stronger border without a glow', () => {
+  const source = readFileSync(join(repoRoot, 'src/popup/components/SessionSummary.tsx'), 'utf-8');
+
+  expect(source).toContain("isRunning ? 'dh-panel-strong'");
+  expect(source).not.toContain('shadow');
+});
+
+test('native popup prefers 400px without clipping at browser zoom', () => {
+  const css = readFileSync(join(repoRoot, 'src/popup/index.css'), 'utf-8');
   const source = readPopupSource();
 
-  expect(source).toContain('const iconButtonClass =');
-  expect(source).toContain('dh-icon-button shrink-0');
-  expect(source).toContain("state.isRunning ? 'dh-popup-header--running' : ''");
-  expect(source).toContain('{state.isRunning && (');
-  expect(source).not.toContain('<BellIcon');
-});
-
-test('popup running header uses balanced compact spacing for the full brand', () => {
-  const source = readFileSync(join(repoRoot, 'src/popup/index.css'), 'utf-8');
-
-  expect(source).toContain('.dh-popup-header--running {');
-  expect(source).toContain('gap: var(--dh-space-1);');
-  expect(source).toContain('padding-inline: var(--dh-space-2);');
+  expect(css).toContain('width: 400px;');
+  expect(css).toContain('max-width: 100%;');
+  expect(css).not.toContain('width: min(400px, calc(100vw - 6px));');
+  expect(source).toContain('dh-view w-full max-w-[400px]');
+  expect(css).toContain('@media (max-width: 280px)');
+  expect(css).toContain('grid-template-columns: minmax(0, 1fr);');
+  expect(css).toContain('.dh-drop-card-header');
+  expect(css).toContain('flex-direction: column;');
 });
 
 test('popup keeps Twitch Drops access contextual instead of placing it in the header toolbar', () => {
@@ -253,10 +280,8 @@ test('popup auto-refreshes stale campaign data without focusing Twitch', () => {
 test('popup does not mount reward loading UI just because Drops refresh is running', () => {
   const source = readPopupSource();
 
-  expect(source).toMatch(
-    /\(state\.selectedGame\s*\|\|\s*state\.isRunning\s*\|\|\s*pendingDrops\.length > 0\s*\|\|\s*completedDrops\.length > 0\)\s*&&\s*\(/,
-  );
-  expect(source).not.toMatch(/completedDrops\.length > 0\s*\|\|\s*dropsRefreshLoading\)\s*&&\s*\(/);
+  expect(source).toContain('drops={catalogDrops}');
+  expect(source).not.toContain('rewardsLoading={rewardsLoading}');
 });
 
 test('popup shows stale warning for idle cached campaigns', () => {

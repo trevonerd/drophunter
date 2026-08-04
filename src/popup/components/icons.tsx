@@ -42,6 +42,20 @@ export function MonitorIcon() {
   );
 }
 
+export function EyeOffIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3 3l18 18M10.58 10.58a2 2 0 0 0 2.83 2.83M9.88 5.09A10.94 10.94 0 0 1 12 4.5c5.5 0 9.5 7.5 9.5 7.5a18.2 18.2 0 0 1-3.12 3.88M6.61 6.61C3.92 8.42 2.5 12 2.5 12s4 7.5 9.5 7.5a10.9 10.9 0 0 0 4.02-.77"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function SettingsIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

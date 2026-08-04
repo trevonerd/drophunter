@@ -18,16 +18,5 @@ export function getGameToStartFromQueue(
     return selectedGame;
   }
 
-  const firstFarmableQueueGame = queueGames.find(isCampaignFarmable) ?? null;
-
-  if (!selectedGame) {
-    return firstFarmableQueueGame;
-  }
-
-  const selectedIsQueued = queueGames.some((game) => isSameQueuedGame(game, selectedGame));
-  return selectedIsQueued
-    ? firstFarmableQueueGame
-    : isCampaignFarmable(selectedGame)
-      ? selectedGame
-      : firstFarmableQueueGame;
+  return queueGames.find(isCampaignFarmable) ?? null;
 }

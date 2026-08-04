@@ -1,19 +1,14 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const campaignSelectorSource = readFileSync(
-  new URL('../src/popup/components/CampaignSelector.tsx', import.meta.url),
+const campaignListSource = readFileSync(
+  new URL('../src/popup/components/CampaignList.tsx', import.meta.url),
   'utf8',
 );
 
-test('campaign selector keeps its chevron inset from the right edge', () => {
-  // Given the campaign selector markup
-  const selectorMarkup = campaignSelectorSource.match(/<select[\s\S]*?<\/select>/)?.[0] ?? '';
-
-  // When the selector is rendered with its dropdown affordance
-  // Then the native arrow is replaced by an inset project icon with reserved text space
-  expect(selectorMarkup).toContain('appearance-none');
-  expect(selectorMarkup).toContain('pr-8');
-  expect(campaignSelectorSource).toContain('right-3');
-  expect(campaignSelectorSource).toContain('-rotate-90');
+test('campaign toolbar keeps search flexible beside compact sort and filter controls', () => {
+  expect(campaignListSource).toContain('dh-catalog-toolbar flex min-w-0 items-center gap-1.5');
+  expect(campaignListSource).toContain('min-h-8 min-w-0 flex-1');
+  expect(campaignListSource).toContain('aria-label="Sort games"');
+  expect(campaignListSource).toContain('aria-label="Filter games"');
 });
