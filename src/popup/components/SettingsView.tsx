@@ -1,75 +1,21 @@
 // Extracted from src/popup/App.tsx (settings view markup).
 import { browser } from '../../shared/browser-api.ts';
-import type { AppState, StreamerSelectionMode } from '../../types';
 import { STREAMER_LANGUAGE_OPTIONS, STREAMER_SELECTION_OPTIONS } from '../constants';
-import { BackIcon, CoffeeIcon, GitHubIcon, HistoryIcon } from './icons';
+import { FarmingAutomationSettings } from './FarmingAutomationSettings';
+import { BackIcon, CoffeeIcon, GitHubIcon } from './icons';
+import { SettingRow } from './SettingRow';
+import { SettingsStatistics } from './SettingsStatistics';
+import type { SettingsViewProps } from './settings-view-types';
 import { TelegramSettingsSection } from './TelegramSettingsSection';
 
-export interface SettingsViewProps {
-  state: AppState;
-  onBack: () => void;
-  onOpenClaimLog: () => void;
-  onMonitorAutoOpenToggle: () => void;
-  onMuteFarmingTabToggle: () => void;
-  onNotificationsEnabledToggle: () => void;
-  notificationPermissionDenied?: boolean;
-  onTelegramAlertsToggle: () => Promise<{ success: boolean; error?: string } | undefined>;
-  onSaveTelegramCredentials: (
-    botToken: string,
-    chatId: string,
-  ) => Promise<
-    { success: boolean; configured?: boolean; chatId?: string | null; error?: string } | undefined
-  >;
-  onTestTelegramAlerts: () => Promise<{ success: boolean; error?: string } | undefined>;
-  onLoadTelegramSettings: () => Promise<
-    { success: boolean; configured?: boolean; chatId?: string | null; error?: string } | undefined
-  >;
-  onAutoResumeOnStartupToggle: () => void;
-  onAutoClaimChannelPointsBonusToggle: () => void;
-  onAutoClaimDropsToggle: () => void;
-  onStreamerSelectionModeChange: (mode: StreamerSelectionMode) => void;
-  onPreferredStreamerLanguageChange: (language: string) => void;
-}
+export type { SettingsViewProps } from './settings-view-types';
 
-interface SettingRowProps {
-  title: string;
-  description: string;
-  checked: boolean;
-  ariaLabel: string;
-  onToggle: () => void;
-  warning?: string | null;
-}
-
-function SettingRow({ title, description, checked, ariaLabel, onToggle, warning }: SettingRowProps) {
-  return (
-    <div className="dh-panel dh-contain px-3 py-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="dh-title text-xs">{title}</p>
-          <p className="dh-copy mt-1 text-[11px] leading-snug">{description}</p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={checked}
-          aria-label={ariaLabel}
-          onClick={onToggle}
-          className={`dh-switch shrink-0 dh-focus ${checked ? 'dh-switch--on' : ''}`}
-        >
-          <span className="dh-switch__thumb" />
-        </button>
-      </div>
-      {warning && (
-        <p
-          className="mt-1.5 text-[11px] text-[color:var(--dh-danger,#f04f4f)]"
-          role="status"
-          aria-live="polite"
-        >
-          {warning}
-        </p>
-      )}
-    </div>
-  );
+function extensionVersion(): string {
+  try {
+    return browser.runtime.getManifest().version;
+  } catch {
+    return 'dev';
+  }
 }
 
 export function SettingsView({
@@ -89,7 +35,13 @@ export function SettingsView({
   onAutoClaimDropsToggle,
   onStreamerSelectionModeChange,
   onPreferredStreamerLanguageChange,
+  onAutoStartFavoriteGamesToggle,
+  onFarmCategoryScopeChange,
+  onWatchTransportModeChange,
+  favoriteGamesCount,
 }: SettingsViewProps) {
+  const favoriteCount = favoriteGamesCount ?? state.favoriteGames.length;
+
   return (
     <div className="flex flex-col">
       <header className="dh-header flex items-center justify-between px-3 py-2">
@@ -111,34 +63,20 @@ export function SettingsView({
       </header>
 
       <main className="dh-view dh-page dh-page--wide">
-        <div className="dh-panel dh-contain px-3 py-2.5">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="dh-title text-xs">Statistics</p>
-            <button
-              type="button"
-              onClick={onOpenClaimLog}
-              aria-label="View drop claim log"
-              title="Drop claim log"
-              className="dh-icon-button dh-focus text-[color:var(--dh-muted)] hover:text-[color:var(--dh-text)]"
-            >
-              <HistoryIcon />
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="dh-subpanel px-2.5 py-2">
-              <p className="dh-copy text-[10px] uppercase tracking-wide">Drops claimed</p>
-              <p className="mt-0.5 text-lg font-bold text-[color:var(--dh-text)] leading-none">
-                {state.totalDropsClaimed}
-              </p>
-            </div>
-            <div className="dh-subpanel px-2.5 py-2">
-              <p className="dh-copy text-[10px] uppercase tracking-wide">Channel points claimed</p>
-              <p className="mt-0.5 text-lg font-bold text-[color:var(--dh-text)] leading-none">
-                {state.totalChannelPointsClaimed}
-              </p>
-            </div>
-          </div>
-        </div>
+        <SettingsStatistics
+          dropsClaimed={state.totalDropsClaimed}
+          channelPointsClaimed={state.totalChannelPointsClaimed}
+          onOpenClaimLog={onOpenClaimLog}
+        />
+        <FarmingAutomationSettings
+          state={state}
+          favoriteCount={favoriteCount}
+          notificationPermissionDenied={notificationPermissionDenied}
+          onNotificationsEnabledToggle={onNotificationsEnabledToggle}
+          onAutoStartFavoriteGamesToggle={onAutoStartFavoriteGamesToggle}
+          onFarmCategoryScopeChange={onFarmCategoryScopeChange}
+          onWatchTransportModeChange={onWatchTransportModeChange}
+        />
         <div className="dh-group">
           <SettingRow
             title="Auto-open monitor"
@@ -154,18 +92,6 @@ export function SettingsView({
             ariaLabel="Mute farming tab"
             onToggle={onMuteFarmingTabToggle}
           />
-          <SettingRow
-            title="Notifications"
-            description="Show desktop alerts for channel points and farming events."
-            checked={state.notificationsEnabled}
-            ariaLabel="Notifications"
-            onToggle={onNotificationsEnabledToggle}
-            warning={
-              notificationPermissionDenied
-                ? 'Browser permission was denied. Allow notifications for this extension in your browser settings, then try again.'
-                : null
-            }
-          />
           <TelegramSettingsSection
             enabled={state.telegramAlertsEnabled}
             onToggle={onTelegramAlertsToggle}
@@ -174,10 +100,10 @@ export function SettingsView({
             onLoadSettings={onLoadTelegramSettings}
           />
           <SettingRow
-            title="Auto-resume after restart"
-            description="After 30 seconds away, resume farming instead of returning paused."
+            title="Resume interrupted session"
+            description="Resume a farming session that was already running before the browser stopped."
             checked={state.autoResumeOnStartup}
-            ariaLabel="Auto-resume after restart"
+            ariaLabel="Resume interrupted session"
             onToggle={onAutoResumeOnStartupToggle}
           />
           <SettingRow
@@ -219,7 +145,7 @@ export function SettingsView({
           </div>
         </div>
         <div className="dh-panel dh-contain px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
+          <div className="dh-setting-control-row flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="dh-title text-xs">Preferred streamer language</p>
               <p className="dh-copy mt-1 text-[11px] leading-snug">
@@ -231,7 +157,7 @@ export function SettingsView({
               aria-label="Preferred streamer language"
               value={state.preferredStreamerLanguage ?? ''}
               onChange={(event) => onPreferredStreamerLanguageChange(event.target.value)}
-              className="dh-input min-w-[92px] shrink-0 rounded-md px-2 py-1.5 text-[11px] font-semibold"
+              className="dh-input dh-setting-select min-w-[92px] shrink-0 rounded-md px-2 py-1.5 text-[11px] font-semibold"
             >
               {STREAMER_LANGUAGE_OPTIONS.map((option) => (
                 <option
@@ -250,8 +176,7 @@ export function SettingsView({
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-purple-300/80">About</p>
         </div>
         <p className="text-sm font-bold text-[color:var(--dh-text)]">
-          DropHunter{' '}
-          <span className="text-purple-300 font-normal">v{browser.runtime.getManifest().version}</span>
+          DropHunter <span className="text-purple-300 font-normal">v{extensionVersion()}</span>
         </p>
         <p className="dh-copy text-[11px]">
           by{' '}
@@ -259,7 +184,7 @@ export function SettingsView({
             href="https://www.marcotrevisani.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="cursor-pointer text-[color:var(--dh-text-soft)] no-underline transition-colors hover:text-[color:var(--dh-text)]"
+            className="dh-focus cursor-pointer rounded text-[color:var(--dh-text-soft)] no-underline transition-colors hover:text-[color:var(--dh-text)]"
           >
             Marco Trevisani
           </a>{' '}
@@ -268,7 +193,7 @@ export function SettingsView({
             href="https://github.com/trevonerd"
             target="_blank"
             rel="noopener noreferrer"
-            className="cursor-pointer text-[color:var(--dh-text-soft)] no-underline transition-colors hover:text-[color:var(--dh-text)]"
+            className="dh-focus cursor-pointer rounded text-[color:var(--dh-text-soft)] no-underline transition-colors hover:text-[color:var(--dh-text)]"
           >
             trevonerd
           </a>
@@ -278,7 +203,7 @@ export function SettingsView({
           href="https://trevisoft.dev"
           target="_blank"
           rel="noopener noreferrer"
-          className="cursor-pointer text-[11px] font-semibold tracking-wide text-purple-300 no-underline transition-colors hover:text-purple-100"
+          className="dh-focus cursor-pointer rounded text-[11px] font-semibold tracking-wide text-purple-300 no-underline transition-colors hover:text-purple-100"
         >
           TREVISOFT
         </a>

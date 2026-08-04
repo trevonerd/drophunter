@@ -1,78 +1,35 @@
 // Extracted from src/popup/App.tsx (PopupHeader component).
 import type { AppState } from '../../types';
-import { MonitorIcon, PauseIcon, PlayIcon, SettingsIcon, SpeakerIcon, StopIcon } from './icons';
+import { MonitorIcon, SettingsIcon, SpeakerIcon } from './icons';
 
 export interface PopupHeaderProps {
   state: AppState;
-  actionLoading: boolean;
   onMuteToggle: () => void;
   onOpenMonitor: () => void;
   onOpenSettings: () => void;
-  onPause: () => void;
-  onResume: () => void;
-  onStop: () => void;
 }
 
-export function PopupHeader({
-  state,
-  actionLoading,
-  onMuteToggle,
-  onOpenMonitor,
-  onOpenSettings,
-  onPause,
-  onResume,
-  onStop,
-}: PopupHeaderProps) {
+export function PopupHeader({ state, onMuteToggle, onOpenMonitor, onOpenSettings }: PopupHeaderProps) {
   const iconButtonClass =
     'dh-icon-button shrink-0 disabled:opacity-45 disabled:hover:bg-transparent dh-focus';
+  const tabId = state.tabId;
+  const hasManagedFarmingTab =
+    state.isRunning &&
+    state.watchTransportMode === 'managed-tab' &&
+    typeof tabId === 'number' &&
+    Number.isInteger(tabId) &&
+    tabId >= 0;
 
   return (
-    <header
-      className={`dh-header dh-popup-header px-3 py-2 ${state.isRunning ? 'dh-popup-header--running' : ''}`}
-    >
+    <header className="dh-header dh-popup-header px-3 py-2">
       <div className="dh-popup-header-brand">
         <h1 className="min-w-0 truncate font-extrabold text-sm text-[color:var(--dh-accent-ink)]">
           DropHunter
         </h1>
-        {state.isRunning && (
-          <span
-            className={`dh-runtime-badge ${
-              state.isPaused || state.recoveryReason
-                ? 'border-yellow-700/35 bg-yellow-950/20 text-yellow-950'
-                : 'border-green-900/30 bg-green-950/15 text-green-950'
-            }`}
-          >
-            {state.isPaused ? 'PAUSED' : state.recoveryReason ? 'RECOVERING' : 'RUNNING'}
-          </span>
-        )}
       </div>
       <div className="dh-popup-header-actions">
-        {state.isRunning && (
-          <div className="dh-header-divider flex shrink-0 items-center gap-1 border-r pr-1">
-            <button
-              type="button"
-              onClick={state.isPaused ? onResume : onPause}
-              disabled={actionLoading}
-              className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
-              aria-label={state.isPaused ? 'Resume farming' : 'Pause farming'}
-              title={state.isPaused ? 'Resume' : 'Pause'}
-            >
-              {state.isPaused ? <PlayIcon /> : <PauseIcon />}
-            </button>
-            <button
-              type="button"
-              onClick={onStop}
-              disabled={actionLoading}
-              className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
-              aria-label="Stop farming"
-              title="Stop"
-            >
-              <StopIcon />
-            </button>
-          </div>
-        )}
         <div className="flex shrink-0 items-center gap-1">
-          {state.isRunning && (
+          {hasManagedFarmingTab && (
             <button
               type="button"
               onClick={onMuteToggle}

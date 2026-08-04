@@ -4,9 +4,65 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DropHunter</title>
+    <style data-popup-critical-size>
+      html,
+      body,
+      #root {
+        width: 400px;
+        min-width: 400px;
+        margin: 0;
+      }
+
+      body,
+      #root {
+        min-height: 128px;
+      }
+
+      html,
+      body {
+        background: #0d0a12;
+        color-scheme: dark;
+      }
+
+      [data-popup-boot-shell] {
+        align-items: center;
+        box-sizing: border-box;
+        display: flex;
+        justify-content: center;
+        min-height: 128px;
+        width: 400px;
+      }
+
+      [data-popup-boot-spinner] {
+        animation: popup-boot-spin 1s linear infinite;
+        border: 3px solid oklch(0.66 0.24 302);
+        border-radius: 999px;
+        border-top-color: transparent;
+        box-sizing: border-box;
+        height: 32px;
+        width: 32px;
+      }
+
+      @keyframes popup-boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        [data-popup-boot-spinner] {
+          animation-duration: 0.01ms;
+          animation-iteration-count: 1;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div data-popup-boot-shell role="status" aria-label="Loading DropHunter">
+        <span data-popup-boot-spinner aria-hidden="true"></span>
+      </div>
+    </div>
     <script type="module" src="../../popup/main.tsx"></script>
   </body>
 </html>

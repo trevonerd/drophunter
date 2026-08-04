@@ -58,7 +58,6 @@ function renderRunningPopup(currentDrop: TwitchDrop, pendingDrops: TwitchDrop[])
       queueGames={[campaign]}
       pendingDrops={pendingDrops}
       completedDrops={[]}
-      claimableCount={0}
       runtimeMode="running"
       recoveryNow={0}
       onboardingStep={null}
@@ -74,7 +73,6 @@ function renderRunningPopup(currentDrop: TwitchDrop, pendingDrops: TwitchDrop[])
       onResume={() => {}}
       onStop={() => {}}
       onRefreshCampaigns={() => {}}
-      onSelectGame={() => {}}
       onAddToQueue={() => {}}
       onRemoveFromQueue={() => {}}
       onClearQueue={() => {}}
@@ -98,7 +96,7 @@ test('running popup presents the active reward once and hides an empty Pending g
   expect(markup).not.toContain('Pending (1)');
 });
 
-test('running popup counts only not-yet-started rewards as Pending', () => {
+test('running popup keeps not-yet-started rewards inside the closed game detail', () => {
   // Given one active reward and one reward that has not started
   const currentDrop = reward('current', 'Orbital Explorer Bundle', 42);
   const nextDrop = reward('next', 'Neon Vanguard Crate', 0);
@@ -106,7 +104,10 @@ test('running popup counts only not-yet-started rewards as Pending', () => {
   // When the running popup is rendered
   const markup = renderRunningPopup(currentDrop, [currentDrop, nextDrop]);
 
-  // Then only the not-yet-started reward remains in Pending
-  expect(markup).toContain('Pending (1)');
-  expect(markup).not.toContain('Pending (2)');
+  // Then the game stays compact while the hidden detail preserves truthful reward copy
+  expect(markup).toContain('data-game-summary="true"');
+  expect(markup).toContain('aria-expanded="false"');
+  expect(markup).toContain('2 Drops · 0 claimed');
+  expect(markup).toContain('>Ready<');
+  expect(markup).not.toContain('Show Drops');
 });

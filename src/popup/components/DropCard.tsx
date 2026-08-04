@@ -29,7 +29,7 @@ function CompactDropImage({ drop }: { drop: TwitchDrop }) {
   );
 }
 
-export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
+export function CompactDropCard({ drop, running = false }: { drop: TwitchDrop; running?: boolean }) {
   const isAcquired = isRewardAcquired(drop);
   const isSubscription = drop.acquisitionMethod === 'subscription';
   const isUnverifiableTwitchReward = isTwitchNativeAcquisitionUnverifiable(drop);
@@ -55,7 +55,7 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
     statusText = 'Active';
     statusClass = 'text-blue-300';
   } else {
-    statusText = 'Pending';
+    statusText = 'Ready';
     statusClass = 'dh-copy';
   }
 
@@ -63,7 +63,7 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
     <div className="flex items-center gap-2.5 px-3 py-2">
       <CompactDropImage drop={drop} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2">
+        <div className="dh-drop-card-header flex items-start justify-between gap-2">
           <p className="min-w-0 truncate text-xs font-medium text-[color:var(--dh-text)]">
             {isSubscription && (
               <span className="text-orange-400 inline-flex align-middle mr-1">
@@ -77,7 +77,7 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
             )}
             {drop.name}
           </p>
-          <span className="shrink-0 whitespace-nowrap text-right text-[11px]">
+          <span className="dh-drop-card-status shrink-0 whitespace-nowrap text-right text-[11px]">
             <span className={statusClass}>{statusText}</span>
             {!isSubscription && <span className="dh-copy"> · {drop.progress}%</span>}
             {!isSubscription && !isUnverifiableTwitchReward && eta && !isAcquired && !drop.claimable && (
@@ -104,7 +104,7 @@ export function CompactDropCard({ drop }: { drop: TwitchDrop }) {
             >
               <div
                 className={`dh-progress-fill h-1 w-full rounded-full ${
-                  drop.claimable ? 'dh-progress-fill--claimable' : ''
+                  drop.claimable ? 'dh-progress-fill--claimable' : running ? 'dh-progress-fill--running' : ''
                 }`}
                 style={progressStyle}
               />

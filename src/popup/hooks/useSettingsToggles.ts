@@ -2,7 +2,7 @@
 import { type Dispatch, type SetStateAction, useState } from 'react';
 import { browser } from '../../shared/browser-api.ts';
 import { sendRuntimeMessage } from '../../shared/messages';
-import type { AppState, StreamerSelectionMode } from '../../types';
+import type { AppState, FarmCategoryScope, StreamerSelectionMode, WatchTransportMode } from '../../types';
 import { NOTIFICATION_PERMISSION } from '../constants';
 
 interface UseSettingsTogglesArgs {
@@ -81,6 +81,67 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     }));
   };
 
+  const handleAutoStartFavoriteGamesToggle = async () => {
+    const next = !state.autoStartFavoriteGames;
+    setNotificationPermissionDenied(false);
+    if (next) {
+      const granted = await browser.permissions.request(NOTIFICATION_PERMISSION).catch(() => false);
+      if (!granted) {
+        setNotificationPermissionDenied(true);
+        return;
+      }
+    }
+    setState((prev) => ({ ...prev, autoStartFavoriteGames: next }));
+    const response = await sendRuntimeMessage({
+      type: 'SET_AUTO_START_FAVORITES',
+      payload: { enabled: next },
+    });
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, autoStartFavoriteGames: !next }));
+      setNotificationPermissionDenied(next);
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      autoStartFavoriteGames: response.autoStartFavoriteGames ?? next,
+      notificationsEnabled: next ? true : prev.notificationsEnabled,
+    }));
+  };
+
+  const handleFarmCategoryScopeChange = async (scope: FarmCategoryScope) => {
+    const previous = state.farmCategoryScope;
+    setState((prev) => ({ ...prev, farmCategoryScope: scope }));
+    const response = await sendRuntimeMessage({
+      type: 'SET_FARM_CATEGORY_SCOPE',
+      payload: { scope },
+    });
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, farmCategoryScope: previous }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      farmCategoryScope: response.farmCategoryScope ?? scope,
+    }));
+  };
+
+  const handleWatchTransportModeChange = async (mode: WatchTransportMode) => {
+    const previous = state.watchTransportPreference;
+    setState((prev) => ({ ...prev, watchTransportPreference: mode }));
+    const response = await sendRuntimeMessage({
+      type: 'SET_WATCH_TRANSPORT_MODE',
+      payload: { mode },
+    });
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, watchTransportPreference: previous }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      watchTransportPreference: response.watchTransportPreference ?? mode,
+    }));
+  };
+
   const handleStreamerSelectionModeChange = async (mode: StreamerSelectionMode) => {
     const previous = state.streamerSelectionMode;
     setState((prev) => ({ ...prev, streamerSelectionMode: mode }));
@@ -123,6 +184,9 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     handleAutoClaimDropsToggle,
     handleMuteFarmingTabToggle,
     handleNotificationsEnabledToggle,
+    handleAutoStartFavoriteGamesToggle,
+    handleFarmCategoryScopeChange,
+    handleWatchTransportModeChange,
     notificationPermissionDenied,
     handleStreamerSelectionModeChange,
     handlePreferredStreamerLanguageChange,

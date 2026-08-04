@@ -101,7 +101,6 @@ function renderMainView(
     queueGames,
     pendingDrops: state.pendingDrops,
     completedDrops: state.completedDrops,
-    claimableCount: 0,
     runtimeMode: 'idle',
     recoveryNow: 0,
     onboardingStep: null,
@@ -117,7 +116,6 @@ function renderMainView(
     onResume: () => {},
     onStop: () => {},
     onRefreshCampaigns: () => {},
-    onSelectGame: () => {},
     onAddToQueue: () => {},
     onRemoveFromQueue: () => {},
     onClearQueue: () => {},
@@ -217,7 +215,7 @@ test('combined farming-complete indicators stay payment then question with no gr
   expect(markup).not.toContain('data-campaign-indicator="all-acquired"');
 });
 
-test('native option label keeps campaign identity and compact ordered status prefixes', () => {
+test('campaign list keeps campaign identity while selected status indicators remain ordered', () => {
   // Given
   const selectedGame = game({
     isConnected: false,
@@ -231,8 +229,197 @@ test('native option label keeps campaign identity and compact ordered status pre
   const markup = renderMainView(appState(selectedGame));
 
   // Then
-  expect(markup).toContain('💳 ❔ 🔒 Example Game · Example Campaign · Expiry: unknown');
-  expect(markup).not.toContain('✅ Example Game · Example Campaign');
+  expect(markup).not.toContain('aria-label="Select Example Game · Example Campaign"');
+  const subscriptionIndex = markup.indexOf('data-campaign-indicator="subscription-required"');
+  const questionIndex = markup.indexOf('data-campaign-indicator="unverifiable-twitch"');
+  const disconnectedIndex = markup.indexOf('data-campaign-indicator="disconnected"');
+  expect(subscriptionIndex).toBeGreaterThan(-1);
+  expect(questionIndex).toBeGreaterThan(subscriptionIndex);
+  expect(disconnectedIndex).toBeGreaterThan(questionIndex);
+  expect(markup).not.toContain('data-campaign-indicator="all-acquired"');
+});
+
+test('automation summary owns policy and does not duplicate session or queue state', () => {
+  const stoppedCampaign = game({ campaignName: 'Stopped Campaign' });
+  const nextCampaign = game({
+    id: 'next-game',
+    name: 'Next Game',
+    campaignId: 'next-campaign',
+    campaignName: 'Next Campaign',
+  });
+
+  const stoppedMarkup = renderMainView(appState(stoppedCampaign), [nextCampaign]);
+  const runningMarkup = renderMainView(
+    { ...appState(stoppedCampaign), isRunning: true },
+    [stoppedCampaign, nextCampaign],
+  );
+
+  const stoppedAutomation = stoppedMarkup.match(/Automation:[\s\S]*?<\/section>/)?.[0] ?? '';
+  expect(stoppedMarkup).toContain('Automatic farming for favorite games is off.');
+  expect(stoppedAutomation).not.toContain('data-automation-slot');
+  expect(stoppedAutomation).not.toContain('Next Game · Next Campaign');
+  expect(runningMarkup.match(/Automation:[\s\S]*?<\/section>/)?.[0]).not.toContain(
+    'Example Game · Stopped Campaign',
+  );
+});
+
+test('automation summary hides transport diagnostics from the main interface', () => {
+  const selected = game();
+  const state = {
+    ...appState(selected),
+    isRunning: true,
+    watchTransportPreference: 'tabless' as const,
+    watchTransportMode: 'tabless' as const,
+    watchHealth: {
+      mode: 'tabless' as const,
+      isHealthy: true,
+      status: 'healthy' as const,
+      reason: 'heartbeat' as const,
+      consecutiveFailures: 0,
+      consecutiveStalls: 0,
+      progress: 42,
+      shouldFallback: false,
+      checkedAt: 1,
+    },
+  };
+
+  const markup = renderMainView(state);
+
+  expect(markup).not.toContain('data-watch-transport-status');
+  expect(markup).not.toContain('Tabless heartbeat');
+  expect(markup).not.toContain('Healthy');
+});
+
+test('session summary exposes exactly one effective transport indicator', () => {
+  const selected = game();
+  const base = {
+    ...appState(selected),
+    isRunning: true,
+  } satisfies AppState;
+
+  const hiddenMarkup = renderMainView(
+    {
+      ...base,
+      watchTransportMode: 'tabless',
+      manualWatchState: 'inactive',
+    },
+    [],
+    { runtimeMode: 'running' },
+  );
+  const hiddenSummary = hiddenMarkup.match(/<section[^>]*data-session-mode="running"[\s\S]*?<\/section>/)?.[0] ?? '';
+  expect(hiddenSummary).toContain('data-watch-transport="hidden"');
+  expect(hiddenSummary).toContain('>Hidden<');
+  expect(hiddenSummary).toContain('<svg');
+  expect(hiddenSummary.match(/>Hidden</g)).toHaveLength(1);
+
+  const tabMarkup = renderMainView(
+    {
+      ...base,
+      watchTransportMode: 'managed-tab',
+      manualWatchState: 'inactive',
+    },
+    [],
+    { runtimeMode: 'running' },
+  );
+  const tabSummary = tabMarkup.match(/<section[^>]*data-session-mode="running"[\s\S]*?<\/section>/)?.[0] ?? '';
+  expect(tabSummary).toContain('data-watch-transport="tab"');
+  expect(tabSummary).toContain('>Tab<');
+  expect(tabSummary.match(/>Tab</g)).toHaveLength(1);
+
+  const manualMarkup = renderMainView(
+    {
+      ...base,
+      watchTransportMode: 'managed-tab',
+      manualWatchState: 'automation-paused',
+    },
+    [],
+    { runtimeMode: 'running' },
+  );
+  const manualSummary =
+    manualMarkup.match(/<section[^>]*data-session-mode="running"[\s\S]*?<\/section>/)?.[0] ?? '';
+  expect(manualSummary).toContain('data-watch-transport="manual-tab"');
+  expect(manualSummary).toContain('>Manual tab<');
+  expect(manualSummary.match(/>Manual tab</g)).toHaveLength(1);
+  expect(manualSummary).not.toContain('Tabless heartbeat');
+  expect(manualSummary).not.toContain('Healthy');
+});
+
+test('header mute action requires a running DropHunter-owned managed tab', () => {
+  const selected = game();
+  const headerFor = (overrides: Partial<AppState>) => {
+    const markup = renderMainView(
+      { ...appState(selected), ...overrides },
+      [],
+      { runtimeMode: overrides.isRunning ? 'running' : 'idle' },
+    );
+    return markup.match(/<header[\s\S]*?<\/header>/)?.[0] ?? '';
+  };
+
+  expect(
+    headerFor({ isRunning: true, watchTransportMode: 'managed-tab', tabId: 17, muteFarmingTab: false }),
+  ).toContain(
+    'aria-label="Mute stream audio"',
+  );
+  expect(headerFor({ isRunning: true, watchTransportMode: 'tabless', tabId: null })).not.toContain(
+    'aria-label="Mute stream audio"',
+  );
+  expect(headerFor({ isRunning: true, watchTransportMode: 'managed-tab', tabId: null })).not.toContain(
+    'aria-label="Mute stream audio"',
+  );
+  expect(headerFor({ isRunning: false, watchTransportMode: 'managed-tab', tabId: 17 })).not.toContain(
+    'aria-label="Mute stream audio"',
+  );
+});
+
+test('start stays before the single-scroll campaign browser and queue actions remain enabled while farming', () => {
+  const activeCampaign = game({ campaignId: 'active', campaignName: 'Active Campaign' });
+  const availableCampaign = game({
+    id: 'other-game',
+    name: 'Other Game',
+    campaignId: 'available',
+    campaignName: 'Available Campaign',
+  });
+  const idleMarkup = renderMainView(
+    { ...appState(activeCampaign), availableGames: [activeCampaign, availableCampaign] },
+    [activeCampaign],
+  );
+  const runningMarkup = renderMainView(
+    {
+      ...appState(activeCampaign),
+      availableGames: [activeCampaign, availableCampaign],
+      queue: [activeCampaign],
+      isRunning: true,
+    },
+    [activeCampaign],
+  );
+
+  const sessionSummary = idleMarkup.match(/<section[^>]*data-session-mode="ready"[\s\S]*?<\/section>/)?.[0];
+  const queueIndex = idleMarkup.indexOf('aria-label="Farming queue"');
+  const campaignsIndex = idleMarkup.indexOf('aria-label="Campaigns"');
+  expect(sessionSummary).toContain('Start Queue');
+  expect(idleMarkup.indexOf('data-session-mode="ready"')).toBeLessThan(queueIndex);
+  expect(queueIndex).toBeLessThan(campaignsIndex);
+  expect(idleMarkup.slice(queueIndex, campaignsIndex)).toContain('Queued');
+  expect(idleMarkup.slice(campaignsIndex)).toContain('aria-label="Search campaigns"');
+  expect(idleMarkup).not.toContain('data-campaign-browser-scroll');
+  expect(runningMarkup).toContain('aria-label="Add Other Game · Available Campaign to queue"');
+  expect(runningMarkup).not.toMatch(
+    /aria-label="Add Other Game · Available Campaign to queue"[^>]*disabled/,
+  );
+});
+
+test('ending-soonest explains order once and preserves relative expiry', () => {
+  const relativeExpiryCampaign = game({ endsAt: null, expiresInMs: 3_600_000 });
+  const state = {
+    ...appState(relativeExpiryCampaign),
+    campaignPriorityMode: 'ending-soonest' as const,
+  };
+
+  const markup = renderMainView(state);
+
+  expect(markup).toContain('Sorted: Expiring first');
+  expect(markup).toContain('Ends in 1h');
+  expect(markup).not.toContain('Position #');
 });
 
 test('selected subscription status aligns its cost icon beside wrapped copy', () => {
@@ -253,7 +440,7 @@ test('selected subscription status aligns its cost icon beside wrapped copy', ()
   );
 });
 
-test('native option lock remains independent from the all-acquired prefix', () => {
+test('campaign list keeps disconnected and all-acquired indicators independent', () => {
   // Given
   const selectedGame = game({
     isConnected: false,
@@ -265,7 +452,10 @@ test('native option lock remains independent from the all-acquired prefix', () =
   const markup = renderMainView(appState(selectedGame));
 
   // Then
-  expect(markup).toContain('✅ 🔒 Example Game · Example Campaign · Expiry: unknown');
+  expect(markup).toContain('Completed · 100%');
+  expect(markup).not.toContain('Show Drops');
+  expect(markup).toContain('data-campaign-indicator="all-acquired"');
+  expect(markup).toContain('data-campaign-indicator="disconnected"');
 });
 
 test('queue chips reuse campaign indicators', () => {
@@ -322,9 +512,41 @@ test('running queue shows only campaigns that come after the current campaign', 
   );
 
   expect(currentOnly).toBe('');
-  expect(withNext).toContain('Up next');
+  expect(withNext).toContain('Queued');
   expect(withNext).toContain('Next Game · Next Campaign');
   expect(withNext).not.toContain('Example Game · Current Campaign');
+});
+
+test('running future queue rows retain drag handles and remove actions', () => {
+  const currentCampaign = game({ campaignId: 'current', campaignName: 'Current Campaign' });
+  const firstFuture = game({
+    id: 'next-game',
+    name: 'Next Game',
+    campaignId: 'next',
+    campaignName: 'Next Campaign',
+  });
+  const secondFuture = game({
+    id: 'later-game',
+    name: 'Later Game',
+    campaignId: 'later',
+    campaignName: 'Later Campaign',
+  });
+
+  const markup = renderToStaticMarkup(
+    <QueueChips
+      selectedGame={currentCampaign}
+      queueGames={[currentCampaign, firstFuture, secondFuture]}
+      isRunning={true}
+      onRemove={() => {}}
+      onClear={() => {}}
+      onReorder={() => {}}
+    />,
+  );
+
+  expect(markup.match(/draggable="true"/g)).toHaveLength(2);
+  expect(markup).toContain('Remove Next Game · Next Campaign from queue');
+  expect(markup).toContain('Remove Later Game · Later Campaign from queue');
+  expect(markup).not.toContain('Remove Current Game · Current Campaign from queue');
 });
 
 test('subscription reward card uses the exact redemption copy', () => {
@@ -449,7 +671,7 @@ test('verified Twitch-native reward card retains the acquired presentation', () 
   expect(markup).not.toContain('Unverifiable');
 });
 
-test('ordinary reward cards retain claimable, active, and pending controls', () => {
+test('ordinary reward cards retain claimable, active, and ready controls', () => {
   // Given
   const claimableReward = drop({ claimable: true, progress: 100 });
   const activeReward = drop({ status: 'active', progress: 42, remainingMinutes: 18 });
@@ -466,7 +688,8 @@ test('ordinary reward cards retain claimable, active, and pending controls', () 
   expect(markup).toContain('>Active<');
   expect(markup).toContain('42%');
   expect(markup).toContain('ETA 18m');
-  expect(markup).toContain('>Pending<');
+  expect(markup).toContain('>Ready<');
+  expect(markup).not.toContain('>Pending<');
 });
 
 test('reward progress exposes native progressbar semantics', () => {
@@ -513,12 +736,14 @@ test('signed-out popup gates farming controls and preserves a read-only saved qu
 
   const markup = renderMainView(state, [savedCampaign], { campaignSyncStatus: 'signed-out' });
 
-  expect(markup).toContain('data-session-mode="attention-required"');
+  expect(markup).toContain('data-session-priority="twitch-required"');
   expect(markup).toContain('data-saved-queue-count="1"');
   expect(markup).not.toContain('<select');
   expect(markup).not.toContain('aria-label="Add selected campaign to queue"');
   expect(markup).not.toContain('>Start Farming<');
   expect(markup).not.toContain('>Start Queue');
+  expect(markup).not.toContain('aria-label="Campaigns"');
+  expect(markup).toContain('Your queue is saved (1 campaign).');
   expect(markup).toContain('aria-label="Open live monitor"');
   expect(markup).toContain('aria-label="Open settings"');
   expect(markup).not.toContain('aria-label="Mute stream audio"');
@@ -584,10 +809,15 @@ test('the persistent session summary maps runtime states to one operational mode
   expect(completeMarkup).toContain('data-session-mode="complete"');
 });
 
-test('popup landmarks and runtime header actions follow the active state', () => {
+test('popup landmarks keep global header actions and session owns farming controls', () => {
   const selectedGame = game();
   const idleMarkup = renderMainView(appState(selectedGame));
-  const runningState = { ...appState(selectedGame), isRunning: true } satisfies AppState;
+  const runningState = {
+    ...appState(selectedGame),
+    isRunning: true,
+    watchTransportMode: 'managed-tab',
+    tabId: 17,
+  } satisfies AppState;
   const runningMarkup = renderMainView(runningState, [], { runtimeMode: 'running' });
   const idleHeader = idleMarkup.match(/<header[\s\S]*?<\/header>/)?.[0] ?? '';
   const runningHeader = runningMarkup.match(/<header[\s\S]*?<\/header>/)?.[0] ?? '';
@@ -599,12 +829,17 @@ test('popup landmarks and runtime header actions follow the active state', () =>
   expect(idleHeader).not.toContain('aria-label="Mute stream audio"');
   expect(idleHeader).not.toContain('aria-label="Open Twitch Drops"');
   expect(idleHeader).not.toContain('aria-label="Enable notifications"');
-  expect(runningHeader).toContain('aria-label="Pause farming"');
-  expect(runningHeader).toContain('aria-label="Stop farming"');
+  expect(runningHeader).not.toContain('Pause farming');
+  expect(runningHeader).not.toContain('Stop farming');
   expect(runningHeader).toContain('aria-label="Turn stream audio on"');
   expect(runningHeader).toContain('aria-label="Open live monitor"');
   expect(runningHeader).toContain('aria-label="Open settings"');
-  expect(runningMarkup).not.toContain('<select');
+  const runningSummary = runningMarkup.match(/<section[^>]*data-session-mode="running"[\s\S]*?<\/section>/)?.[0];
+  expect(runningSummary).toContain('>Pause<');
+  expect(runningSummary).toContain('>Stop<');
+  expect(runningMarkup).not.toContain('Select a campaign to start');
+  expect(runningMarkup).toContain('aria-label="Sort games"');
+  expect(runningMarkup).toContain('aria-label="Filter games"');
 });
 
 test('claimable count renders only rewards DropHunter can automate', () => {

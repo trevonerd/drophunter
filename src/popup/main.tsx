@@ -4,6 +4,8 @@ import { ErrorBoundary } from '../shared/ErrorBoundary';
 import App from './App.tsx';
 import './index.css';
 
+const criticalSizeStyle = document.querySelector('[data-popup-critical-size]');
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
@@ -11,3 +13,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </React.StrictMode>,
 );
+
+requestAnimationFrame(() => criticalSizeStyle?.remove());

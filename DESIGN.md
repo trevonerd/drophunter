@@ -1,6 +1,6 @@
 # DropHunter Design System
 
-This is an extraction of the existing popup and live-monitor control surfaces. It is an implementation contract for the compact Twitch Drops browser-extension UI, not a redesign. The approved direction is fixed at DESIGN_VARIANCE: 3, MOTION_INTENSITY: 2, and VISUAL_DENSITY: 7: predictable, dense, and operational. Preserve the current dark violet language and the existing tokens below. Do not invent a new palette, type family, radius scale, or animation vocabulary for Todo 13/14 work.
+This is the implementation contract for the popup and live-monitor control surfaces, including the compact game/campaign browser redesign. The approved direction is fixed at DESIGN_VARIANCE: 3, MOTION_INTENSITY: 2, and VISUAL_DENSITY: 7: predictable, dense, and operational. Preserve the current dark violet language and the existing tokens below. Do not invent a new palette, type family, radius scale, or animation vocabulary for this work.
 
 ## 1. Atmosphere & Identity
 
@@ -164,10 +164,10 @@ Most JSX uses Tailwind spacing utilities that resolve to the same 4px rhythm: ga
 
 | Surface | Bounds | Fixed regions | Scroll owner |
 | --- | --- | --- | --- |
-| Popup | body { width: 400px; }, #root { width: 100%; }; no explicit height cap | Header remains in normal document flow; settings/log headers are part of each view | Popup body owns primary vertical scroll (overflow-y: auto) and hides horizontal overflow. RewardList owns a deliberate nested max-height: 240px; overflow-y: auto list. ClaimLogView owns a deliberate fixed 440px virtualized list scroll container. |
+| Popup | body { width: 400px; }, body and #root { min-height: 128px; }, #root { width: 100%; }; no height cap | Header and the primary farming action remain in normal document flow above campaign discovery; settings/log headers are part of each view | Popup body owns the only primary vertical scroll (overflow-y: auto) and hides horizontal overflow. GameCampaignBrowser remains in document flow and must not create a second scrollbar. ClaimLogView retains its named fixed 440px virtualized-list scroll container because it is a separate view. |
 | Monitor | body { min-width: 320px; min-height: 220px; }, #root { width: 100%; height: 100%; } | No sticky/fixed header; one card contains the complete readout | No scroll owner: body is overflow: hidden. Content must fit the window; clipping is an accepted risk to verify at narrow/long-content sizes. |
 
-dh-page is the popup vertical stack (display: flex; flex-direction: column; gap: var(--dh-space-3); padding: var(--dh-space-3)). dh-page--wide changes only inline padding to var(--dh-space-4). dh-group is a vertical stack with an 8px gap; dh-group--loose uses 12px. dh-popup-header is a two-column shell (minmax(0, 1fr) max-content) with an 8px gap. Queue chips and header actions are wrapping/inline clusters, not independent scroll panes.
+dh-page is the popup vertical stack (display: flex; flex-direction: column; gap: var(--dh-space-3); padding: var(--dh-space-3)). dh-page--wide changes only inline padding to var(--dh-space-4). dh-group is a vertical stack with an 8px gap; dh-group--loose uses 12px. dh-popup-header is a two-column shell (minmax(0, 1fr) max-content) with an 8px gap. Header actions are an inline cluster. The farming queue is a full-width top-level group between SessionSummary and Campaigns, not part of the campaign search/filter cluster and not an independent scroll pane.
 
 ## 5. Components
 
@@ -195,43 +195,62 @@ The following primitives and repeated components are the reusable surface langua
 
 ### Popup header and icon actions
 
-- Structure: .dh-header gradient → .dh-popup-header grid → brand/runtime badge and a compact action cluster. Settings and log reuse the same header treatment with a back icon.
-- Variants: idle or signed-out header shows Monitor and Settings; running header adds pause/resume, stop, and farming-tab audio actions. Notification configuration belongs in Settings; Twitch Drops access is contextual in sync and reward panels.
+- Structure: .dh-header gradient → .dh-popup-header grid → brand and a compact global-action cluster. Settings and log reuse the same header treatment with a back icon. Runtime state never appears here because SessionSummary owns it.
+- Variants: every state shows Monitor and Settings; running exposes farming-tab audio only when the effective transport is a DropHunter-owned managed tab. Hidden/tabless farming never renders an audio action. Pause, resume, stop, Start, Twitch sign-in, notification configuration, and Twitch Drops access remain in their owning task surfaces.
 - Spacing: 12px horizontal/8px vertical header padding; 8px brand/grid gap; 4px action gap; icon buttons are 28×28px with 6px radius.
-- States: default, hover translucent light fill, active darker fill, disabled opacity, visible 2px focus ring, running/paused badge.
+- States: default, hover translucent light fill, active darker fill, disabled opacity, and visible 2px focus ring.
 - Accessibility: every icon-only button has an aria-label and title; SVGs are aria-hidden; focus uses .dh-focus/.dh-icon-button:focus-visible.
 - Motion: 180ms background/color/opacity transitions; no entry animation.
 - Layout/scroll: fixed-width grid region inside the popup's body scroll owner; header itself is not sticky.
 
+### AutomationSummary
+
+- Structure: a quiet compact panel with one heading and one sentence. When automation is enabled, at most one meaningful recent automation event may replace the sentence for exactly six seconds.
+- Copy ownership: it explains only the favorite-campaign automation policy. It never repeats the active campaign, queue order, runtime state, transport mode, health, polling cadence, `Now`/`Next`, or the same activity in another panel.
+- Variants: on, off, and enabled with a transient event. No event is shown while automation is off or the Twitch session is unavailable.
+- Spacing and hierarchy: 12px heading, 11px copy, compact 8-10px panel padding, standard dark border, no large icon or decorative glow.
+- Accessibility: transient feedback uses one polite live region; static policy copy does not announce repeatedly.
+
 ### SessionSummary
 
-- Structure: one persistent compact status section immediately below the popup header. Running reuses the standard compact reward row under a `Running` heading; other modes use a mode label, campaign/reward subject, and a state-specific readout.
+- Structure: one persistent compact operational section below AutomationSummary. Its first line pairs state and campaign (`Running · Game · Campaign`); a compact trailing indicator names the effective watch source (`Hidden`, `Tab`, or `Manual tab`) without exposing health or cadence diagnostics. Running reuses the standard compact reward row and actions stay inside the section.
 - Variants: ready, running, paused, recovering, complete, and attention-required. Running/complete use success accents; paused/recovering use warning accents; attention-required uses the existing danger or violet accent treatment; ready uses neutral surface tokens.
-- Spacing: inline `dh-contain` panel with 12px padding and the existing 8px internal rhythm. It remains subordinate to the header and primary campaign action.
-- States: signed-out and sync failure name the required action; idle names the selected campaign or asks for a selection; running presents the active reward exactly once through `CompactDropCard`; paused and recovering preserve the compact progress readout while explicitly saying progress is not advancing; terminal states explain what happens next.
-- Accessibility: one `role=status`, `aria-live=polite`, `aria-atomic=true` region. Machine-readable `data-session-mode` and `data-progress-state` attributes mirror visible truth without adding announcements.
+- Spacing: inline `dh-contain` panel with 12px padding and the existing 8px internal rhythm. The running variant uses `--dh-border-strong` without glow; type remains in the 10-12px compact scale.
+- States: idle names the selected campaign or asks for a selection; running presents the active reward exactly once through `CompactDropCard`; paused and recovering preserve the compact progress readout while explicitly saying progress is not advancing; actual manual Twitch playback suppresses automated transport ticks and appears here as tracking or waiting until the existing TTL expires; crash recovery appears only when actionable; terminal states explain what happens next. Campaign sync and ordinary watch-health details do not belong here.
+- Actions: Start when idle; Pause and Stop while running; Resume and Stop while paused; Stop while recovering; Open Twitch for a terminal sign-in requirement.
+- Accessibility: one child `role=status`, `aria-live=polite`, `aria-atomic=true` text region. Interactive controls sit outside it. Machine-readable `data-session-mode` and `data-progress-state` attributes mirror visible truth without adding announcements.
 - Motion: state changes are immediate; no pulse, animation, or live dot.
 - Layout/scroll: normal popup flow with no nested scroll; long campaign and reward names wrap inside `min-w-0` content.
 
-### Campaign selector and queue cluster
+### Farming queue and campaign browser
 
-- Structure: .dh-input select plus optional secondary Queue button, status paragraph, and QueueChips wrapping list.
-- Variants: no selection, selected campaign, selector hidden while running, onboarding pulse, selected-not-in-queue “first” chip, draggable/reorderable queue, running “Up next” list that excludes the current campaign, clear confirmation.
-- Spacing: selector cluster gap 6px; control padding 8px/6px; queue chips use 4px/8px utility spacing and full-pill radius.
-- States: default, hover border, focus ring, disabled while farming, action loading, queue message, drag target ring, clear confirmation.
+- Structure: Farming queue is a separate operational group between SessionSummary and Campaigns. It owns queue feedback and controls. Campaigns owns sync status, selected-campaign status, search, filters, and the existing grouped campaign browser. The queue is an ordered full-width list whose rows share fixed slots for order/grip, campaign text, indicators, metadata, and remove.
+- Variants: no selection, selected campaign, selector hidden while running, onboarding pulse, selected-not-in-queue first row, draggable/reorderable future queue, running queued list that excludes and protects the current campaign, clear confirmation. The first direct reorder atomically switches automatic priority to manual order.
+- Spacing: selector cluster gap 6px; control padding 8px/6px; queue rows use a consistent compact height, 8px rhythm, 8px radius, and one-line truncating text regions.
+- States: default, hover border, focus ring, action loading, queue message, drag target ring, clear confirmation. Future rows remain reorderable and removable while farming; only the current campaign is immutable.
 - Accessibility: select has aria-label=Campaign; queue/remove/clear/reorder controls have explicit labels; reorder also supports arrow keys; queueMessage is role=status aria-live=polite aria-atomic=true.
-- Motion: onboarding pulse-glow is a 2s infinite attention cue; input and action transitions use 180ms. Do not add decorative motion to chips.
-- Layout/scroll: wrapping cluster in the popup body; queue list does not own a scrollbar.
 
-### CampaignSyncPanel and planned CampaignStatusIndicators
+### Farming actions and GameCampaignBrowser
+
+- The full-width Start control belongs inside SessionSummary so the current state and its next action remain one unit. Pause, Resume, Stop, and sign-in recovery follow the same ownership rule.
+- GameCampaignBrowser groups Twitch Drops campaigns by Twitch category identity and renders each category as a compact master/detail disclosure. Every game starts collapsed. Only one game may be expanded at a time so discovery stays dense and predictable.
+- The closed game row is a 40px operational summary: disclosure chevron, one-line game name, campaign count, semantic status badges, favorite star, and a compact Add action for the next eligible unqueued campaign. The row itself is the disclosure control; star and Add remain separate buttons and must not toggle it.
+- Summary badges use existing semantic tokens and visible text: `Complete` when every campaign is farming-complete, `Not linked` when any campaign needs account linking, and absolute queue positions (`Queue #1`, `Queue #1, #3`) when campaigns from the game are queued. The active campaign uses only `Running`. Color never carries status alone.
+- Expanding a game reveals one flat detail surface. Campaigns are separated by dividers rather than nested cards. Each campaign shows title, expiry/next-reward metadata, campaign-aware Add/Remove, and a safe external Link action when required. Farmable Drops render immediately as compact rows inside the expanded game; there is no second campaign-level accordion. Farming-complete campaigns remain one compact campaign line with a `Complete · 100%` badge and no reward rows or queue actions.
+- The game-level Add action targets the first connected, farming-eligible, unqueued campaign in the current calculated order. Precise campaign choice and removal remain available inside the expanded detail. It is disabled when no eligible campaign remains.
+- Favorite and Add controls use a minimum 28px square target. The disclosure control has a visible focus ring, `aria-expanded`, and `aria-controls`; its chevron rotates through transform only. Expanded content is not animated by height.
+- Motion: onboarding pulse-glow is a 2s infinite attention cue; disclosure/action feedback uses the existing 180ms easing and transform/opacity only. Reduced-motion collapses it to an immediate state change.
+- Layout/scroll: the browser remains in popup document flow. Neither the game list nor expanded campaign/Drop detail owns a scrollbar; the popup body is the sole discovery scroll owner.
+
+### CampaignSyncPanel, OtherDropsDisclosure, and planned CampaignStatusIndicators
 
 CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is the planned semantic primitive for Todo 13/14 and must be expressible with this existing system only.
 
-- Structure: one section with title, description, detail, and either a spinner or action button. The planned primitive may compose a compact cluster of status pills/text and a live region without changing panel geometry.
-- Variants: fresh (panel omitted), syncing, stale, failed, empty, and signed-out; planned runtime variants running, paused, recovering, stopped-terminal, idle; reward variants pending, active, claimable, claimed, sub-only, and unverifiable-twitch.
+- Structure: CampaignSyncPanel is a compact inline status row inside Campaigns, with one concise message and either a spinner or action button. OtherDropsDisclosure is a closed disclosure after normal results for Twitch rewards that cannot be matched to an active campaign. The planned primitive may compose a compact cluster of status pills/text and a live region without changing panel geometry.
+- Variants: fresh (sync row omitted), syncing, stale, failed, and empty; signed-out uses the dedicated priority TwitchSessionGate before AutomationSummary and suppresses SessionSummary and Campaigns. Planned reward variants remain pending, active, claimable, claimed, subscription-gated, and unverifiable Twitch-native.
 - Token mapping: syncing/info uses existing blue/info or accent utilities; running/claimed uses --dh-success/existing green utilities; paused/recovering/claimable uses --dh-warning/existing yellow utilities; stopped/error/unverifiable-twitch uses --dh-danger/existing red utilities (or the existing warning copy when the state is informational); idle uses surface/text-soft. No new hue, alpha, radius, or shadow is permitted.
-- Spacing: existing dh-contain rounded-lg p-3 border sync panel and 8px/12px stack gaps. Indicators should use the existing 10-12px status scale and pill radius only where a pill already exists.
-- States: default, loading (aria-busy plus existing spinner), success/fresh omission, empty, signed-out action, stale cached data, and failed refresh with actionable error copy.
+- Spacing: compact 8px inline sync row and 8px/12px stack gaps. Indicators should use the existing 10-12px status scale and pill radius only where a pill already exists.
+- States: default, loading (aria-busy plus existing spinner), success/fresh omission, empty, stale cached data, and failed refresh with actionable copy. Other Drops appears only for the unfiltered All view with an empty search, preserves Twitch progress, never offers a synthetic Add action, and provides an Open Twitch Drops action.
 - Accessibility: the section remains aria-label=Campaign sync status, aria-live=polite, and aria-busy while syncing. A future indicator live region should announce meaningful transitions once, not every polling tick; retain role=status and aria-atomic=true for concise action feedback.
 - Motion: existing spinner only for active sync; 180ms control transitions. Status changes should be immediate or opacity/transform-only at MOTION_INTENSITY: 2.
 - Layout/scroll: inline panel in the popup body; no nested scroll.
@@ -278,7 +297,7 @@ CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is 
 
 ### Icon primitive
 
-src/popup/components/icons.tsx provides small currentColor SVG icons at 12-16px. They are aria-hidden and only appear inside labeled controls or alongside text. Keep one visual family and currentColor inheritance. The hand-authored SVG paths are existing source debt; do not introduce a second icon style while extracting or implementing indicators.
+src/popup/components/icons.tsx provides small currentColor SVG icons at 12-16px. They are aria-hidden and only appear inside labeled controls or alongside text. `EyeOffIcon` represents hidden/tabless watching and the existing monitor family represents a managed tab. Keep one visual family and currentColor inheritance. The hand-authored SVG paths are existing source debt; do not introduce a second icon style while extracting or implementing indicators.
 
 ## 6. Motion & Interaction
 
