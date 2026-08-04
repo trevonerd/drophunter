@@ -5,14 +5,62 @@ export const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = {
   permissions: ['notifications'],
 };
 
+export const AUTOMATION_NOTIFICATION_EVENTS = ['start', 'favorite-added', 'preemption'] as const;
+export type AutomationNotificationEvent = (typeof AUTOMATION_NOTIFICATION_EVENTS)[number];
+
+const AUTOMATION_NOTIFICATION_ID_PREFIX = 'drophunter-automation';
+
+export interface AutomationNotificationPayload {
+  readonly event: AutomationNotificationEvent;
+  readonly campaignId: string;
+  readonly title: string;
+  readonly message: string;
+  readonly priority?: number;
+}
+
+export interface AutomationNotificationPersistence {
+  hasSeen(key: string): Promise<boolean> | boolean;
+  markSeen(key: string): Promise<void> | void;
+}
+
+interface NotificationEvent<Args extends readonly unknown[]> {
+  addListener(listener: (...args: Args) => void): void;
+}
+
+export interface NotificationApi {
+  create(
+    notificationIdOrOptions: string | chrome.notifications.NotificationCreateOptions,
+    options?: chrome.notifications.NotificationCreateOptions,
+  ): Promise<string>;
+  onClicked?: NotificationEvent<[notificationId: string]>;
+  onButtonClicked?: NotificationEvent<[notificationId: string, buttonIndex: number]>;
+}
+
+export interface AutomationNotificationResult {
+  readonly shown: boolean;
+  readonly deduplicated: boolean;
+  readonly notificationId?: string;
+}
+
+export function getAutomationNotificationKey(event: AutomationNotificationEvent, campaignId: string): string {
+  return `${event}:${campaignId}`;
+}
+
+export function getAutomationNotificationId(event: AutomationNotificationEvent, campaignId: string): string {
+  return `${AUTOMATION_NOTIFICATION_ID_PREFIX}-${event}-${encodeURIComponent(campaignId)}`;
+}
+
 interface NotificationState {
-  appState: Pick<AppState, 'notificationsEnabled'>;
+  appState: Pick<AppState, 'notificationsEnabled' | 'autoStartFavoriteGames'>;
 }
 
 interface NotificationControllerOptions {
   permissionsApi?: Pick<typeof chrome.permissions, 'contains'>;
-  notificationsApi?: Pick<typeof chrome.notifications, 'create'>;
+  notificationsApi?: NotificationApi;
   saveState: () => Promise<unknown> | unknown;
+  automationNotificationPersistence?: AutomationNotificationPersistence;
+  openDropHunter?: () => Promise<unknown> | unknown;
+  pauseFarming?: () => Promise<unknown> | unknown;
 }
 
 export function createNotificationController(
@@ -20,9 +68,14 @@ export function createNotificationController(
   options: NotificationControllerOptions,
 ) {
   const permissionsApi = options.permissionsApi ?? browser.permissions;
-  const notificationsApi = options.notificationsApi ?? browser.notifications;
+  const notificationsApi: NotificationApi | undefined = options.notificationsApi ?? browser.notifications;
+  const seenAutomationNotifications = new Set<string>();
+  const pendingAutomationNotifications = new Map<string, Promise<AutomationNotificationResult>>();
 
   const hasNotificationPermission = async (): Promise<boolean> => {
+    if (!notificationsApi) {
+      return false;
+    }
     try {
       return await permissionsApi.contains(NOTIFICATION_PERMISSION);
     } catch {
@@ -31,13 +84,14 @@ export function createNotificationController(
   };
 
   const syncPermissionState = async () => {
-    if (!state.appState.notificationsEnabled) {
+    if (!state.appState.notificationsEnabled && !state.appState.autoStartFavoriteGames) {
       return;
     }
     if (await hasNotificationPermission()) {
       return;
     }
     state.appState.notificationsEnabled = false;
+    state.appState.autoStartFavoriteGames = false;
     await options.saveState();
   };
 
@@ -45,8 +99,9 @@ export function createNotificationController(
     if (!state.appState.notificationsEnabled) {
       return;
     }
-    if (!(await hasNotificationPermission())) {
+    if (!notificationsApi || !(await hasNotificationPermission())) {
       state.appState.notificationsEnabled = false;
+      state.appState.autoStartFavoriteGames = false;
       await options.saveState();
       return;
     }
@@ -84,9 +139,100 @@ export function createNotificationController(
     return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
   };
 
+  const isAutomationNotificationId = (notificationId: string): boolean =>
+    notificationId.startsWith(`${AUTOMATION_NOTIFICATION_ID_PREFIX}-`);
+
+  const invokeAction = (action: (() => Promise<unknown> | unknown) | undefined): void => {
+    if (!action) {
+      return;
+    }
+    void Promise.resolve()
+      .then(action)
+      .catch(() => undefined);
+  };
+
+  if (notificationsApi?.onClicked && options.openDropHunter) {
+    notificationsApi.onClicked.addListener((notificationId) => {
+      if (isAutomationNotificationId(notificationId)) {
+        invokeAction(options.openDropHunter);
+      }
+    });
+  }
+
+  if (notificationsApi?.onButtonClicked) {
+    notificationsApi.onButtonClicked.addListener((notificationId, buttonIndex) => {
+      if (!isAutomationNotificationId(notificationId)) {
+        return;
+      }
+      if (buttonIndex === 0) {
+        invokeAction(options.openDropHunter);
+      } else if (buttonIndex === 1) {
+        invokeAction(options.pauseFarming);
+      }
+    });
+  }
+
+  const notifyAutomation = async (
+    payload: AutomationNotificationPayload,
+  ): Promise<AutomationNotificationResult> => {
+    const key = getAutomationNotificationKey(payload.event, payload.campaignId);
+    const pending = pendingAutomationNotifications.get(key);
+    if (pending) {
+      return pending;
+    }
+
+    const evaluation = (async (): Promise<AutomationNotificationResult> => {
+      if (!state.appState.notificationsEnabled) {
+        return { shown: false, deduplicated: false };
+      }
+      if (
+        seenAutomationNotifications.has(key) ||
+        (await options.automationNotificationPersistence?.hasSeen(key))
+      ) {
+        seenAutomationNotifications.add(key);
+        return { shown: false, deduplicated: true };
+      }
+      if (!notificationsApi || !(await hasNotificationPermission())) {
+        state.appState.notificationsEnabled = false;
+        state.appState.autoStartFavoriteGames = false;
+        await options.saveState();
+        return { shown: false, deduplicated: false };
+      }
+
+      const notificationId = getAutomationNotificationId(payload.event, payload.campaignId);
+      await notificationsApi.create(notificationId, {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: payload.title,
+        message: payload.message,
+        priority: payload.priority ?? 2,
+        buttons: [{ title: 'Open DropHunter' }, { title: 'Pause' }],
+      });
+      seenAutomationNotifications.add(key);
+      await options.automationNotificationPersistence?.markSeen(key);
+      return { shown: true, deduplicated: false, notificationId };
+    })();
+
+    pendingAutomationNotifications.set(key, evaluation);
+    void evaluation.then(
+      () => {
+        if (pendingAutomationNotifications.get(key) === evaluation) {
+          pendingAutomationNotifications.delete(key);
+        }
+      },
+      () => {
+        if (pendingAutomationNotifications.get(key) === evaluation) {
+          pendingAutomationNotifications.delete(key);
+        }
+      },
+    );
+    return evaluation;
+  };
+
   return {
     hasNotificationPermission,
     notify,
+    notifyAutomation,
     syncPermissionState,
     setNotificationsEnabled,
   };

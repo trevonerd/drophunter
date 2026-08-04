@@ -4,10 +4,12 @@ import {
   compareGamesForDisplayOrder,
   dropMatchesGame,
   findMatchingGame,
+  gameKey,
   isSameGameIdentity,
 } from '../shared/game-selection.ts';
 import { normalizeToken, tokenOverlapScore } from '../shared/matching.ts';
-import { isRewardAcquired, isRewardAutomatable } from '../shared/reward-semantics.ts';
+import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import { clearRecoveryStatus } from '../shared/runtime-status.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
@@ -152,7 +154,7 @@ export function splitDropsForSelectedGame(state: ServiceWorkerState, allDrops: T
     ...drop,
     status: drop.progress > 0 || drop.claimable === true ? ('active' as const) : ('pending' as const),
   }));
-  const farmablePending = normalizedPending.filter(isRewardAutomatable);
+  const farmablePending = normalizedPending.filter(isRewardFarmableNow);
   const activeCandidates = farmablePending.filter((drop) => drop.progress > 0 || Boolean(drop.claimable));
   const activeDrop =
     (activeCandidates.length > 0 ? activeCandidates : farmablePending).slice().sort(compareDropPriority)[0] ??
@@ -241,6 +243,12 @@ export function projectDropsSnapshot(
   );
   const annotatedGames = annotateGameCompletion(gamesWithPreservedSummaries, reconciledDrops, provenance);
   state.appState.availableGames = annotatedGames;
+  state.appState.campaignDropsByKey = Object.fromEntries(
+    annotatedGames.map((game) => [
+      gameKey(game),
+      reconciledDrops.filter((drop) => dropMatchesGame(drop, game)),
+    ]),
+  );
   normalizeGameSelection(state, annotatedGames);
   splitDropsForSelectedGame(state, reconciledDrops);
 }
@@ -258,7 +266,7 @@ export function clearSelectedCompletedIdleCampaignExt(state: ServiceWorkerState)
   const selected = state.appState.selectedGame;
   const selectedDrops = state.cachedDropsSnapshot.filter((drop) => dropMatchesSelectedGame(drop, selected));
   const hasKnownDrops = selectedDrops.length > 0;
-  const hasFarmablePending = selectedDrops.some(isRewardAutomatable);
+  const hasFarmablePending = selectedDrops.some(isRewardFarmableNow);
 
   if (!hasKnownDrops || hasFarmablePending) {
     return;
@@ -279,9 +287,11 @@ export function clearSelectedCompletedIdleCampaignExt(state: ServiceWorkerState)
 export function resetStateForAuthoritativeEmptyCampaignExt(state: ServiceWorkerState): void {
   state.appState.availableGames = [];
   state.appState.queue = [];
+  state.appState.queueEntryMetadataByKey = {};
   state.appState.selectedGame = null;
   state.appState.currentDrop = null;
   state.appState.allDrops = [];
+  state.appState.campaignDropsByKey = {};
   state.appState.pendingDrops = [];
   state.appState.completedDrops = [];
   state.appState.completionNotified = false;

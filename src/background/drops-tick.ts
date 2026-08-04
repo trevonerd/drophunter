@@ -17,7 +17,12 @@ import {
 import { completedDropKeys, type DropsSnapshotProvenance } from './drops-projection.ts';
 import { rememberInspectedCampaignSummary } from './drops-projection-semantics.ts';
 import { logDebug, logWarn } from './logging';
-import { queueContainsGame, queueEntryMatchesGame, reorderQueue } from './queue-operations';
+import {
+  markQueueEntryManual,
+  queueContainsGame,
+  queueEntryMatchesGame,
+  reorderQueue,
+} from './queue-operations';
 import type { ServiceWorkerState } from './service-worker';
 
 function assertNever(value: never): never {
@@ -37,6 +42,7 @@ export interface CheckDropProgressCallbacks {
   onAutoClaimClaimableDrops: () => Promise<boolean>;
   onAdvanceQueueIfCompleted: () => Promise<boolean>;
   onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
+  onWatchTransportTick?: () => Promise<boolean | undefined>;
 }
 
 export async function checkDropProgress(
@@ -86,6 +92,10 @@ export async function checkDropProgress(
       });
       return;
     }
+
+    const transportAdvancedQueue = await callbacks.onWatchTransportTick?.();
+    if (isStaleTick()) return;
+    if (transportAdvancedQueue) return;
 
     const noStreamersRecoveryActive = state.appState.recoveryReason === 'no-streamers';
     if (noStreamersRecoveryActive) {
@@ -356,6 +366,7 @@ export async function handleSetSelectedGame(
   if (state.appState.isRunning && !state.appState.isPaused) {
     deps.removeGameFromQueue(state, selectedGame);
     state.appState.queue = [selectedGame, ...state.appState.queue];
+    markQueueEntryManual(state, selectedGame);
   }
   if (state.appState.isRunning && !state.appState.isPaused) {
     await callbacks.onEnsureWorkspace();
@@ -468,6 +479,7 @@ export async function handleAddToQueue(
   }
 
   state.appState.queue.push(targetGame);
+  markQueueEntryManual(state, targetGame);
   await callbacks.onSaveState(state);
   return { success: true, added: true, game: targetGame, queueLength: state.appState.queue.length };
 }
@@ -483,20 +495,50 @@ export async function handleRemoveFromQueue(
     removeGameFromQueue: (state: ServiceWorkerState, game: TwitchGame) => void;
     sameCampaignId: (left?: string | null, right?: string | null) => boolean;
   },
-): Promise<{ success: boolean; removed: number; queueLength: number }> {
+): Promise<{ success: boolean; removed: number; queueLength: number; error?: string }> {
   await callbacks.onTrackActivity('remove-from-queue');
   const before = state.appState.queue.length;
+
+  const runningGame = state.appState.isRunning ? state.appState.selectedGame : null;
+  const targetsRunningGame = runningGame
+    ? payload?.game
+      ? queueEntryMatchesGame(state, payload.game, runningGame)
+      : state.appState.queue.some((queuedGame) => {
+          const matchesTarget =
+            (payload?.gameId !== undefined && queuedGame.id === payload.gameId) ||
+            (payload?.campaignId !== undefined &&
+              deps.sameCampaignId(queuedGame.campaignId, payload.campaignId));
+          return matchesTarget && queueEntryMatchesGame(state, queuedGame, runningGame);
+        })
+    : false;
+
+  if (targetsRunningGame) {
+    return {
+      success: false,
+      removed: 0,
+      queueLength: before,
+      error: 'Cannot remove the running campaign.',
+    };
+  }
 
   if (payload?.game) {
     deps.removeGameFromQueue(state, payload.game);
   } else {
     const targetGameId = payload?.gameId;
     const targetCampaignId = payload?.campaignId;
+    const removedGames = state.appState.queue.filter((game) => {
+      if (targetGameId && game.id === targetGameId) return true;
+      if (targetCampaignId && deps.sameCampaignId(game.campaignId, targetCampaignId)) return true;
+      return false;
+    });
     state.appState.queue = state.appState.queue.filter((game) => {
       if (targetGameId && game.id === targetGameId) return false;
       if (targetCampaignId && deps.sameCampaignId(game.campaignId, targetCampaignId)) return false;
       return true;
     });
+    for (const game of removedGames) {
+      delete state.appState.queueEntryMetadataByKey[gameKey(game)];
+    }
   }
 
   const removed = Math.max(0, before - state.appState.queue.length);
@@ -523,10 +565,6 @@ export async function handleReorderQueue(
 ): Promise<{ success: boolean; reordered?: boolean; error?: string; queueLength?: number }> {
   await callbacks.onTrackActivity('reorder-queue');
 
-  if (state.appState.isRunning) {
-    return { success: false, error: 'Cannot reorder queue while farming is active.' };
-  }
-
   const fromIndex = payload?.fromIndex;
   const toIndex = payload?.toIndex;
   if (
@@ -538,10 +576,27 @@ export async function handleReorderQueue(
     return { success: false, error: 'Invalid queue indices.' };
   }
 
+  const queueLength = state.appState.queue.length;
+  if (fromIndex >= queueLength || toIndex >= queueLength) {
+    return { success: false, error: 'Invalid queue indices.' };
+  }
+
+  const runningGame = state.appState.isRunning ? state.appState.selectedGame : null;
+  if (runningGame) {
+    const runningIndex = state.appState.queue.findIndex((game) =>
+      queueEntryMatchesGame(state, game, runningGame),
+    );
+    if (runningIndex >= 0 && (fromIndex <= runningIndex || toIndex <= runningIndex)) {
+      return { success: false, error: 'Cannot reorder the running campaign.' };
+    }
+  }
+
   const reordered = reorderQueue(state, fromIndex, toIndex);
   if (!reordered) {
     return { success: false, error: 'Invalid queue indices.' };
   }
+
+  state.appState.campaignPriorityMode = 'priority-list-only';
 
   await callbacks.onSaveState(state);
   return { success: true, reordered: true, queueLength: state.appState.queue.length };

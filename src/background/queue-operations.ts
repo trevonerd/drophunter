@@ -22,6 +22,40 @@ function isSameQueueIdentity(left: TwitchGame, right: TwitchGame): boolean {
   return isSameGameIdentity(left, right);
 }
 
+export function markQueueEntryManual(
+  state: ServiceWorkerState,
+  game: TwitchGame,
+  addedAt = Date.now(),
+): void {
+  state.appState.queueEntryMetadataByKey[gameKey(game)] = {
+    source: 'manual',
+    addedAt,
+    reason: 'user-added',
+  };
+}
+
+function deleteQueueEntryMetadata(state: ServiceWorkerState, games: readonly TwitchGame[]): void {
+  for (const game of games) {
+    delete state.appState.queueEntryMetadataByKey[gameKey(game)];
+  }
+}
+
+function reconcileQueueMetadata(state: ServiceWorkerState): void {
+  state.appState.queueEntryMetadataByKey = Object.fromEntries(
+    state.appState.queue.map((game) => {
+      const key = gameKey(game);
+      return [
+        key,
+        state.appState.queueEntryMetadataByKey[key] ?? {
+          source: 'manual',
+          addedAt: Date.now(),
+          reason: 'user-added',
+        },
+      ];
+    }),
+  );
+}
+
 export function queueEntryMatchesGame(
   state: ServiceWorkerState,
   queuedGame: TwitchGame,
@@ -40,15 +74,20 @@ export function queueContainsGame(state: ServiceWorkerState, game: TwitchGame): 
 
 export function removeQueueEntriesForGame(state: ServiceWorkerState, game: TwitchGame): number {
   const before = state.appState.queue.length;
+  const removedGames = state.appState.queue.filter((queuedGame) =>
+    queueEntryMatchesGame(state, queuedGame, game),
+  );
   state.appState.queue = state.appState.queue.filter(
     (queuedGame) => !queueEntryMatchesGame(state, queuedGame, game),
   );
+  deleteQueueEntryMetadata(state, removedGames);
   return before - state.appState.queue.length;
 }
 
 export function removeQueueEntriesForHeadGame(state: ServiceWorkerState, game: TwitchGame): void {
   const removed = removeQueueEntriesForGame(state, game);
   if (removed === 0 && state.appState.queue.length > 0) {
+    deleteQueueEntryMetadata(state, [state.appState.queue[0]]);
     state.appState.queue = state.appState.queue.slice(1);
   }
 }
@@ -62,7 +101,16 @@ export function promoteQueueHead(state: ServiceWorkerState): TwitchGame | null {
   if (!nextGame) {
     return null;
   }
+  const previousKey = gameKey(queuedGame);
+  const nextKey = gameKey(nextGame);
+  const metadata = state.appState.queueEntryMetadataByKey[previousKey];
   state.appState.queue[0] = nextGame;
+  if (previousKey !== nextKey) {
+    delete state.appState.queueEntryMetadataByKey[previousKey];
+    if (metadata) {
+      state.appState.queueEntryMetadataByKey[nextKey] = metadata;
+    }
+  }
   state.appState.selectedGame = nextGame;
   return nextGame;
 }
@@ -74,6 +122,7 @@ export function normalizeQueueSelection(
 ) {
   if (!Array.isArray(state.appState.queue) || state.appState.queue.length === 0) {
     state.appState.queue = [];
+    state.appState.queueEntryMetadataByKey = {};
     state.queueMissingStreak.clear();
     return;
   }
@@ -126,6 +175,7 @@ export function normalizeQueueSelection(
   }
 
   state.appState.queue = normalized;
+  reconcileQueueMetadata(state);
 }
 
 export function removeGameFromQueue(state: ServiceWorkerState, game: TwitchGame) {
@@ -184,6 +234,7 @@ export function pushGameToQueue(state: ServiceWorkerState, game: TwitchGame) {
     return;
   }
   state.appState.queue = [...state.appState.queue, game];
+  markQueueEntryManual(state, game);
 }
 
 export function reorderQueue(state: ServiceWorkerState, fromIndex: number, toIndex: number): boolean {

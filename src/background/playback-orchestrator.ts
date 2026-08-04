@@ -143,25 +143,29 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
     await warnIfPlaybackNeedsAttention(tabId, prepared, { unmuteTab: true });
   };
 
-  const openForegroundChannel = async (streamer: TwitchStreamer) => {
+  const openForegroundChannel = async (streamer: TwitchStreamer, openOptions?: { focus?: boolean }) => {
     const channelName = streamer.name.toLowerCase();
     const displayName = streamer.displayName || channelName;
     const targetUrl = options.streamerWatchUrl(channelName);
     const isStreamerChange =
       !state.appState.activeStreamer || state.appState.activeStreamer.name !== channelName;
-    const managedTabId = await options.ensureManagedTab(state.appState.tabId, targetUrl, isStreamerChange);
+    const managedTabId = await options.ensureManagedTab(
+      state.appState.tabId,
+      targetUrl,
+      isStreamerChange && openOptions?.focus !== false,
+    );
     if (!managedTabId) {
-      return;
+      return null;
     }
 
     const prepareVisiblePlayback = async () => {
       state.playbackAttentionWarningSent = false;
-      if (isStreamerChange) {
+      if (isStreamerChange && openOptions?.focus !== false) {
         await focusManagedTab(managedTabId);
       }
       await Promise.resolve(options.waitForTabComplete(managedTabId, 15_000)).catch(() => undefined);
       const prepared = await prepareStreamPlayback(managedTabId, {
-        activateTab: isStreamerChange,
+        activateTab: isStreamerChange && openOptions?.focus !== false,
         unmuteTab: true,
         muteAfterPrep: options.shouldMuteManagedFarmingTab(),
       });
@@ -179,6 +183,7 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
     };
     state.invalidStreamChecks = 0;
     state.streamValidationGraceUntil = now() + STREAM_VALIDATION_GRACE_MS;
+    return managedTabId;
   };
 
   const enforcePlaybackPolicyOnStreamTab = async () => {

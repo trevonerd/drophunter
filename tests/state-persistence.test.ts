@@ -577,6 +577,10 @@ describe('resetStateForInactivity', () => {
         selectedGame: { id: 'game-1', name: 'Game', imageUrl: '' },
         totalDropsClaimed: 12,
         totalChannelPointsClaimed: 34,
+        favoriteGames: [{ gameId: '509658', lastKnownName: 'Valorant', addedAt: 1 }],
+        campaignPriorityMode: 'lowest-availability',
+        farmCategoryScope: 'favorites-only',
+        autoStartFavoriteGames: true,
       }),
       cachedDropsSnapshot: [{ id: 'drop1' } as any],
       dropClaimRetryAtById: new Map([['claim-1', Date.now() + 1000]]),
@@ -605,6 +609,12 @@ describe('resetStateForInactivity', () => {
     expect(state.appState.selectedGame).toBeNull();
     expect(state.appState.totalDropsClaimed).toBe(12);
     expect(state.appState.totalChannelPointsClaimed).toBe(34);
+    expect(state.appState.favoriteGames).toEqual([
+      { gameId: '509658', lastKnownName: 'Valorant', addedAt: 1 },
+    ]);
+    expect(state.appState.campaignPriorityMode).toBe('lowest-availability');
+    expect(state.appState.farmCategoryScope).toBe('favorites-only');
+    expect(state.appState.autoStartFavoriteGames).toBe(true);
     expect(mocks.storage.local._store.get('appState')).toMatchObject({
       totalDropsClaimed: 12,
       totalChannelPointsClaimed: 34,

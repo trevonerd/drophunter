@@ -105,7 +105,14 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow }: MonitorViewPr
             <div className="monitor-drop">
               <p className="monitor-drop-name">{nearestDrop.name}</p>
               <div className="monitor-drop-meta">{nearestDrop.gameName}</div>
-              <div className="monitor-progress-track">
+              <div
+                className="monitor-progress-track"
+                role="progressbar"
+                aria-label={`${nearestDrop.name} progress`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.max(0, Math.min(100, nearestDrop.progress))}
+              >
                 <div
                   className="monitor-progress-fill"
                   style={
@@ -155,6 +162,16 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow }: MonitorViewPr
               Stopped: {terminalStopLabel ?? state.lastStopMessage}
             </div>
           )}
+
+          {(state.lastAutomationMessage || state.manualWatchState !== 'inactive') && (
+            <div className="monitor-rotation-reason" role="status" aria-live="polite">
+              {state.manualWatchState === 'eligible-manual'
+                ? 'Manual viewing is earning progress. DropHunter will not control this tab.'
+                : state.manualWatchState === 'automation-paused'
+                  ? 'Automation is waiting for manual viewing to end.'
+                  : state.lastAutomationMessage}
+            </div>
+          )}
         </section>
 
         <div className="monitor-footer">
@@ -169,7 +186,7 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow }: MonitorViewPr
 }
 
 function App() {
-  const [state, setState] = useState<AppState>(createInitialState());
+  const [state, setState] = useState<AppState>(createInitialState);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
   const [recoveryNow, setRecoveryNow] = useState(Date.now());
 

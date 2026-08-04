@@ -1,6 +1,7 @@
 import { browser } from '../shared/browser-api.ts';
 import { getGameDisplayLabel, replaceAvailableGames, sameCampaignId } from '../shared/game-selection';
-import { isRewardAcquired, isRewardAutomatable } from '../shared/reward-semantics.ts';
+import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { autoClaimClaimableDrops as autoClaimClaimableDropsExt } from './auto-claim.ts';
 import { ALARM_NAME, PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
@@ -22,6 +23,7 @@ import {
   refreshDropsData as refreshDropsDataExt,
 } from './drops-tick.ts';
 import { logDebug, logWarn } from './logging';
+import { detectManualViewing } from './manual-watch-detector.ts';
 import {
   normalizeQueueSelection as normalizeQueueSelectionExt,
   removeGameFromQueue as removeGameFromQueueExt,
@@ -51,6 +53,7 @@ import {
 } from './streamer-acquisition.ts';
 import { normalizePreferredStreamerLanguage, pickStreamerForPreferences } from './streamer-selection';
 import type { TwitchSession } from './twitch-api/types';
+import type { WatchTransportCoordinator } from './watch-transport-coordinator.ts';
 
 export interface StreamContext {
   channelName: string;
@@ -60,6 +63,9 @@ export interface StreamContext {
   titleContainsDrops: boolean;
   hasDropsSignal: boolean;
   isLive: boolean;
+  videoCount?: number;
+  playingVideoCount?: number;
+  isPlaybackReady?: boolean;
   pageUrl: string;
 }
 
@@ -99,6 +105,8 @@ export interface FarmingSessionAdapters {
   saveTimingState: (state: ServiceWorkerState) => Promise<void>;
   broadcastStateUpdate: (appState: AppState) => void;
   monitorAutoOpenDelayMs: number;
+  now?: () => number;
+  watchTransport?: WatchTransportCoordinator;
 }
 
 function evaluateDropsForGame(
@@ -108,11 +116,91 @@ function evaluateDropsForGame(
   const relevantDrops = drops.filter((drop) => dropMatchesSelectedGameExt(drop, game));
   const allDrops = relevantDrops;
   const pendingDrops = allDrops.filter((drop) => !isRewardAcquired(drop));
-  const hasFarmableDrops = pendingDrops.some(isRewardAutomatable);
+  const hasFarmableDrops = pendingDrops.some(isRewardFarmableNow);
   return { allDrops, pendingDrops, hasFarmableDrops };
 }
 
 export function createFarmingSession(state: ServiceWorkerState, adapters: FarmingSessionAdapters) {
+  const now = adapters.now ?? Date.now;
+  let manualWatchTransportSuspended = false;
+
+  async function setManualWatchState(next: AppState['manualWatchState']) {
+    if (state.appState.manualWatchState === next) {
+      return;
+    }
+    state.appState.manualWatchState = next;
+    try {
+      await adapters.saveState(state);
+    } catch (error) {
+      logWarn('Manual watch state persistence failed:', String(error));
+    }
+    try {
+      adapters.broadcastStateUpdate(state.appState);
+    } catch (error) {
+      logWarn('Manual watch state broadcast failed:', String(error));
+    }
+  }
+
+  async function detectManualWatchState(): Promise<AppState['manualWatchState']> {
+    const target = state.appState.selectedGame;
+    if (!target) {
+      await setManualWatchState('inactive');
+      return 'inactive';
+    }
+    try {
+      const manual = await detectManualViewing({
+        target,
+        managedTabId: state.appState.tabId,
+        automationActive: state.appState.isRunning && !state.appState.isPaused,
+        now: now(),
+        queryTabs: async () =>
+          (await browser.tabs.query({ url: ['https://www.twitch.tv/*', 'https://twitch.tv/*'] })).map(
+            (tab) => ({ id: tab.id, active: tab.active, url: tab.url }),
+          ),
+        getStreamContext: adapters.fetchStreamContext,
+      });
+      await setManualWatchState(manual.kind);
+      return manual.kind;
+    } catch (error) {
+      logWarn('Manual watch detection failed:', String(error));
+      return state.appState.manualWatchState;
+    }
+  }
+
+  async function tickWatchTransport(): Promise<boolean> {
+    const manualWatchState = await detectManualWatchState();
+    if (manualWatchState !== 'inactive') {
+      if (!manualWatchTransportSuspended) {
+        manualWatchTransportSuspended = true;
+        try {
+          await adapters.watchTransport?.stop();
+        } catch (error) {
+          logWarn('Manual watch transport suspension failed:', String(error));
+        }
+      }
+      return false;
+    }
+
+    if (manualWatchTransportSuspended) {
+      const activeStreamer = state.appState.activeStreamer;
+      if (activeStreamer && state.appState.isRunning && !state.appState.isPaused) {
+        try {
+          await adapters.watchTransport?.start(activeStreamer);
+        } catch (error) {
+          logWarn('Manual watch transport resume failed:', String(error));
+          return false;
+        }
+      }
+      manualWatchTransportSuspended = false;
+      return false;
+    }
+
+    const health = await adapters.watchTransport?.tick();
+    if (health?.mode !== 'managed-tab' || !health.shouldFallback) return false;
+    await handleRecoverySkip();
+    return true;
+  }
+
   async function evaluateDropTransitions(previousCompletedKeys: Set<string>) {
     const nowCompletedKeys = completedDropKeys(state.appState.completedDrops);
     const newlyCompleted = state.appState.completedDrops.filter(
@@ -180,6 +268,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
       onAcquireStreamerForSelectedGame: acquireStreamerForSelectedGame,
       onAttemptAutoClaimChannelPointsBonus: adapters.attemptAutoClaimChannelPointsBonus,
       onRefreshDropsData: refreshDropsData,
+      onWatchTransportTick: tickWatchTransport,
       onAutoClaimClaimableDrops: autoClaimClaimableDrops,
       onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
       onSaveTimingState: adapters.saveTimingState,
@@ -201,6 +290,14 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
       {
         onFetchDirectoryStreamersFromApi: adapters.fetchDirectoryStreamersFromApi,
         onOpenForegroundChannel: adapters.openForegroundChannel,
+        onOpenWatchTransport: async (streamer) => {
+          if (!adapters.watchTransport) {
+            await adapters.openForegroundChannel(streamer);
+            return true;
+          }
+          const health = await adapters.watchTransport.start(streamer);
+          return health.mode === 'tabless' || health.status !== 'failed';
+        },
       },
       {
         dropMatchesSelectedGame: dropMatchesSelectedGameExt,
@@ -218,6 +315,8 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     stopReason?: string;
     stopMessage?: string | null;
   }) {
+    await adapters.watchTransport?.stop();
+    manualWatchTransportSuspended = false;
     await stopFarmingSessionExt(state, {
       ...options,
       onStopMonitoring: stopMonitoring,
@@ -271,7 +370,11 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
       onOpenStreamer: acquireStreamerForSelectedGame,
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
       onSendAlert: adapters.sendAlert,
-      onStopMonitoring: stopMonitoring,
+      onStopMonitoring: () => {
+        stopMonitoring();
+        manualWatchTransportSuspended = false;
+        void adapters.watchTransport?.stop();
+      },
       onCloseManagedTabIfSafe: adapters.closeManagedTabIfSafe,
       onClearManagedTabOwnership: adapters.clearManagedTabOwnership,
       onApplyStopState: applyStopStateExt,
@@ -350,7 +453,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     if (
       !selectedFarmingComplete ||
       state.appState.currentDrop !== null ||
-      state.appState.pendingDrops.some(isRewardAutomatable)
+      state.appState.pendingDrops.some(isRewardFarmableNow)
     ) {
       resetStreamTrackingStateExt(state);
       await acquireStreamerForSelectedGame();
@@ -389,6 +492,9 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
           includeInventoryFetch: true,
           forceInventoryFetch: true,
         }),
+      onTablessWatchActive: () =>
+        manualWatchTransportSuspended ||
+        (state.appState.watchTransportMode === 'tabless' && !state.appState.watchHealth?.shouldFallback),
     });
   }
 
@@ -452,6 +558,12 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   async function handleClearQueue() {
     await adapters.trackActivity('clear-queue');
     state.appState.queue = [];
+    state.appState.queueEntryMetadataByKey = {};
+    if (!state.appState.isRunning) {
+      state.appState.selectedGame = null;
+      state.appState.currentDrop = null;
+      state.appState.completionNotified = false;
+    }
     await adapters.saveState(state);
     return { success: true, queueLength: 0 };
   }
@@ -460,6 +572,8 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     await adapters.trackActivity('pause-farming');
     state.appState.isPaused = true;
     state.playbackAttentionWarningSent = false;
+    await adapters.watchTransport?.stop();
+    manualWatchTransportSuspended = false;
     stopMonitoring();
     await adapters.saveState(state);
     await adapters.saveTimingState(state);
@@ -476,6 +590,10 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
       state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
     }
     clearRecoveryStateExt(state);
+    if (state.appState.activeStreamer && state.appState.selectedGame) {
+      await adapters.watchTransport?.start(state.appState.activeStreamer);
+    }
+    manualWatchTransportSuspended = false;
     startMonitoring();
     await adapters.saveState(state);
     await adapters.saveTimingState(state);

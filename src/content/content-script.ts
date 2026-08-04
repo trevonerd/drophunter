@@ -3,7 +3,11 @@ import { isRuntimeRequest } from '../shared/messages.ts';
 import { loadStoredContentAppState, subscribeToContentAppState } from './app-state.ts';
 import { claimChannelPointsBonus } from './channel-points.ts';
 import { logContentDebug, logContentInfo, logContentWarn } from './logging.ts';
-import { canAttemptPageUnmute, isExpectedTwitchPlaybackInterruption } from './playback.ts';
+import {
+  canAttemptPageUnmute,
+  isExpectedTwitchPlaybackInterruption,
+  startMutedPlayback,
+} from './playback.ts';
 import { extractTwitchSessionFrom, parseCookieValue } from './session-extraction.ts';
 
 const RESERVED_TWITCH_PATH_SEGMENTS = new Set([
@@ -176,6 +180,10 @@ function extractStreamContext() {
   const titleContainsDrops = /\bdrops?\b/i.test(streamTitle) || /\bdrops?\b/i.test(document.title);
   const hasDropsSignal = hasDropsInStreamScope(streamTitle);
   const isLive = detectStreamLiveStatus();
+  const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+  const playingVideoCount = videos.filter(
+    (video) => !video.paused && !video.ended && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA,
+  ).length;
 
   return {
     channelName,
@@ -185,11 +193,14 @@ function extractStreamContext() {
     titleContainsDrops,
     hasDropsSignal,
     isLive,
+    videoCount: videos.length,
+    playingVideoCount,
+    isPlaybackReady: videos.length > 0 && playingVideoCount > 0,
     pageUrl: window.location.href,
   };
 }
 
-function prepareStreamPlayback() {
+async function prepareStreamPlayback() {
   const channelName = extractChannelNameFromPath();
   const hasUserActivation = navigator.userActivation?.hasBeenActive === true;
   if (!channelName) {
@@ -201,6 +212,7 @@ function prepareStreamPlayback() {
       userInteractionRequired: false,
     };
   }
+  document.documentElement.dataset.drophunterKeepalive = '1';
 
   // Auto-dismiss mature content warning gate
   const gateButton =
@@ -293,29 +305,22 @@ function prepareStreamPlayback() {
       video.volume = 0.35;
     }
     if (video.paused) {
-      if (!hasUserActivation) {
-        if (__DROPHUNTER_DEBUG_LOGS__) {
-          logContentDebug('Playback skipped: user interaction required for autoplay');
-        }
-      } else {
-        video.play().catch((err) => {
-          if (isExpectedTwitchPlaybackInterruption(err)) {
-            logContentDebug('Playback retry interrupted by Twitch player replacement');
-            return;
-          }
-
-          logContentWarn('Playback failed:', err.message, {
-            errorName: err.name,
-            hasBeenActive: hasUserActivation,
-          });
+      const playback = await startMutedPlayback(video);
+      if (playback.played) {
+        played = true;
+      } else if (isExpectedTwitchPlaybackInterruption(playback.error)) {
+        logContentDebug('Playback retry interrupted by Twitch player replacement');
+      } else if (__DROPHUNTER_DEBUG_LOGS__) {
+        const error = playback.error;
+        logContentWarn('Muted playback failed:', error instanceof Error ? error.message : String(error), {
+          hasBeenActive: hasUserActivation,
         });
       }
-      played = true;
     }
   }
 
   const isPlaybackReady = Boolean(video && !video.paused);
-  const userInteractionRequired = Boolean(video && (video.paused || video.muted || video.volume <= 0.01));
+  const userInteractionRequired = Boolean(video?.paused);
   return { played, clickedSurface, isPlaybackReady, gateDismissed: false, userInteractionRequired };
 }
 
@@ -467,7 +472,9 @@ function handleRuntimeMessage(
       break;
     }
     case 'PREPARE_STREAM_PLAYBACK': {
-      sendResponse({ success: true, ...prepareStreamPlayback() });
+      void prepareStreamPlayback()
+        .then((result) => sendResponse({ success: true, ...result }))
+        .catch(() => sendResponse({ success: false }));
       break;
     }
     case 'CLAIM_CHANNEL_POINTS_BONUS': {

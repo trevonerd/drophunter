@@ -109,6 +109,31 @@ describe('extension lifecycle listeners', () => {
     expect(calls).toEqual(['init', 'update']);
   });
 
+  test('runs browser startup and automation alarms only after initialization', async () => {
+    const api = createLifecycleApi();
+    const calls: string[] = [];
+    registerExtensionLifecycleListeners({
+      api,
+      alarmName: 'dropCheck',
+      automationAlarmName: 'favoriteCampaignCheck',
+      getInitPromise: () => Promise.resolve().then(() => calls.push('init')),
+      onBrowserStartup: async () => calls.push('startup'),
+      onExtensionUpdate: async () => {},
+      onAlarm: async () => {},
+      onAutomationAlarm: async () => calls.push('automation'),
+      onManagedTabRemoved: async () => {},
+      onManagedTabNavigatedAway: async () => {},
+      onMonitorWindowRemoved: async () => {},
+      logWarn: () => {},
+    });
+
+    api.runtime.onStartup.trigger();
+    api.alarms.onAlarm.trigger({ name: 'favoriteCampaignCheck', scheduledTime: 1 });
+    await flushAsyncListeners();
+
+    expect(calls).toEqual(['init', 'init', 'startup', 'automation']);
+  });
+
   test('does not invoke lifecycle handlers when initialization fails', async () => {
     const api = createLifecycleApi();
     const calls: string[] = [];
@@ -171,6 +196,30 @@ describe('extension lifecycle listeners', () => {
     await flushAsyncListeners();
 
     expect(ticks).toBe(1);
+  });
+
+  test('refreshes linked campaigns only for the configured recheck alarm prefix', async () => {
+    const api = createLifecycleApi();
+    const names: string[] = [];
+    registerExtensionLifecycleListeners({
+      api,
+      alarmName: 'dropCheck',
+      linkRecheckAlarmPrefix: 'campaignLinkRecheck:',
+      getInitPromise: () => null,
+      onExtensionUpdate: async () => {},
+      onAlarm: async () => {},
+      onLinkRecheckAlarm: async (alarm) => names.push(alarm.name),
+      onManagedTabRemoved: async () => {},
+      onManagedTabNavigatedAway: async () => {},
+      onMonitorWindowRemoved: async () => {},
+      logWarn: () => {},
+    });
+
+    api.alarms.onAlarm.trigger({ name: 'campaignLinkRecheck:1', scheduledTime: 1 });
+    api.alarms.onAlarm.trigger({ name: 'unrelated:campaignLinkRecheck:1', scheduledTime: 2 });
+    await flushAsyncListeners();
+
+    expect(names).toEqual(['campaignLinkRecheck:1']);
   });
 
   test('reports managed-tab navigation only when the tab leaves Twitch', async () => {

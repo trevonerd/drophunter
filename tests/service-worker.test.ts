@@ -1702,6 +1702,10 @@ describe('service worker message handlers', () => {
 
   test('REORDER_QUEUE reorders persisted queue entries when farming is stopped', async () => {
     await dispatchMessage({
+      type: 'SET_CAMPAIGN_PRIORITY_MODE',
+      payload: { mode: 'priority-list-only' },
+    });
+    await dispatchMessage({
       type: 'UPDATE_GAMES',
       payload: [demoGame, nextGame, thirdGame],
     });
@@ -1722,6 +1726,22 @@ describe('service worker message handlers', () => {
       'campaign-1',
       'queue-next-campaign',
     ]);
+  });
+
+  test('CLEAR_QUEUE removes the idle selection so it cannot reappear before a newly added campaign', async () => {
+    // Given
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame] });
+    await dispatchMessage({ type: 'SET_SELECTED_GAME', payload: { game: demoGame } });
+    await addGameToQueue(demoGame);
+
+    // When
+    await dispatchMessage({ type: 'CLEAR_QUEUE' });
+    await addGameToQueue(nextGame);
+
+    // Then
+    const state = getAppStateFromStorage();
+    expect(state.selectedGame).toBeNull();
+    expect(state.queue.map((game) => game.campaignId)).toEqual(['queue-next-campaign']);
   });
 
   test('extension update discards an old volatile reward snapshot before current state reload', async () => {

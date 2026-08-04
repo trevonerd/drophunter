@@ -78,6 +78,7 @@ describe('runtime message protocol', () => {
       'SET_TELEGRAM_ALERTS_ENABLED',
       'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
       'SET_AUTO_CLAIM_DROPS',
+      'SET_AUTO_START_FAVORITES',
     ] as const satisfies readonly RuntimeRequest['type'][];
 
     expect(Object.keys(BOOLEAN_TOGGLE_MESSAGES)).toEqual([...expectedTypes]);
@@ -89,6 +90,7 @@ describe('runtime message protocol', () => {
       'telegramAlertsEnabled',
       'autoClaimChannelPointsBonus',
       'autoClaimDrops',
+      'autoStartFavoriteGames',
     ]);
 
     type ToggleResponseField =
@@ -201,6 +203,37 @@ describe('runtime message protocol', () => {
         payload: { fromIndex: 1.5, toIndex: 0 },
       }),
     ).toBe(false);
+  });
+
+  test('types REMOVE_FROM_QUEUE removal count as numeric', () => {
+    const response: RuntimeResponseByType['REMOVE_FROM_QUEUE'] = {
+      success: true,
+      removed: 0,
+      queueLength: 2,
+    };
+
+    expect(response.removed).toBe(0);
+    expect(response.queueLength).toBe(2);
+  });
+
+  test('validates favorite-game and automation setting payloads fail-closed', () => {
+    const game = { id: 'valorant', name: 'Valorant', imageUrl: '' };
+
+    expect(isRuntimeRequest({ type: 'SET_GAME_FAVORITE', payload: { game, favorite: true } })).toBe(true);
+    expect(
+      isRuntimeRequest({ type: 'SET_CAMPAIGN_PRIORITY_MODE', payload: { mode: 'ending-soonest' } }),
+    ).toBe(true);
+    expect(isRuntimeRequest({ type: 'SET_CAMPAIGN_PRIORITY_MODE', payload: { mode: 'fastest' } })).toBe(
+      false,
+    );
+    expect(isRuntimeRequest({ type: 'SET_FARM_CATEGORY_SCOPE', payload: { scope: 'favorites-only' } })).toBe(
+      true,
+    );
+    expect(isRuntimeRequest({ type: 'SET_FARM_CATEGORY_SCOPE', payload: { scope: 'selected' } })).toBe(false);
+    expect(isRuntimeRequest({ type: 'SET_AUTO_START_FAVORITES', payload: { enabled: true } })).toBe(true);
+    expect(isRuntimeRequest({ type: 'SET_AUTO_START_FAVORITES', payload: { enabled: 'yes' } })).toBe(false);
+    expect(isRuntimeRequest({ type: 'EVALUATE_AUTO_START' })).toBe(true);
+    expect(isRuntimeRequest({ type: 'EVALUATE_AUTO_START', payload: {} })).toBe(false);
   });
 
   test('accepts valid ADD_TO_QUEUE payloads and rejects malformed selected games', () => {

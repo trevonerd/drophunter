@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
 import { needsPlaybackAttention } from '../src/background/playback.ts';
-import { canAttemptPageUnmute, isExpectedTwitchPlaybackInterruption } from '../src/content/playback.ts';
+import {
+  canAttemptPageUnmute,
+  isExpectedTwitchPlaybackInterruption,
+  startMutedPlayback,
+} from '../src/content/playback.ts';
 
 function normalizeText(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -31,11 +35,9 @@ interface FakeElement {
   getAttribute(name: string): string | null;
 }
 
-function createFakeLinkElement(options: {
-  textContent?: string;
-  href?: string;
-  attributes?: Record<string, string>;
-} = {}): FakeElement {
+function createFakeLinkElement(
+  options: { textContent?: string; href?: string; attributes?: Record<string, string> } = {},
+): FakeElement {
   return {
     textContent: options.textContent ?? '',
     href: options.href ?? '',
@@ -50,7 +52,9 @@ function createFakeTitleElement(options: { textContent?: string | null } = {}): 
   return {
     textContent: options.textContent ?? null,
     attributes: {},
-    getAttribute() { return null; },
+    getAttribute() {
+      return null;
+    },
   };
 }
 
@@ -201,9 +205,13 @@ describe('extractStreamCategory with FakeElement', () => {
 describe('extractStreamTitle with FakeElement', () => {
   test('returns textContent from a stream-title element when present', () => {
     const titleEl = createFakeTitleElement({ textContent: '  Drops Enabled Stream  ' });
-    const doc = createFakeDocument({}, {
-      '[data-a-target="stream-title"], h2[data-a-target="stream-title"], h1[data-a-target="stream-title"], h1': titleEl,
-    });
+    const doc = createFakeDocument(
+      {},
+      {
+        '[data-a-target="stream-title"], h2[data-a-target="stream-title"], h1[data-a-target="stream-title"], h1':
+          titleEl,
+      },
+    );
 
     const result = extractStreamTitleFromDoc(doc, 'Page Title - Twitch');
     expect(result).toBe('Drops Enabled Stream');
@@ -223,9 +231,13 @@ describe('extractStreamTitle with FakeElement', () => {
 
   test('null textContent on title element falls back to document.title', () => {
     const titleEl = createFakeTitleElement({ textContent: null });
-    const doc = createFakeDocument({}, {
-      '[data-a-target="stream-title"], h2[data-a-target="stream-title"], h1[data-a-target="stream-title"], h1': titleEl,
-    });
+    const doc = createFakeDocument(
+      {},
+      {
+        '[data-a-target="stream-title"], h2[data-a-target="stream-title"], h1[data-a-target="stream-title"], h1':
+          titleEl,
+      },
+    );
 
     const result = extractStreamTitleFromDoc(doc, 'Streamer Name - Twitch');
     expect(result).toBe('Streamer Name');
@@ -233,6 +245,37 @@ describe('extractStreamTitle with FakeElement', () => {
 });
 
 describe('playback prep policy', () => {
+  test('retries blocked playback muted without requiring page interaction', async () => {
+    let attempts = 0;
+    const video = {
+      muted: false,
+      paused: true,
+      async play() {
+        attempts += 1;
+        if (attempts === 1) throw new Error('NotAllowedError');
+        this.paused = false;
+      },
+    };
+
+    expect(await startMutedPlayback(video)).toEqual({ played: true });
+    expect(attempts).toBe(2);
+    expect(video.muted).toBe(true);
+  });
+
+  test('reports failure after the muted playback retry also fails', async () => {
+    const failure = new Error('still blocked');
+    const video = {
+      muted: false,
+      paused: true,
+      async play() {
+        throw failure;
+      },
+    };
+
+    expect(await startMutedPlayback(video)).toEqual({ played: false, error: failure });
+    expect(video.muted).toBe(true);
+  });
+
   test('does not attempt page unmute without real user activation', () => {
     expect(canAttemptPageUnmute(false)).toBe(false);
   });
@@ -269,7 +312,9 @@ describe('playback prep policy', () => {
   });
 
   test('keeps unexpected playback failures visible', () => {
-    expect(isExpectedTwitchPlaybackInterruption(new DOMException('Not allowed', 'NotAllowedError'))).toBe(false);
+    expect(isExpectedTwitchPlaybackInterruption(new DOMException('Not allowed', 'NotAllowedError'))).toBe(
+      false,
+    );
     expect(isExpectedTwitchPlaybackInterruption(new Error('boom'))).toBe(false);
   });
 });

@@ -15,8 +15,10 @@ export interface TwitchGame {
   displayName?: string;
   campaignName?: string;
   imageUrl: string;
+  categoryId?: string;
   categorySlug?: string;
   campaignId?: string;
+  accountLinkUrl?: string;
   endsAt?: string | null;
   expiresInMs?: number | null;
   expiryStatus?: ExpiryStatus;
@@ -67,6 +69,74 @@ export interface TwitchStreamer {
 
 export type ExpiryStatus = 'safe' | 'warning' | 'urgent' | 'unknown';
 export type StreamerSelectionMode = 'low-view' | 'random' | 'top-viewers';
+export type CampaignPriorityMode = 'ending-soonest' | 'lowest-availability' | 'priority-list-only';
+export type FarmCategoryScope = 'all' | 'favorites-only';
+export type QueueEntrySource = 'manual' | 'favorite-auto';
+export type WatchTransportMode = 'managed-tab' | 'tabless';
+export type WatchHealthStatus =
+  | 'healthy'
+  | 'degraded'
+  | 'failed'
+  | 'stalled'
+  | 'disabled'
+  | 'stopped'
+  | 'not-started';
+export type WatchHealthReason =
+  | 'started'
+  | 'heartbeat'
+  | 'heartbeat-failed'
+  | 'stream-offline'
+  | 'wrong-channel'
+  | 'wrong-game'
+  | 'drops-inactive'
+  | 'stalled-progress'
+  | 'managed-tab-unavailable'
+  | 'playback-inactive'
+  | 'transport-disabled'
+  | 'not-started'
+  | 'stopped'
+  | 'error';
+
+export interface WatchHealthSnapshot {
+  readonly mode: WatchTransportMode;
+  readonly isHealthy: boolean;
+  readonly status: WatchHealthStatus;
+  readonly reason: WatchHealthReason;
+  readonly consecutiveFailures: number;
+  readonly consecutiveStalls: number;
+  readonly progress: number | null;
+  readonly shouldFallback: boolean;
+  readonly checkedAt: number;
+}
+
+export interface FavoriteGame {
+  readonly gameId: string;
+  readonly lastKnownName: string;
+  readonly addedAt: number;
+  readonly identityKeys?: readonly string[];
+}
+
+export interface QueueEntryMetadata {
+  readonly source: QueueEntrySource;
+  readonly addedAt: number;
+  readonly reason: 'user-added' | 'favorite-discovered';
+}
+
+export type ManualWatchState = 'inactive' | 'eligible-manual' | 'automation-paused';
+export type AutomationActivityKind = 'favorite-added' | 'auto-started' | 'preempted' | 'auto-start-skipped';
+
+export interface AutomationActivityEntry {
+  readonly id: string;
+  readonly kind: AutomationActivityKind;
+  readonly at: number;
+  readonly message: string;
+  readonly campaignId?: string;
+}
+
+export interface CampaignAvailability {
+  readonly eligibleStreamerCount: number;
+  readonly updatedAt: number;
+}
 
 export type DropStatus = 'active' | 'pending' | 'completed';
 export type DropProgressSource = 'campaign' | 'inventory';
@@ -98,8 +168,23 @@ export interface AppState {
   completedDrops: TwitchDrop[];
   pendingDrops: TwitchDrop[];
   allDrops: TwitchDrop[];
+  campaignDropsByKey: Record<string, TwitchDrop[]>;
   availableGames: TwitchGame[];
   queue: TwitchGame[];
+  favoriteGames: FavoriteGame[];
+  campaignPriorityMode: CampaignPriorityMode;
+  farmCategoryScope: FarmCategoryScope;
+  autoStartFavoriteGames: boolean;
+  queueEntryMetadataByKey: Record<string, QueueEntryMetadata>;
+  automationActivity: AutomationActivityEntry[];
+  lastAutomationMessage: string | null;
+  nextAutomationCheckAt: number | null;
+  manualWatchState: ManualWatchState;
+  campaignAvailabilityByKey: Record<string, CampaignAvailability>;
+  watchTransportPreference: WatchTransportMode;
+  watchTransportMode: WatchTransportMode;
+  watchHealth: WatchHealthSnapshot | null;
+  watchFallbackReason: string | null;
   monitorWindowId: number | null;
   tabId: number | null;
   completionNotified: boolean;

@@ -6,6 +6,7 @@ import {
 } from '../src/background/drops-projection.ts';
 import {
   checkDropProgress,
+  handleRemoveFromQueue,
   handleReorderQueue,
   handleSetSelectedGame,
   refreshDropsData,
@@ -688,14 +689,54 @@ describe('reorderQueue', () => {
 });
 
 describe('handleReorderQueue', () => {
-  test('rejects reorder while farming is active', async () => {
+  test('switches to priority-list-only atomically on the first direct reorder', async () => {
     const state = createMinimalState();
-    const game1 = createGame({ id: 'game-1' });
-    const game2 = createGame({ id: 'game-2' });
-    state.appState.queue = [game1, game2];
-    state.appState.isRunning = true;
+    state.appState.campaignPriorityMode = 'ending-soonest';
+    const first = createGame({ id: 'game-1', campaignId: 'campaign-1' });
+    const second = createGame({ id: 'game-2', campaignId: 'campaign-2' });
+    state.appState.queue = [first, second];
+    let saved = 0;
 
     const result = await handleReorderQueue(
+      state,
+      { fromIndex: 0, toIndex: 1 },
+      {
+        onTrackActivity: async () => undefined,
+        onSaveState: async () => {
+          saved += 1;
+        },
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.reordered).toBe(true);
+    expect(state.appState.campaignPriorityMode).toBe('priority-list-only');
+    expect(state.appState.queue.map((game) => game.id)).toEqual(['game-2', 'game-1']);
+    expect(saved).toBe(1);
+  });
+
+  test('reorders future campaigns while farming and protects the running campaign', async () => {
+    const state = createMinimalState();
+    const running = createGame({ id: 'game-running', campaignId: 'campaign-running' });
+    const firstFuture = createGame({ id: 'game-1', campaignId: 'campaign-1' });
+    const secondFuture = createGame({ id: 'game-2', campaignId: 'campaign-2' });
+    state.appState.queue = [running, firstFuture, secondFuture];
+    state.appState.selectedGame = running;
+    state.appState.isRunning = true;
+
+    const reordered = await handleReorderQueue(
+      state,
+      { fromIndex: 2, toIndex: 1 },
+      {
+        onTrackActivity: async () => undefined,
+        onSaveState: async () => undefined,
+      },
+    );
+
+    expect(reordered.success).toBe(true);
+    expect(state.appState.queue.map((game) => game.id)).toEqual(['game-running', 'game-2', 'game-1']);
+
+    const protectsRunning = await handleReorderQueue(
       state,
       { fromIndex: 0, toIndex: 1 },
       {
@@ -704,11 +745,66 @@ describe('handleReorderQueue', () => {
       },
     );
 
+    expect(protectsRunning).toEqual({
+      success: false,
+      error: 'Cannot reorder the running campaign.',
+    });
+    expect(state.appState.queue.map((game) => game.id)).toEqual(['game-running', 'game-2', 'game-1']);
+  });
+});
+
+describe('handleRemoveFromQueue', () => {
+  const callbacks = {
+    onTrackActivity: async () => undefined,
+    onSaveState: async () => undefined,
+  };
+  const deps = {
+    removeGameFromQueue,
+    sameCampaignId: (left?: string | null, right?: string | null) => Boolean(left && right && left === right),
+  };
+
+  test('allows removing a future campaign while farming', async () => {
+    const running = createGame({ id: 'game-running', campaignId: 'campaign-running' });
+    const future = createGame({ id: 'game-future', campaignId: 'campaign-future' });
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = running;
+    state.appState.queue = [running, future];
+
+    const result = await handleRemoveFromQueue(state, { game: future }, callbacks, deps);
+
+    expect(result).toEqual({ success: true, removed: 1, queueLength: 1 });
+    expect(state.appState.queue).toEqual([running]);
+  });
+
+  test('rejects removing the running campaign while farming', async () => {
+    const running = createGame({ id: 'game-running', campaignId: 'campaign-running' });
+    const future = createGame({ id: 'game-future', campaignId: 'campaign-future' });
+    const state = createMinimalState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = running;
+    state.appState.queue = [running, future];
+
+    const result = await handleRemoveFromQueue(state, { game: running }, callbacks, deps);
+
     expect(result).toEqual({
       success: false,
-      error: 'Cannot reorder queue while farming is active.',
+      removed: 0,
+      queueLength: 2,
+      error: 'Cannot remove the running campaign.',
     });
-    expect(state.appState.queue.map((game) => game.id)).toEqual(['game-1', 'game-2']);
+    expect(state.appState.queue).toEqual([running, future]);
+  });
+
+  test('returns removed zero when the requested campaign is not queued', async () => {
+    const queued = createGame({ id: 'game-queued', campaignId: 'campaign-queued' });
+    const missing = createGame({ id: 'game-missing', campaignId: 'campaign-missing' });
+    const state = createMinimalState();
+    state.appState.queue = [queued];
+
+    const result = await handleRemoveFromQueue(state, { game: missing }, callbacks, deps);
+
+    expect(result).toEqual({ success: true, removed: 0, queueLength: 1 });
   });
 });
 
@@ -1394,6 +1490,38 @@ describe('advanceQueueIfCompleted', () => {
 
     expect(result).toBe(true);
     expect(state.appState.selectedGame?.id).toBe('game-2');
+  });
+
+  test('advances stale campaigns when only known non-farmable rewards remain', async () => {
+    const state = createMinimalState();
+    const roblox = createGame({ id: 'roblox', name: 'Roblox' });
+    const next = createGame({ id: 'next', name: 'Next game' });
+    state.appState.isRunning = true;
+    state.appState.selectedGame = roblox;
+    state.appState.queue = [roblox, next];
+    state.appState.availableGames = [roblox, next];
+    state.appState.allDrops = [];
+    state.appState.pendingDrops = [
+      createDrop({
+        id: 'subscriber-emote',
+        gameId: 'roblox',
+        gameName: 'Roblox',
+        acquisitionMethod: 'subscription',
+        rewardKind: 'twitch-emote',
+      }),
+    ];
+    state.appState.currentDrop = null;
+
+    await advanceQueueIfCompleted(state, {
+      onRefreshDropsData: async () => {
+        state.appState.pendingDrops = [createDrop({ id: 'next-drop', gameId: 'next' })];
+        state.appState.currentDrop = state.appState.pendingDrops[0] ?? null;
+      },
+      onOpenStreamer: async () => true,
+    });
+
+    expect(state.appState.selectedGame?.id).toBe('next');
+    expect(state.appState.queue.some((game) => game.id === 'roblox')).toBe(false);
   });
 
   test('advances to next game in queue when current completed', async () => {

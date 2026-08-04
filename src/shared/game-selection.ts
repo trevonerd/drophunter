@@ -10,6 +10,34 @@ function normalizedGameCategory(game: TwitchGame): string {
   return normalizeToken(game.categorySlug ?? toSlug(game.name));
 }
 
+export function gameCategoryKey(game: TwitchGame): string {
+  const categoryId = game.categoryId?.trim();
+  if (categoryId) return categoryId;
+  const categorySlug = game.categorySlug?.trim().toLocaleLowerCase();
+  if (categorySlug) return categorySlug;
+  return normalizedGameName(game) || game.id;
+}
+
+export function gameCategoryIdentityKeys(game: TwitchGame): string[] {
+  const values = [
+    game.categoryId?.trim(),
+    game.categorySlug?.trim().toLocaleLowerCase(),
+    normalizedGameName(game),
+    game.id?.trim(),
+  ].filter((value): value is string => Boolean(value));
+  return Array.from(new Set(values));
+}
+
+export function favoriteGameIdentityKeys(
+  favorites: readonly { readonly gameId: string; readonly identityKeys?: readonly string[] }[],
+): ReadonlySet<string> {
+  return new Set(favorites.flatMap((favorite) => [favorite.gameId, ...(favorite.identityKeys ?? [])]));
+}
+
+export function isFavoriteGame(game: TwitchGame, favoriteGameIds: ReadonlySet<string>): boolean {
+  return gameCategoryIdentityKeys(game).some((key) => favoriteGameIds.has(key));
+}
+
 function parseEndsAt(endsAt?: string | null): number {
   if (!endsAt) {
     return Number.POSITIVE_INFINITY;
@@ -135,7 +163,9 @@ export function dedupeGamesByIdentity(games: TwitchGame[]): TwitchGame[] {
       ...game,
       displayName: game.displayName || previous?.displayName || game.name,
       campaignName: game.campaignName || previous?.campaignName,
+      categoryId: game.categoryId || previous?.categoryId || undefined,
       categorySlug: game.categorySlug || previous?.categorySlug || undefined,
+      accountLinkUrl: game.accountLinkUrl || previous?.accountLinkUrl || undefined,
       imageUrl: game.imageUrl || previous?.imageUrl || '',
       endsAt: game.endsAt ?? previous?.endsAt ?? null,
       expiresInMs: game.expiresInMs ?? previous?.expiresInMs ?? null,

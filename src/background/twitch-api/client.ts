@@ -29,7 +29,7 @@ import {
   toIsoDate,
   toNumber,
 } from './parsing';
-import { TwitchSession } from './types';
+import { isLikelyAuthError, TwitchSession } from './types';
 
 const DROPS_TAG_ID = 'c2542d6d-cd10-4532-919b-3d19f30a768b';
 
@@ -68,7 +68,10 @@ const INVENTORY_QUERY = {
 
 const CAMPAIGN_DETAILS_HASH = '039277bf98f3130929262cc7c6efd9c141ca3749cb6dca442fc8ead9a53f77c1';
 const CAMPAIGN_DETAILS_BATCH_SIZE = 20;
+const CAMPAIGN_DETAILS_MAX_CONCURRENCY = 2;
 const EMPTY_CONFLICTED_REWARD_BENEFITS: ReadonlySet<string> = new Set();
+
+const inFlightSnapshotRefreshes = new Map<string, Promise<DropsSnapshot>>();
 
 const DIRECTORY_GAME_QUERY_HASH = '76cb069d835b8a02914c08dc42c421d0dafda8af5b113a3f19141824b901402f';
 const CLAIM_DROP_REWARD_QUERY = {
@@ -283,6 +286,21 @@ function isCampaignConnected(campaign: Record<string, unknown>): boolean {
   return isConnected !== false || isTwitchNativeCampaign(campaign);
 }
 
+function normalizeAccountLinkUrl(value: unknown): string | undefined {
+  const raw = normalizeText(value);
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    const hostname = url.hostname.toLocaleLowerCase();
+    if (url.protocol !== 'https:' || hostname === 'twitch.tv' || hostname.endsWith('.twitch.tv')) {
+      return undefined;
+    }
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
 function extractCampaignRewardDrops(campaign: Record<string, unknown>): Record<string, unknown>[] {
   return [...extractRecordArray(campaign.timeBasedDrops), ...extractRecordArray(campaign.eventBasedDrops)];
 }
@@ -325,7 +343,9 @@ function parseGameFromCampaign(campaign: Record<string, unknown>): TwitchGame | 
     normalizeText(campaign.title) ||
     undefined;
 
+  const categoryId = normalizeText(game.id) || undefined;
   const categorySlug = normalizeText(game.slug) || undefined;
+  const accountLinkUrl = normalizeAccountLinkUrl(campaign.accountLinkURL ?? campaign.accountLinkUrl);
   const imageUrl = normalizeImageUrl(game.boxArtURL) || normalizeImageUrl(game.boxArtUrl);
   const endsAt = toIsoDate(campaign.endAt);
   const { expiresInMs, expiryStatus } = computeExpiry(endsAt);
@@ -355,8 +375,10 @@ function parseGameFromCampaign(campaign: Record<string, unknown>): TwitchGame | 
     displayName: gameName,
     campaignName,
     imageUrl,
+    categoryId,
     categorySlug: categorySlug || undefined,
     campaignId: campaignId || undefined,
+    accountLinkUrl,
     endsAt,
     expiresInMs,
     expiryStatus,
@@ -648,6 +670,8 @@ export function extractBroadcasterLanguage(node: Record<string, unknown>): strin
 export class TwitchApiClient {
   private readonly transport: TwitchGqlTransport;
   private readonly session: TwitchSession;
+  private readonly campaignDetailsCache = new Map<string, Record<string, unknown>>();
+  private lastValidSnapshot: DropsSnapshot | null = null;
 
   constructor(session: TwitchSession) {
     this.transport = new TwitchGqlTransport(session);
@@ -676,30 +700,113 @@ export class TwitchApiClient {
     };
   }
 
-  private async fetchCampaignDetailsBatch(
-    campaignIds: string[],
-  ): Promise<Map<string, Record<string, unknown>>> {
-    const detailsMap = new Map<string, Record<string, unknown>>();
-    for (let i = 0; i < campaignIds.length; i += CAMPAIGN_DETAILS_BATCH_SIZE) {
-      const chunk = campaignIds.slice(i, i + CAMPAIGN_DETAILS_BATCH_SIZE);
-      const queries = chunk.map((id) => this.buildCampaignDetailsQuery(id));
-      const results = await this.transport.postAuthorizedBatch<{
-        user?: { dropCampaign?: Record<string, unknown> };
-      }>(queries);
-      results.forEach((result) => {
-        const campaign = result.data?.user?.dropCampaign;
-        if (campaign && typeof campaign === 'object') {
-          const id = normalizeText(campaign.id);
-          if (id) {
-            detailsMap.set(id, campaign);
-          }
-        }
-      });
+  private async fetchCampaignDetailsBatch(campaignIds: string[]): Promise<{
+    detailsMap: Map<string, Record<string, unknown>>;
+    failedBatches: number;
+  }> {
+    const uniqueCampaignIds = Array.from(new Set(campaignIds));
+    const chunks: string[][] = [];
+    for (let i = 0; i < uniqueCampaignIds.length; i += CAMPAIGN_DETAILS_BATCH_SIZE) {
+      chunks.push(uniqueCampaignIds.slice(i, i + CAMPAIGN_DETAILS_BATCH_SIZE));
     }
-    return detailsMap;
+
+    const fetchedDetails = new Map<string, Record<string, unknown>>();
+    let failedBatches = 0;
+    let nextChunkIndex = 0;
+
+    const fetchNextBatch = async (): Promise<void> => {
+      while (nextChunkIndex < chunks.length) {
+        const chunk = chunks[nextChunkIndex];
+        nextChunkIndex += 1;
+        if (!chunk) {
+          return;
+        }
+
+        try {
+          const queries = chunk.map((id) => this.buildCampaignDetailsQuery(id));
+          const results = await this.transport.postAuthorizedBatch<{
+            user?: { dropCampaign?: Record<string, unknown> };
+          }>(queries);
+          let hasValidDetail = false;
+          results.forEach((result) => {
+            const campaign = result.data?.user?.dropCampaign;
+            if (campaign && typeof campaign === 'object') {
+              const id = normalizeText(campaign.id);
+              const hasRewardBuckets =
+                Array.isArray(campaign.timeBasedDrops) || Array.isArray(campaign.eventBasedDrops);
+              if (id && hasRewardBuckets) {
+                hasValidDetail = true;
+                fetchedDetails.set(id, campaign);
+                this.campaignDetailsCache.set(id, campaign);
+              }
+            }
+          });
+          if (!hasValidDetail) {
+            failedBatches += 1;
+          }
+        } catch (error) {
+          if (isLikelyAuthError(error)) {
+            throw error;
+          }
+          failedBatches += 1;
+          logWarn(
+            '[TwitchApiClient] Campaign detail batch fetch failed; retaining valid partial data:',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    };
+
+    const workerCount = Math.min(CAMPAIGN_DETAILS_MAX_CONCURRENCY, chunks.length);
+    await Promise.all(Array.from({ length: workerCount }, () => fetchNextBatch()));
+
+    const detailsMap = new Map<string, Record<string, unknown>>();
+    uniqueCampaignIds.forEach((campaignId) => {
+      const details = fetchedDetails.get(campaignId) ?? this.campaignDetailsCache.get(campaignId);
+      if (details) {
+        detailsMap.set(campaignId, details);
+      }
+    });
+
+    return { detailsMap, failedBatches };
+  }
+
+  private snapshotRefreshKey(): string {
+    return JSON.stringify([
+      this.session.oauthToken,
+      this.session.userId,
+      this.session.deviceId,
+      this.session.uuid,
+      this.session.clientId ?? '',
+      this.session.clientIntegrity ?? '',
+    ]);
   }
 
   async fetchDropsSnapshot(): Promise<DropsSnapshot> {
+    const refreshKey = this.snapshotRefreshKey();
+    const existingRefresh = inFlightSnapshotRefreshes.get(refreshKey);
+    if (existingRefresh) {
+      return existingRefresh;
+    }
+
+    const refresh = this.fetchDropsSnapshotUncoalesced();
+    inFlightSnapshotRefreshes.set(refreshKey, refresh);
+    refresh.then(
+      () => {
+        if (inFlightSnapshotRefreshes.get(refreshKey) === refresh) {
+          inFlightSnapshotRefreshes.delete(refreshKey);
+        }
+      },
+      () => {
+        if (inFlightSnapshotRefreshes.get(refreshKey) === refresh) {
+          inFlightSnapshotRefreshes.delete(refreshKey);
+        }
+      },
+    );
+    return refresh;
+  }
+
+  private async fetchDropsSnapshotUncoalesced(): Promise<DropsSnapshot> {
     const [dashboardData, inventoryData] = await Promise.all([
       this.transport.postAuthorized<{ currentUser?: { dropCampaigns?: Array<Record<string, unknown>> } }>(
         VIEWER_DROPS_DASHBOARD_QUERY,
@@ -732,10 +839,26 @@ export class TwitchApiClient {
     // Fetch detailed campaign data (with timeBasedDrops) for all usable campaigns
     const campaignIds = usableCampaigns.map((c) => normalizeText(c.id)).filter((id) => id.length > 0);
 
-    const detailsMap =
+    const campaignDetails =
       campaignIds.length > 0
         ? await this.fetchCampaignDetailsBatch(campaignIds)
-        : new Map<string, Record<string, unknown>>();
+        : { detailsMap: new Map<string, Record<string, unknown>>(), failedBatches: 0 };
+
+    const hasDashboardRewardData = usableCampaigns.some(
+      (campaign) => extractCampaignRewardDrops(campaign).length > 0,
+    );
+    if (
+      campaignIds.length > 0 &&
+      campaignDetails.failedBatches > 0 &&
+      campaignDetails.detailsMap.size === 0 &&
+      !hasDashboardRewardData
+    ) {
+      if (this.lastValidSnapshot) {
+        return this.lastValidSnapshot;
+      }
+      throw new Error('Twitch campaign details unavailable.');
+    }
+    const detailsMap = campaignDetails.detailsMap;
 
     const parsedCampaigns = usableCampaigns.flatMap((campaign, index) => {
       const campaignId = normalizeText(campaign.id);
@@ -810,12 +933,16 @@ export class TwitchApiClient {
       globalClaimedIds: globalClaimedIdCounts.size,
     });
 
-    return {
+    const snapshot = {
       games,
       drops,
       campaignChannelsMap,
       updatedAt: Date.now(),
     };
+    if (campaignDetails.failedBatches === 0 && snapshot.games.length > 0) {
+      this.lastValidSnapshot = snapshot;
+    }
+    return snapshot;
   }
 
   async fetchInventorySnapshot(baseDrops: TwitchDrop[]): Promise<DropsSnapshot> {
