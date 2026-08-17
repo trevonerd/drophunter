@@ -134,7 +134,7 @@ describe('watch transport coordinator', () => {
     expect(heartbeatGameId).toBe('twitch-category-id');
   });
 
-  test('falls back to a managed tab on the fifth unhealthy heartbeat', async () => {
+  test('falls back to a managed tab on the tenth unhealthy heartbeat', async () => {
     const fixture = setup();
     let attempts = 0;
     const coordinator = createWatchTransportCoordinator({
@@ -166,11 +166,11 @@ describe('watch transport coordinator', () => {
     });
 
     await coordinator.start({ id: 'channel-1', name: 'channel-1', displayName: 'Channel 1', isLive: true });
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 9; index += 1) {
       await coordinator.tick();
     }
 
-    expect(attempts).toBe(5);
+    expect(attempts).toBe(10);
     expect(fixture.counters.opens).toBe(1);
     expect(fixture.state.appState.watchTransportMode).toBe('managed-tab');
     expect(fixture.state.appState.watchFallbackReason).toBe('heartbeat-failed');
@@ -239,10 +239,12 @@ describe('watch transport coordinator', () => {
     });
 
     await coordinator.start({ id: 'channel-1', name: 'channel-1', displayName: 'Channel 1', isLive: true });
-    await coordinator.tick();
-    await coordinator.tick();
-    await coordinator.tick();
-    await coordinator.tick();
+    for (let index = 0; index < 9; index += 1) {
+      await coordinator.tick();
+    }
+
+    expect(opens).toBe(0);
+
     await coordinator.tick();
 
     expect(opens).toBe(1);

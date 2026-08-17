@@ -101,10 +101,10 @@ function fixture(stage: FailureStage) {
       stage === 'persistence'
         ? async () => ({ kind: 'failed', reason: 'storage-unavailable' })
         : base.loadFacts,
-    saveQueuePatch:
+    savePolicyPatch:
       stage === 'queue-write'
         ? async () => ({ kind: 'failed', reason: 'storage-unavailable' })
-        : base.saveQueuePatch,
+        : base.savePolicyPatch,
     setSnooze:
       stage === 'snooze-write'
         ? async () => ({ kind: 'failed', reason: 'storage-unavailable' })

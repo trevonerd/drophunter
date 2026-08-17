@@ -6,7 +6,7 @@ import type {
   FarmingAutomationPersistenceContext,
   FarmingAutomationPersistenceRead,
   FarmingAutomationPersistenceWrite,
-  FarmingAutomationQueuePatch,
+  FarmingAutomationPolicyPatch,
   FarmingAutomationStorageArea,
   FarmingSessionTransitionCommit,
   StoredRecordNormalization,
@@ -180,10 +180,11 @@ function createPersistence(
         [FARMING_AUTOMATION_FACTS_STORAGE_KEY]: structuredClone(facts),
       });
     },
-    saveQueuePatch(patch: FarmingAutomationQueuePatch) {
+    savePolicyPatch(patch: FarmingAutomationPolicyPatch) {
       const nextAppState = structuredClone(context.state.appState);
       nextAppState.queue = patch.queue.map((entry) => structuredClone(entry));
       nextAppState.queueEntryMetadataByKey = structuredClone(patch.queueEntryMetadataByKey);
+      nextAppState.campaignAvailabilityByKey = structuredClone(patch.campaignAvailabilityByKey);
       return persistAppState(nextAppState, {});
     },
     async commitTransition(commit: FarmingSessionTransitionCommit) {

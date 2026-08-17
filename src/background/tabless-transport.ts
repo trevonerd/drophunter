@@ -15,7 +15,7 @@ import type {
 } from './watch-transport.ts';
 import type { ProvisionalWatchCandidate } from './watch-transport-transition.ts';
 
-export const TABLESS_HEARTBEAT_FAILURE_LIMIT = 5;
+export const TABLESS_HEARTBEAT_FAILURE_LIMIT = 10;
 
 export interface TablessProvisionalWatchOptions {
   readonly enabled: boolean;

@@ -122,18 +122,16 @@ describe('Farming automation persistence', () => {
     expect(broadcasts).toEqual([state.appState]);
   });
 
-  test('persists a queue patch independently from automation facts', async () => {
+  test('persists a policy patch independently from automation facts', async () => {
     // Given
     const storage = createInMemoryFarmingAutomationStorage();
     const state = createServiceWorkerState();
     const facts = createInitialFarmingAutomationFacts();
     storage.seedLocal(FARMING_AUTOMATION_FACTS_STORAGE_KEY, facts);
     const persistence = persistenceFor(storage, state);
-    const queued = game('game-b', 'campaign-b');
-
     // When
-    await persistence.saveQueuePatch({
-      queue: [queued],
+    await persistence.savePolicyPatch({
+      queue: [game('game-b', 'campaign-b')],
       queueEntryMetadataByKey: {
         'campaign:campaign-b': {
           source: 'favorite-auto',
@@ -141,10 +139,11 @@ describe('Farming automation persistence', () => {
           reason: 'favorite-discovered',
         },
       },
+      campaignAvailabilityByKey: {},
     });
 
     // Then
-    expect(state.appState.queue).toEqual([queued]);
+    expect(state.appState.queue).toEqual([game('game-b', 'campaign-b')]);
     expect(storage.getLocal(FARMING_AUTOMATION_FACTS_STORAGE_KEY)).toEqual(facts);
   });
 

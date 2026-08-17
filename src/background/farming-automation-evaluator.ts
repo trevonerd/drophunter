@@ -14,7 +14,7 @@ import { discoverFarmingAutomationCandidates } from './farming-automation-discov
 import {
   createFarmingAutomationCompletedFacts,
   persistFarmingAutomationFacts,
-  persistFarmingAutomationQueuePlan,
+  persistFarmingAutomationPlan,
   persistFarmingAutomationRetry,
   runFarmingAutomationStartedEffects,
 } from './farming-automation-effects.ts';
@@ -81,14 +81,21 @@ export function createFarmingAutomationEvaluator(
       if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
     }
     const cheapGate = cheapFarmingAutomationGate(dependencies.state, dependencies.runtime.snoozed);
-    if (cheapGate) return cheapGate;
-    try {
-      if (!(await dependencies.browser.hasNotificationPermission())) {
+    const refreshAvailabilityOnly =
+      cheapGate?.kind === 'unchanged' &&
+      cheapGate.reason === 'disabled' &&
+      triggers.has('campaign-refresh') &&
+      dependencies.state.appState.campaignPriorityMode === 'lowest-availability';
+    if (cheapGate && !refreshAvailabilityOnly) return cheapGate;
+    if (!refreshAvailabilityOnly) {
+      try {
+        if (!(await dependencies.browser.hasNotificationPermission())) {
+          return { kind: 'failed', reason: 'notifications-unavailable' };
+        }
+      } catch (error) {
+        if (!(error instanceof Error)) throw error;
         return { kind: 'failed', reason: 'notifications-unavailable' };
       }
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      return { kind: 'failed', reason: 'notifications-unavailable' };
     }
 
     const beforeRefresh = currentStateFingerprint();
@@ -101,18 +108,31 @@ export function createFarmingAutomationEvaluator(
     if (currentStateFingerprint() !== beforeRefresh) {
       return { kind: 'unchanged', reason: 'superseded-by-state-change' };
     }
+    if (refreshAvailabilityOnly) {
+      const persisted = await persistFarmingAutomationPlan({
+        state: dependencies.state,
+        persistence: dependencies.persistence,
+        queuePlan: null,
+        availability: discovery.availability,
+        now,
+      });
+      return persisted
+        ? { kind: 'unchanged', reason: 'disabled' }
+        : { kind: 'failed', reason: 'persistence-failed' };
+    }
 
     const plan = planFarmingAutomationPolicy(
       createFarmingAutomationPolicySnapshot(dependencies.state, discovery.snapshot, discovery.availability),
       now,
     );
     if (
-      !(await persistFarmingAutomationQueuePlan(
-        dependencies.state,
-        dependencies.persistence,
-        plan.queue,
+      !(await persistFarmingAutomationPlan({
+        state: dependencies.state,
+        persistence: dependencies.persistence,
+        queuePlan: plan.queue,
+        availability: discovery.availability,
         now,
-      ))
+      }))
     ) {
       return { kind: 'failed', reason: 'persistence-failed' };
     }
