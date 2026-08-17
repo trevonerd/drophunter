@@ -1,46 +1,99 @@
 import { browser } from '../shared/browser-api.ts';
+import type { FarmingAutomationBrowser } from './farming-automation-browser.ts';
+import type { FarmingAutomation, FarmingAutomationPersistence } from './farming-automation-contracts.ts';
+import type { FarmingAutomationRecoveryResult } from './farming-automation-recovery.ts';
+import { logWarn } from './logging.ts';
+
+const FARMING_AUTOMATION_PERIOD_MINUTES = 2;
+const MINIMUM_FARMING_AUTOMATION_WAKE_DELAY_MS = 30_000;
 
 type ListenerEvent<TArgs extends unknown[]> = {
   addListener(handler: (...args: TArgs) => void): void;
 };
 
 export interface TabChangeInfo {
-  status?: string;
-  url?: string;
+  readonly status?: string;
+  readonly url?: string;
 }
 
 export interface ExtensionLifecycleApi {
-  runtime: {
-    onStartup: ListenerEvent<[]>;
-    onInstalled: ListenerEvent<[chrome.runtime.InstalledDetails]>;
+  readonly runtime: {
+    readonly onStartup: ListenerEvent<[]>;
+    readonly onInstalled: ListenerEvent<[chrome.runtime.InstalledDetails]>;
   };
-  alarms: {
-    onAlarm: ListenerEvent<[chrome.alarms.Alarm]>;
+  readonly alarms: {
+    readonly onAlarm: ListenerEvent<[chrome.alarms.Alarm]>;
   };
-  tabs: {
-    onRemoved: ListenerEvent<[number]>;
-    onUpdated: ListenerEvent<[number, TabChangeInfo]>;
+  readonly tabs: {
+    readonly onRemoved: ListenerEvent<[number]>;
+    readonly onUpdated: ListenerEvent<[number, TabChangeInfo]>;
   };
-  windows: {
-    onRemoved: ListenerEvent<[number]>;
+  readonly windows: {
+    readonly onRemoved: ListenerEvent<[number]>;
   };
 }
 
 interface ExtensionLifecycleOptions {
-  api?: ExtensionLifecycleApi;
-  alarmName: string;
-  automationAlarmName?: string;
-  linkRecheckAlarmPrefix?: string;
-  getInitPromise: () => Promise<void> | null;
-  onExtensionUpdate: (details: chrome.runtime.InstalledDetails) => Promise<unknown> | unknown;
-  onBrowserStartup?: () => Promise<unknown> | unknown;
-  onAlarm: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
-  onAutomationAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
-  onLinkRecheckAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
-  onManagedTabRemoved: (tabId: number) => Promise<unknown> | unknown;
-  onManagedTabNavigatedAway: (tabId: number, url: string) => Promise<unknown> | unknown;
-  onMonitorWindowRemoved: (windowId: number) => Promise<unknown> | unknown;
-  logWarn: (...args: unknown[]) => void;
+  readonly api?: ExtensionLifecycleApi;
+  readonly alarmName: string;
+  readonly automationPeriodicAlarmName?: string;
+  readonly automationDeadlineAlarmName?: string;
+  readonly farmingAutomation: Pick<FarmingAutomation, 'request'>;
+  readonly linkRecheckAlarmPrefix?: string;
+  readonly getInitPromise: () => Promise<void> | null;
+  readonly onExtensionUpdate: (details: chrome.runtime.InstalledDetails) => Promise<unknown> | unknown;
+  readonly onAlarm: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
+  readonly onLinkRecheckAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
+  readonly onManagedTabRemoved: (tabId: number) => Promise<unknown> | unknown;
+  readonly onManagedTabNavigatedAway: (tabId: number, url: string) => Promise<unknown> | unknown;
+  readonly onMonitorWindowRemoved: (windowId: number) => Promise<unknown> | unknown;
+  readonly logWarn: (...args: unknown[]) => void;
+}
+
+interface FarmingAutomationLifecycleDependencies {
+  readonly automation: Pick<FarmingAutomation, 'request'>;
+  readonly browser: Pick<FarmingAutomationBrowser, 'replaceDeadlineAlarm' | 'schedulePeriodicAlarm'>;
+  readonly persistence: Pick<FarmingAutomationPersistence, 'loadFacts'>;
+  readonly recover: () => Promise<FarmingAutomationRecoveryResult>;
+  readonly now?: () => number;
+}
+
+async function settleAutomationAlarm(operation: () => Promise<string>, label: string): Promise<void> {
+  try {
+    if ((await operation()) === 'failed') logWarn(label);
+  } catch (error) {
+    logWarn(label, { message: String(error) });
+  }
+}
+
+export async function initializeFarmingAutomationLifecycle(
+  dependencies: FarmingAutomationLifecycleDependencies,
+): Promise<void> {
+  const recovery = await dependencies.recover();
+  if (recovery.kind === 'failed') throw new DOMException('Automation recovery failed', 'InvalidStateError');
+  const facts = await dependencies.persistence.loadFacts();
+  if (facts.kind === 'failed') throw new DOMException('Automation facts unavailable', 'InvalidStateError');
+  await settleAutomationAlarm(
+    () => dependencies.browser.schedulePeriodicAlarm(FARMING_AUTOMATION_PERIOD_MINUTES),
+    'Farming automation periodic alarm creation failed',
+  );
+  const now = dependencies.now?.() ?? Date.now();
+  const deadline = facts.value.nextEvaluationAt;
+  if (deadline === null || deadline <= now) {
+    await settleAutomationAlarm(
+      () => dependencies.browser.replaceDeadlineAlarm(null),
+      'Farming automation deadline clearing failed',
+    );
+    if (deadline !== null) await dependencies.automation.request('periodic');
+    return;
+  }
+  await settleAutomationAlarm(
+    () =>
+      dependencies.browser.replaceDeadlineAlarm(
+        Math.max(deadline, now + MINIMUM_FARMING_AUTOMATION_WAKE_DELAY_MS),
+      ),
+    'Farming automation deadline replacement failed',
+  );
 }
 
 function isTwitchPageUrl(url: string): boolean {
@@ -51,25 +104,25 @@ function reportAsyncError(
   task: Promise<unknown> | unknown,
   label: string,
   logWarn: (...args: unknown[]) => void,
-) {
+): void {
   Promise.resolve(task).catch((error) => logWarn(`${label}:`, String(error)));
 }
 
-async function awaitInitialization(getInitPromise: () => Promise<void> | null) {
+async function awaitInitialization(getInitPromise: () => Promise<void> | null): Promise<void> {
   const initPromise = getInitPromise();
   if (initPromise) {
     await initPromise;
   }
 }
 
-export function registerExtensionLifecycleListeners(options: ExtensionLifecycleOptions) {
+export function registerExtensionLifecycleListeners(options: ExtensionLifecycleOptions): void {
   const api = options.api ?? browser;
 
   api.runtime.onStartup.addListener(() => {
     reportAsyncError(
       (async () => {
         await awaitInitialization(options.getInitPromise);
-        await options.onBrowserStartup?.();
+        await options.farmingAutomation.request('browser-start');
       })(),
       'onStartup error',
       options.logWarn,
@@ -92,7 +145,10 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
   api.alarms.onAlarm.addListener((alarm) => {
     const isMonitoringAlarm = alarm.name === options.alarmName;
     const isAutomationAlarm =
-      options.automationAlarmName !== undefined && alarm.name === options.automationAlarmName;
+      (options.automationPeriodicAlarmName !== undefined &&
+        alarm.name === options.automationPeriodicAlarmName) ||
+      (options.automationDeadlineAlarmName !== undefined &&
+        alarm.name === options.automationDeadlineAlarmName);
     const isLinkRecheckAlarm =
       options.linkRecheckAlarmPrefix !== undefined && alarm.name.startsWith(options.linkRecheckAlarmPrefix);
     if (!isMonitoringAlarm && !isAutomationAlarm && !isLinkRecheckAlarm) {
@@ -104,7 +160,7 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
         if (isMonitoringAlarm) {
           await options.onAlarm(alarm);
         } else if (isAutomationAlarm) {
-          await options.onAutomationAlarm?.(alarm);
+          await options.farmingAutomation.request('periodic');
         } else {
           await options.onLinkRecheckAlarm?.(alarm);
         }
@@ -126,13 +182,14 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
   });
 
   api.tabs.onUpdated.addListener((updatedTabId, changeInfo) => {
-    if (!changeInfo.url || isTwitchPageUrl(changeInfo.url)) {
+    const url = changeInfo.url;
+    if (!url || isTwitchPageUrl(url)) {
       return;
     }
     reportAsyncError(
       (async () => {
         await awaitInitialization(options.getInitPromise);
-        await options.onManagedTabNavigatedAway(updatedTabId, changeInfo.url as string);
+        await options.onManagedTabNavigatedAway(updatedTabId, url);
       })(),
       'tabs.onUpdated error',
       options.logWarn,

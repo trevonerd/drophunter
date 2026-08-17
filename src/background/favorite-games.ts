@@ -5,13 +5,32 @@ import {
   gameKey,
   isFavoriteGame,
 } from '../shared/game-selection.ts';
-import { isExpiredGame } from '../shared/utils.ts';
-import type { AppState, QueueEntryMetadata, TwitchGame } from '../types/index.ts';
+import type {
+  AppState,
+  CampaignPriorityMode,
+  FavoriteGame,
+  QueueEntryMetadata,
+  TwitchGame,
+} from '../types/index.ts';
 import { insertFavoriteCampaignByDeadline } from './campaign-priority.ts';
 
 export interface FavoriteCampaignAddition {
   readonly game: TwitchGame;
   readonly position: number;
+}
+
+export interface FavoriteCampaignQueuePlanInput {
+  readonly availableGames: readonly TwitchGame[];
+  readonly favoriteGames: readonly FavoriteGame[];
+  readonly queue: readonly TwitchGame[];
+  readonly queueEntryMetadataByKey: Readonly<Record<string, QueueEntryMetadata>>;
+  readonly campaignPriorityMode: CampaignPriorityMode;
+}
+
+export interface FavoriteCampaignQueuePlan {
+  readonly queue: readonly TwitchGame[];
+  readonly queueEntryMetadataByKey: Readonly<Record<string, QueueEntryMetadata>>;
+  readonly added: readonly FavoriteCampaignAddition[];
 }
 
 function manualMetadata(addedAt: number): QueueEntryMetadata {
@@ -20,6 +39,65 @@ function manualMetadata(addedAt: number): QueueEntryMetadata {
 
 function favoriteMetadata(addedAt: number): QueueEntryMetadata {
   return { source: 'favorite-auto', addedAt, reason: 'favorite-discovered' };
+}
+
+function isExpiredAt(game: TwitchGame, now: number): boolean {
+  if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)) {
+    return game.expiresInMs <= 0;
+  }
+  if (!game.endsAt) {
+    return false;
+  }
+  const endsAt = Date.parse(game.endsAt);
+  return Number.isFinite(endsAt) && endsAt <= now;
+}
+
+function planQueueMetadata(
+  queue: readonly TwitchGame[],
+  metadata: Readonly<Record<string, QueueEntryMetadata>>,
+  now: number,
+): Record<string, QueueEntryMetadata> {
+  return Object.fromEntries(
+    queue.map((game) => [gameKey(game), metadata[gameKey(game)] ?? manualMetadata(now)]),
+  );
+}
+
+export function planFavoriteCampaignQueue(
+  input: FavoriteCampaignQueuePlanInput,
+  now: number,
+): FavoriteCampaignQueuePlan {
+  if (input.campaignPriorityMode !== 'priority-list-only') {
+    return {
+      queue: [...input.queue],
+      queueEntryMetadataByKey: { ...input.queueEntryMetadataByKey },
+      added: [],
+    };
+  }
+
+  const queue = [...input.queue];
+  const queueEntryMetadataByKey = planQueueMetadata(queue, input.queueEntryMetadataByKey, now);
+  const queuedKeys = new Set(queue.map(gameKey));
+  const favoriteIds = favoriteGameIdentityKeys(input.favoriteGames);
+  const candidates = input.availableGames
+    .filter(
+      (game) =>
+        isFavoriteGame(game, favoriteIds) &&
+        !queuedKeys.has(gameKey(game)) &&
+        !isExpiredAt(game, now) &&
+        (game.rewardSummary?.completion === undefined || game.rewardSummary.completion === 'farmable'),
+    )
+    .sort((left, right) => campaignExpiry(left) - campaignExpiry(right));
+
+  const added: FavoriteCampaignAddition[] = [];
+  for (const game of candidates) {
+    const insertion = insertFavoriteCampaignByDeadline(queue, game);
+    queue.splice(0, queue.length, ...insertion.queue);
+    queueEntryMetadataByKey[gameKey(game)] = favoriteMetadata(now);
+    queuedKeys.add(gameKey(game));
+    added.push({ game, position: insertion.position });
+  }
+
+  return { queue, queueEntryMetadataByKey, added };
 }
 
 export function reconcileQueueEntryMetadata(state: AppState, now: number): void {
@@ -99,25 +177,8 @@ export function discoverFavoriteCampaigns(
     return { added: [] };
   }
 
-  const favoriteIds = favoriteGameIdentityKeys(state.favoriteGames);
-  const queuedKeys = new Set(state.queue.map(gameKey));
-  const candidates = state.availableGames
-    .filter(
-      (game) =>
-        isFavoriteGame(game, favoriteIds) &&
-        !queuedKeys.has(gameKey(game)) &&
-        !isExpiredGame(game) &&
-        (game.rewardSummary?.completion === undefined || game.rewardSummary.completion === 'farmable'),
-    )
-    .sort((left, right) => campaignExpiry(left) - campaignExpiry(right));
-
-  const added: FavoriteCampaignAddition[] = [];
-  for (const game of candidates) {
-    const insertion = insertFavoriteCampaignByDeadline(state.queue, game);
-    state.queue = insertion.queue;
-    state.queueEntryMetadataByKey[gameKey(game)] = favoriteMetadata(now);
-    queuedKeys.add(gameKey(game));
-    added.push({ game, position: insertion.position });
-  }
-  return { added };
+  const plan = planFavoriteCampaignQueue(state, now);
+  state.queue = [...plan.queue];
+  state.queueEntryMetadataByKey = { ...plan.queueEntryMetadataByKey };
+  return { added: [...plan.added] };
 }

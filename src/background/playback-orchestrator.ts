@@ -1,6 +1,54 @@
 import { browser } from '../shared/browser-api.ts';
 import type { PlaybackPrepResult, TwitchStreamer } from '../types';
 import { STREAM_VALIDATION_GRACE_MS } from './constants.ts';
+import type { ManualStreamContext, ManualWatchTab } from './manual-watch-detector.ts';
+import { parsePlaybackPrepResult } from './watch-transport.ts';
+
+export type ManualPlaybackTab = ManualWatchTab & { readonly windowId?: number };
+
+export type ManualPlaybackObservation = {
+  readonly tab: ManualPlaybackTab;
+  readonly context: ManualStreamContext | null;
+};
+
+export type ManualPlaybackObservationResult =
+  | { readonly kind: 'observed'; readonly tabs: readonly ManualPlaybackObservation[] }
+  | { readonly kind: 'failed' };
+
+export async function observeManualPlayback(
+  tabsApi: {
+    readonly query: (query: { readonly active: true }) => Promise<readonly ManualPlaybackTab[]>;
+  },
+  getStreamContext: (tabId: number) => Promise<ManualStreamContext | null>,
+): Promise<ManualPlaybackObservationResult> {
+  let tabs: readonly ManualPlaybackTab[];
+  try {
+    tabs = await tabsApi.query({ active: true });
+  } catch (error) {
+    if (error instanceof Error) return { kind: 'failed' };
+    throw error;
+  }
+  const observations: ManualPlaybackObservation[] = [];
+  for (const tab of tabs) {
+    if (
+      typeof tab.id !== 'number' ||
+      tab.active !== true ||
+      !tab.url ||
+      !/^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(tab.url)
+    ) {
+      continue;
+    }
+    let context: ManualStreamContext | null;
+    try {
+      context = await getStreamContext(tab.id);
+    } catch (error) {
+      if (error instanceof Error) return { kind: 'failed' };
+      throw error;
+    }
+    observations.push({ tab, context });
+  }
+  return { kind: 'observed', tabs: observations };
+}
 
 interface PlaybackState {
   appState: {
@@ -109,7 +157,7 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
         .update(tabId, { muted: true })
         .catch(() => undefined);
     }
-    return (prepared ?? {}) as PlaybackPrepResult;
+    return parsePlaybackPrepResult(prepared);
   };
 
   const warnIfPlaybackNeedsAttention = async (
