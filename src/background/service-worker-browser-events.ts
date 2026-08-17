@@ -11,7 +11,9 @@ import type { StreamContext } from './farming-session.ts';
 import { logInfo, logWarn } from './logging.ts';
 import { openMonitorDashboardWindow as openMonitorDashboardWindowController } from './monitor-dashboard.ts';
 import { needsPlaybackAttention } from './playback.ts';
+import { createPlaybackAttentionPolicy } from './playback-attention-policy.ts';
 import { createPlaybackOrchestrator } from './playback-orchestrator.ts';
+import { createPlaybackTransport } from './playback-transport.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { broadcastStateUpdate, saveState } from './state-persistence.ts';
 import {
@@ -50,13 +52,19 @@ export function createServiceWorkerBrowserEvents(
   state: ServiceWorkerState,
   dependencies: ServiceWorkerBrowserDependencies,
 ) {
-  const playbackOrchestrator = createPlaybackOrchestrator(state, {
+  const playbackTransport = createPlaybackTransport({
     ensureContentScriptOnTab: dependencies.ensureContentScriptOnTab,
     ensureManagedTab,
     waitForTabComplete,
+  });
+  const playbackAttention = createPlaybackAttentionPolicy(state, {
     shouldMuteManagedFarmingTab: () => shouldMuteManagedFarmingTab(state),
     needsPlaybackAttention,
     notify: dependencies.notify,
+  });
+  const playbackOrchestrator = createPlaybackOrchestrator(state, {
+    transport: playbackTransport,
+    attention: playbackAttention,
     streamerWatchUrl,
   });
 
