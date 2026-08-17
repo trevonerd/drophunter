@@ -2,6 +2,7 @@ import { toSlug } from '../shared/utils.ts';
 import type { TwitchStreamer, WatchHealthSnapshot, WatchTransportMode } from '../types/index.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { createWatchFallbackPolicy } from './watch-fallback-policy.ts';
 import {
   type FarmingTarget,
   type ManagedTabOpenResult,
@@ -13,6 +14,10 @@ import {
   type WatchProbeResult,
   type WatchTransport,
 } from './watch-transport.ts';
+import {
+  createWatchTransportProjectionStore,
+  type WatchTransportProjection,
+} from './watch-transport-projection.ts';
 import type { WatchTransportAdoption, WatchTransportRuntime } from './watch-transport-transition.ts';
 
 export interface WatchTransportCoordinatorOptions {
@@ -78,57 +83,62 @@ export function createWatchTransportCoordinator(
       now,
     });
   const createManaged = (): WatchTransport => new ManagedTabTransport({ ...options.managedTab, now });
+  const projection = createWatchTransportProjectionStore(options);
+  const fallbackPolicy = createWatchFallbackPolicy();
   let active: WatchTransport = createManaged();
   let target: FarmingTarget | null = null;
-  let fallbackIssued = false;
   let lastTickAt = 0;
-
-  const publish = (health: WatchHealthSnapshot) => {
-    state.appState.watchTransportMode = health.mode;
-    state.appState.watchHealth = health;
-    options.broadcast();
-  };
-
-  const persist = async (health: WatchHealthSnapshot) => {
-    publish(health);
-    await options.persist();
-  };
 
   const startManagedFallback = async (fallbackHealth: WatchHealth): Promise<WatchHealth> => {
     const nextTarget = target;
     if (!nextTarget) {
-      await persist(fallbackHealth);
+      await projection.apply({ kind: 'checked', health: fallbackHealth });
       return fallbackHealth;
     }
     await active.stop();
     active = createManaged();
     const health = await active.start(nextTarget);
-    state.appState.watchFallbackReason = fallbackHealth.reason;
-    await persist(health);
+    await projection.apply({
+      kind: 'fallback',
+      health,
+      reason: fallbackHealth.reason,
+    });
     return health;
+  };
+
+  const settleHealth = async (
+    health: WatchHealth,
+    projectionKind: Extract<WatchTransportProjection['kind'], 'started' | 'checked'>,
+  ): Promise<WatchHealth> => {
+    const decision = fallbackPolicy.evaluate(health);
+    switch (decision.kind) {
+      case 'continue':
+        await projection.apply({ kind: projectionKind, health });
+        return health;
+      case 'fallback':
+        return startManagedFallback(health);
+      default:
+        decision satisfies never;
+        return health;
+    }
   };
 
   const start = async (streamer: TwitchStreamer): Promise<WatchHealth> => {
     const nextTarget = targetFor(state, streamer);
     if (!nextTarget) {
       const health = streamHealth(state.appState.currentDrop?.currentMinutes ?? null, 'managed-tab', now());
-      await persist(health);
+      await projection.apply({ kind: 'started', health });
       return health;
     }
     target = nextTarget;
-    fallbackIssued = false;
+    fallbackPolicy.reset();
     lastTickAt = 0;
-    state.appState.watchFallbackReason = null;
     state.appState.activeStreamer = { ...streamer, isLive: true };
     state.appState.tabId = null;
     await active.stop();
     active = state.appState.watchTransportPreference === 'tabless' ? createTabless() : createManaged();
     const health = await active.start(nextTarget);
-    if (health.status === 'disabled' && active.mode === 'tabless') {
-      return startManagedFallback(health);
-    }
-    await persist(health);
-    return health;
+    return settleHealth(health, 'started');
   };
 
   const tick = async (): Promise<WatchHealth> => {
@@ -143,48 +153,34 @@ export function createWatchTransportCoordinator(
             state.appState.watchTransportPreference === 'tabless'
               ? createTabless()
               : createManaged();
+          fallbackPolicy.reset();
           const restoredHealth = await active.start(restoredTarget);
-          if (restoredHealth.status === 'disabled' && active.mode === 'tabless') {
-            return startManagedFallback(restoredHealth);
-          }
-          await persist(restoredHealth);
-          return restoredHealth;
+          return settleHealth(restoredHealth, 'started');
         }
       }
       const health = streamHealth(state.appState.currentDrop?.currentMinutes ?? null, active.mode, now());
-      await persist(health);
+      await projection.apply({ kind: 'checked', health });
       return health;
     }
     if (active.mode === 'tabless' && now() - lastTickAt < minHeartbeatIntervalMs) {
-      return state.appState.watchHealth ?? streamHealth(null, active.mode, now());
+      return projection.currentHealth() ?? streamHealth(null, active.mode, now());
     }
     lastTickAt = now();
     const health = await active.tick();
-    if (active.mode === 'tabless' && health.shouldFallback && !fallbackIssued) {
-      fallbackIssued = true;
-      return startManagedFallback(health);
-    }
-    await persist(health);
-    return health;
+    return settleHealth(health, 'checked');
   };
 
   const stop = async () => {
     await active.stop();
     target = null;
-    fallbackIssued = false;
+    fallbackPolicy.reset();
     lastTickAt = 0;
     const health = streamHealth(null, active.mode, now());
-    state.appState.watchTransportMode = health.mode;
-    state.appState.watchHealth = { ...health, status: 'stopped', reason: 'stopped' };
-    state.appState.watchFallbackReason = null;
-    await options.persist();
-    options.broadcast();
+    await projection.apply({ kind: 'stopped', health });
   };
 
   const setPreference = async (mode: WatchTransportMode) => {
-    state.appState.watchTransportPreference = mode;
-    await options.persist();
-    options.broadcast();
+    await projection.apply({ kind: 'preference', mode });
   };
 
   const adopt = (adoption: WatchTransportAdoption): void => {
@@ -195,7 +191,7 @@ export function createWatchTransportCoordinator(
     }
     active = next;
     target = adoption.target;
-    fallbackIssued = false;
+    fallbackPolicy.reset();
     lastTickAt = 0;
     if (adoption.obsolete === null && previous.currentOwnership() !== null) {
       void previous.stop().catch(() => undefined);

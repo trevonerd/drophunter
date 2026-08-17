@@ -49,6 +49,43 @@ function setup() {
 }
 
 describe('watch transport coordinator', () => {
+  test('persists projected health before broadcasting it', async () => {
+    const state = createServiceWorkerState();
+    state.appState.selectedGame = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      categorySlug: 'game',
+    };
+    state.appState.watchTransportPreference = 'tabless';
+    const events: string[] = [];
+    const coordinator = createWatchTransportCoordinator({
+      state,
+      heartbeat: async () => ({ accepted: true, progress: 1 }),
+      managedTab: {
+        open: async () => null,
+        probe: async () => ({ accepted: true }),
+        close: async () => {},
+      },
+      persist: async () => {
+        events.push(`persist:${state.appState.watchHealth?.status}`);
+      },
+      broadcast: () => {
+        events.push(`broadcast:${state.appState.watchHealth?.status}`);
+      },
+    });
+
+    await coordinator.start({
+      id: 'channel-1',
+      name: 'channel-1',
+      displayName: 'Channel 1',
+      isLive: true,
+    });
+
+    expect(events).toEqual(['persist:healthy', 'broadcast:healthy']);
+  });
+
   test('starts healthy tabless watching without opening a managed tab', async () => {
     const fixture = setup();
 
