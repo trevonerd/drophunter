@@ -43,6 +43,12 @@ async function flushAsyncListeners() {
   await Promise.resolve();
 }
 
+const inactiveAutomation = {
+  async request() {
+    return { kind: 'unchanged', reason: 'disabled' } as const;
+  },
+};
+
 describe('extension lifecycle listeners', () => {
   test('waits for initialization before handling alarms and tab or window changes', async () => {
     const api = createLifecycleApi();
@@ -54,6 +60,7 @@ describe('extension lifecycle listeners', () => {
     registerExtensionLifecycleListeners({
       api,
       alarmName: 'dropCheck',
+      farmingAutomation: inactiveAutomation,
       getInitPromise: () => initialization,
       onExtensionUpdate: async () => {},
       onAlarm: async () => {
@@ -89,6 +96,7 @@ describe('extension lifecycle listeners', () => {
     registerExtensionLifecycleListeners({
       api,
       alarmName: 'dropCheck',
+      farmingAutomation: inactiveAutomation,
       getInitPromise: () =>
         Promise.resolve().then(() => {
           calls.push('init');
@@ -115,12 +123,16 @@ describe('extension lifecycle listeners', () => {
     registerExtensionLifecycleListeners({
       api,
       alarmName: 'dropCheck',
-      automationAlarmName: 'favoriteCampaignCheck',
+      automationPeriodicAlarmName: 'favoriteCampaignCheck',
+      farmingAutomation: {
+        async request(trigger) {
+          calls.push(trigger === 'browser-start' ? 'startup' : 'automation');
+          return { kind: 'unchanged', reason: 'disabled' } as const;
+        },
+      },
       getInitPromise: () => Promise.resolve().then(() => calls.push('init')),
-      onBrowserStartup: async () => calls.push('startup'),
       onExtensionUpdate: async () => {},
       onAlarm: async () => {},
-      onAutomationAlarm: async () => calls.push('automation'),
       onManagedTabRemoved: async () => {},
       onManagedTabNavigatedAway: async () => {},
       onMonitorWindowRemoved: async () => {},
@@ -141,6 +153,7 @@ describe('extension lifecycle listeners', () => {
     registerExtensionLifecycleListeners({
       api,
       alarmName: 'dropCheck',
+      farmingAutomation: inactiveAutomation,
       getInitPromise: () => Promise.reject(new Error('storage migration failed')),
       onExtensionUpdate: async () => {
         calls.push('update');
@@ -180,6 +193,7 @@ describe('extension lifecycle listeners', () => {
     registerExtensionLifecycleListeners({
       api,
       alarmName: 'dropCheck',
+      farmingAutomation: inactiveAutomation,
       getInitPromise: () => null,
       onExtensionUpdate: async () => {},
       onAlarm: async () => {
@@ -204,6 +218,7 @@ describe('extension lifecycle listeners', () => {
     registerExtensionLifecycleListeners({
       api,
       alarmName: 'dropCheck',
+      farmingAutomation: inactiveAutomation,
       linkRecheckAlarmPrefix: 'campaignLinkRecheck:',
       getInitPromise: () => null,
       onExtensionUpdate: async () => {},
@@ -228,6 +243,7 @@ describe('extension lifecycle listeners', () => {
     registerExtensionLifecycleListeners({
       api,
       alarmName: 'dropCheck',
+      farmingAutomation: inactiveAutomation,
       getInitPromise: () => null,
       onExtensionUpdate: async () => {},
       onAlarm: async () => {},

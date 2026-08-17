@@ -1,4 +1,25 @@
-import type { WatchHealthReason, WatchHealthSnapshot, WatchTransportMode } from '../types/index.ts';
+import type {
+  PlaybackPrepResult,
+  WatchHealthReason,
+  WatchHealthSnapshot,
+  WatchTransportMode,
+} from '../types/index.ts';
+import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
+
+export function parsePlaybackPrepResult(value: unknown): PlaybackPrepResult {
+  if (typeof value !== 'object' || value === null) return {};
+  const result: PlaybackPrepResult = {};
+  if ('gateDismissed' in value && typeof value.gateDismissed === 'boolean') {
+    result.gateDismissed = value.gateDismissed;
+  }
+  if ('isPlaybackReady' in value && typeof value.isPlaybackReady === 'boolean') {
+    result.isPlaybackReady = value.isPlaybackReady;
+  }
+  if ('userInteractionRequired' in value && typeof value.userInteractionRequired === 'boolean') {
+    result.userInteractionRequired = value.userInteractionRequired;
+  }
+  return result;
+}
 
 /**
  * A campaign/channel pair that a farming session wants to watch.
@@ -11,6 +32,7 @@ export interface FarmingTarget {
   readonly gameId: string;
   readonly selectionId?: string;
   readonly campaignId?: string;
+  readonly categorySlug?: string;
   readonly channelName: string;
 }
 
@@ -38,6 +60,7 @@ export type TablessHeartbeat = WatchProbeResult;
 export interface ManagedTabSession {
   readonly owner: 'drophunter';
   readonly tabId: number;
+  readonly ownership?: Extract<WatchOwnershipV1, { readonly kind: 'managed-tab' }>;
 }
 
 export interface UnmanagedTabSession {
@@ -60,6 +83,8 @@ export interface ManagedTabOperations {
 
 export interface WatchTransport {
   readonly mode: WatchTransportMode;
+  adopt(target: FarmingTarget, ownership: WatchOwnershipV1, health: WatchHealth): boolean;
+  currentOwnership(): WatchOwnershipV1 | null;
   start(target: FarmingTarget): Promise<WatchHealth>;
   tick(): Promise<WatchHealth>;
   stop(): Promise<void>;

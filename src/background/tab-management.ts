@@ -1,6 +1,88 @@
 import { browser } from '../shared/browser-api.ts';
+import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import { shouldCloseManagedTab } from './runtime-state.ts';
 import type { ServiceWorkerState } from './service-worker.ts';
+import type { WatchReleaseResult } from './watch-transport-transition.ts';
+
+const FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX = 'farmingAutomationOwnedWatch:';
+
+type ManagedWatchOwnership = Extract<WatchOwnershipV1, { readonly kind: 'managed-tab' }>;
+
+export interface ManagedTabOwnershipOperations {
+  readonly tabs: {
+    get(tabId: number): Promise<{
+      readonly id?: number;
+      readonly windowId?: number;
+      readonly url?: string;
+    } | null>;
+    query(query: { readonly windowId: number }): Promise<readonly { readonly id?: number }[]>;
+    update(
+      tabId: number,
+      properties: { readonly url: string; readonly active: false; readonly muted: true },
+    ): Promise<void>;
+    remove(tabId: number): Promise<void>;
+  };
+  readonly sessionStorage: {
+    get(key: string): Promise<Readonly<Record<string, unknown>>>;
+    remove(key: string): Promise<void>;
+  };
+}
+
+export function managedTabOwnershipKey(token: string): string {
+  return `${FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX}${token}`;
+}
+
+function isStoredOwnershipProof(value: unknown, expectedUrl: string): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'version' in value &&
+    value.version === 1 &&
+    'expectedUrl' in value &&
+    value.expectedUrl === expectedUrl
+  );
+}
+
+async function attemptOwnedTabOperation<T>(operation: () => Promise<T>): Promise<T | null> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof Error) return null;
+    throw error;
+  }
+}
+
+export async function releaseManagedTabOwnership(
+  ownership: ManagedWatchOwnership,
+  operations: ManagedTabOwnershipOperations,
+): Promise<WatchReleaseResult> {
+  const key = managedTabOwnershipKey(ownership.ownershipToken);
+  const stored = await attemptOwnedTabOperation(() => operations.sessionStorage.get(key));
+  const expectedUrl = streamerWatchUrl(ownership.expectedChannel);
+  if (!stored || !isStoredOwnershipProof(stored[key], expectedUrl)) {
+    return { kind: 'abandoned-unproven' };
+  }
+  const tab = await attemptOwnedTabOperation(() => operations.tabs.get(ownership.tabId));
+  if (tab?.id !== ownership.tabId || tab.url !== expectedUrl || typeof tab.windowId !== 'number') {
+    return { kind: 'abandoned-unproven' };
+  }
+  const tabId = tab.id;
+  const windowId = tab.windowId;
+  const windowTabs = await attemptOwnedTabOperation(() => operations.tabs.query({ windowId }));
+  if (!windowTabs) return { kind: 'abandoned-unproven' };
+  const method = windowTabs.length > 1 ? 'closed' : 'neutralized';
+  const released = await attemptOwnedTabOperation(async () => {
+    if (method === 'closed') await operations.tabs.remove(tabId);
+    else await operations.tabs.update(tabId, { url: 'about:blank', active: false, muted: true });
+    return true;
+  });
+  if (!released) return { kind: 'abandoned-unproven' };
+  await attemptOwnedTabOperation(async () => {
+    await operations.sessionStorage.remove(key);
+    return true;
+  });
+  return { kind: 'released', method };
+}
 
 export function streamerWatchUrl(channelName: string): string {
   const channel = encodeURIComponent(channelName.toLowerCase());
@@ -14,7 +96,7 @@ export function monitorDashboardUrl(): string {
 export async function applyBestEffortAlwaysOnTop(windowId: number) {
   const opts = { focused: true, alwaysOnTop: true };
   await browser.windows
-    .update(windowId, opts as unknown as chrome.windows.UpdateInfo)
+    .update(windowId, opts)
     .catch(() => browser.windows.update(windowId, { focused: true }).catch(() => undefined));
 }
 

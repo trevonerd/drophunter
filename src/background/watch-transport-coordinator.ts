@@ -1,4 +1,6 @@
+import { toSlug } from '../shared/utils.ts';
 import type { TwitchStreamer, WatchHealthSnapshot, WatchTransportMode } from '../types/index.ts';
+import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   type FarmingTarget,
@@ -11,6 +13,7 @@ import {
   type WatchProbeResult,
   type WatchTransport,
 } from './watch-transport.ts';
+import type { WatchTransportAdoption, WatchTransportRuntime } from './watch-transport-transition.ts';
 
 export interface WatchTransportCoordinatorOptions {
   readonly state: ServiceWorkerState;
@@ -30,6 +33,10 @@ export interface WatchTransportCoordinator {
   readonly setPreference: (mode: WatchTransportMode) => Promise<void>;
 }
 
+export interface WatchTransportRuntimeCoordinator extends WatchTransportCoordinator, WatchTransportRuntime {
+  readonly restore: (ownership: WatchOwnershipV1) => boolean;
+}
+
 function targetFor(state: ServiceWorkerState, streamer: TwitchStreamer): FarmingTarget | null {
   const selected = state.appState.selectedGame;
   if (!selected || !streamer.name.trim()) {
@@ -39,6 +46,7 @@ function targetFor(state: ServiceWorkerState, streamer: TwitchStreamer): Farming
     gameId: selected.categoryId ?? selected.id,
     selectionId: selected.id,
     campaignId: selected.campaignId,
+    categorySlug: selected.categorySlug?.trim() || toSlug(selected.name),
     channelName: streamer.name,
   };
 }
@@ -59,17 +67,18 @@ function streamHealth(progress: number | null, mode: WatchTransportMode, now: nu
 
 export function createWatchTransportCoordinator(
   options: WatchTransportCoordinatorOptions,
-): WatchTransportCoordinator {
+): WatchTransportRuntimeCoordinator {
   const state = options.state;
   const now = options.now ?? Date.now;
   const minHeartbeatIntervalMs = Math.max(1_000, options.minHeartbeatIntervalMs ?? 55_000);
-  const tabless = new TablessTransport({
-    enabled: options.enabled ?? true,
-    heartbeat: options.heartbeat,
-    now,
-  });
-  const managed = new ManagedTabTransport({ ...options.managedTab, now });
-  let active: WatchTransport = managed;
+  const createTabless = (): WatchTransport =>
+    new TablessTransport({
+      enabled: options.enabled ?? true,
+      heartbeat: options.heartbeat,
+      now,
+    });
+  const createManaged = (): WatchTransport => new ManagedTabTransport({ ...options.managedTab, now });
+  let active: WatchTransport = createManaged();
   let target: FarmingTarget | null = null;
   let fallbackIssued = false;
   let lastTickAt = 0;
@@ -91,8 +100,8 @@ export function createWatchTransportCoordinator(
       await persist(fallbackHealth);
       return fallbackHealth;
     }
-    await tabless.stop();
-    active = managed;
+    await active.stop();
+    active = createManaged();
     const health = await active.start(nextTarget);
     state.appState.watchFallbackReason = fallbackHealth.reason;
     await persist(health);
@@ -112,9 +121,10 @@ export function createWatchTransportCoordinator(
     state.appState.watchFallbackReason = null;
     state.appState.activeStreamer = { ...streamer, isLive: true };
     state.appState.tabId = null;
-    active = state.appState.watchTransportPreference === 'tabless' ? tabless : managed;
+    await active.stop();
+    active = state.appState.watchTransportPreference === 'tabless' ? createTabless() : createManaged();
     const health = await active.start(nextTarget);
-    if (health.status === 'disabled' && active === tabless) {
+    if (health.status === 'disabled' && active.mode === 'tabless') {
       return startManagedFallback(health);
     }
     await persist(health);
@@ -131,10 +141,10 @@ export function createWatchTransportCoordinator(
           active =
             state.appState.watchTransportMode === 'tabless' &&
             state.appState.watchTransportPreference === 'tabless'
-              ? tabless
-              : managed;
+              ? createTabless()
+              : createManaged();
           const restoredHealth = await active.start(restoredTarget);
-          if (restoredHealth.status === 'disabled' && active === tabless) {
+          if (restoredHealth.status === 'disabled' && active.mode === 'tabless') {
             return startManagedFallback(restoredHealth);
           }
           await persist(restoredHealth);
@@ -145,12 +155,12 @@ export function createWatchTransportCoordinator(
       await persist(health);
       return health;
     }
-    if (active === tabless && now() - lastTickAt < minHeartbeatIntervalMs) {
+    if (active.mode === 'tabless' && now() - lastTickAt < minHeartbeatIntervalMs) {
       return state.appState.watchHealth ?? streamHealth(null, active.mode, now());
     }
     lastTickAt = now();
     const health = await active.tick();
-    if (active === tabless && health.shouldFallback && !fallbackIssued) {
+    if (active.mode === 'tabless' && health.shouldFallback && !fallbackIssued) {
       fallbackIssued = true;
       return startManagedFallback(health);
     }
@@ -177,7 +187,43 @@ export function createWatchTransportCoordinator(
     options.broadcast();
   };
 
-  return { start, tick, stop, setPreference };
+  const adopt = (adoption: WatchTransportAdoption): void => {
+    const previous = active;
+    const next = adoption.ownership.kind === 'tabless' ? createTabless() : createManaged();
+    if (!next.adopt(adoption.target, adoption.ownership, adoption.health)) {
+      throw new DOMException('Watch transport adoption mode mismatch', 'InvariantError');
+    }
+    active = next;
+    target = adoption.target;
+    fallbackIssued = false;
+    lastTickAt = 0;
+    if (adoption.obsolete === null && previous.currentOwnership() !== null) {
+      void previous.stop().catch(() => undefined);
+    }
+  };
+
+  const restore = (ownership: WatchOwnershipV1): boolean => {
+    const streamer = state.appState.activeStreamer;
+    const restoredTarget = streamer ? targetFor(state, streamer) : null;
+    if (!restoredTarget) return false;
+    const persistedHealth = state.appState.watchHealth;
+    const health =
+      persistedHealth?.mode === ownership.kind
+        ? persistedHealth
+        : streamHealth(state.appState.currentDrop?.currentMinutes ?? null, ownership.kind, now());
+    adopt({ target: restoredTarget, ownership, health, obsolete: null });
+    return true;
+  };
+
+  return {
+    start,
+    tick,
+    stop,
+    setPreference,
+    adopt,
+    restore,
+    currentOwnership: () => active.currentOwnership(),
+  };
 }
 
 export type { ManagedTabOpenResult, WatchProbeResult };
