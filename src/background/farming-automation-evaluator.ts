@@ -1,5 +1,4 @@
 import { gameKey } from '../shared/game-selection.ts';
-import type { CampaignAvailability } from '../types/index.ts';
 import type { FarmingAutomationBrowser } from './farming-automation-browser.ts';
 import {
   decideFarmingAutomationTransition,
@@ -11,6 +10,7 @@ import type {
   FarmingAutomationPersistence,
   FarmingAutomationTrigger,
 } from './farming-automation-contracts.ts';
+import { discoverFarmingAutomationCandidates } from './farming-automation-discovery.ts';
 import {
   createFarmingAutomationCompletedFacts,
   persistFarmingAutomationFacts,
@@ -20,13 +20,10 @@ import {
 } from './farming-automation-effects.ts';
 import {
   cheapFarmingAutomationGate,
-  cloneFarmingAutomationGame,
   createFarmingAutomationPolicySnapshot,
   createFarmingAutomationTransitionRequest,
   deriveFarmingAutomationDeadline,
-  eligibleFarmingAutomationStreamers,
   expireFarmingAutomationManualWatch,
-  type FarmingAutomationDirectoryCacheEntry,
   factsWithFarmingAutomationManualWatch,
   farmingAutomationFingerprint,
   farmingAutomationStateFingerprint,
@@ -95,45 +92,18 @@ export function createFarmingAutomationEvaluator(
     }
 
     const beforeRefresh = currentStateFingerprint();
-    let refreshed: Awaited<ReturnType<FarmingAutomationTwitchAdapter['refresh']>>;
-    try {
-      refreshed = await dependencies.twitch.refresh();
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      return retry('drops-refresh-failed');
-    }
-    if (refreshed.kind === 'session-missing') {
-      return retry('twitch-session-missing');
-    }
-    const directories = new Map<string, FarmingAutomationDirectoryCacheEntry>();
-    const availability: Record<string, CampaignAvailability> = {};
-    try {
-      for (const normalized of refreshed.snapshot.games) {
-        const game = cloneFarmingAutomationGame(normalized);
-        const directory = await dependencies.twitch.fetchDirectory(
-          game,
-          dependencies.state.appState.preferredStreamerLanguage ?? '',
-        );
-        if (directory.kind === 'session-missing') {
-          return retry('twitch-session-missing');
-        }
-        const streamers = eligibleFarmingAutomationStreamers(game, directory);
-        directories.set(gameKey(game), {
-          streamers,
-          languageFilterApplied: directory.languageFilterApplied,
-        });
-        availability[gameKey(game)] = { eligibleStreamerCount: streamers.length, updatedAt: now };
-      }
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      return retry('drops-refresh-failed');
-    }
+    const discovery = await discoverFarmingAutomationCandidates(
+      dependencies.twitch,
+      dependencies.state.appState.preferredStreamerLanguage ?? '',
+      now,
+    );
+    if (discovery.kind === 'failed') return retry(discovery.reason);
     if (currentStateFingerprint() !== beforeRefresh) {
       return { kind: 'unchanged', reason: 'superseded-by-state-change' };
     }
 
     const plan = planFarmingAutomationPolicy(
-      createFarmingAutomationPolicySnapshot(dependencies.state, refreshed.snapshot, availability),
+      createFarmingAutomationPolicySnapshot(dependencies.state, discovery.snapshot, discovery.availability),
       now,
     );
     if (
@@ -201,13 +171,13 @@ export function createFarmingAutomationEvaluator(
     }
     const transitionRequest = createFarmingAutomationTransitionRequest(
       decision,
-      refreshed.snapshot,
+      discovery.snapshot,
       dependencies.state.appState.watchTransportPreference,
       expectedFingerprint,
     );
     const result = await transitionAutomaticFarmingSession(dependencies.state, transitionRequest, {
       acquireStreamer: async (campaign) => {
-        const directory = directories.get(gameKey(campaign));
+        const directory = discovery.directories.get(gameKey(campaign));
         if (!directory) return null;
         return pickStreamerForPreferences(
           [...directory.streamers],
