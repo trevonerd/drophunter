@@ -109,6 +109,7 @@ farmingSession = createFarmingSession(state, {
   saveTimingState,
   broadcastStateUpdate,
   monitorAutoOpenDelayMs: MONITOR_AUTO_OPEN_DELAY_MS,
+  manualWatchController: farmingAutomationRuntime.manualWatch,
   watchTransport: browserEvents.watchTransport,
 });
 

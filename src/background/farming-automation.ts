@@ -5,6 +5,10 @@ import {
   type FarmingAutomationRuntime,
 } from './farming-automation-evaluator.ts';
 import {
+  createFarmingAutomationManualWatch,
+  type FarmingAutomationManualWatchController,
+} from './farming-automation-manual-watch.ts';
+import {
   createFarmingAutomationScheduler,
   type FarmingAutomationEvaluateBatch,
   type FarmingAutomationScheduler,
@@ -28,7 +32,8 @@ interface FarmingAutomationHarnessDependencies {
 
 export type FarmingAutomationDependencies =
   | FarmingAutomationHarnessDependencies
-  | (Omit<FarmingAutomationEvaluatorDependencies, 'runtime' | 'now' | 'random'> & {
+  | (Omit<FarmingAutomationEvaluatorDependencies, 'manualWatch' | 'runtime' | 'now' | 'random'> & {
+      readonly manualWatch?: FarmingAutomationManualWatchController;
       readonly now?: () => number;
       readonly random?: () => number;
     });
@@ -57,8 +62,17 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
     };
   }
   const runtime: FarmingAutomationRuntime = { generation: 0, snoozed: false };
+  const manualWatch =
+    dependencies.manualWatch ??
+    createFarmingAutomationManualWatch({
+      persistence: dependencies.persistence,
+      observeManualTabs: dependencies.browser.observeManualTabs,
+      replaceDeadline: dependencies.browser.replaceDeadlineAlarm,
+      now: dependencies.now,
+    });
   const evaluateBatch = createFarmingAutomationEvaluator({
     ...dependencies,
+    manualWatch,
     runtime,
     now: dependencies.now ?? Date.now,
     random: dependencies.random ?? Math.random,

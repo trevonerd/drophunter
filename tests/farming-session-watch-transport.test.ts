@@ -4,6 +4,7 @@ import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import type { WatchHealth } from '../src/background/watch-transport.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
+import { createFarmingSessionManualWatchFixture } from './support/farming-session-manual-watch.ts';
 
 let chromeMocks: ChromeMocks;
 
@@ -171,6 +172,26 @@ describe('farming session watch transport integration', () => {
     };
     chromeMocks.tabs.setTabsQueryResult([{ id: 4, active: true, url: 'https://www.twitch.tv/manual' }]);
     chromeMocks.tabs.setTabsGetResult({ id: 7, url: 'https://www.twitch.tv/channel-1' });
+    const manualWatchController = createFarmingSessionManualWatchFixture(state, async () => {
+      if (observationFails) return { kind: 'failed' };
+      return {
+        kind: 'observed',
+        tabs: manualPlayback
+          ? [
+              {
+                tab: { id: 4, active: true, url: 'https://www.twitch.tv/manual' },
+                context: {
+                  channelName: 'manual',
+                  categorySlug: 'game',
+                  isLive: true,
+                  isPlaybackReady: true,
+                  hasDropsEnabled: true,
+                },
+              },
+            ]
+          : [],
+      };
+    });
     const session = createFarmingSession(
       state,
       createAdapters({
@@ -204,6 +225,7 @@ describe('farming session watch transport integration', () => {
               }
             : null;
         },
+        manualWatchController,
         watchTransport,
       }),
     );

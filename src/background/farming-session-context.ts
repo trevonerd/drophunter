@@ -1,14 +1,5 @@
-import { browser } from '../shared/browser-api.ts';
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
-import {
-  createFarmingAutomationManualWatch,
-  type FarmingAutomationManualWatchController,
-} from './farming-automation-manual-watch.ts';
-import { createChromeFarmingAutomationPersistence } from './farming-automation-persistence.ts';
-import { createChromeFarmingAutomationWake } from './farming-automation-wake.ts';
-import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
-import { logWarn } from './logging.ts';
-import { observeManualPlayback } from './playback-orchestrator.ts';
+import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
 import type { WatchTransportCoordinator } from './watch-transport-coordinator.ts';
@@ -63,6 +54,7 @@ export interface FarmingSessionAdapters {
   readonly saveTimingState: (state: ServiceWorkerState) => Promise<void>;
   readonly broadcastStateUpdate: (appState: AppState) => void;
   readonly monitorAutoOpenDelayMs: number;
+  readonly manualWatchController?: FarmingAutomationManualWatchController;
   readonly now?: () => number;
   readonly watchTransport?: WatchTransportCoordinator;
 }
@@ -80,18 +72,10 @@ export function createFarmingSessionContext(
   adapters: FarmingSessionAdapters,
 ): FarmingSessionContext {
   const now = adapters.now ?? Date.now;
-  const wake = createChromeFarmingAutomationWake();
-  const manualWatchController = createFarmingAutomationManualWatch({
-    persistence: createChromeFarmingAutomationPersistence({
-      state,
-      getSessionRevision: () => String(currentFarmingSessionEpoch(state)),
-      broadcast: adapters.broadcastStateUpdate,
-    }),
-    observeManualTabs: () => observeManualPlayback(browser.tabs, adapters.fetchStreamContext),
-    replaceDeadline: wake.replaceDeadline,
-    now,
-    onSessionFailure: (reason) => logWarn('Manual watch detection failed:', reason),
-  });
+  const manualWatchController: FarmingAutomationManualWatchController = adapters.manualWatchController ?? {
+    evaluate: async () => ({ kind: 'inactive' }),
+    reconcileTransport: async ({ transportSuspended }) => (transportSuspended ? 'resume' : 'unchanged'),
+  };
   return {
     state,
     adapters,

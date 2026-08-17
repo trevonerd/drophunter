@@ -18,6 +18,55 @@ const target: TwitchGame = {
 };
 
 describe('Farming automation manual watch', () => {
+  test('serializes concurrent fact evaluations', async () => {
+    // Given: the first browser observation is held open.
+    let releaseFirstObservation: (() => void) | null = null;
+    const firstObservation = new Promise<void>((resolve) => {
+      releaseFirstObservation = resolve;
+    });
+    let observationCalls = 0;
+    const controller = createFarmingAutomationManualWatch({
+      persistence: {
+        loadFacts: async () => ({
+          kind: 'ready',
+          source: 'missing',
+          value: createInitialFarmingAutomationFacts(),
+        }),
+        saveFacts: async () => ({ kind: 'written' }),
+      },
+      observeManualTabs: async () => {
+        observationCalls += 1;
+        if (observationCalls === 1) await firstObservation;
+        return { kind: 'observed', tabs: [] };
+      },
+      replaceDeadline: async () => 'cleared',
+      now: () => 1_000,
+    });
+
+    // When: two owners evaluate through the same controller concurrently.
+    const first = controller.evaluate({
+      target,
+      managedTabId: null,
+      automationActive: true,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const second = controller.evaluate({
+      target,
+      managedTabId: null,
+      automationActive: true,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const concurrentCalls = observationCalls;
+    releaseFirstObservation?.();
+    await Promise.all([first, second]);
+
+    // Then: the second compare-and-update starts only after the first completes.
+    expect(concurrentCalls).toBe(1);
+    expect(observationCalls).toBe(2);
+  });
+
   test('persists an active observation before replacing its deadline', async () => {
     // Given: durable persistence and an eligible active Twitch observation.
     const state = createServiceWorkerState();
