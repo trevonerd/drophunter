@@ -4,7 +4,6 @@ import {
   type FarmingTarget,
   type ManagedTabSession,
   ManagedTabTransport,
-  TABLESS_HEARTBEAT_FAILURE_LIMIT,
   type TablessHeartbeat,
 } from '../src/background/watch-transport.ts';
 
@@ -151,7 +150,7 @@ describe('TablessTransport', () => {
     expect(ticked).toEqual(started);
   });
 
-  test('requests fallback exactly after five failed heartbeats', async () => {
+  test('requests fallback only after ten failed heartbeats', async () => {
     let heartbeats = 0;
     let fallbacks = 0;
     const transport = createTablessTransport({
@@ -167,18 +166,24 @@ describe('TablessTransport', () => {
     });
 
     let health = await transport.start(target);
-    for (let index = 1; index < TABLESS_HEARTBEAT_FAILURE_LIMIT; index += 1) {
+    for (let index = 1; index < 9; index += 1) {
       health = await transport.tick();
     }
 
-    expect(heartbeats).toBe(TABLESS_HEARTBEAT_FAILURE_LIMIT);
+    expect(heartbeats).toBe(9);
+    expect(fallbacks).toBe(0);
+    expect(health.shouldFallback).toBe(false);
+
+    health = await transport.tick();
+
+    expect(heartbeats).toBe(10);
     expect(fallbacks).toBe(1);
     expect(health).toMatchObject({
       mode: 'tabless',
       isHealthy: false,
       status: 'failed',
       reason: 'heartbeat-failed',
-      consecutiveFailures: TABLESS_HEARTBEAT_FAILURE_LIMIT,
+      consecutiveFailures: 10,
       shouldFallback: true,
     });
 

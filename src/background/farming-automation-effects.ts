@@ -15,6 +15,14 @@ import type { FavoriteCampaignQueuePlan } from './favorite-games.ts';
 import { logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
+interface PersistFarmingAutomationPlanInput {
+  readonly state: ServiceWorkerState;
+  readonly persistence: FarmingAutomationPersistence;
+  readonly queuePlan: FavoriteCampaignQueuePlan | null;
+  readonly availability: ServiceWorkerState['appState']['campaignAvailabilityByKey'];
+  readonly now: number;
+}
+
 function queueActivityId(game: TwitchGame, addedAt: number): string {
   return `favorite-added:${gameKey(game)}:${addedAt}`;
 }
@@ -44,21 +52,19 @@ function recordQueueActivities(
   }
 }
 
-export async function persistFarmingAutomationQueuePlan(
-  state: ServiceWorkerState,
-  persistence: FarmingAutomationPersistence,
-  plan: FavoriteCampaignQueuePlan,
-  now: number,
+export async function persistFarmingAutomationPlan(
+  input: PersistFarmingAutomationPlanInput,
 ): Promise<boolean> {
-  if (plan.added.length === 0) return true;
+  const { state, persistence, queuePlan, availability, now } = input;
   const previousActivity = structuredClone(state.appState.automationActivity);
   const previousMessage = state.appState.lastAutomationMessage;
-  recordQueueActivities(state, plan, now);
-  let result: Awaited<ReturnType<FarmingAutomationPersistence['saveQueuePatch']>>;
+  if (queuePlan) recordQueueActivities(state, queuePlan, now);
+  let result: Awaited<ReturnType<FarmingAutomationPersistence['savePolicyPatch']>>;
   try {
-    result = await persistence.saveQueuePatch({
-      queue: plan.queue,
-      queueEntryMetadataByKey: plan.queueEntryMetadataByKey,
+    result = await persistence.savePolicyPatch({
+      queue: queuePlan?.queue ?? state.appState.queue,
+      queueEntryMetadataByKey: queuePlan?.queueEntryMetadataByKey ?? state.appState.queueEntryMetadataByKey,
+      campaignAvailabilityByKey: availability,
     });
   } catch (error) {
     if (!(error instanceof Error)) throw error;

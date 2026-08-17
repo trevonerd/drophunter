@@ -1,4 +1,10 @@
-import type { AppState, QueueEntryMetadata, TwitchDrop, TwitchGame } from '../types/index.ts';
+import type {
+  AppState,
+  CampaignAvailability,
+  QueueEntryMetadata,
+  TwitchDrop,
+  TwitchGame,
+} from '../types/index.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 export type FarmingAutomationLastPreemptionV1 = {
@@ -92,9 +98,10 @@ export type FarmingAutomationPersistenceWrite =
       readonly reason: 'storage-unavailable' | 'unsupported-record';
     };
 
-export type FarmingAutomationQueuePatch = {
+export type FarmingAutomationPolicyPatch = {
   readonly queue: readonly TwitchGame[];
   readonly queueEntryMetadataByKey: Readonly<Record<string, QueueEntryMetadata>>;
+  readonly campaignAvailabilityByKey: Readonly<Record<string, CampaignAvailability>>;
 };
 
 export type FarmingSessionTransitionCommit = {
@@ -123,7 +130,7 @@ export interface FarmingAutomationPersistence {
   loadReceipt(): Promise<FarmingAutomationPersistenceRead<FarmingSessionTransitionReceiptV1 | null>>;
   loadSnooze(): Promise<FarmingAutomationPersistenceRead<boolean>>;
   saveFacts(facts: FarmingAutomationFactsV1): Promise<FarmingAutomationPersistenceWrite>;
-  saveQueuePatch(patch: FarmingAutomationQueuePatch): Promise<FarmingAutomationPersistenceWrite>;
+  savePolicyPatch(patch: FarmingAutomationPolicyPatch): Promise<FarmingAutomationPersistenceWrite>;
   setSnooze(): Promise<FarmingAutomationPersistenceWrite>;
   clearSnooze(): Promise<FarmingAutomationPersistenceWrite>;
   updateReceiptCleanup(

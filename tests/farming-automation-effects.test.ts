@@ -198,7 +198,17 @@ describe('Farming automation ordered effects', () => {
       cleanup: subject.storage.getLocal(FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY),
     }).toEqual({
       outcome: { kind: 'started', campaignKey: gameKey(subject.candidate), transition: 'preemption' },
-      events: ['refresh', 'commit', 'facts', 'broadcast', 'notification', 'release', 'cleanup', 'alarm'],
+      events: [
+        'refresh',
+        'broadcast',
+        'commit',
+        'facts',
+        'broadcast',
+        'notification',
+        'release',
+        'cleanup',
+        'alarm',
+      ],
       activity: ['preempted'],
       cleanup: expect.objectContaining({
         cleanup: { kind: 'released', releasedAt: 2_000, method: 'closed' },
