@@ -10,6 +10,10 @@ import type {
   FarmingSessionTransitionReceiptV1,
   WatchOwnershipV1,
 } from './farming-automation-contracts.ts';
+import {
+  createFarmingAutomationManualWatch,
+  type FarmingAutomationManualWatchController,
+} from './farming-automation-manual-watch.ts';
 import { createChromeFarmingAutomationPersistence } from './farming-automation-persistence.ts';
 import {
   type FarmingAutomationRecoveryResult,
@@ -44,11 +48,16 @@ type ServiceWorkerFarmingAutomationDependencies = {
 };
 
 type InitializationResult =
-  | { readonly kind: 'ready'; readonly automation: FarmingAutomation }
+  | {
+      readonly kind: 'ready';
+      readonly automation: FarmingAutomation;
+      readonly manualWatch: FarmingAutomationManualWatchController;
+    }
   | { readonly kind: 'failed'; readonly error: Error };
 
 export interface ServiceWorkerFarmingAutomationRuntime {
   readonly automation: FarmingAutomation;
+  readonly manualWatch: FarmingAutomationManualWatchController;
   readonly initialize: () => Promise<void>;
 }
 
@@ -80,6 +89,18 @@ export function createServiceWorkerFarmingAutomationRuntime(
         case 'failed':
           throw result.error;
       }
+    },
+  };
+  const publicManualWatch: FarmingAutomationManualWatchController = {
+    async evaluate(input) {
+      const result = await ready;
+      if (result.kind === 'failed') throw result.error;
+      return result.manualWatch.evaluate(input);
+    },
+    async reconcileTransport(input) {
+      const result = await ready;
+      if (result.kind === 'failed') throw result.error;
+      return result.manualWatch.reconcileTransport(input);
     },
   };
 
@@ -151,6 +172,11 @@ export function createServiceWorkerFarmingAutomationRuntime(
           return { streamers, languageFilterApplied: streamers.languageFilterApplied };
         },
       });
+      const manualWatch = createFarmingAutomationManualWatch({
+        persistence,
+        observeManualTabs: automationBrowser.observeManualTabs,
+        replaceDeadline: automationBrowser.replaceDeadlineAlarm,
+      });
       const repairActivity = async (
         receipt: FarmingSessionTransitionReceiptV1,
       ): Promise<FarmingAutomationPersistenceWrite> => {
@@ -190,6 +216,7 @@ export function createServiceWorkerFarmingAutomationRuntime(
         state,
         persistence,
         browser: automationBrowser,
+        manualWatch,
         twitch,
         recover: async (): Promise<FarmingAutomationOutcome | null> => {
           const result = await recover();
@@ -203,7 +230,7 @@ export function createServiceWorkerFarmingAutomationRuntime(
         persistence,
         recover,
       });
-      settleInitialization?.({ kind: 'ready', automation });
+      settleInitialization?.({ kind: 'ready', automation, manualWatch });
     } catch (error) {
       const failure =
         error instanceof Error
@@ -220,5 +247,5 @@ export function createServiceWorkerFarmingAutomationRuntime(
     return initialization;
   };
 
-  return { automation: publicAutomation, initialize };
+  return { automation: publicAutomation, manualWatch: publicManualWatch, initialize };
 }

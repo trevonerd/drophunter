@@ -60,6 +60,16 @@ export function createFarmingAutomationManualWatch(
   options: FarmingAutomationManualWatchOptions,
 ): FarmingAutomationManualWatchController {
   const now = options.now ?? Date.now;
+  let evaluationTail = Promise.resolve();
+
+  const serialize = <Result>(operation: () => Promise<Result>): Promise<Result> => {
+    const result = evaluationTail.then(operation);
+    evaluationTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
 
   const persistAndReplaceDeadline = async (facts: FarmingAutomationFactsV1): Promise<boolean> => {
     const saved = await options.persistence.saveFacts(facts);
@@ -172,25 +182,31 @@ export function createFarmingAutomationManualWatch(
     }
   };
 
-  const evaluate = (input: FarmingAutomationManualWatchInput) => evaluateWithCachePolicy(input, true);
+  const evaluate = (input: FarmingAutomationManualWatchInput) =>
+    serialize(() => evaluateWithCachePolicy(input, true));
 
   return {
     evaluate,
-    async reconcileTransport(input) {
-      const result = await evaluateWithCachePolicy(input, false);
-      switch (result.kind) {
-        case 'failed':
-          options.onSessionFailure?.(result.reason);
-          return 'unchanged';
-        case 'active':
-          return input.transportSuspended ? 'unchanged' : 'suspend';
-        case 'inactive':
-          return input.transportSuspended ? 'resume' : 'unchanged';
-        default: {
-          const unreachable: never = result;
-          throw new DOMException(`Unexpected manual-watch result: ${String(unreachable)}`, 'InvariantError');
+    reconcileTransport(input) {
+      return serialize(async () => {
+        const result = await evaluateWithCachePolicy(input, false);
+        switch (result.kind) {
+          case 'failed':
+            options.onSessionFailure?.(result.reason);
+            return 'unchanged';
+          case 'active':
+            return input.transportSuspended ? 'unchanged' : 'suspend';
+          case 'inactive':
+            return input.transportSuspended ? 'resume' : 'unchanged';
+          default: {
+            const unreachable: never = result;
+            throw new DOMException(
+              `Unexpected manual-watch result: ${String(unreachable)}`,
+              'InvariantError',
+            );
+          }
         }
-      }
+      });
     },
   };
 }

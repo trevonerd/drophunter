@@ -31,7 +31,7 @@ import {
   farmingAutomationFingerprint,
   farmingAutomationStateFingerprint,
 } from './farming-automation-gates.ts';
-import { createFarmingAutomationManualWatch } from './farming-automation-manual-watch.ts';
+import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
 import type { FarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { transitionAutomaticFarmingSession } from './session-lifecycle-transition.ts';
@@ -43,6 +43,7 @@ export type FarmingAutomationEvaluatorDependencies = {
   readonly state: ServiceWorkerState;
   readonly persistence: FarmingAutomationPersistence;
   readonly browser: FarmingAutomationBrowser;
+  readonly manualWatch: FarmingAutomationManualWatchController;
   readonly twitch: FarmingAutomationTwitchAdapter;
   readonly runtime: FarmingAutomationRuntime;
   readonly recover?: () => Promise<FarmingAutomationOutcome | null>;
@@ -54,13 +55,6 @@ export type FarmingAutomationEvaluatorDependencies = {
 export function createFarmingAutomationEvaluator(
   dependencies: FarmingAutomationEvaluatorDependencies,
 ): (triggers: ReadonlySet<FarmingAutomationTrigger>) => Promise<FarmingAutomationOutcome> {
-  const manualWatch = createFarmingAutomationManualWatch({
-    persistence: dependencies.persistence,
-    observeManualTabs: dependencies.browser.observeManualTabs,
-    replaceDeadline: dependencies.browser.replaceDeadlineAlarm,
-    now: dependencies.now,
-  });
-
   return async (triggers) => {
     const recovered = await dependencies.recover?.();
     if (recovered) return recovered;
@@ -153,9 +147,9 @@ export function createFarmingAutomationEvaluator(
       return { kind: 'failed', reason: 'persistence-failed' };
     }
     const beforeObservation = currentStateFingerprint();
-    let observed: Awaited<ReturnType<typeof manualWatch.evaluate>>;
+    let observed: Awaited<ReturnType<typeof dependencies.manualWatch.evaluate>>;
     try {
-      observed = await manualWatch.evaluate({
+      observed = await dependencies.manualWatch.evaluate({
         target: plan.rankedCandidates[0]?.game ?? null,
         managedTabId: dependencies.state.appState.tabId,
         automationActive: true,
