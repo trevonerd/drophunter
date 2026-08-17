@@ -39,6 +39,7 @@
     "video:still:promo": "cd video && bun run still:promo",
     "video:still:promo:4k": "cd video && bun run still:promo:4k",
     "test:ts": "tsc --noEmit",
+    "check:typescript-scope": "bun scripts/check-typescript-change-scope.ts",
     "test": "bun test tests/",
     "lint": "biome lint .",
     "format": "biome format --write .",
