@@ -12,6 +12,10 @@ _Avoid_: Plain game, game-only campaign
 The active DropHunter run that watches an eligible Twitch stream, tracks Drop progress, handles recovery, and advances the queue.
 _Avoid_: Monitor loop, queue runner, farming service
 
+**Farming automation**:
+The DropHunter orchestration that selects eligible Twitch Drops campaigns and automatically starts or preempts farming sessions in response to browser lifecycle and campaign changes.
+_Avoid_: Auto-start coordinator, automatic farming session, favorite-game automation
+
 **Farming-complete campaign**:
 A Twitch Drops campaign with no remaining reward that DropHunter can obtain automatically. It may still contain subscription-gated rewards or Twitch-native rewards whose acquisition is unverifiable.
 _Avoid_: Completed campaign, all rewards claimed
