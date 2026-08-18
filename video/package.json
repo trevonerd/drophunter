@@ -16,19 +16,21 @@
   "dependencies": {
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "remotion": "4.0.502"
+    "remotion": "4.0.513"
   },
   "devDependencies": {
-    "@remotion/cli": "4.0.502",
-    "@remotion/eslint-config": "4.0.502",
-    "@remotion/transitions": "4.0.502",
-    "@remotion/webcodecs": "4.0.502"
+    "@remotion/cli": "4.0.513",
+    "@remotion/eslint-config": "4.0.513",
+    "@remotion/transitions": "4.0.513",
+    "@remotion/webcodecs": "4.0.513"
   },
   "overrides": {
-    "@remotion/eslint-config": "4.0.502",
-    "@remotion/webcodecs": "4.0.502",
+    "@remotion/eslint-config": "4.0.513",
+    "@remotion/webcodecs": "4.0.513",
     "brace-expansion": "5.0.9",
-    "fast-uri": "4.1.1",
+    "fast-uri": "4.1.2",
+    "js-yaml": "4.3.1",
+    "nanoid": "3.3.18",
     "postcss": "8.5.25",
     "ws": "8.21.0"
   }
