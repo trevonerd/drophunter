@@ -109,6 +109,7 @@ async function checkReleaseManifests() {
 }
 
 const result = await runSteps([
+  { name: 'TypeScript scope', command: ['bun', 'run', 'check:typescript-scope'] },
   { name: 'TypeScript', command: ['bun', 'run', 'test:ts'] },
   { name: 'Biome', command: ['bun', 'run', 'lint'] },
   { name: 'Tests', command: ['bun', 'run', 'test'] },
