@@ -21,7 +21,7 @@ function game(campaignId: string, gameId = 'valorant', endsAt = '2030-08-03T14:0
 }
 
 describe('favorite games', () => {
-  test('favorites belong to the Twitch category and keep separate campaigns', () => {
+  test('favorite discovery queues only the earliest farmable campaign for a Twitch category', () => {
     const state = createInitialState();
     const first = game('campaign-a');
     const second = game('campaign-b', 'valorant', '2030-08-03T13:00:00.000Z');
@@ -39,12 +39,46 @@ describe('favorite games', () => {
         identityKeys: ['valorant'],
       },
     ]);
-    expect(state.queue.map((entry) => entry.campaignId)).toEqual(['campaign-b', 'campaign-a']);
-    expect(discovery.added.map((entry) => entry.game.campaignId)).toEqual(['campaign-b', 'campaign-a']);
-    expect(state.queueEntryMetadataByKey[gameKey(first)]).toEqual({
+    expect(state.queue.map((entry) => entry.campaignId)).toEqual(['campaign-b']);
+    expect(discovery.added.map((entry) => entry.game.campaignId)).toEqual(['campaign-b']);
+    expect(state.queueEntryMetadataByKey[gameKey(second)]).toEqual({
       source: 'favorite-auto',
       addedAt: 200,
       reason: 'favorite-discovered',
+    });
+  });
+
+  test('favorite discovery removes automatic siblings when a manual campaign already represents the game', () => {
+    const state = createInitialState();
+    const completedAuto = {
+      ...game('campaign-completed'),
+      rewardSummary: { completion: 'all-acquired' as const, remainderReasons: [] },
+    };
+    const redundantAuto = game('campaign-auto', 'valorant', '2030-08-04T14:00:00.000Z');
+    const nextAuto = game('campaign-next', 'valorant', '2030-08-02T14:00:00.000Z');
+    const manual = game('campaign-manual');
+    state.availableGames = [completedAuto, redundantAuto, nextAuto, manual];
+    state.favoriteGames = [{ gameId: 'valorant', lastKnownName: 'Valorant', addedAt: 10 }];
+    state.campaignPriorityMode = 'priority-list-only';
+    state.queue = [completedAuto, redundantAuto, manual];
+    state.queueEntryMetadataByKey = {
+      [gameKey(completedAuto)]: { source: 'favorite-auto', addedAt: 11, reason: 'favorite-discovered' },
+      [gameKey(redundantAuto)]: { source: 'favorite-auto', addedAt: 12, reason: 'favorite-discovered' },
+      [gameKey(manual)]: { source: 'manual', addedAt: 13, reason: 'user-added' },
+    };
+
+    const discovery = discoverFavoriteCampaigns(state, 200);
+
+    expect({
+      queue: state.queue.map((entry) => entry.campaignId),
+      metadata: state.queueEntryMetadataByKey,
+      added: discovery.added.map((entry) => entry.game.campaignId),
+    }).toEqual({
+      queue: ['campaign-manual'],
+      metadata: {
+        [gameKey(manual)]: { source: 'manual', addedAt: 13, reason: 'user-added' },
+      },
+      added: [],
     });
   });
 

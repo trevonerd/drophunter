@@ -1,10 +1,4 @@
-import {
-  favoriteGameIdentityKeys,
-  gameCategoryIdentityKeys,
-  gameCategoryKey,
-  gameKey,
-  isFavoriteGame,
-} from '../shared/game-selection.ts';
+import { gameCategoryIdentityKeys, gameCategoryKey, gameKey } from '../shared/game-selection.ts';
 import type {
   AppState,
   CampaignPriorityMode,
@@ -62,6 +56,14 @@ function planQueueMetadata(
   );
 }
 
+function matchingFavoriteKey(game: TwitchGame, favorites: readonly FavoriteGame[]): string | null {
+  const categoryKeys = new Set(gameCategoryIdentityKeys(game));
+  const favorite = favorites.find((entry) =>
+    [entry.gameId, ...(entry.identityKeys ?? [])].some((key) => categoryKeys.has(key)),
+  );
+  return favorite?.gameId ?? null;
+}
+
 export function planFavoriteCampaignQueue(
   input: FavoriteCampaignQueuePlanInput,
   now: number,
@@ -74,27 +76,41 @@ export function planFavoriteCampaignQueue(
     };
   }
 
-  const queue = [...input.queue];
-  const queueEntryMetadataByKey = planQueueMetadata(queue, input.queueEntryMetadataByKey, now);
+  const originalQueueKeys = new Set(input.queue.map(gameKey));
+  const originalMetadata = planQueueMetadata(input.queue, input.queueEntryMetadataByKey, now);
+  const queue = input.queue.filter((game) => originalMetadata[gameKey(game)]?.source !== 'favorite-auto');
+  const queueEntryMetadataByKey = planQueueMetadata(queue, originalMetadata, now);
   const queuedKeys = new Set(queue.map(gameKey));
-  const favoriteIds = favoriteGameIdentityKeys(input.favoriteGames);
+  const representedFavorites = new Set(
+    queue.flatMap((game) => {
+      const favoriteKey = matchingFavoriteKey(game, input.favoriteGames);
+      return favoriteKey ? [favoriteKey] : [];
+    }),
+  );
   const candidates = input.availableGames
-    .filter(
-      (game) =>
-        isFavoriteGame(game, favoriteIds) &&
+    .flatMap((game) => {
+      const favoriteKey = matchingFavoriteKey(game, input.favoriteGames);
+      return favoriteKey &&
         !queuedKeys.has(gameKey(game)) &&
         !isExpiredAt(game, now) &&
-        (game.rewardSummary?.completion === undefined || game.rewardSummary.completion === 'farmable'),
-    )
-    .sort((left, right) => campaignExpiry(left) - campaignExpiry(right));
+        (game.rewardSummary?.completion === undefined || game.rewardSummary.completion === 'farmable')
+        ? [{ game, favoriteKey }]
+        : [];
+    })
+    .sort((left, right) => campaignExpiry(left.game) - campaignExpiry(right.game));
 
   const added: FavoriteCampaignAddition[] = [];
-  for (const game of candidates) {
+  for (const { game, favoriteKey } of candidates) {
+    if (representedFavorites.has(favoriteKey)) continue;
     const insertion = insertFavoriteCampaignByDeadline(queue, game);
     queue.splice(0, queue.length, ...insertion.queue);
-    queueEntryMetadataByKey[gameKey(game)] = favoriteMetadata(now);
-    queuedKeys.add(gameKey(game));
-    added.push({ game, position: insertion.position });
+    const key = gameKey(game);
+    queueEntryMetadataByKey[key] = originalMetadata[key] ?? favoriteMetadata(now);
+    queuedKeys.add(key);
+    representedFavorites.add(favoriteKey);
+    if (!originalQueueKeys.has(key)) {
+      added.push({ game, position: insertion.position });
+    }
   }
 
   return { queue, queueEntryMetadataByKey, added };

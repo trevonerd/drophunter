@@ -41,7 +41,7 @@ function favoriteSnapshot(
 }
 
 describe('farming automation candidate policy', () => {
-  test('plans favorite-auto entries by campaign identity', () => {
+  test('plans at most one favorite-auto campaign per favorite category', () => {
     const first = game('campaign-a', '2030-08-03T14:00:00.000Z');
     const second = game('campaign-b', '2030-08-03T12:00:00.000Z');
     const manual = game('manual', '2030-08-03T18:00:00.000Z', 'manual-game');
@@ -57,15 +57,11 @@ describe('farming automation candidate policy', () => {
 
     const plan = planFavoriteCampaignQueue(snapshot, 20);
 
-    expect(plan.queue.map((entry) => gameKey(entry))).toEqual([
-      gameKey(second),
-      gameKey(first),
-      gameKey(manual),
-    ]);
+    expect(plan.queue.map((entry) => gameKey(entry))).toEqual([gameKey(second), gameKey(manual)]);
     expect(plan.queueEntryMetadataByKey[gameKey(manual)]).toEqual(manualMetadata);
-    expect(plan.queueEntryMetadataByKey[gameKey(first)]?.source).toBe('favorite-auto');
+    expect(plan.queueEntryMetadataByKey[gameKey(first)]).toBeUndefined();
     expect(plan.queueEntryMetadataByKey[gameKey(second)]?.source).toBe('favorite-auto');
-    expect(plan.added.map((entry) => gameKey(entry.game))).toEqual([gameKey(second), gameKey(first)]);
+    expect(plan.added.map((entry) => gameKey(entry.game))).toEqual([gameKey(second)]);
   });
 
   test('derives duplicate game ids with independent campaign availability', () => {
