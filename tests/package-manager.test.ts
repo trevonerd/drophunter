@@ -1,6 +1,6 @@
+import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, test } from 'bun:test';
 import packageJson from '../package.json';
 
 const repoRoot = join(import.meta.dir, '..');

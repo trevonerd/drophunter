@@ -97,10 +97,8 @@ export function createWatchTransportTransition(
       mode === 'tabless'
         ? await prepareHealthyCandidate(target, options.prepareTabless)
         : await prepareHealthyCandidate(target, options.prepareManaged);
-    const candidate =
-      preferred ??
-      (mode === 'tabless' ? await prepareHealthyCandidate(target, options.prepareManaged) : null);
-    if (!candidate) return { kind: 'failed', reason: 'candidate-unavailable' };
+    if (!preferred) return { kind: 'failed', reason: 'candidate-unavailable' };
+    const candidate = preferred;
 
     let promotion: WatchPromotion | null = null;
     let disposal: Promise<void> | null = null;

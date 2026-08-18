@@ -1,292 +1,144 @@
 import { resetSaveStateBroadcastCacheForTests } from '../../src/background/state-persistence';
+import { createListenerMock, createMessageListenerMock } from './chrome-events.ts';
+import { createStorageMock } from './chrome-storage.ts';
+import type {
+  Alarm,
+  AlarmInfo,
+  ChromeMocks as ChromeMocksContract,
+  MockChrome as MockChromeContract,
+  NotificationOptions,
+  PermissionsRequest,
+  Tab,
+} from './chrome-types.ts';
 
-interface AlarmInfo {
-  delayInMinutes?: number;
-  periodInMinutes?: number;
-  when?: number;
-}
-interface Alarm {
-  name: string;
-  scheduledTime: number;
-  periodInMinutes?: number;
-}
-interface Tab {
-  id?: number;
-  url?: string;
-  title?: string;
-  active?: boolean;
-  windowId?: number;
-}
-interface MessageSender {
-  tab?: Tab;
-  frameId?: number;
-  id?: string;
-  url?: string;
-}
-interface BadgeTextDetails {
-  text?: string | null;
-  tabId?: number;
-}
-interface BadgeColorDetails {
-  color: string | [number, number, number, number];
-  tabId?: number;
-}
-interface QueryInfo {
-  active?: boolean;
-  windowId?: number;
-  url?: string | string[];
-}
-interface PermissionsRequest {
-  permissions?: string[];
-  origins?: string[];
-}
-
-interface ListenerMock<T> {
-  addListener(handler: (arg: T) => void): void;
-  removeListener(handler: (arg: T) => void): void;
-  trigger(arg: T): void;
-  _handlers: Array<(arg: T) => void>;
-}
-
-function createListenerMock<T>(): ListenerMock<T> {
-  const handlers: Array<(arg: T) => void> = [];
-  return {
-    _handlers: handlers,
-    addListener(handler) {
-      handlers.push(handler);
-    },
-    removeListener(handler) {
-      const idx = handlers.indexOf(handler);
-      if (idx !== -1) handlers.splice(idx, 1);
-    },
-    trigger(arg) {
-      for (const h of handlers) h(arg);
-    },
-  };
-}
-
-type MessageHandler = (
-  message: unknown,
-  sender: MessageSender,
-  sendResponse: (response?: unknown) => void,
-) => boolean | undefined;
-
-interface MessageListenerMock {
-  addListener(handler: MessageHandler): void;
-  removeListener(handler: MessageHandler): void;
-  trigger(message: unknown, sender?: Partial<MessageSender>): void;
-  _handlers: MessageHandler[];
-}
-
-function createMessageListenerMock(): MessageListenerMock {
-  const handlers: MessageHandler[] = [];
-  return {
-    _handlers: handlers,
-    addListener(handler) {
-      handlers.push(handler);
-    },
-    removeListener(handler) {
-      const idx = handlers.indexOf(handler);
-      if (idx !== -1) handlers.splice(idx, 1);
-    },
-    trigger(message, sender = {}) {
-      for (const h of handlers) h(message, sender as MessageSender, () => {});
-    },
-  };
-}
-
-function createStorageMock() {
-  const store = new Map<string, unknown>();
-  return {
-    _store: store,
-    get(keys: string | string[] | Record<string, unknown> | null): Promise<Record<string, unknown>> {
-      if (keys === null) return Promise.resolve(Object.fromEntries(store));
-      const result: Record<string, unknown> = {};
-      if (typeof keys === 'string') {
-        if (store.has(keys)) result[keys] = store.get(keys);
-      } else if (Array.isArray(keys)) {
-        for (const k of keys) {
-          if (store.has(k)) result[k] = store.get(k);
-        }
-      } else {
-        for (const [k, def] of Object.entries(keys)) {
-          result[k] = store.has(k) ? store.get(k) : def;
-        }
-      }
-      return Promise.resolve(result);
-    },
-    set(items: Record<string, unknown>): Promise<void> {
-      for (const [k, v] of Object.entries(items)) store.set(k, v);
-      return Promise.resolve();
-    },
-    remove(key: string | string[]): Promise<void> {
-      for (const entry of Array.isArray(key) ? key : [key]) {
-        store.delete(entry);
-      }
-      return Promise.resolve();
-    },
-    clear(): Promise<void> {
-      store.clear();
-      return Promise.resolve();
-    },
-  };
-}
-
-type StorageMock = ReturnType<typeof createStorageMock>;
-
-export interface ChromeMocks {
-  storage: { local: StorageMock; session: StorageMock; sync: StorageMock };
-  runtime: {
-    onMessage: MessageListenerMock;
-    sendMessage: (message: unknown) => Promise<unknown>;
-  };
-  alarms: {
-    create: (name: string, alarmInfo: AlarmInfo) => void;
-    _created: Array<{ name: string; info: AlarmInfo }>;
-    onAlarm: ListenerMock<Alarm>;
-  };
-  tabs: {
-    query: (queryInfo: QueryInfo) => Promise<Tab[]>;
-    get: (tabId: number) => Promise<Tab>;
-    setTabsQueryResult: (tabs: Tab[]) => void;
-    setTabsGetResult: (tab: Tab) => void;
-  };
-  action: {
-    setBadgeText: (details: BadgeTextDetails) => void;
-    setBadgeBackgroundColor: (details: BadgeColorDetails) => void;
-    getBadgeState: () => { text: string; color: string };
-  };
-  notifications: {
-    create: (options: unknown) => Promise<string>;
-    _notifications: unknown[];
-  };
-  permissions: {
-    contains: (permissions: PermissionsRequest) => Promise<boolean>;
-    request: (permissions: PermissionsRequest) => Promise<boolean>;
-    setContainsResult: (result: boolean) => void;
-    setRequestResult: (result: boolean) => void;
-    _requests: PermissionsRequest[];
-  };
-  teardown: () => void;
-}
+export type ChromeMocks = ChromeMocksContract;
+export type MockChrome = MockChromeContract;
 
 export function setupChromeMocks(): ChromeMocks {
   resetSaveStateBroadcastCacheForTests();
-  const originalChrome = (globalThis as Record<string, unknown>).chrome;
-  const originalBrowser = (globalThis as Record<string, unknown>).browser;
+  const originalChrome = Reflect.get(globalThis, 'chrome');
+  const originalBrowser = Reflect.get(globalThis, 'browser');
 
-  const localStore = createStorageMock();
-  const sessionStore = createStorageMock();
-  const syncStore = createStorageMock();
-  const onMessage = createMessageListenerMock();
-  const onAlarm = createListenerMock<Alarm>();
+  const storage = {
+    local: createStorageMock(),
+    session: createStorageMock(),
+    sync: createStorageMock(),
+  };
+  const runtime = {
+    id: 'test-extension',
+    getURL: (path: string) => `chrome-extension://test-extension/${path}`,
+    onMessage: createMessageListenerMock(),
+    onStartup: createListenerMock<void>(),
+    onInstalled: createListenerMock<{ reason: 'install' | 'update' | 'chrome_update' }>(),
+    sendMessage: (_message: unknown): Promise<unknown> => Promise.resolve(undefined),
+  };
+
   const createdAlarms: Array<{ name: string; info: AlarmInfo }> = [];
-  const badgeState = { text: '', color: '' };
-  const notifications: unknown[] = [];
-  const permissionRequests: PermissionsRequest[] = [];
-  let permissionsContainsResult = false;
-  let permissionsRequestResult = false;
+  const alarms = {
+    create(name: string, info: AlarmInfo) {
+      createdAlarms.push({ name, info });
+    },
+    clear: (_name: string): Promise<boolean | undefined> => Promise.resolve(true),
+    onAlarm: createListenerMock<Alarm>(),
+    _created: createdAlarms,
+  };
+
   let tabsQueryResult: Tab[] = [];
   let tabsGetResult: Tab | null = null;
-
-  const mockChrome = {
-    storage: { local: localStore, session: sessionStore, sync: syncStore },
-    runtime: {
-      onMessage,
-      sendMessage(_msg: unknown): Promise<unknown> {
-        return Promise.resolve(undefined);
-      },
+  const tabs: MockChrome['tabs'] = {
+    query: (_queryInfo) => Promise.resolve(tabsQueryResult),
+    get: (tabId) =>
+      tabsGetResult === null
+        ? Promise.reject(new Error(`tab ${tabId} not found`))
+        : Promise.resolve(tabsGetResult),
+    create: (createProperties) =>
+      Promise.resolve({ id: 999, windowId: createProperties.windowId ?? 1, ...createProperties }),
+    update: (tabId, updateProperties = {}) => Promise.resolve({ id: tabId, ...updateProperties }),
+    remove: (_tabId) => Promise.resolve(),
+    sendMessage: (_tabId, _message) => Promise.resolve({ success: false }),
+    onRemoved: createListenerMock<number>(),
+    onUpdated: createListenerMock(),
+    setTabsQueryResult(nextTabs) {
+      tabsQueryResult = nextTabs;
     },
-    alarms: {
-      create(name: string, info: AlarmInfo) {
-        createdAlarms.push({ name, info });
-      },
-      clear(_name: string): Promise<boolean> {
-        return Promise.resolve(true);
-      },
-      onAlarm,
-    },
-    tabs: {
-      query(_queryInfo: QueryInfo): Promise<Tab[]> {
-        return Promise.resolve(tabsQueryResult);
-      },
-      get(_tabId: number): Promise<Tab> {
-        if (tabsGetResult === null) return Promise.reject(new Error('tab not found'));
-        return Promise.resolve(tabsGetResult);
-      },
-    },
-    action: {
-      setBadgeText(details: BadgeTextDetails) {
-        badgeState.text = details.text ?? '';
-      },
-      setBadgeBackgroundColor(details: BadgeColorDetails) {
-        badgeState.color = String(details.color ?? '');
-      },
-    },
-    notifications: {
-      async create(options: unknown) {
-        notifications.push(options);
-        return 'notification-id';
-      },
-    },
-    permissions: {
-      contains(_permissions: PermissionsRequest): Promise<boolean> {
-        return Promise.resolve(permissionsContainsResult);
-      },
-      request(permissions: PermissionsRequest): Promise<boolean> {
-        permissionRequests.push(permissions);
-        return Promise.resolve(permissionsRequestResult);
-      },
+    setTabsGetResult(nextTab) {
+      tabsGetResult = nextTab;
     },
   };
 
-  (globalThis as Record<string, unknown>).chrome = mockChrome;
-  (globalThis as Record<string, unknown>).browser = mockChrome;
+  const windows: MockChrome['windows'] = {
+    get: (_windowId) => Promise.resolve(null),
+    getLastFocused: () => Promise.resolve({ id: 1 }),
+    update: (_windowId, _updateInfo) => Promise.resolve(null),
+    create: (_createData) => Promise.resolve({ id: 1 }),
+    onRemoved: createListenerMock<number>(),
+  };
+
+  const badgeState = { text: '', color: '' };
+  const action: MockChrome['action'] = {
+    setBadgeText(details) {
+      badgeState.text = details.text ?? '';
+    },
+    setBadgeBackgroundColor(details) {
+      badgeState.color = String(details.color);
+    },
+    getBadgeState: () => ({ ...badgeState }),
+  };
+
+  const notificationList: NotificationOptions[] = [];
+  const notifications: MockChrome['notifications'] = {
+    async create(options) {
+      notificationList.push(options);
+      return 'notification-id';
+    },
+    _notifications: notificationList,
+  };
+
+  const permissionRequests: PermissionsRequest[] = [];
+  let permissionsContainsResult = false;
+  let permissionsRequestResult = false;
+  const permissions: MockChrome['permissions'] = {
+    contains: (_request) => Promise.resolve(permissionsContainsResult),
+    request(request) {
+      permissionRequests.push(request);
+      return Promise.resolve(permissionsRequestResult);
+    },
+    getAll: () => Promise.resolve({ permissions: [], origins: [] }),
+    setContainsResult(result) {
+      permissionsContainsResult = result;
+    },
+    setRequestResult(result) {
+      permissionsRequestResult = result;
+    },
+    _requests: permissionRequests,
+  };
+
+  const scripting: MockChrome['scripting'] = {
+    executeScript: (_options) => Promise.resolve([]),
+  };
+  const chrome: MockChrome = {
+    storage,
+    runtime,
+    alarms,
+    tabs,
+    windows,
+    action,
+    notifications,
+    permissions,
+    scripting,
+  };
+
+  Reflect.set(globalThis, 'chrome', chrome);
+  Reflect.set(globalThis, 'browser', chrome);
 
   return {
-    storage: { local: localStore, session: sessionStore, sync: syncStore },
-    runtime: { onMessage, sendMessage: mockChrome.runtime.sendMessage },
-    alarms: {
-      create: mockChrome.alarms.create.bind(mockChrome.alarms),
-      clear: mockChrome.alarms.clear.bind(mockChrome.alarms),
-      _created: createdAlarms,
-      onAlarm,
-    },
-    tabs: {
-      query: mockChrome.tabs.query,
-      get: mockChrome.tabs.get,
-      setTabsQueryResult(tabs) {
-        tabsQueryResult = tabs;
-      },
-      setTabsGetResult(tab) {
-        tabsGetResult = tab;
-      },
-    },
-    action: {
-      setBadgeText: mockChrome.action.setBadgeText.bind(mockChrome.action),
-      setBadgeBackgroundColor: mockChrome.action.setBadgeBackgroundColor.bind(mockChrome.action),
-      getBadgeState() {
-        return { ...badgeState };
-      },
-    },
-    notifications: {
-      create: mockChrome.notifications.create.bind(mockChrome.notifications),
-      _notifications: notifications,
-    },
-    permissions: {
-      contains: mockChrome.permissions.contains.bind(mockChrome.permissions),
-      request: mockChrome.permissions.request.bind(mockChrome.permissions),
-      setContainsResult(result) {
-        permissionsContainsResult = result;
-      },
-      setRequestResult(result) {
-        permissionsRequestResult = result;
-      },
-      _requests: permissionRequests,
-    },
+    chrome,
+    ...chrome,
     teardown() {
-      (globalThis as Record<string, unknown>).chrome = originalChrome;
-      (globalThis as Record<string, unknown>).browser = originalBrowser;
+      if (originalChrome === undefined) Reflect.deleteProperty(globalThis, 'chrome');
+      else Reflect.set(globalThis, 'chrome', originalChrome);
+      if (originalBrowser === undefined) Reflect.deleteProperty(globalThis, 'browser');
+      else Reflect.set(globalThis, 'browser', originalBrowser);
     },
   };
 }

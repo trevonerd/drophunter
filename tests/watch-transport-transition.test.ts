@@ -70,9 +70,10 @@ describe('watch transport transition', () => {
     expect(transition.currentOwnership()).toEqual(candidate.ownership);
   });
 
-  test('preserves A and abandons unproven cleanup', async () => {
-    // Given: both a tabless B and its one managed fallback are unhealthy.
+  test('never prepares a managed fallback for a strict tabless transition', async () => {
+    // Given: tabless B is unhealthy while a managed candidate would be viable.
     const disposals: string[] = [];
+    let managedPreparations = 0;
     const unhealthyCandidate = (
       mode: WatchHealth['mode'],
       ownership: WatchOwnershipV1,
@@ -88,22 +89,25 @@ describe('watch transport transition', () => {
       currentOwnership: incumbent,
       prepareTabless: async () =>
         unhealthyCandidate('tabless', { kind: 'tabless', targetKey: 'campaign:campaign-b' }),
-      prepareManaged: async () =>
-        unhealthyCandidate('managed-tab', {
+      prepareManaged: async () => {
+        managedPreparations += 1;
+        return unhealthyCandidate('managed-tab', {
           kind: 'managed-tab',
           tabId: 22,
           ownershipToken: 'candidate-token',
           expectedChannel: 'channel-b',
-        }),
+        });
+      },
       release: async () => ({ kind: 'abandoned-unproven' }),
     });
 
-    // When: tabless preparation falls back once and that managed B also fails.
+    // When: tabless preparation cannot establish a healthy watch.
     const preparation = await transition.prepare(target, 'tabless');
 
-    // Then: both provisional B resources are disposed once and A is untouched.
+    // Then: the tabless candidate is disposed and managed transport is never prepared.
     expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
-    expect(disposals).toEqual(['tabless', 'managed-tab']);
+    expect(disposals).toEqual(['tabless']);
+    expect(managedPreparations).toBe(0);
     expect(transition.currentOwnership()).toEqual(incumbent);
   });
 

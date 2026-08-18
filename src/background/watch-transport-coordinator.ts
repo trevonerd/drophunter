@@ -116,6 +116,10 @@ export function createWatchTransportCoordinator(
         await projection.apply({ kind: projectionKind, health });
         return health;
       case 'fallback':
+        if (state.appState.watchTransportPreference === 'tabless') {
+          await projection.apply({ kind: projectionKind, health });
+          return health;
+        }
         return startManagedFallback(health);
       default:
         decision satisfies never;
@@ -148,11 +152,9 @@ export function createWatchTransportCoordinator(
         const restoredTarget = targetFor(state, persistedStreamer);
         if (restoredTarget) {
           target = restoredTarget;
-          active =
-            state.appState.watchTransportMode === 'tabless' &&
-            state.appState.watchTransportPreference === 'tabless'
-              ? createTabless()
-              : createManaged();
+          const prefersTabless = state.appState.watchTransportPreference === 'tabless';
+          if (prefersTabless) state.appState.tabId = null;
+          active = prefersTabless ? createTabless() : createManaged();
           fallbackPolicy.reset();
           const restoredHealth = await active.start(restoredTarget);
           return settleHealth(restoredHealth, 'started');
@@ -200,7 +202,8 @@ export function createWatchTransportCoordinator(
 
   const restore = async (ownership: WatchOwnershipV1): Promise<boolean> => {
     const streamer = state.appState.activeStreamer;
-    const restoredTarget = streamer ? targetFor(state, streamer) : null;
+    if (!streamer) return false;
+    const restoredTarget = targetFor(state, streamer);
     if (!restoredTarget) return false;
     const persistedHealth = state.appState.watchHealth;
     const health =
@@ -208,6 +211,10 @@ export function createWatchTransportCoordinator(
         ? persistedHealth
         : streamHealth(state.appState.currentDrop?.currentMinutes ?? null, ownership.kind, now());
     adopt({ target: restoredTarget, ownership, health, obsolete: null });
+    if (ownership.kind === 'managed-tab' && state.appState.watchTransportPreference === 'tabless') {
+      const restartedHealth = await start(streamer);
+      return restartedHealth.mode === 'tabless';
+    }
     await projection.apply({ kind: 'started', health });
     return true;
   };

@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { EXTENSION_MANIFEST, TWITCH_MATCHES } from '../src/shared/extension-manifest.ts';
 
-const packageJson = JSON.parse(
-  readFileSync(resolve(import.meta.dir, '../package.json'), 'utf-8'),
-) as { version?: string };
+const packageJson = JSON.parse(readFileSync(resolve(import.meta.dir, '../package.json'), 'utf-8')) as {
+  version?: string;
+};
 
 function runtimeSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -60,7 +60,10 @@ describe('manifest permissions', () => {
   });
 
   test('declares WXT entrypoints for both Twitch content scripts', () => {
-    const contentEntrypoint = readFileSync(resolve(import.meta.dir, '../src/entrypoints/content.ts'), 'utf-8');
+    const contentEntrypoint = readFileSync(
+      resolve(import.meta.dir, '../src/entrypoints/content.ts'),
+      'utf-8',
+    );
     const integrityEntrypoint = readFileSync(
       resolve(import.meta.dir, '../src/entrypoints/integrity-interceptor.content.ts'),
       'utf-8',
