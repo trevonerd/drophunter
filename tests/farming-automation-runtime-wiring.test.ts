@@ -39,10 +39,13 @@ function createSettingsDependencies(automation: FarmingAutomation) {
   };
 }
 
-function createContentDependencies(automation: FarmingAutomation) {
+function createContentDependencies(
+  automation: FarmingAutomation,
+  resumeAfterAuthRecovery: () => Promise<void> = async () => undefined,
+) {
   return {
     automation,
-    farmingSession: { stop: async () => undefined },
+    farmingSession: { resumeAfterAuthRecovery, stop: async () => undefined },
     notify: async () => undefined,
     stateLifecycle: {
       awaitInitialization: async () => undefined,
@@ -56,6 +59,13 @@ function createContentDependencies(automation: FarmingAutomation) {
       persistSessionFromDropsPage: async () => null,
       shouldRefreshCampaignsAfterSessionSync: () => false,
     },
+  };
+}
+
+function disabledAutomation(): FarmingAutomation {
+  return {
+    request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
+    snooze: async () => 'snoozed',
   };
 }
 
@@ -124,5 +134,72 @@ describe('farming automation runtime wiring', () => {
       { success: true, started: false, reason: 'no-eligible-campaign' },
       { success: false, started: false, error: 'drops-refresh-failed' },
     ]);
+  });
+
+  test('resumes a farming session stopped by an older authentication flow', async () => {
+    const state = createServiceWorkerState();
+    state.appState.selectedGame = game;
+    state.appState.queue = [game];
+    state.appState.lastStopReason = 'sign-in-required';
+    state.apiConsecutiveFailures = 3;
+    state.apiBackoffUntil = Date.now() + 60_000;
+    let resumeCalls = 0;
+    const content = createServiceWorkerContentHandlers(
+      state,
+      createContentDependencies(disabledAutomation(), async () => {
+        resumeCalls += 1;
+        state.appState.isRunning = true;
+      }),
+    );
+    const sender: chrome.runtime.MessageSender = {
+      url: 'https://www.twitch.tv/drops/campaigns',
+    };
+
+    const result = await content.handleSyncTwitchSession(
+      {
+        oauthToken: 'fresh-token-with-enough-length',
+        userId: 'viewer-1',
+        deviceId: 'device-1',
+        uuid: 'uuid-1',
+      },
+      sender,
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(resumeCalls).toBe(1);
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(state.apiBackoffUntil).toBe(0);
+  });
+
+  test('does not resume a manually stopped session after Twitch sync', async () => {
+    const state = createServiceWorkerState();
+    state.appState.selectedGame = game;
+    state.appState.queue = [game];
+    state.appState.lastStopReason = 'user-stop';
+    let resumeCalls = 0;
+    const content = createServiceWorkerContentHandlers(
+      state,
+      createContentDependencies(disabledAutomation(), async () => {
+        resumeCalls += 1;
+      }),
+    );
+    const sender: chrome.runtime.MessageSender = {
+      url: 'https://www.twitch.tv/drops/campaigns',
+    };
+
+    const result = await content.handleSyncTwitchSession(
+      {
+        oauthToken: 'fresh-token-with-enough-length',
+        userId: 'viewer-1',
+        deviceId: 'device-1',
+        uuid: 'uuid-1',
+      },
+      sender,
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(resumeCalls).toBe(0);
+    expect(state.appState.lastStopReason).toBe('user-stop');
   });
 });

@@ -1,15 +1,25 @@
-import { STREAM_VALIDATION_GRACE_MS } from './constants.ts';
+import { PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
 import { runFarmingSessionMutation } from './farming-session-revision.ts';
-import { applyStopState, clearRecoveryState, clearStopState } from './recovery-state.ts';
+import {
+  applyStopState,
+  applyTwitchSessionRecoveryState,
+  clearRecoveryState,
+  clearStopState,
+} from './recovery-state.ts';
 import { clearRotationMetadata } from './runtime-state.ts';
 import { handleStartFarming as startFarming, stopFarmingSession } from './session-lifecycle.ts';
+import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StartFarmingPayload, StartFarmingResult } from './session-lifecycle-types.ts';
 
 export type FarmingSessionStopOptions = {
   readonly notification?: { readonly title: string; readonly message: string };
   readonly stopReason?: string;
   readonly stopMessage?: string | null;
+};
+
+export type FarmingSessionAuthRecoveryOptions = {
+  readonly notification?: { readonly title: string; readonly message: string };
 };
 
 type FarmingSessionHandlerDependencies = {
@@ -29,6 +39,8 @@ export type FarmingSessionHandlers = {
   readonly handleResumeFarming: () => Promise<SuccessResult>;
   readonly handleStartFarming: (payload: StartFarmingPayload) => Promise<StartFarmingResult>;
   readonly handleStopFarming: () => Promise<SuccessResult>;
+  readonly recoverTwitchSession: (options?: FarmingSessionAuthRecoveryOptions) => Promise<void>;
+  readonly resumeAfterAuthRecovery: () => Promise<void>;
   readonly stop: (options?: FarmingSessionStopOptions) => Promise<void>;
 };
 
@@ -104,6 +116,47 @@ export function createFarmingSessionHandlers(
     return runFarmingSessionMutation(state, stopManually);
   }
 
+  async function recoverTwitchSession(options?: FarmingSessionAuthRecoveryOptions): Promise<void> {
+    if (!state.appState.isRunning) return;
+
+    state.apiConsecutiveFailures += 1;
+    const retryDelayMs = Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
+    state.apiBackoffUntil = Date.now() + retryDelayMs;
+    applyTwitchSessionRecoveryState(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
+
+    if (options?.notification && !state.recoveryNotificationSent) {
+      state.recoveryNotificationSent = true;
+      await adapters.notify(
+        options.notification.title,
+        `${options.notification.message} Viewing continues and farming will resume automatically.`,
+      );
+    }
+    await adapters.saveState(state);
+    await adapters.saveTimingState(state);
+  }
+
+  async function resumeAfterAuthRecovery(): Promise<void> {
+    if (state.appState.isRunning) return;
+    const selectedGame = state.appState.selectedGame ?? state.appState.queue[0] ?? null;
+    if (!selectedGame) return;
+
+    state.appState.selectedGame = selectedGame;
+    state.appState.isRunning = true;
+    state.appState.isPaused = false;
+    state.appState.completionNotified = false;
+    clearStopState(state);
+    clearRecoveryState(state);
+    resetStreamTrackingState(state);
+    state.tickGeneration += 1;
+    await dependencies.onEnsureWorkspace();
+    if (!state.appState.tabId) {
+      await dependencies.onAcquireStreamer();
+    }
+    dependencies.onStartMonitoring();
+    await adapters.saveState(state);
+    await adapters.saveTimingState(state);
+  }
+
   async function pause(): Promise<SuccessResult> {
     await adapters.trackActivity('pause-farming');
     state.appState.isPaused = true;
@@ -160,6 +213,8 @@ export function createFarmingSessionHandlers(
     handleResumeFarming,
     handleStartFarming,
     handleStopFarming,
+    recoverTwitchSession,
+    resumeAfterAuthRecovery,
     stop,
   };
 }

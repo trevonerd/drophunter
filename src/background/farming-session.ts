@@ -58,6 +58,8 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     handleResumeFarming,
     handleStartFarming,
     handleStopFarming,
+    recoverTwitchSession,
+    resumeAfterAuthRecovery,
   } = handlers;
 
   function refreshDropsData(options: RefreshDropsOptions = {}): Promise<void> {
@@ -85,7 +87,9 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     handleSetSelectedGame,
     handleStartFarming,
     handleStopFarming,
+    recoverTwitchSession,
     refreshDropsData,
+    resumeAfterAuthRecovery,
     startMonitoring,
     stop,
     stopMonitoring,

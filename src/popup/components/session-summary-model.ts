@@ -93,7 +93,10 @@ export function createSessionSummaryModel({
       progressState: 'recovering',
       label: 'Recovering',
       subject,
-      detail: `${recoveryParts.join(' · ') || 'Restoring the farming session'}. Progress is paused; retry is automatic.`,
+      detail:
+        state.recoveryReason === 'sign-in-required'
+          ? `${recoveryParts.join(' · ') || 'Refreshing Twitch session'}. Viewing continues; progress sync is paused and retry is automatic.`
+          : `${recoveryParts.join(' · ') || 'Restoring the farming session'}. Progress is paused; retry is automatic.`,
       tone: 'warning',
     };
   }
