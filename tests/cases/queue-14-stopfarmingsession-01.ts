@@ -126,6 +126,18 @@ export function registerQueue14Part01() {
       expect(saveTimingCalled).toBe(true);
     });
 
+    test('skips delayed timing persistence when a reset will remove timing state', async () => {
+      const state = createMinimalState();
+      let saveTimingCalled = false;
+      await stopFarmingSession(state, {
+        skipTimingStateSave: true,
+        onSaveTimingState: async () => {
+          saveTimingCalled = true;
+        },
+      });
+      expect(saveTimingCalled).toBe(false);
+    });
+
     test('uses clearRotationMetadata when provided', async () => {
       const state = createMinimalState();
       let clearRotationCalled = false;

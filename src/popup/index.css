@@ -31,6 +31,13 @@
   --dh-space-6: 1.5rem;
 }
 
+html {
+  min-height: 100%;
+  background: linear-gradient(135deg, var(--dh-bg-0) 0%, var(--dh-bg-1) 52%, var(--dh-bg-2) 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -40,7 +47,7 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(135deg, var(--dh-bg-0) 0%, var(--dh-bg-1) 52%, var(--dh-bg-2) 100%);
+  background: transparent;
   color: var(--dh-text);
   overflow-x: hidden;
   overflow-y: auto;
@@ -82,7 +89,7 @@ body {
 }
 
 .dh-view {
-  background: linear-gradient(135deg, var(--dh-bg-0) 0%, var(--dh-bg-1) 52%, var(--dh-bg-2) 100%);
+  background: transparent;
   color: var(--dh-text);
 }
 

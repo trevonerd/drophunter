@@ -239,9 +239,9 @@ export function registerRefreshLaunchCases() {
       Date.now = realDateNow;
     }
 
-    expect(response.success).toBe(false);
+    expect(response.success).toBe(true);
     expect(response.gamesCount).toBe(0);
-    expect(response.error).toBe('No active Twitch Drops campaigns were detected.');
+    expect(response.error).toBeUndefined();
     expect(response.appState?.availableGames).toEqual([]);
     expect(response.appState?.selectedGame).toBeNull();
     expect(response.appState?.pendingDrops).toEqual([]);

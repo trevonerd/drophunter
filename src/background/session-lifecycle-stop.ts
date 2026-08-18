@@ -79,6 +79,9 @@ export async function stopFarmingSession(
   if (options?.onSaveState) {
     await options.onSaveState();
   }
+  if (options?.skipTimingStateSave) {
+    return;
+  }
   if (options?.onSaveTimingState) {
     await options.onSaveTimingState(state);
   } else {

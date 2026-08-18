@@ -177,6 +177,7 @@ describe('Farming automation lifecycle wiring', () => {
       getFarmingSession: () => ({
         acquireStreamerForSelectedGame: async () => false,
         startMonitoring: () => undefined,
+        stop: async () => undefined,
         stopMonitoring: () => undefined,
       }),
       initializeFarmingAutomation: initializeAutomation,

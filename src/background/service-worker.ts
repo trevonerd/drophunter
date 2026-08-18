@@ -141,6 +141,7 @@ const startServiceWorkerOnce = createServiceWorkerStarter({
       getInitPromise: stateLifecycle.getInitPromise,
       farmingAutomation: farmingAutomationRuntime.automation,
       onExtensionUpdate: stateLifecycle.handleExtensionUpdate,
+      onExtensionStorageCleared: stateLifecycle.handleExtensionStorageCleared,
       onMonitoringAlarm: farmingSession.checkDropProgress,
       onLinkRecheckAlarm: farmingSession.handleRefreshDrops,
     }),

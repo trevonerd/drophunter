@@ -14,6 +14,13 @@ import {
   hasCompleteIdentifiedRewardSet,
   reconcileUnverifiableRewardMarkers,
 } from './drops-projection';
+import {
+  type GamesCacheRefreshResult,
+  getGamesCacheRefreshInFlight,
+  mergeUniqueDrops,
+  removeTerminalSummary,
+  setGamesCacheRefreshInFlight,
+} from './games-cache-refresh-state.ts';
 import { logWarn } from './logging';
 import type { ServiceWorkerState } from './runtime-state';
 
@@ -26,6 +33,8 @@ export interface RefreshGamesCacheOptions {
   // retry-until-ready loop of their own, unlike the drops-page-refresh flow.
   requireConsecutiveEmptyConfirmation?: boolean;
 }
+
+export type { GamesCacheRefreshResult } from './games-cache-refresh-state.ts';
 
 export interface GamesCacheRefreshDeps {
   fetchDropsSnapshot: (forceSessionRefresh: boolean) => Promise<DropsSnapshot | null>;
@@ -51,42 +60,20 @@ export interface GamesCacheRefreshDeps {
   saveState: (state: ServiceWorkerState) => Promise<void>;
 }
 
-function mergeUniqueDrops(primary: TwitchDrop[], additional: TwitchDrop[]): TwitchDrop[] {
-  const merged = primary.slice();
-  const keys = new Set(merged.map(dropStateKey));
-  for (const drop of additional) {
-    const key = dropStateKey(drop);
-    if (keys.has(key)) {
-      continue;
-    }
-    keys.add(key);
-    merged.push(drop);
-  }
-  return merged;
-}
-
-function removeTerminalSummary(game: TwitchGame): TwitchGame {
-  const withoutSummary = { ...game };
-  delete withoutSummary.rewardSummary;
-  delete withoutSummary.allDropsCompleted;
-  return withoutSummary;
-}
-
 export async function refreshGamesCacheFromHiddenFetch(
   state: ServiceWorkerState,
   options: RefreshGamesCacheOptions,
   deps: GamesCacheRefreshDeps,
-): Promise<TwitchGame[]> {
-  if (state.gamesCacheRefreshInFlight) {
-    return state.gamesCacheRefreshInFlight;
-  }
+): Promise<GamesCacheRefreshResult> {
+  const existingRefresh = getGamesCacheRefreshInFlight(state);
+  if (existingRefresh) return existingRefresh;
 
-  state.gamesCacheRefreshInFlight = (async () => {
+  const refreshInFlight = (async (): Promise<GamesCacheRefreshResult> => {
     let fetchedGames: TwitchGame[] = [];
     let provenance: DropsSnapshotProvenance = 'cached';
     const apiSnapshot = await deps.fetchDropsSnapshot(Boolean(options.forceSessionRefresh));
     if (!apiSnapshot && options.requireFreshSnapshot) {
-      return [];
+      return { kind: 'unavailable', games: state.appState.availableGames };
     }
     const previousSelectedGame = state.appState.selectedGame;
     const previousSelectedDrops = previousSelectedGame
@@ -111,7 +98,7 @@ export async function refreshGamesCacheFromHiddenFetch(
             });
           }
         }
-        return [];
+        return { kind: 'refreshed', games: [] };
       }
       state.emptyCampaignRefreshStreak = 0;
       provenance = 'campaign-authoritative';
@@ -204,12 +191,13 @@ export async function refreshGamesCacheFromHiddenFetch(
     deps.resetStreamTrackingState(state);
     state.lastGamesCacheRefreshAt = Date.now();
     await deps.saveState(state);
-    return mergedGames;
+    return { kind: apiSnapshot ? 'refreshed' : 'cached', games: mergedGames };
   })().finally(() => {
-    state.gamesCacheRefreshInFlight = null;
+    setGamesCacheRefreshInFlight(state, null);
   });
+  setGamesCacheRefreshInFlight(state, refreshInFlight);
 
-  return state.gamesCacheRefreshInFlight;
+  return refreshInFlight;
 }
 
 async function applyAuthoritativeEmptyCampaignRefresh(
@@ -237,7 +225,9 @@ export interface EnsureGamesCacheDeps {
   trackActivity: (action: string) => Promise<void>;
   ensureStateHydratedForCache: () => Promise<void>;
   shouldRefreshGamesCache: (state: ServiceWorkerState, force: boolean) => boolean;
-  refreshGamesCacheFromHiddenFetch: (options: RefreshGamesCacheOptions) => Promise<TwitchGame[]>;
+  refreshGamesCacheFromHiddenFetch: (
+    options: RefreshGamesCacheOptions,
+  ) => Promise<GamesCacheRefreshResult | TwitchGame[]>;
   saveState: (state: ServiceWorkerState) => Promise<void>;
 }
 
@@ -251,8 +241,14 @@ export async function handleEnsureGamesCache(
   await deps.ensureStateHydratedForCache();
   const force = Boolean(payload?.force);
   const shouldRefresh = deps.shouldRefreshGamesCache(state, force);
+  let refreshResult: GamesCacheRefreshResult | null = null;
   if (shouldRefresh) {
-    await deps.refreshGamesCacheFromHiddenFetch({ requireConsecutiveEmptyConfirmation: true });
+    const rawRefreshResult = await deps.refreshGamesCacheFromHiddenFetch({
+      requireConsecutiveEmptyConfirmation: true,
+    });
+    refreshResult = Array.isArray(rawRefreshResult)
+      ? { kind: 'cached', games: rawRefreshResult }
+      : rawRefreshResult;
   } else if (state.cachedDropsSnapshot.length > 0) {
     // Reapply durable local markers to the fresh cached projection after a worker restart.
     state.cachedDropsSnapshot = reconcileUnverifiableRewardMarkers(
@@ -267,9 +263,12 @@ export async function handleEnsureGamesCache(
     await deps.saveState(state);
   }
   return {
-    success: true,
+    success: refreshResult?.kind !== 'unavailable',
     refreshed: shouldRefresh,
     gamesCount: state.appState.availableGames.length,
     games: state.appState.availableGames,
+    ...(refreshResult?.kind === 'unavailable'
+      ? { error: 'Twitch campaign data is temporarily unavailable. Try again.' }
+      : {}),
   };
 }

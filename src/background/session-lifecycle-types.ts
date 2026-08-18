@@ -16,6 +16,7 @@ export type QueueProgressOptions = {
 };
 
 export type StopFarmingSessionOptions = {
+  readonly skipTimingStateSave?: boolean;
   readonly notification?: { readonly title: string; readonly message: string };
   readonly stopReason?: string;
   readonly stopMessage?: string | null;

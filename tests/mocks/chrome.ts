@@ -8,11 +8,30 @@ import type {
   MockChrome as MockChromeContract,
   NotificationOptions,
   PermissionsRequest,
+  StorageChangedListenerMock,
+  StorageChanges,
   Tab,
 } from './chrome-types.ts';
 
 export type ChromeMocks = ChromeMocksContract;
 export type MockChrome = MockChromeContract;
+
+function createStorageChangedListenerMock(): StorageChangedListenerMock {
+  const handlers: StorageChangedListenerMock['_handlers'] = [];
+  return {
+    _handlers: handlers,
+    addListener(handler) {
+      handlers.push(handler);
+    },
+    removeListener(handler) {
+      const index = handlers.indexOf(handler);
+      if (index !== -1) handlers.splice(index, 1);
+    },
+    trigger(changes: StorageChanges, areaName: string) {
+      for (const handler of handlers) handler(changes, areaName);
+    },
+  };
+}
 
 export function setupChromeMocks(): ChromeMocks {
   resetSaveStateBroadcastCacheForTests();
@@ -23,9 +42,11 @@ export function setupChromeMocks(): ChromeMocks {
     local: createStorageMock(),
     session: createStorageMock(),
     sync: createStorageMock(),
+    onChanged: createStorageChangedListenerMock(),
   };
   const runtime = {
     id: 'test-extension',
+    getManifest: () => ({ version: '4.0.0' }),
     getURL: (path: string) => `chrome-extension://test-extension/${path}`,
     onMessage: createMessageListenerMock(),
     onStartup: createListenerMock<void>(),

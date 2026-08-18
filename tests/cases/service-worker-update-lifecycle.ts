@@ -49,6 +49,11 @@ export function registerUpdateLifecycleCase() {
       },
       [serviceWorkerModule.DROPS_SNAPSHOT_CACHE_KEY]: [oldRewardSnapshot],
       [serviceWorkerModule.TIMING_STATE_KEY]: { lastTrackedDropKey: 'old-reward::campaign-1' },
+      farmingAutomationFactsV1: { version: 1 },
+      farmingSessionTransitionReceiptV1: {
+        version: 1,
+        toWatch: { kind: 'managed-tab', tabId: 42 },
+      },
     });
 
     // When
@@ -82,12 +87,36 @@ export function registerUpdateLifecycleCase() {
     expect(reloadedState.appState.allDrops).toEqual([]);
     expect(reloadedState.appState.pendingDrops).toEqual([]);
     expect(reloadedState.appState.completedDrops).toEqual([]);
-    expect(reloadedState.appState.queue).toHaveLength(1);
-    expect(reloadedState.appState.queue[0]?.id).toBe('game-1');
-    expect(reloadedState.appState.selectedGame?.id).toBe('game-1');
+    expect(reloadedState.appState.queue).toEqual([]);
+    expect(reloadedState.appState.selectedGame).toBeNull();
+    expect(reloadedState.appState.isRunning).toBe(false);
     expect(reloadedState.appState.monitorAutoOpen).toBe(true);
     expect(reloadedState.appState.muteFarmingTab).toBe(true);
     expect(reloadedState.appState.totalDropsClaimed).toBe(beforeUpdate.totalDropsClaimed);
     expect(chromeMocks.storage.local._store.has(serviceWorkerModule.TIMING_STATE_KEY)).toBe(false);
+    expect(chromeMocks.storage.local._store.has('farmingAutomationFactsV1')).toBe(false);
+    expect(chromeMocks.storage.local._store.has('farmingSessionTransitionReceiptV1')).toBe(false);
+  });
+
+  test('clearing extension storage resets the live worker instead of restoring stale state', async () => {
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame] });
+    await dispatchMessage({ type: 'ADD_TO_QUEUE', payload: { game: demoGame } });
+    await dispatchMessage({ type: 'SET_SELECTED_GAME', payload: { game: demoGame } });
+    const staleState = getAppStateFromStorage();
+    expect(staleState.queue).toHaveLength(1);
+
+    chromeMocks.storage.local._store.clear();
+    chromeMocks.storage.session._store.clear();
+    chromeMocks.storage.onChanged.trigger({ appState: { oldValue: staleState } }, 'local');
+    await sleepTick();
+    await sleepTick();
+
+    const resetState = getAppStateFromStorage();
+    expect(resetState.queue).toEqual([]);
+    expect(resetState.selectedGame).toBeNull();
+    expect(resetState.availableGames).toEqual([]);
+    expect(resetState.isRunning).toBe(false);
+    expect(resetState.dropsPageRefreshInProgress).toBe(false);
+    expect(chromeMocks.storage.local._store.get('lastInitializedExtensionVersion')).toBe('4.0.0');
   });
 }

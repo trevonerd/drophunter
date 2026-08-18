@@ -11,13 +11,13 @@ import {
   TIMING_STATE_KEY,
   TWITCH_SESSION_STORAGE_KEY,
 } from './constants.ts';
-import { logInfo } from './logging.ts';
 import {
+  applyExtensionDataClearStateTransition,
   applyExtensionUpdateStateTransition,
-  applyStartupResumePolicy,
-  clearRotationMetadata,
-  type ServiceWorkerState,
-} from './runtime-state.ts';
+} from './extension-reset.ts';
+import { persistExtensionResetState } from './extension-reset-persistence.ts';
+import { logInfo } from './logging.ts';
+import { applyStartupResumePolicy, clearRotationMetadata, type ServiceWorkerState } from './runtime-state.ts';
 import { resetStreamTrackingState } from './session-lifecycle.ts';
 import {
   broadcastStateUpdate,
@@ -29,7 +29,7 @@ import {
   saveTimingState,
   sessionDebugSummary,
 } from './state-persistence.ts';
-import { initializeAfterStorageMigration } from './storage-migrations.ts';
+import { clearExtensionRuntimeStorage, initializeAfterStorageMigration } from './storage-migrations.ts';
 import { sanitizeTwitchSession } from './twitch-api/types.ts';
 
 const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000;
@@ -37,6 +37,7 @@ const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000;
 interface StateLifecycleFarmingSession {
   readonly acquireStreamerForSelectedGame: () => Promise<boolean>;
   readonly startMonitoring: () => void;
+  readonly stop: (options?: { readonly skipTimingStateSave?: boolean }) => Promise<void>;
   readonly stopMonitoring: () => void;
 }
 
@@ -50,6 +51,7 @@ export function createServiceWorkerStateLifecycle(
   dependencies: ServiceWorkerStateLifecycleDependencies,
 ) {
   let initPromise: Promise<void> | null = null;
+  let extensionStorageResetInFlight: Promise<void> | null = null;
 
   async function resetForInactivity(trigger: string, idleForMs: number): Promise<void> {
     logInfo('Resetting state after inactivity', {
@@ -92,11 +94,25 @@ export function createServiceWorkerStateLifecycle(
   }
 
   async function handleExtensionUpdate(): Promise<void> {
+    await dependencies.getFarmingSession().stop({ skipTimingStateSave: true });
     applyExtensionUpdateStateTransition(state);
-    await browser.storage.local.remove([DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, 'twitchIntegrity']);
-    await browser.storage.session.remove([TIMING_STATE_KEY]).catch(() => undefined);
-    await browser.storage.local.set({ appState: state.appState, [DROPS_SNAPSHOT_CACHE_KEY]: [] });
-    broadcastStateUpdate(state.appState);
+    await clearExtensionRuntimeStorage();
+    await persistExtensionResetState(state);
+  }
+
+  function handleExtensionStorageCleared(): Promise<void> {
+    if (extensionStorageResetInFlight) {
+      return extensionStorageResetInFlight;
+    }
+    extensionStorageResetInFlight = (async () => {
+      await dependencies.getFarmingSession().stop({ skipTimingStateSave: true });
+      applyExtensionDataClearStateTransition(state);
+      await clearExtensionRuntimeStorage();
+      await persistExtensionResetState(state);
+    })().finally(() => {
+      extensionStorageResetInFlight = null;
+    });
+    return extensionStorageResetInFlight;
   }
 
   async function canResumeWithExistingManagedTab(): Promise<boolean> {
@@ -229,6 +245,7 @@ export function createServiceWorkerStateLifecycle(
     ensureStateHydratedForCache,
     getInitPromise: () => initPromise,
     handleExtensionUpdate,
+    handleExtensionStorageCleared,
     markDropsRefreshNoticeSeen,
     trackActivity,
   };

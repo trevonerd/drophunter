@@ -130,10 +130,25 @@ export interface StorageMock {
   clear: () => Promise<void>;
 }
 
+export type StorageChanges = Record<string, { oldValue?: unknown; newValue?: unknown }>;
+
+export interface StorageChangedListenerMock {
+  addListener: (handler: (changes: StorageChanges, areaName: string) => void) => void;
+  removeListener: (handler: (changes: StorageChanges, areaName: string) => void) => void;
+  trigger: (changes: StorageChanges, areaName: string) => void;
+  _handlers: Array<(changes: StorageChanges, areaName: string) => void>;
+}
+
 export interface MockChrome {
-  storage: { local: StorageMock; session: StorageMock; sync: StorageMock };
+  storage: {
+    local: StorageMock;
+    session: StorageMock;
+    sync: StorageMock;
+    onChanged: StorageChangedListenerMock;
+  };
   runtime: {
     id: string;
+    getManifest: () => { version: string };
     getURL: (path: string) => string;
     onMessage: MessageListenerMock;
     onStartup: ListenerMock<void>;

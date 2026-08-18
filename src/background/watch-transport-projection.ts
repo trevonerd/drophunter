@@ -26,11 +26,10 @@ interface WatchTransportProjectionOptions {
 export function createWatchTransportProjectionStore(
   options: WatchTransportProjectionOptions,
 ): WatchTransportProjectionStore {
-  const state = options.state.appState;
-
   return {
-    currentHealth: () => state.watchHealth,
+    currentHealth: () => options.state.appState.watchHealth,
     async apply(projection) {
+      const state = options.state.appState;
       switch (projection.kind) {
         case 'started':
           state.watchTransportMode = projection.health.mode;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
+  EXTENSION_VERSION_STORAGE_KEY,
   initializeAfterStorageMigration,
   migrateExtensionStorage,
   STORAGE_SCHEMA_VERSION,
@@ -32,6 +33,7 @@ describe('extension storage migration', () => {
     const claimLog = [{ id: 'claimed-1' }];
 
     await mocks.storage.local.set({
+      [EXTENSION_VERSION_STORAGE_KEY]: '4.0.0',
       appState,
       onboardingCompleted: true,
       telegramCredentials,
@@ -83,6 +85,7 @@ describe('extension storage migration', () => {
 
   test('finishes migration before persisted state is hydrated', async () => {
     await mocks.storage.local.set({
+      [EXTENSION_VERSION_STORAGE_KEY]: '4.0.0',
       appState: { totalDropsClaimed: 42, monitorAutoOpen: false },
       twitchSession: { oauthToken: 'stale-oauth', deviceId: 'stale-device' },
     });
@@ -135,9 +138,10 @@ describe('extension storage migration', () => {
     expect(mocks.storage.local._store.get('twitchSession')).toEqual(currentSession);
   });
 
-  test('preserves the current queue behavior for existing installations', async () => {
+  test('preserves the current queue behavior during a schema-only migration', async () => {
     await mocks.storage.local.set({
       [STORAGE_SCHEMA_VERSION_KEY]: 1,
+      [EXTENSION_VERSION_STORAGE_KEY]: '4.0.0',
       appState: { queue: [{ id: 'game-1', campaignId: 'campaign-1' }] },
     });
 
@@ -148,5 +152,105 @@ describe('extension storage migration', () => {
       campaignPriorityMode: 'priority-list-only',
     });
     expect(mocks.storage.local._store.get(STORAGE_SCHEMA_VERSION_KEY)).toBe(STORAGE_SCHEMA_VERSION);
+  });
+
+  test('resets volatile extension state before hydrating a different extension version', async () => {
+    const releasedTabs: number[] = [];
+    mocks.chrome.tabs.setTabsGetResult({
+      id: 91,
+      windowId: 7,
+      url: 'https://www.twitch.tv/legacy-channel',
+    });
+    mocks.chrome.tabs.setTabsQueryResult([{ id: 91 }, { id: 92 }]);
+    mocks.chrome.tabs.remove = async (tabId) => {
+      releasedTabs.push(tabId);
+    };
+    await mocks.storage.local.set({
+      [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
+      [EXTENSION_VERSION_STORAGE_KEY]: '4.0.0',
+      appState: {
+        totalDropsClaimed: 42,
+        notificationsEnabled: true,
+        watchTransportPreference: 'tabless',
+        favoriteGames: [
+          { gameId: 'favorite-1', lastKnownName: 'Favorite', addedAt: 1, identityKeys: ['id:favorite-1'] },
+        ],
+        availableGames: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
+        queue: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
+        selectedGame: { id: 'game-1', name: 'Stale Game', imageUrl: '' },
+        isRunning: true,
+        dropsPageRefreshInProgress: true,
+        lastDropsPageRefreshError: 'stale refresh failure',
+        watchTransportMode: 'managed-tab',
+        watchFallbackReason: 'legacy fallback',
+        tabId: 91,
+      },
+      twitchSession: { oauthToken: 'stale-token', deviceId: 'stale-device' },
+      twitchIntegrity: { token: 'stale-integrity' },
+      dropsSnapshotCache: [{ id: 'stale-drop' }],
+      timingState: { apiBackoffUntil: Date.now() + 60_000 },
+      farmingAutomationFactsV1: { version: 1 },
+      farmingSessionTransitionReceiptV1: {
+        version: 1,
+        attemptId: 'legacy-attempt',
+        transition: 'start',
+        fromCampaignKey: null,
+        toCampaignKey: 'legacy-campaign',
+        toStreamerName: 'legacy-channel',
+        committedAt: 1,
+        sessionRevision: 'legacy-revision',
+        fromWatch: null,
+        toWatch: {
+          kind: 'managed-tab',
+          tabId: 91,
+          ownershipToken: 'legacy-token',
+          expectedChannel: 'legacy-channel',
+        },
+        cleanup: { kind: 'not-required' },
+      },
+    });
+    await mocks.storage.session.set({
+      timingState: { apiBackoffUntil: Date.now() + 60_000 },
+      autoStartSnoozedForBrowserSession: true,
+      'farmingAutomationOwnedWatch:legacy-token': {
+        version: 1,
+        expectedUrl: 'https://www.twitch.tv/legacy-channel',
+      },
+    });
+
+    await migrateExtensionStorage('4.0.1');
+
+    expect(mocks.storage.local._store.get('appState')).toMatchObject({
+      totalDropsClaimed: 42,
+      notificationsEnabled: true,
+      watchTransportPreference: 'tabless',
+      favoriteGames: [
+        { gameId: 'favorite-1', lastKnownName: 'Favorite', addedAt: 1, identityKeys: ['id:favorite-1'] },
+      ],
+      availableGames: [],
+      queue: [],
+      selectedGame: null,
+      isRunning: false,
+      dropsPageRefreshInProgress: false,
+      lastDropsPageRefreshError: null,
+      watchTransportMode: 'managed-tab',
+      watchFallbackReason: null,
+      tabId: null,
+    });
+    expect(mocks.storage.local._store.get(EXTENSION_VERSION_STORAGE_KEY)).toBe('4.0.1');
+    for (const key of [
+      'twitchSession',
+      'twitchIntegrity',
+      'dropsSnapshotCache',
+      'timingState',
+      'farmingAutomationFactsV1',
+      'farmingSessionTransitionReceiptV1',
+    ]) {
+      expect(mocks.storage.local._store.has(key)).toBe(false);
+    }
+    expect(mocks.storage.session._store.has('timingState')).toBe(false);
+    expect(mocks.storage.session._store.has('autoStartSnoozedForBrowserSession')).toBe(false);
+    expect(mocks.storage.session._store.has('farmingAutomationOwnedWatch:legacy-token')).toBe(false);
+    expect(releasedTabs).toEqual([91]);
   });
 });
