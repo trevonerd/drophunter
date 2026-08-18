@@ -43,7 +43,7 @@ function cleanCredential(value: string): string {
   }
   let current = value.trim();
   try {
-    const parsed = JSON.parse(current) as unknown;
+    const parsed: unknown = JSON.parse(current);
     if (typeof parsed === 'string') {
       current = parsed;
     }
@@ -140,7 +140,6 @@ export function isLikelyAuthError(error: unknown): boolean {
     message.includes('403') ||
     message.includes('unauthorized') ||
     message.includes('forbidden') ||
-    message.includes('invalid oauth token') ||
-    message.includes('failed integrity check')
+    message.includes('invalid oauth token')
   );
 }
