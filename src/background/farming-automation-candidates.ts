@@ -93,20 +93,21 @@ function candidateFacts(
   now: number,
 ): FarmingAutomationCandidateFacts {
   const explicit = snapshot.candidateFactsByKey?.[gameKey(game)];
+  const drops = campaignDrops(snapshot, game);
+  const hasStartedReward =
+    explicit?.hasStartedReward ?? drops.some((drop) => drop.progress > 0 && !drop.claimed);
+  if (game.rewardSummary?.completion !== 'farmable') {
+    return { hasFarmableReward: false, hasStartedReward, isActive: false };
+  }
   if (explicit) {
     return explicit;
   }
 
-  const drops = campaignDrops(snapshot, game);
   return {
     hasFarmableReward:
-      drops.length > 0
-        ? drops.some((drop) => !drop.claimed && isRewardFarmableNow(drop, now))
-        : game.rewardSummary?.completion === undefined || game.rewardSummary.completion === 'farmable',
-    hasStartedReward: drops.some((drop) => drop.progress > 0 && !drop.claimed),
-    isActive:
-      !isExpiredAt(game, now) &&
-      (game.rewardSummary?.completion === undefined || game.rewardSummary.completion === 'farmable'),
+      drops.length > 0 ? drops.some((drop) => !drop.claimed && isRewardFarmableNow(drop, now)) : true,
+    hasStartedReward,
+    isActive: !isExpiredAt(game, now),
   };
 }
 

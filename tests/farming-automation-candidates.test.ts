@@ -8,7 +8,7 @@ import {
   rankFarmingAutomationCandidates,
 } from '../src/background/farming-automation-candidates.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
-import type { QueueEntryMetadata, TwitchGame } from '../src/types/index.ts';
+import type { QueueEntryMetadata, TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
 function game(campaignId: string, endsAt: string, gameId = 'same-game'): TwitchGame {
   return {
@@ -41,6 +41,55 @@ function favoriteSnapshot(
 }
 
 describe('farming automation candidate policy', () => {
+  test('unclassified campaigns stay ineligible even when a pending reward is visible', () => {
+    // Given: an unclassified campaign with a pending watch-time reward and an available streamer.
+    const loading: TwitchGame = {
+      id: 'same-game',
+      name: 'Same Game',
+      campaignId: 'campaign-loading',
+      campaignName: 'Campaign loading',
+      endsAt: '2030-08-03T12:00:00.000Z',
+      imageUrl: '',
+    };
+    const pending: TwitchDrop = {
+      id: 'reward-loading',
+      name: 'Reward',
+      gameId: loading.id,
+      gameName: loading.name,
+      imageUrl: '',
+      progress: 0,
+      currentMinutes: 0,
+      claimed: false,
+      campaignId: loading.campaignId,
+      acquisitionMethod: 'watch-time',
+      rewardKind: 'in-game',
+      verificationState: 'unassessed',
+    };
+    const snapshot = favoriteSnapshot([loading], {
+      allDrops: [pending],
+      candidateFactsByKey: {
+        [gameKey(loading)]: {
+          hasFarmableReward: true,
+          hasStartedReward: false,
+          isActive: true,
+        },
+      },
+    });
+
+    // When: candidate policy derives and ranks the refreshed campaign.
+    const candidates = deriveFarmingAutomationCandidates(snapshot, 20);
+    const ranked = rankFarmingAutomationCandidates(snapshot, candidates);
+
+    // Then: it waits for the authoritative campaign summary instead of speculating.
+    expect({
+      eligibility: candidates.map(({ hasFarmableReward, isActive }) => ({ hasFarmableReward, isActive })),
+      ranked: ranked.map(({ game }) => game.campaignId),
+    }).toEqual({
+      eligibility: [{ hasFarmableReward: false, isActive: false }],
+      ranked: [],
+    });
+  });
+
   test('plans at most one favorite-auto campaign per favorite category', () => {
     const first = game('campaign-a', '2030-08-03T14:00:00.000Z');
     const second = game('campaign-b', '2030-08-03T12:00:00.000Z');
