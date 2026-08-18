@@ -1,18 +1,9 @@
 import { expect, test } from 'bun:test';
 import { isDropCompleted, mergeDropProgressMonotonic } from '../src/shared/drops.ts';
+import type { TwitchDrop } from '../src/types';
+import { createTwitchDrop } from './fixtures/twitch-drop';
 
-function createDrop(overrides = {}) {
-  return {
-    id: `drop-${Math.random().toString(36).slice(2)}`,
-    name: 'Reward',
-    gameId: 'game-1',
-    gameName: 'Game',
-    imageUrl: '',
-    progress: 0,
-    claimed: false,
-    ...overrides,
-  };
-}
+const createDrop = createTwitchDrop;
 
 // --- mergeDropProgressMonotonic ---
 
@@ -179,7 +170,7 @@ test('merge both drops have requiredMinutes: null → merged requiredMinutes sta
 // --- dropStateKey stable identity ---
 
 // Helper to replicate the stable dropStateKey logic inline (since it's not exported yet)
-function testDropStateKey(drop: any): string {
+function testDropStateKey(drop: TwitchDrop): string {
   return `${drop.id}::${drop.campaignId ?? ''}`;
 }
 

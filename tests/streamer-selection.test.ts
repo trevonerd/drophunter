@@ -8,11 +8,7 @@ import {
 import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchStreamer } from '../src/types/index.ts';
 
-function makeStreamer(
-  name: string,
-  viewerCount?: number,
-  broadcasterLanguage?: string,
-): TwitchStreamer {
+function makeStreamer(name: string, viewerCount?: number, broadcasterLanguage?: string): TwitchStreamer {
   return {
     id: name,
     name,
@@ -28,9 +24,9 @@ describe('streamer selection settings', () => {
     expect(applyStreamerSelectionModeSetting(createInitialState(), 'random').streamerSelectionMode).toBe(
       'random',
     );
-    expect(
-      applyStreamerSelectionModeSetting(createInitialState(), undefined).streamerSelectionMode,
-    ).toBe('low-view');
+    expect(applyStreamerSelectionModeSetting(createInitialState(), undefined).streamerSelectionMode).toBe(
+      'low-view',
+    );
   });
 
   test('preferred language setting normalizes locale-like values', () => {
@@ -89,11 +85,7 @@ describe('pickStreamerForPreferences', () => {
   });
 
   test('preferred language narrows the pool when matches exist', () => {
-    const streamers = [
-      makeStreamer('a', 10, 'en'),
-      makeStreamer('b', 20, 'it'),
-      makeStreamer('c', 30, 'it'),
-    ];
+    const streamers = [makeStreamer('a', 10, 'en'), makeStreamer('b', 20, 'it'), makeStreamer('c', 30, 'it')];
     const result = pickStreamerForPreferences(
       streamers,
       { mode: 'top-viewers', preferredLanguage: 'it' },
@@ -120,11 +112,7 @@ describe('pickStreamerForPreferences', () => {
 
 describe('pickStreamerForPreferences with serverLanguageFilterApplied', () => {
   test('skips client-side language filter when serverLanguageFilterApplied is true', () => {
-    const streamers = [
-      makeStreamer('a', 10, 'en'),
-      makeStreamer('b', 20, 'it'),
-      makeStreamer('c', 30, 'fr'),
-    ];
+    const streamers = [makeStreamer('a', 10, 'en'), makeStreamer('b', 20, 'it'), makeStreamer('c', 30, 'fr')];
     const result = pickStreamerForPreferences(
       streamers,
       { mode: 'top-viewers', preferredLanguage: 'it' },
@@ -136,11 +124,7 @@ describe('pickStreamerForPreferences with serverLanguageFilterApplied', () => {
   });
 
   test('applies client-side language filter when serverLanguageFilterApplied is false', () => {
-    const streamers = [
-      makeStreamer('a', 10, 'en'),
-      makeStreamer('b', 20, 'it'),
-      makeStreamer('c', 30, 'it'),
-    ];
+    const streamers = [makeStreamer('a', 10, 'en'), makeStreamer('b', 20, 'it'), makeStreamer('c', 30, 'it')];
     const result = pickStreamerForPreferences(
       streamers,
       { mode: 'top-viewers', preferredLanguage: 'it' },
@@ -152,10 +136,7 @@ describe('pickStreamerForPreferences with serverLanguageFilterApplied', () => {
   });
 
   test('applies client-side language filter when serverLanguageFilterApplied is undefined (backward compat)', () => {
-    const streamers = [
-      makeStreamer('a', 10, 'en'),
-      makeStreamer('b', 30, 'it'),
-    ];
+    const streamers = [makeStreamer('a', 10, 'en'), makeStreamer('b', 30, 'it')];
     const result = pickStreamerForPreferences(
       streamers,
       { mode: 'top-viewers', preferredLanguage: 'it' },

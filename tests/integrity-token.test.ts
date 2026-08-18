@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { sanitizeTwitchSession } from '../src/background/twitch-api/types.ts';
 import { fetchTwitchIntegrityToken } from '../src/background/twitch-api/gql.ts';
+import { sanitizeTwitchSession } from '../src/background/twitch-api/types.ts';
 
 // --- sanitizeTwitchSession (stricter validation) ---
 
@@ -165,16 +165,14 @@ describe('fetchTwitchIntegrityToken', () => {
   });
 
   test('returns null when response body has no token field', async () => {
-    global.fetch = async () =>
-      new Response(JSON.stringify({ notAToken: 'something' }), { status: 200 });
+    global.fetch = async () => new Response(JSON.stringify({ notAToken: 'something' }), { status: 200 });
 
     const result = await fetchTwitchIntegrityToken(validSession);
     expect(result).toBeNull();
   });
 
   test('returns null when token field is an empty string', async () => {
-    global.fetch = async () =>
-      new Response(JSON.stringify({ token: '   ' }), { status: 200 });
+    global.fetch = async () => new Response(JSON.stringify({ token: '   ' }), { status: 200 });
 
     const result = await fetchTwitchIntegrityToken(validSession);
     expect(result).toBeNull();

@@ -14,7 +14,9 @@ describe('getFarmableTwitchChannelNameFromUrl', () => {
 
   test('returns null for reserved Twitch routes that are not farmable channels', () => {
     expect(getFarmableTwitchChannelNameFromUrl('https://www.twitch.tv/drops/campaigns')).toBeNull();
-    expect(getFarmableTwitchChannelNameFromUrl('https://www.twitch.tv/directory/category/valorant')).toBeNull();
+    expect(
+      getFarmableTwitchChannelNameFromUrl('https://www.twitch.tv/directory/category/valorant'),
+    ).toBeNull();
   });
 
   test('returns null for non-Twitch URLs and invalid input', () => {

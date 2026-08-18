@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
   "files": {
     "includes": [
       "src/**/*.ts",
@@ -8,7 +8,8 @@
       "scripts/**/*.mjs",
       "tests/**/*.mjs",
       "tests/**/*.ts",
-      "vite.config.ts"
+      "vite.config.ts",
+      "!!.codegraph"
     ]
   },
   "formatter": {
@@ -20,7 +21,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "correctness": {
         "noUnusedVariables": "warn",
         "useExhaustiveDependencies": "warn"

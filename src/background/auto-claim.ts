@@ -117,37 +117,37 @@ export async function claimDropViaApi(
     return client.claimDropReward(claimId);
   };
 
-  try {
-    logDebug('Auto-claim attempt', { claimId, dropName: drop.name, game: drop.gameName });
-    const claimed = await tryClaim(false);
-    if (!claimed) {
-      state.dropClaimRetryAtById.set(claimId, Date.now() + DROP_CLAIM_RETRY_COOLDOWN_MS);
-      logWarn('Auto-claim did not complete, scheduled retry', { claimId, dropName: drop.name });
-      return false;
-    }
-    state.dropClaimRetryAtById.delete(claimId);
-    logInfo('Auto-claim success', { claimId, dropName: drop.name });
-    return true;
-  } catch (error) {
-    if (isLikelyAuthError(error)) {
-      clearTwitchSessionCache(state);
-      try {
-        const claimedAfterRefresh = await tryClaim(true);
-        if (claimedAfterRefresh) {
-          state.dropClaimRetryAtById.delete(claimId);
-          return true;
-        }
-      } catch (secondError) {
-        logWarn('Drop claim retry failed after refreshing Twitch session:', String(secondError));
+  let lastError: unknown = null;
+  for (const forceSessionRefresh of [false, true] as const) {
+    lastError = null;
+    try {
+      logDebug('Auto-claim attempt', {
+        claimId,
+        dropName: drop.name,
+        game: drop.gameName,
+        forceSessionRefresh,
+      });
+      if (await tryClaim(forceSessionRefresh)) {
+        state.dropClaimRetryAtById.delete(claimId);
+        logInfo('Auto-claim success', { claimId, dropName: drop.name });
+        return true;
       }
-    } else {
-      logWarn('Drop claim failed:', String(error));
+    } catch (error) {
+      lastError = error;
+      if (isLikelyAuthError(error)) {
+        clearTwitchSessionCache(state);
+      }
+      logWarn('Drop claim attempt failed:', String(error));
     }
-
-    state.dropClaimRetryAtById.set(claimId, Date.now() + DROP_CLAIM_RETRY_COOLDOWN_MS);
-    logWarn('Auto-claim failed, scheduled retry', { claimId, dropName: drop.name, error: String(error) });
-    return false;
   }
+
+  state.dropClaimRetryAtById.set(claimId, Date.now() + DROP_CLAIM_RETRY_COOLDOWN_MS);
+  logWarn('Auto-claim failed twice, scheduled retry', {
+    claimId,
+    dropName: drop.name,
+    error: lastError === null ? undefined : String(lastError),
+  });
+  return false;
 }
 
 export async function autoClaimClaimableDrops(

@@ -3,6 +3,65 @@ import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createWatchTransportCoordinator } from '../src/background/watch-transport-coordinator.ts';
 
 describe('watch transport restoration', () => {
+  test('releases a persisted managed fallback when the preference is tabless', async () => {
+    const state = createServiceWorkerState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+      categorySlug: 'game',
+    };
+    state.appState.activeStreamer = {
+      id: 'channel-1',
+      name: 'channel-1',
+      displayName: 'Channel 1',
+      isLive: true,
+    };
+    state.appState.watchTransportPreference = 'tabless';
+    state.appState.watchTransportMode = 'managed-tab';
+    state.appState.watchFallbackReason = 'heartbeat-failed';
+    state.appState.tabId = 7;
+    let opens = 0;
+    let closes = 0;
+    const coordinator = createWatchTransportCoordinator({
+      state,
+      heartbeat: async () => ({ accepted: true, progress: 1 }),
+      managedTab: {
+        open: async () => {
+          opens += 1;
+          return { owner: 'drophunter', tabId: 8 };
+        },
+        probe: async () => ({ accepted: true }),
+        close: async (session) => {
+          expect(session.tabId).toBe(7);
+          closes += 1;
+        },
+      },
+      persist: async () => {},
+      broadcast: () => {},
+    });
+
+    const restored = await coordinator.restore({
+      kind: 'managed-tab',
+      tabId: 7,
+      ownershipToken: 'legacy-fallback',
+      expectedChannel: 'channel-1',
+    });
+
+    expect(restored).toBe(true);
+    expect(closes).toBe(1);
+    expect(opens).toBe(0);
+    expect(state.appState.tabId).toBeNull();
+    expect(state.appState.watchTransportMode).toBe('tabless');
+    expect(state.appState.watchFallbackReason).toBeNull();
+    expect(coordinator.currentOwnership()).toEqual({
+      kind: 'tabless',
+      targetKey: 'campaign:campaign-1',
+    });
+  });
+
   test('publishes restored tabless ownership after a persisted fallback', async () => {
     const state = createServiceWorkerState();
     state.appState.isRunning = true;
