@@ -11,7 +11,9 @@ import {
   formatStopReason,
 } from '../shared/runtime-status';
 import { createInitialState } from '../shared/utils';
-import type { AppState } from '../types';
+import type { AppState, AutomationActivityEntry } from '../types';
+
+const AUTOMATION_NOTICE_TTL_MS = 6_000;
 
 function etaLabel(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -52,13 +54,25 @@ function recoveryAttemptLabel(
   return formatRecoveryAttemptLabel(reason, attempts);
 }
 
+function getRecentAutomationActivity(activities: readonly AutomationActivityEntry[], now: number) {
+  let newestActivity: AutomationActivityEntry | null = null;
+  for (const entry of activities) {
+    const isFresh = entry.at <= now && now - entry.at < AUTOMATION_NOTICE_TTL_MS;
+    if (isFresh && (newestActivity === null || entry.at > newestActivity.at)) {
+      newestActivity = entry;
+    }
+  }
+  return newestActivity;
+}
+
 export type MonitorViewProps = {
   readonly state: AppState;
   readonly lastUpdatedAt: number;
   readonly recoveryNow: number;
+  readonly contextNow: number;
 };
 
-export function MonitorView({ state, lastUpdatedAt, recoveryNow }: MonitorViewProps) {
+export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: MonitorViewProps) {
   const nearestDrop = useMemo(() => pickNearestDrop(state.pendingDrops), [state.pendingDrops]);
   const selectedCampaignLabel = state.selectedGame ? getGameDisplayLabel(state.selectedGame) : null;
   const runtimeMode = deriveRuntimeMode(state);
@@ -89,6 +103,33 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow }: MonitorViewPr
           : runtimeMode === 'stopped-terminal'
             ? 'STOPPED'
             : 'IDLE';
+  const recentAutomationMessage =
+    state.autoStartFavoriteGames && state.twitchSessionDetected
+      ? (getRecentAutomationActivity(state.automationActivity, contextNow)?.message ?? null)
+      : null;
+  const contextNotice =
+    runtimeMode === 'recovering' && state.recoveryReason
+      ? `Recovering: ${recoveryLabel(state.recoveryReason)}${
+          recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)
+            ? ` · ${recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)}`
+            : ''
+        }${
+          retryAtLabel(state.recoveryBackoffUntil, recoveryNow)
+            ? ` · ${retryAtLabel(state.recoveryBackoffUntil, recoveryNow)}`
+            : ''
+        }`
+      : runtimeMode === 'stopped-terminal' && (state.lastStopMessage || terminalStopLabel)
+        ? `Stopped: ${terminalStopLabel ?? state.lastStopMessage}`
+        : state.manualWatchState === 'eligible-manual'
+          ? 'Manual viewing is earning progress. DropHunter will not control this tab.'
+          : state.manualWatchState === 'automation-paused'
+            ? 'Automation is waiting for manual viewing to end.'
+            : recentAutomationMessage;
+  const contextNoticeClass =
+    runtimeMode === 'recovering' || runtimeMode === 'stopped-terminal'
+      ? 'monitor-context-notice monitor-context-notice--warning'
+      : 'monitor-context-notice';
+  const announceContextNotice = runtimeMode !== 'recovering' && runtimeMode !== 'stopped-terminal';
   return (
     <div className="monitor-shell">
       <div className="monitor-card">
@@ -145,31 +186,13 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow }: MonitorViewPr
             </div>
           )}
 
-          {runtimeMode === 'recovering' && state.recoveryReason && (
-            <div className="monitor-rotation-reason">
-              Recovering: {recoveryLabel(state.recoveryReason)}
-              {recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)
-                ? ` · ${recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)}`
-                : ''}
-              {retryAtLabel(state.recoveryBackoffUntil, recoveryNow)
-                ? ` · ${retryAtLabel(state.recoveryBackoffUntil, recoveryNow)}`
-                : ''}
-            </div>
-          )}
-
-          {runtimeMode === 'stopped-terminal' && (state.lastStopMessage || terminalStopLabel) && (
-            <div className="monitor-rotation-reason">
-              Stopped: {terminalStopLabel ?? state.lastStopMessage}
-            </div>
-          )}
-
-          {(state.lastAutomationMessage || state.manualWatchState !== 'inactive') && (
-            <div className="monitor-rotation-reason" role="status" aria-live="polite">
-              {state.manualWatchState === 'eligible-manual'
-                ? 'Manual viewing is earning progress. DropHunter will not control this tab.'
-                : state.manualWatchState === 'automation-paused'
-                  ? 'Automation is waiting for manual viewing to end.'
-                  : state.lastAutomationMessage}
+          {contextNotice && (
+            <div
+              className={contextNoticeClass}
+              role={announceContextNotice ? 'status' : undefined}
+              aria-live={announceContextNotice ? 'polite' : undefined}
+            >
+              {contextNotice}
             </div>
           )}
         </section>
@@ -189,6 +212,7 @@ function App() {
   const [state, setState] = useState<AppState>(createInitialState);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
   const [recoveryNow, setRecoveryNow] = useState(Date.now());
+  const [contextNow, setContextNow] = useState(Date.now());
 
   useEffect(() => {
     const syncState = async () => {
@@ -215,7 +239,28 @@ function App() {
     return () => window.clearInterval(timer);
   }, [runtimeMode]);
 
-  return <MonitorView state={state} lastUpdatedAt={lastUpdatedAt} recoveryNow={recoveryNow} />;
+  useEffect(() => {
+    const now = Date.now();
+    const latestActivity =
+      state.autoStartFavoriteGames && state.twitchSessionDetected
+        ? getRecentAutomationActivity(state.automationActivity, now)
+        : null;
+    if (!latestActivity) return;
+    setContextNow(now);
+    const remaining = AUTOMATION_NOTICE_TTL_MS - (now - latestActivity.at);
+    if (remaining <= 0) return;
+    const timer = window.setTimeout(() => setContextNow(Date.now()), remaining);
+    return () => window.clearTimeout(timer);
+  }, [state.autoStartFavoriteGames, state.automationActivity, state.twitchSessionDetected]);
+
+  return (
+    <MonitorView
+      state={state}
+      lastUpdatedAt={lastUpdatedAt}
+      recoveryNow={recoveryNow}
+      contextNow={contextNow}
+    />
+  );
 }
 
 export default App;

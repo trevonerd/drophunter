@@ -57,7 +57,7 @@ export async function openMonitorDashboardWindow(
       url,
       type: 'popup',
       width: 360,
-      height: 220,
+      height: 270,
       focused: true,
     })
     .catch(() => null);

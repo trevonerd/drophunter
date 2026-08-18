@@ -66,7 +66,7 @@ describe('monitor dashboard window', () => {
         url: 'chrome-extension://id/monitor.html',
         type: 'popup',
         width: 360,
-        height: 220,
+        height: 270,
         focused: true,
       },
     ]);
