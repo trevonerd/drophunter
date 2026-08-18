@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { runSteps } from '../scripts/release-check-ui.mjs';
 
 function createOutput() {
@@ -11,6 +12,17 @@ function createOutput() {
 }
 
 describe('release check UI runner', () => {
+  test('runs the changed TypeScript scope gate before compilation', () => {
+    const source = readFileSync(new URL('../scripts/release-check.mjs', import.meta.url), 'utf8');
+    const scopeGate = source.indexOf(
+      "{ name: 'TypeScript scope', command: ['bun', 'run', 'check:typescript-scope'] }",
+    );
+    const compilation = source.indexOf("{ name: 'TypeScript', command: ['bun', 'run', 'test:ts'] }");
+
+    expect(scopeGate).toBeGreaterThan(-1);
+    expect(compilation).toBeGreaterThan(scopeGate);
+  });
+
   test('prints ticks and a passing recap when all steps pass', async () => {
     const output = createOutput();
 
