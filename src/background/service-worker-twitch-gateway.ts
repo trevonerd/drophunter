@@ -33,7 +33,7 @@ import type { FarmingTarget, TablessHeartbeat } from './watch-transport.ts';
 const GAMES_STALE_THRESHOLD_MS = 60 * 60_000;
 
 interface ServiceWorkerTwitchGatewayDependencies {
-  readonly stopFarmingSession: (options: {
+  readonly recoverTwitchSession: (options: {
     readonly notification?: { readonly title: string; readonly message: string };
     readonly stopReason?: string;
     readonly stopMessage?: string | null;
@@ -80,7 +80,7 @@ export function createServiceWorkerTwitchGateway(
         onEnsureTwitchSession: ensureTwitchSession,
         onEnsureSessionIntegrity: ensureSessionIntegrity,
         onPersistTwitchSession: persistTwitchSession,
-        onStopFarmingSession: dependencies.stopFarmingSession,
+        onStopFarmingSession: dependencies.recoverTwitchSession,
         onIsLikelyAuthError: isLikelyAuthError,
         onClearTwitchSessionCache: clearTwitchSessionCache,
       },
@@ -100,7 +100,7 @@ export function createServiceWorkerTwitchGateway(
         onEnsureTwitchSession: ensureTwitchSession,
         onIsLikelyAuthError: isLikelyAuthError,
         onClearTwitchSessionCache: clearTwitchSessionCache,
-        onStopFarmingSession: dependencies.stopFarmingSession,
+        onStopFarmingSession: dependencies.recoverTwitchSession,
       },
       { logWarn },
     );

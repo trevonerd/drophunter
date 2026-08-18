@@ -61,7 +61,8 @@ const telegramNotifier = createTelegramNotifier(state, {
 setClaimRecordedHandler((entries) => telegramNotifier.notifyClaimedDrops(entries));
 
 const twitchGateway = createServiceWorkerTwitchGateway(state, {
-  stopFarmingSession: (options) => farmingSession.stop(options),
+  recoverTwitchSession: (options) =>
+    farmingSession.recoverTwitchSession({ notification: options.notification }),
 });
 
 const notify = (title: string, message: string, priority = 2) =>

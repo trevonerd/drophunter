@@ -74,6 +74,20 @@ export function applyNoStreamersRecoveryState(state: ServiceWorkerState, retryAt
   });
 }
 
+export function applyTwitchSessionRecoveryState(
+  state: ServiceWorkerState,
+  retryAt: number,
+  attempts: number,
+) {
+  state.recoveryBackoffUntil = retryAt;
+  state.lastRecoveryAttemptAt = Date.now();
+  state.appState = applyRecoveryStatus(state.appState, {
+    reason: 'sign-in-required',
+    retryAt,
+    attempts,
+  });
+}
+
 export function applyStopState(state: ServiceWorkerState, reason: string, message: string | null) {
   clearRecoveryState(state);
   state.appState = applyTerminalStopStatus(state.appState, { reason, message });

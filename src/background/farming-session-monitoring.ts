@@ -137,13 +137,17 @@ export function createFarmingSessionMonitoring(
     if (initPromise) {
       await initPromise;
     }
+    const apiBackoffActive = state.apiBackoffUntil > Date.now();
+    if (apiBackoffActive) {
+      await tickWatchTransport();
+    }
     await checkDropProgressCore(state, {
       onEnforcePlaybackPolicy: adapters.enforcePlaybackPolicyOnStreamTab,
       onRotateStreamerIfInvalid: dependencies.onRotateStreamerIfInvalid,
       onAcquireStreamerForSelectedGame: dependencies.onAcquireStreamerForSelectedGame,
       onAttemptAutoClaimChannelPointsBonus: adapters.attemptAutoClaimChannelPointsBonus,
       onRefreshDropsData: refreshDropsData,
-      onWatchTransportTick: tickWatchTransport,
+      onWatchTransportTick: apiBackoffActive ? undefined : tickWatchTransport,
       onAutoClaimClaimableDrops: claimAvailableDrops,
       onAdvanceQueueIfCompleted: dependencies.onAdvanceQueueIfCompleted,
       onSaveTimingState: adapters.saveTimingState,

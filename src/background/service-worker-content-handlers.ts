@@ -42,7 +42,7 @@ import {
 } from './state-persistence.ts';
 import { waitForTabComplete } from './tab-management.ts';
 
-type FarmingSession = Pick<ReturnType<typeof createFarmingSession>, 'stop'>;
+type FarmingSession = Pick<ReturnType<typeof createFarmingSession>, 'resumeAfterAuthRecovery' | 'stop'>;
 type StateLifecycle = Pick<
   ReturnType<typeof createServiceWorkerStateLifecycle>,
   'awaitInitialization' | 'ensureStateHydratedForCache' | 'getInitPromise' | 'trackActivity'
@@ -61,6 +61,16 @@ interface ServiceWorkerContentDependencies {
   readonly stateLifecycle: StateLifecycle;
   readonly twitchGateway: TwitchGateway;
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
+}
+
+export type TwitchSessionRecoveryIntent = 'none' | 'continue' | 'resume';
+
+export function twitchSessionRecoveryIntent(
+  appState: Pick<ServiceWorkerState['appState'], 'lastStopReason' | 'recoveryReason'>,
+): TwitchSessionRecoveryIntent {
+  if (appState.lastStopReason === 'sign-in-required') return 'resume';
+  if (appState.recoveryReason === 'sign-in-required') return 'continue';
+  return 'none';
 }
 
 export function createServiceWorkerContentHandlers(
@@ -174,13 +184,40 @@ export function createServiceWorkerContentHandlers(
   async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.MessageSender) {
     if (!isTrustedTwitchSender(sender)) return { success: false, error: 'Untrusted message sender' };
     await dependencies.stateLifecycle.awaitInitialization();
-    return syncTwitchSessionFromContentScriptExt(state, sessionPayloadCandidate(payload), sender.tab?.id, {
-      shouldRefreshCampaignsAfterSessionSync:
-        dependencies.twitchGateway.shouldRefreshCampaignsAfterSessionSync,
-      onRefreshCampaigns: () => refreshGamesCache({ requireConsecutiveEmptyConfirmation: true }),
-      onSaveState: () => saveState(state),
-      onBroadcastStateUpdate: () => broadcastStateUpdate(state.appState),
-    });
+    const recoveryIntent = twitchSessionRecoveryIntent(state.appState);
+    const result = await syncTwitchSessionFromContentScriptExt(
+      state,
+      sessionPayloadCandidate(payload),
+      sender.tab?.id,
+      {
+        shouldRefreshCampaignsAfterSessionSync:
+          dependencies.twitchGateway.shouldRefreshCampaignsAfterSessionSync,
+        onRefreshCampaigns: () => refreshGamesCache({ requireConsecutiveEmptyConfirmation: true }),
+        onSaveState: () => saveState(state),
+        onBroadcastStateUpdate: () => broadcastStateUpdate(state.appState),
+      },
+    );
+    if (!result.success || recoveryIntent === 'none') {
+      return result;
+    }
+
+    state.apiConsecutiveFailures = 0;
+    state.apiBackoffUntil = 0;
+    state.recoveryBackoffUntil = 0;
+    state.lastRecoveryAttemptAt = 0;
+    state.recoveryNotificationSent = false;
+    state.appState = clearRecoveryStatus(clearTerminalStopStatus(state.appState));
+    switch (recoveryIntent) {
+      case 'resume':
+        await dependencies.farmingSession.resumeAfterAuthRecovery();
+        break;
+      case 'continue':
+        await saveState(state);
+        break;
+      default:
+        recoveryIntent satisfies never;
+    }
+    return result;
   }
 
   async function handleSyncTwitchIntegrity(
