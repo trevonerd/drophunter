@@ -1,6 +1,7 @@
 import { mergeDropProgressMonotonic } from '../shared/drops.ts';
 import { dedupeGamesByIdentity, gameKey } from '../shared/game-selection.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types/index.ts';
+import { annotateGameCompletion } from './drops-projection-semantics.ts';
 
 export type FarmingAutomationNormalizedGame = Omit<Readonly<TwitchGame>, 'allowedChannels'> & {
   readonly allowedChannels?: readonly string[] | null;
@@ -59,7 +60,7 @@ function normalizeGames(games: readonly TwitchGame[]): readonly FarmingAutomatio
   );
 }
 
-function mergeDuplicateDrops(drops: readonly TwitchDrop[]): FarmingAutomationNormalizedDrop {
+function mergeDuplicateDrops(drops: readonly TwitchDrop[]): TwitchDrop {
   const merged: TwitchDrop = drops.reduce((left, right) => {
     const progress =
       left.claimed || right.claimed || left.claimable || right.claimable
@@ -77,10 +78,10 @@ function mergeDuplicateDrops(drops: readonly TwitchDrop[]): FarmingAutomationNor
       ].sort(),
     };
   });
-  return freezeDrop(merged);
+  return merged;
 }
 
-function normalizeDrops(drops: readonly TwitchDrop[]): readonly FarmingAutomationNormalizedDrop[] {
+function normalizeDrops(drops: readonly TwitchDrop[]): TwitchDrop[] {
   const groups = new Map<string, TwitchDrop[]>();
   for (const drop of drops) {
     const key = `${drop.id}::${drop.campaignId ?? ''}`;
@@ -88,15 +89,13 @@ function normalizeDrops(drops: readonly TwitchDrop[]): readonly FarmingAutomatio
     current.push(drop);
     groups.set(key, current);
   }
-  return Object.freeze(
-    Array.from(groups.entries())
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([, entries]) =>
-        mergeDuplicateDrops(
-          entries.slice().sort((left, right) => stableSignature(left).localeCompare(stableSignature(right))),
-        ),
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, entries]) =>
+      mergeDuplicateDrops(
+        entries.slice().sort((left, right) => stableSignature(left).localeCompare(stableSignature(right))),
       ),
-  );
+    );
 }
 
 function normalizeChannels(
@@ -132,8 +131,11 @@ function normalizeCampaignDrops(
 }
 
 export function normalizeFarmingAutomationSnapshot(snapshot: DropsSnapshot): FarmingAutomationTwitchSnapshot {
-  const games = normalizeGames(snapshot.games);
-  const drops = normalizeDrops(snapshot.drops);
+  const normalizedDrops = normalizeDrops(snapshot.drops);
+  const games = normalizeGames(
+    annotateGameCompletion([...snapshot.games], normalizedDrops, 'campaign-authoritative'),
+  );
+  const drops = Object.freeze(normalizedDrops.map(freezeDrop));
   return Object.freeze({
     games,
     drops,
