@@ -124,12 +124,16 @@ export function createFarmingAutomationTwitchAdapter(
 
     let combinedSnapshot = campaignSnapshot;
     if (source.fetchInventorySnapshot) {
+      let inventorySnapshot: DropsSnapshot | null;
       try {
-        const inventorySnapshot = await source.fetchInventorySnapshot(session, campaignSnapshot.drops);
-        if (inventorySnapshot) combinedSnapshot = mergeSnapshots(campaignSnapshot, inventorySnapshot);
+        inventorySnapshot = await source.fetchInventorySnapshot(session, campaignSnapshot.drops);
       } catch (cause) {
         throw new FarmingAutomationInventoryRefreshError(cause);
       }
+      if (!inventorySnapshot) {
+        throw new FarmingAutomationInventoryRefreshError('Empty Twitch inventory snapshot');
+      }
+      combinedSnapshot = mergeSnapshots(campaignSnapshot, inventorySnapshot);
     }
 
     let snapshot: FarmingAutomationTwitchSnapshot;

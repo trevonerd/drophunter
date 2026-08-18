@@ -31,6 +31,7 @@ function game(campaignId: string, gameId = 'shared-game'): TwitchGame {
     campaignName: campaignId,
     categorySlug: 'shared-game',
     imageUrl: '',
+    dropCount: 1,
     endsAt: '2030-08-03T14:00:00.000Z',
   };
 }
@@ -56,7 +57,6 @@ function source(overrides: Partial<FarmingAutomationTwitchSource> = {}): Farming
   return {
     loadSession: async () => session,
     fetchCampaignSnapshot: async () => ({ games: [], drops: [], updatedAt: 10 }),
-    fetchInventorySnapshot: async () => null,
     fetchDirectoryStreamers: async () => ({ streamers: [], languageFilterApplied: false }),
     ...overrides,
   };

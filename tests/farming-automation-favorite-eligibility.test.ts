@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
   createFarmingAutomationTwitchAdapter,
+  FarmingAutomationInventoryRefreshError,
   type FarmingAutomationTwitchSource,
 } from '../src/background/farming-automation-twitch.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchSession } from '../src/types/index.ts';
@@ -155,4 +156,51 @@ test('leaves an incomplete reward catalog unclassified', async () => {
   expect(result.kind).toBe('ready');
   if (result.kind !== 'ready') return;
   expect(result.snapshot.games[0]?.rewardSummary).toBeUndefined();
+});
+
+test('clears stale completion evidence when the authoritative reward catalog is incomplete', async () => {
+  // Given: a cached farmable summary survives on a campaign whose authoritative catalog is incomplete.
+  const incomplete = {
+    ...campaign('incomplete-campaign'),
+    dropCount: 2,
+    rewardSummary: { completion: 'farmable' as const, remainderReasons: [] as const },
+    allDropsCompleted: false,
+  };
+  const adapter = createFarmingAutomationTwitchAdapter(
+    source(
+      {
+        games: [incomplete],
+        drops: [reward({ campaignId: 'incomplete-campaign' })],
+        updatedAt: 10,
+      },
+      { games: [], drops: [], updatedAt: 10 },
+    ),
+  );
+
+  // When: the adapter publishes the authoritative but incomplete refresh.
+  const result = await adapter.refresh();
+
+  // Then: stale completion evidence cannot make the campaign eligible.
+  expect(result.kind).toBe('ready');
+  if (result.kind !== 'ready') return;
+  expect(result.snapshot.games[0]?.rewardSummary).toBeUndefined();
+  expect(result.snapshot.games[0]?.allDropsCompleted).toBeUndefined();
+});
+
+test('fails closed when the requested inventory snapshot is empty', async () => {
+  // Given: the campaign catalog looks pending, but Twitch did not provide inventory evidence.
+  const pending = campaign('season-9-5');
+  const adapter = createFarmingAutomationTwitchAdapter({
+    loadSession: async () => session,
+    fetchCampaignSnapshot: async () => ({
+      games: [pending],
+      drops: [reward({ campaignId: 'season-9-5' })],
+      updatedAt: 10,
+    }),
+    fetchInventorySnapshot: async () => null,
+    fetchDirectoryStreamers: async () => ({ streamers: [], languageFilterApplied: false }),
+  });
+
+  // When/Then: automation must not classify or queue from campaign data alone.
+  expect(adapter.refresh()).rejects.toBeInstanceOf(FarmingAutomationInventoryRefreshError);
 });
