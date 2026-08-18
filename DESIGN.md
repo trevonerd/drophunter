@@ -227,7 +227,7 @@ The following primitives and repeated components are the reusable surface langua
 - Structure: Farming queue is a separate operational group between SessionSummary and Campaigns. It owns queue feedback and controls. Campaigns owns sync status, selected-campaign status, search, filters, and the existing grouped campaign browser. The queue is an ordered full-width list whose rows share fixed slots for order/grip, campaign text, indicators, metadata, and remove.
 - Variants: no selection, selected campaign, selector hidden while running, onboarding pulse, selected-not-in-queue first row, draggable/reorderable future queue, running queued list that excludes and protects the current campaign, clear confirmation. The first direct reorder atomically switches automatic priority to manual order.
 - Spacing: selector cluster gap 6px; control padding 8px/6px; queue rows use a consistent compact height, 8px rhythm, 8px radius, and one-line truncating text regions.
-- States: default, hover border, focus ring, action loading, queue message, drag target ring, clear confirmation. Future rows remain reorderable and removable while farming; only the current campaign is immutable.
+- States: default, hover border, focus ring, action loading, queue message, drag target ring, clear confirmation. Queue feedback remains visible for six seconds; a newer message replaces it and restarts dismissal. Future rows remain reorderable and removable while farming; only the current campaign is immutable.
 - Accessibility: select has aria-label=Campaign; queue/remove/clear/reorder controls have explicit labels; reorder also supports arrow keys; queueMessage is role=status aria-live=polite aria-atomic=true.
 
 ### Farming actions and GameCampaignBrowser

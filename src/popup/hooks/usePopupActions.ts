@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useReducer, useState } from 'react';
 import { browser } from '../../shared/browser-api.ts';
 import {
   favoriteGameIdentityKeys,
@@ -11,7 +11,10 @@ import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState, TwitchGame } from '../../types';
 import { formatFarmingCompleteQueueMessage } from '../format';
 import { logPopupWarn } from '../logging';
+import { INITIAL_QUEUE_FEEDBACK_STATE, publishQueueFeedback } from '../queue-feedback';
 import { getGameToStartFromQueue } from '../queue-start';
+
+const QUEUE_MESSAGE_DISMISS_MS = 6_000;
 
 interface UsePopupActionsArgs {
   readonly state: AppState;
@@ -33,7 +36,15 @@ export function usePopupActions({
   setOnboardingStep,
 }: UsePopupActionsArgs) {
   const [actionLoading, setActionLoading] = useState(false);
-  const [queueMessage, setQueueMessage] = useState<string | null>(null);
+  const [queueFeedback, setQueueMessage] = useReducer(publishQueueFeedback, INITIAL_QUEUE_FEEDBACK_STATE);
+  const queueMessage = queueFeedback.message;
+  const queueMessageOccurrence = queueFeedback.occurrence;
+
+  useEffect(() => {
+    if (queueMessage === null || queueMessageOccurrence === 0) return;
+    const timeout = globalThis.setTimeout(() => setQueueMessage(null), QUEUE_MESSAGE_DISMISS_MS);
+    return () => globalThis.clearTimeout(timeout);
+  }, [queueMessage, queueMessageOccurrence]);
 
   const handleAddToQueue = async (requestedGame: TwitchGame | null = state.selectedGame) => {
     if (!requestedGame || actionLoading) return;
