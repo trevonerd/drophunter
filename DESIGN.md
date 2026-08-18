@@ -206,6 +206,7 @@ The following primitives and repeated components are the reusable surface langua
 ### AutomationSummary
 
 - Structure: a compact inline control row headed `Favorite auto-start`, with its On/Off state and the existing switch control. When enabled, at most one meaningful recent automation event may appear below it for exactly six seconds.
+- Queue ownership: a favorite is category-level. In `priority-list-only` mode automation may own at most one queued campaign for each favorite category. A manually queued campaign already represents that category and is never removed; terminal or redundant `favorite-auto` siblings are pruned on the next evaluation.
 - Copy ownership: it controls only favorite-campaign auto-start. It never repeats the active campaign, queue order, runtime state, transport mode, health, polling cadence, `Now`/`Next`, or the same activity in another panel.
 - Variants: on, off, enabled with a transient event, and notification-permission denied. No event is shown while automation is off or the Twitch session is unavailable.
 - Spacing and hierarchy: 12px heading, 10px state/event copy, compact 8px vertical/10px horizontal subpanel padding, no large icon or decorative glow.
