@@ -147,7 +147,7 @@ describe('watch transport handoff', () => {
       broadcast: () => {},
     });
 
-    expect(coordinator.restore(ownershipB)).toBe(true);
+    expect(await coordinator.restore(ownershipB)).toBe(true);
     await coordinator.tick();
 
     expect(coordinator.currentOwnership()).toEqual(ownershipB);

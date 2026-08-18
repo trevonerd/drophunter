@@ -39,7 +39,7 @@ export interface WatchTransportCoordinator {
 }
 
 export interface WatchTransportRuntimeCoordinator extends WatchTransportCoordinator, WatchTransportRuntime {
-  readonly restore: (ownership: WatchOwnershipV1) => boolean;
+  readonly restore: (ownership: WatchOwnershipV1) => Promise<boolean>;
 }
 
 function targetFor(state: ServiceWorkerState, streamer: TwitchStreamer): FarmingTarget | null {
@@ -198,7 +198,7 @@ export function createWatchTransportCoordinator(
     }
   };
 
-  const restore = (ownership: WatchOwnershipV1): boolean => {
+  const restore = async (ownership: WatchOwnershipV1): Promise<boolean> => {
     const streamer = state.appState.activeStreamer;
     const restoredTarget = streamer ? targetFor(state, streamer) : null;
     if (!restoredTarget) return false;
@@ -208,6 +208,7 @@ export function createWatchTransportCoordinator(
         ? persistedHealth
         : streamHealth(state.appState.currentDrop?.currentMinutes ?? null, ownership.kind, now());
     adopt({ target: restoredTarget, ownership, health, obsolete: null });
+    await projection.apply({ kind: 'started', health });
     return true;
   };
 

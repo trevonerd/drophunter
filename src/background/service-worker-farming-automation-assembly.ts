@@ -76,7 +76,7 @@ export async function assembleServiceWorkerFarmingAutomation(
     default:
       receiptRead satisfies never;
   }
-  if (currentOwnership) dependencies.browserEvents.watchTransport.restore(currentOwnership);
+  if (currentOwnership) await dependencies.browserEvents.watchTransport.restore(currentOwnership);
 
   const automationBrowser = createFarmingAutomationBrowser({
     watchRuntime: dependencies.browserEvents.watchTransport,
