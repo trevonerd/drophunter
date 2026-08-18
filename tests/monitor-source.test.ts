@@ -37,13 +37,18 @@ function createDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
   };
 }
 
-function renderMonitor(overrides: Partial<AppState>): string {
+function automationActivity(id: string, at: number, message: string): AppState['automationActivity'][number] {
+  return { id, kind: 'auto-started', at, message };
+}
+
+function renderMonitor(overrides: Partial<AppState>, contextNow = 1_700_000_000_000): string {
   const state: AppState = { ...createInitialState(), ...overrides };
   return renderToStaticMarkup(
     createElement(MonitorView, {
       state,
       lastUpdatedAt: 1_700_000_000_000,
       recoveryNow: 1_700_000_000_000,
+      contextNow,
     }),
   );
 }
@@ -184,17 +189,75 @@ test('monitor does not add a nested keyboard scroll owner', () => {
   expect(html).not.toContain('aria-label="Monitor details"');
 });
 
-test('monitor announces automation transitions and manual viewing without touching the user tab', () => {
+test('monitor shows only fresh automation transitions and preserves manual viewing notices', () => {
   const automation = renderMonitor({
-    lastAutomationMessage: 'Switching to Valorant — its campaign ends 3h earlier.',
+    autoStartFavoriteGames: true,
+    twitchSessionDetected: true,
+    automationActivity: [
+      automationActivity(
+        'fresh-transition',
+        1_699_999_999_000,
+        'Switching to Valorant — its campaign ends 3h earlier.',
+      ),
+    ],
+    lastAutomationMessage: 'Old transition must not persist.',
+  });
+  const staleAutomation = renderMonitor({
+    autoStartFavoriteGames: true,
+    twitchSessionDetected: true,
+    automationActivity: [
+      automationActivity('stale-transition', 1_699_999_993_000, 'Old transition must not persist.'),
+    ],
+    lastAutomationMessage: 'Old transition must not persist.',
   });
   const manual = renderMonitor({
     manualWatchState: 'eligible-manual',
   });
+  const unsortedAutomation = renderMonitor({
+    autoStartFavoriteGames: true,
+    twitchSessionDetected: true,
+    automationActivity: [
+      automationActivity('stale-first-transition', 1_699_999_993_000, 'Old transition must not persist.'),
+      automationActivity('fresh-second-transition', 1_699_999_999_000, 'Fresh transition must still expire.'),
+    ],
+  });
+  const expiredAtBoundary = renderMonitor({
+    autoStartFavoriteGames: true,
+    twitchSessionDetected: true,
+    automationActivity: [
+      automationActivity('boundary-transition', 1_699_999_994_000, 'Six seconds old must not persist.'),
+    ],
+  });
+  const newestFreshAutomation = renderMonitor({
+    autoStartFavoriteGames: true,
+    twitchSessionDetected: true,
+    automationActivity: [
+      automationActivity('older-fresh-transition', 1_699_999_995_000, 'Older fresh transition.'),
+      automationActivity('newest-fresh-transition', 1_699_999_999_000, 'Newest fresh transition.'),
+    ],
+  });
 
   expect(automation).toContain('Switching to Valorant — its campaign ends 3h earlier.');
   expect(automation).toContain('role="status"');
+  expect(staleAutomation).not.toContain('Old transition must not persist.');
+  expect(unsortedAutomation).toContain('Fresh transition must still expire.');
+  expect(expiredAtBoundary).not.toContain('Six seconds old must not persist.');
+  expect(newestFreshAutomation).toContain('Newest fresh transition.');
+  expect(newestFreshAutomation).not.toContain('Older fresh transition.');
   expect(manual).toContain('Manual viewing is earning progress. DropHunter will not control this tab.');
+});
+
+test('monitor keeps recovery notices visible without re-announcing their retry countdown', () => {
+  const html = renderMonitor({
+    isRunning: true,
+    recoveryReason: 'offline',
+    recoveryAttempts: 1,
+    recoveryBackoffUntil: 1_700_000_030_000,
+  });
+
+  expect(html).toContain('Recovering: Recovering offline stream');
+  expect(html).toContain('class="monitor-context-notice monitor-context-notice--warning"');
+  expect(html).not.toContain('aria-live="polite"');
 });
 
 test('monitor reward progress exposes native progressbar semantics', () => {
