@@ -21,6 +21,11 @@ export interface ExtensionLifecycleApi {
     readonly onStartup: ListenerEvent<[]>;
     readonly onInstalled: ListenerEvent<[chrome.runtime.InstalledDetails]>;
   };
+  readonly storage?: {
+    readonly onChanged: ListenerEvent<
+      [Record<string, chrome.storage.StorageChange>, chrome.storage.AreaName]
+    >;
+  };
   readonly alarms: {
     readonly onAlarm: ListenerEvent<[chrome.alarms.Alarm]>;
   };
@@ -42,6 +47,7 @@ interface ExtensionLifecycleOptions {
   readonly linkRecheckAlarmPrefix?: string;
   readonly getInitPromise: () => Promise<void> | null;
   readonly onExtensionUpdate: (details: chrome.runtime.InstalledDetails) => Promise<unknown> | unknown;
+  readonly onExtensionStorageCleared?: () => Promise<unknown> | unknown;
   readonly onAlarm: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
   readonly onLinkRecheckAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
   readonly onManagedTabRemoved: (tabId: number) => Promise<unknown> | unknown;
@@ -138,6 +144,26 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
         }
       })(),
       'onInstalled error',
+      options.logWarn,
+    );
+  });
+
+  api.storage?.onChanged.addListener((changes, areaName) => {
+    const appStateChange = changes.appState;
+    if (
+      areaName !== 'local' ||
+      !appStateChange ||
+      appStateChange.oldValue === undefined ||
+      appStateChange.newValue !== undefined
+    ) {
+      return;
+    }
+    reportAsyncError(
+      (async () => {
+        await awaitInitialization(options.getInitPromise);
+        await options.onExtensionStorageCleared?.();
+      })(),
+      'storage.onChanged error',
       options.logWarn,
     );
   });

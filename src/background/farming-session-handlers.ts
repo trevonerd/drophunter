@@ -13,6 +13,7 @@ import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StartFarmingPayload, StartFarmingResult } from './session-lifecycle-types.ts';
 
 export type FarmingSessionStopOptions = {
+  readonly skipTimingStateSave?: boolean;
   readonly notification?: { readonly title: string; readonly message: string };
   readonly stopReason?: string;
   readonly stopMessage?: string | null;
@@ -65,7 +66,7 @@ export function createFarmingSessionHandlers(
         await adapters.notify(title, message);
       },
       onSaveState: () => adapters.saveState(state),
-      onSaveTimingState: adapters.saveTimingState,
+      onSaveTimingState: options?.skipTimingStateSave ? undefined : adapters.saveTimingState,
     });
   }
 

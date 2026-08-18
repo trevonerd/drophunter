@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { createDropsPageState, createTabsApi, createTestRefresher } from '../fixtures/drops-page-refresh.ts';
 
 export function registerNonDiscoveredDropsPageRefreshCases() {
-  test('waited refresh treats a signed-in zero-campaign result as unsuccessful sync', async () => {
+  test('waited refresh treats a signed-in authoritative zero-campaign result as a successful sync', async () => {
     const state = createDropsPageState();
     const refresher = createTestRefresher(state, createTabsApi(), {
       campaignRefreshAttempts: 1,
@@ -11,18 +11,39 @@ export function registerNonDiscoveredDropsPageRefreshCases() {
 
     const result = await refresher.openDropsPageAndRefresh();
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
     expect(result.gamesCount).toBe(0);
-    expect(result.error).toBe('No active Twitch Drops campaigns were detected.');
+    expect(result.error).toBeUndefined();
     expect(result.appState?.dropsPageRefreshInProgress).toBe(false);
+    expect(result.appState?.lastDropsPageRefreshCampaignCount).toBe(0);
+    expect(result.appState?.lastDropsPageRefreshError).toBeNull();
   });
 
-  test('marks the refresh unsuccessful when the games cache stays empty', async () => {
+  test('reports a temporarily unavailable snapshot without claiming that campaigns are empty', async () => {
+    const state = createDropsPageState();
+    state.appState.availableGames = [{ id: 'cached-game', name: 'Saved Game', imageUrl: '' }];
+    const refresher = createTestRefresher(state, createTabsApi(), {
+      refreshGamesCacheFromHiddenFetch: async () => ({
+        kind: 'unavailable',
+        games: state.appState.availableGames,
+      }),
+      campaignRefreshAttempts: 2,
+      campaignRefreshRetryDelayMs: 0,
+    });
+
+    const result = await refresher.openDropsPageAndRefresh();
+
+    expect(result.success).toBe(false);
+    expect(result.gamesCount).toBe(1);
+    expect(result.error).toBe('Twitch campaign data is temporarily unavailable. Try again.');
+    expect(result.appState?.availableGames).toHaveLength(1);
+    expect(result.appState?.lastDropsPageRefreshCampaignCount).toBeNull();
+  });
+
+  test('marks the refresh unsuccessful when a fresh snapshot is unavailable', async () => {
     const state = createDropsPageState();
     const refresher = createTestRefresher(state, createTabsApi(), {
-      refreshGamesCacheFromHiddenFetch: async () => {
-        state.appState.availableGames = [];
-      },
+      refreshGamesCacheFromHiddenFetch: async () => ({ kind: 'unavailable', games: [] }),
       campaignRefreshAttempts: 1,
       campaignRefreshRetryDelayMs: 0,
     });
@@ -31,7 +52,7 @@ export function registerNonDiscoveredDropsPageRefreshCases() {
 
     expect(result.success).toBe(false);
     expect(result.gamesCount).toBe(0);
-    expect(result.error).toBe('No active Twitch Drops campaigns were detected.');
+    expect(result.error).toBe('Twitch campaign data is temporarily unavailable. Try again.');
     expect(result.appState?.dropsPageRefreshInProgress).toBe(false);
   });
 
@@ -54,7 +75,10 @@ export function registerNonDiscoveredDropsPageRefreshCases() {
         calls.push('session');
         return { oauthToken: 'token', deviceId: 'device', uuid: 'uuid' };
       },
-      refreshGamesCacheFromHiddenFetch: async () => calls.push('refresh'),
+      refreshGamesCacheFromHiddenFetch: async () => {
+        calls.push('refresh');
+        return { kind: 'refreshed', games: [] };
+      },
       saveState: async () => calls.push('save'),
       broadcastStateUpdate: () => calls.push('broadcast'),
       campaignRefreshAttempts: 1,

@@ -17,7 +17,10 @@ export function registerDiscoveredDropsPageRefreshCases() {
       trackActivity: async () => calls.push('activity'),
       ensureStateHydratedForCache: async () => calls.push('hydrate'),
       waitForTabComplete: async () => calls.push('wait'),
-      refreshGamesCacheFromHiddenFetch: async () => calls.push('refresh'),
+      refreshGamesCacheFromHiddenFetch: async () => {
+        calls.push('refresh');
+        return { kind: 'refreshed', games: state.appState.availableGames };
+      },
       saveState: async () => calls.push('save'),
       broadcastStateUpdate: () => calls.push('broadcast'),
     });
@@ -104,10 +107,10 @@ export function registerDiscoveredDropsPageRefreshCases() {
         acceptAuthoritativeEmptyValues.push(options.acceptAuthoritativeEmpty);
         if (refreshAttempts === 3) {
           setDiscoveredGame(state);
-          return state.appState.availableGames;
+          return { kind: 'refreshed', games: state.appState.availableGames };
         }
         state.appState.availableGames = [];
-        return [];
+        return { kind: 'refreshed', games: [] };
       },
       campaignRefreshAttempts: 3,
       campaignRefreshRetryDelayMs: 0,
@@ -128,7 +131,10 @@ export function registerDiscoveredDropsPageRefreshCases() {
     const state = createDropsPageState();
     const refresher = createTestRefresher(state, createTabsApi(), {
       persistSessionFromDropsPage: async () => null,
-      refreshGamesCacheFromHiddenFetch: async () => setDiscoveredGame(state),
+      refreshGamesCacheFromHiddenFetch: async () => {
+        setDiscoveredGame(state);
+        return { kind: 'refreshed', games: state.appState.availableGames };
+      },
     });
 
     const result = await refresher.openDropsPageAndRefresh();

@@ -15,7 +15,7 @@ This is an existing-system extraction. The source surfaces are src/popup/index.c
 - Both surfaces set color-scheme: dark on :root.
 - There is no light-mode token set, [data-theme] switch, or prefers-color-scheme: light branch. Browser controls and all product surfaces are intentionally dark today.
 - Popup and monitor each declare their own :root. They share names, but the monitor changes some alpha values. Treat those differences as existing surface-specific behavior, not as permission to consolidate them during UI work.
-- The popup and monitor background use the same three-stop 135-degree linear gradient. The monitor adds a violet radial glow at the top-right.
+- The popup viewport and monitor background use the same three-stop 135-degree linear gradient. The popup paints it once on `html`, fixed and non-repeating, while `body` and `.dh-view` remain transparent; the monitor adds a violet radial glow at the top-right.
 
 ### Semantic palette (exact source values)
 
@@ -164,7 +164,7 @@ Most JSX uses Tailwind spacing utilities that resolve to the same 4px rhythm: ga
 
 | Surface | Bounds | Fixed regions | Scroll owner |
 | --- | --- | --- | --- |
-| Popup | body { width: 400px; }, body and #root { min-height: 128px; }, #root { width: 100%; }; no height cap | Header and the primary farming action remain in normal document flow above campaign discovery; settings/log headers are part of each view | Popup body owns the only primary vertical scroll (overflow-y: auto) and hides horizontal overflow. GameCampaignBrowser remains in document flow and must not create a second scrollbar. ClaimLogView retains its named fixed 440px virtualized-list scroll container because it is a separate view. |
+| Popup | html { min-height: 100%; continuous viewport background }, body { width: 400px; }, body and #root { min-height: 128px; }, #root { width: 100%; }; no height cap | Header and the primary farming action remain in normal document flow above campaign discovery; settings/log headers are part of each view | Popup body owns the only primary vertical scroll (overflow-y: auto) and hides horizontal overflow. GameCampaignBrowser remains in document flow and must not create a second scrollbar. ClaimLogView retains its named fixed 440px virtualized-list scroll container because it is a separate view. |
 | Monitor | body { min-width: 320px; min-height: 270px; }, #root { width: 100%; height: 100%; } | No sticky/fixed header; one card contains the complete readout | No scroll owner: body is overflow: hidden. Content must fit the window; clipping is a failure to investigate at narrow/long-content sizes. |
 
 dh-page is the popup vertical stack (display: flex; flex-direction: column; gap: var(--dh-space-3); padding: var(--dh-space-3)). dh-page--wide changes only inline padding to var(--dh-space-4). dh-group is a vertical stack with an 8px gap; dh-group--loose uses 12px. dh-popup-header is a two-column shell (minmax(0, 1fr) max-content) with an 8px gap. Header actions are an inline cluster. The farming queue is a full-width top-level group between SessionSummary and Campaigns, not part of the campaign search/filter cluster and not an independent scroll pane.

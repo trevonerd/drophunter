@@ -44,6 +44,7 @@ interface ServiceWorkerBrowserRegistration {
   readonly getInitPromise: () => Promise<void> | null;
   readonly farmingAutomation: Pick<FarmingAutomation, 'request'>;
   readonly onExtensionUpdate: () => Promise<unknown>;
+  readonly onExtensionStorageCleared: () => Promise<unknown>;
   readonly onMonitoringAlarm: () => Promise<unknown>;
   readonly onLinkRecheckAlarm: () => Promise<unknown>;
 }
@@ -212,6 +213,7 @@ export function createServiceWorkerBrowserEvents(
       linkRecheckAlarmPrefix: LINK_RECHECK_ALARM_PREFIX,
       getInitPromise: registration.getInitPromise,
       onExtensionUpdate: registration.onExtensionUpdate,
+      onExtensionStorageCleared: registration.onExtensionStorageCleared,
       onAlarm: registration.onMonitoringAlarm,
       onLinkRecheckAlarm: registration.onLinkRecheckAlarm,
       onManagedTabRemoved: handleManagedTabRemoved,

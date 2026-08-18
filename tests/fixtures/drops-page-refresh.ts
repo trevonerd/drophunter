@@ -65,7 +65,10 @@ export function createTestRefresher(
       deviceId: 'device',
       uuid: 'uuid',
     }),
-    refreshGamesCacheFromHiddenFetch: async () => {},
+    refreshGamesCacheFromHiddenFetch: async () => ({
+      kind: 'refreshed' as const,
+      games: state.appState.availableGames,
+    }),
     saveState: async () => {},
     broadcastStateUpdate: () => {},
     ...overrides,

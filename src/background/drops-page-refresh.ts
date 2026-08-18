@@ -1,10 +1,11 @@
 import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
+import type { GamesCacheRefreshResult } from './games-cache-refresh-state.ts';
 
 const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
 const DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS = 60_000;
-const DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS = 20;
-const DEFAULT_CAMPAIGN_REFRESH_RETRY_DELAY_MS = 3_000;
+const DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS = 3;
+const DEFAULT_CAMPAIGN_REFRESH_RETRY_DELAY_MS = 500;
 
 interface DropsPageState {
   appState: AppState;
@@ -30,7 +31,7 @@ interface DropsPageRefreshOptions {
     forceSessionRefresh?: boolean;
     acceptAuthoritativeEmpty?: boolean;
     requireFreshSnapshot?: boolean;
-  }) => Promise<unknown>;
+  }) => Promise<GamesCacheRefreshResult>;
   saveState: () => Promise<unknown> | unknown;
   broadcastStateUpdate: (appState: AppState) => void;
   dropsPageReadyTimeoutMs?: number;
@@ -110,7 +111,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
   const refreshCampaignsUntilReady = async (
     tabId: number,
     startedAt: number,
-  ): Promise<{ gamesCount: number; sawSession: boolean }> => {
+  ): Promise<{ gamesCount: number; sawSession: boolean; snapshotAvailable: boolean }> => {
     const attempts = Math.max(
       1,
       Math.floor(options.campaignRefreshAttempts ?? DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS),
@@ -126,22 +127,30 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     const deadline = startedAt + readyTimeoutMs;
     let sawSession = false;
     let gamesCount = 0;
+    let snapshotAvailable = false;
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const isFinalAttemptByCount = attempt === attempts;
       const isFinalAttemptByTime = Date.now() >= deadline;
       const sessionFromTab = await options.persistSessionFromDropsPage(tabId);
       sawSession = sawSession || Boolean(sessionFromTab);
-      const refreshedGames = await options.refreshGamesCacheFromHiddenFetch({
+      const refreshResult = await options.refreshGamesCacheFromHiddenFetch({
         forceSessionRefresh: !sessionFromTab,
         acceptAuthoritativeEmpty: isFinalAttemptByCount || isFinalAttemptByTime,
         requireFreshSnapshot: true,
       });
 
-      gamesCount = Array.isArray(refreshedGames)
-        ? refreshedGames.length
-        : state.appState.availableGames.length;
-      if (gamesCount > 0 || isFinalAttemptByCount || isFinalAttemptByTime) {
+      if (refreshResult.kind === 'refreshed') {
+        gamesCount = refreshResult.games.length;
+      } else {
+        gamesCount = state.appState.availableGames.length;
+      }
+      if (refreshResult.kind === 'refreshed' && gamesCount > 0) {
+        snapshotAvailable = true;
+        break;
+      }
+      if (refreshResult.kind === 'refreshed' && (isFinalAttemptByCount || isFinalAttemptByTime)) {
+        snapshotAvailable = true;
         break;
       }
 
@@ -152,7 +161,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
       await wait(Math.min(retryDelayMs, remainingMs));
     }
 
-    return { gamesCount, sawSession };
+    return { gamesCount, sawSession, snapshotAvailable };
   };
 
   const refreshFromDropsPageTab = (tabId: number, opened: boolean): Promise<DropsPageRefreshResult> => {
@@ -168,17 +177,20 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
           tabId,
           options.dropsPageReadyTimeoutMs ?? DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS,
         );
-        const { gamesCount, sawSession } = await refreshCampaignsUntilReady(tabId, startedAt);
+        const { gamesCount, sawSession, snapshotAvailable } = await refreshCampaignsUntilReady(
+          tabId,
+          startedAt,
+        );
 
         result = {
-          success: gamesCount > 0,
+          success: snapshotAvailable,
           opened,
-          refreshed: true,
+          refreshed: snapshotAvailable,
           gamesCount,
         };
-        if (gamesCount === 0) {
+        if (!snapshotAvailable) {
           result.error = sawSession
-            ? 'No active Twitch Drops campaigns were detected.'
+            ? 'Twitch campaign data is temporarily unavailable. Try again.'
             : 'Open Twitch and sign in so DropHunter can detect your session.';
         }
       } catch (error) {

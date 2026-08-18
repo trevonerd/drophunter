@@ -41,6 +41,42 @@ export function registerWatchTransportCoordinatorStartCases() {
     expect(events).toEqual(['persist:healthy', 'broadcast:healthy']);
   });
 
+  test('projects transport state into the app state installed after coordinator creation', async () => {
+    const state = createServiceWorkerState();
+    const coordinator = createWatchTransportCoordinator({
+      state,
+      heartbeat: async () => ({ accepted: true, progress: 1 }),
+      managedTab: {
+        open: async () => null,
+        probe: async () => ({ accepted: true }),
+        close: async () => {},
+      },
+      persist: async () => {},
+      broadcast: () => {},
+    });
+    state.appState = {
+      ...state.appState,
+      selectedGame: {
+        id: 'game-1',
+        name: 'Game',
+        imageUrl: '',
+        campaignId: 'campaign-1',
+        categorySlug: 'game',
+      },
+      watchTransportPreference: 'tabless',
+    };
+
+    await coordinator.start({
+      id: 'channel-1',
+      name: 'channel-1',
+      displayName: 'Channel 1',
+      isLive: true,
+    });
+
+    expect(state.appState.watchTransportMode).toBe('tabless');
+    expect(state.appState.watchHealth?.status).toBe('healthy');
+  });
+
   test('starts healthy tabless watching without opening a managed tab', async () => {
     const fixture = createWatchTransportCoordinatorFixture();
 

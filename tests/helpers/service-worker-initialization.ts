@@ -1,4 +1,5 @@
 import {
+  EXTENSION_VERSION_STORAGE_KEY,
   STORAGE_SCHEMA_VERSION,
   STORAGE_SCHEMA_VERSION_KEY,
 } from '../../src/background/storage-migrations.ts';
@@ -8,7 +9,11 @@ import { setupChromeMocks } from '../mocks/chrome.ts';
 
 export async function importServiceWorkerWithBlockedInitialLoad(testId: string, appState: AppState) {
   const mocks = setupChromeMocks();
-  await mocks.storage.local.set({ appState, [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION });
+  await mocks.storage.local.set({
+    appState,
+    [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
+    [EXTENSION_VERSION_STORAGE_KEY]: mocks.chrome.runtime.getManifest().version,
+  });
 
   const originalGet = mocks.chrome.storage.local.get.bind(mocks.chrome.storage.local);
   const originalSet = mocks.chrome.storage.local.set.bind(mocks.chrome.storage.local);
