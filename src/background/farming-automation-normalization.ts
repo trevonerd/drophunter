@@ -21,7 +21,10 @@ export interface FarmingAutomationTwitchSnapshot {
   readonly updatedAt: number;
 }
 
-function stableSignature(value: object): string {
+function stableSignature(value: unknown): string {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return JSON.stringify(value);
+  }
   return JSON.stringify(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
 }
 
@@ -130,10 +133,21 @@ function normalizeCampaignDrops(
   );
 }
 
+function withoutPriorCompletion(game: TwitchGame): TwitchGame {
+  const fresh = { ...game };
+  delete fresh.rewardSummary;
+  delete fresh.allDropsCompleted;
+  return fresh;
+}
+
 export function normalizeFarmingAutomationSnapshot(snapshot: DropsSnapshot): FarmingAutomationTwitchSnapshot {
   const normalizedDrops = normalizeDrops(snapshot.drops);
   const games = normalizeGames(
-    annotateGameCompletion([...snapshot.games], normalizedDrops, 'campaign-authoritative'),
+    annotateGameCompletion(
+      snapshot.games.map(withoutPriorCompletion),
+      normalizedDrops,
+      'campaign-authoritative',
+    ),
   );
   const drops = Object.freeze(normalizedDrops.map(freezeDrop));
   return Object.freeze({
