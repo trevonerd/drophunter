@@ -1,4 +1,9 @@
-import { gameCategoryIdentityKeys, gameCategoryKey, gameKey } from '../shared/game-selection.ts';
+import {
+  compareGamesForDisplayOrder,
+  gameCategoryIdentityKeys,
+  gameCategoryKey,
+  gameKey,
+} from '../shared/game-selection.ts';
 import type {
   AppState,
   CampaignPriorityMode,
@@ -93,11 +98,11 @@ export function planFavoriteCampaignQueue(
       return favoriteKey &&
         !queuedKeys.has(gameKey(game)) &&
         !isExpiredAt(game, now) &&
-        (game.rewardSummary?.completion === undefined || game.rewardSummary.completion === 'farmable')
+        game.rewardSummary?.completion === 'farmable'
         ? [{ game, favoriteKey }]
         : [];
     })
-    .sort((left, right) => campaignExpiry(left.game) - campaignExpiry(right.game));
+    .sort((left, right) => compareGamesForDisplayOrder(left.game, right.game));
 
   const added: FavoriteCampaignAddition[] = [];
   for (const { game, favoriteKey } of candidates) {
@@ -177,11 +182,6 @@ export function setGameFavorite(
   });
   reconcileQueueEntryMetadata(state, now);
   return { changed: true, removedQueueEntries: before - state.queue.length };
-}
-
-function campaignExpiry(game: TwitchGame): number {
-  const parsed = game.endsAt ? Date.parse(game.endsAt) : Number.POSITIVE_INFINITY;
-  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 }
 
 export function discoverFavoriteCampaigns(

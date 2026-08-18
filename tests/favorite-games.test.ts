@@ -21,6 +21,28 @@ function game(campaignId: string, gameId = 'valorant', endsAt = '2030-08-03T14:0
 }
 
 describe('favorite games', () => {
+  test('favorite discovery waits for an authoritative reward classification', () => {
+    // Given: a favorite campaign whose reward catalog is still loading and has no summary.
+    const state = createInitialState();
+    const loading: TwitchGame = {
+      id: 'valorant',
+      name: 'Valorant',
+      campaignId: 'campaign-loading',
+      campaignName: 'Campaign loading',
+      endsAt: '2030-08-03T12:00:00.000Z',
+      imageUrl: '',
+    };
+    state.availableGames = [loading];
+    state.favoriteGames = [{ gameId: 'valorant', lastKnownName: 'Valorant', addedAt: 100 }];
+    state.campaignPriorityMode = 'priority-list-only';
+
+    // When: favorite automation evaluates the incomplete snapshot.
+    const discovery = discoverFavoriteCampaigns(state, 200);
+
+    // Then: it queues nothing until Twitch supplies authoritative reward evidence.
+    expect({ queue: state.queue, added: discovery.added }).toEqual({ queue: [], added: [] });
+  });
+
   test('favorite discovery queues only the earliest farmable campaign for a Twitch category', () => {
     const state = createInitialState();
     const first = game('campaign-a');
@@ -46,6 +68,22 @@ describe('favorite games', () => {
       addedAt: 200,
       reason: 'favorite-discovered',
     });
+  });
+
+  test('equal-expiry favorite campaigns follow the normal display order', () => {
+    // Given: two farmable campaigns with the same expiry in reverse display order.
+    const state = createInitialState();
+    const laterInList = game('campaign-z');
+    const firstInList = game('campaign-a');
+    state.availableGames = [laterInList, firstInList];
+    state.favoriteGames = [{ gameId: 'valorant', lastKnownName: 'Valorant', addedAt: 100 }];
+    state.campaignPriorityMode = 'priority-list-only';
+
+    // When: favorite automation chooses one campaign for the category.
+    discoverFavoriteCampaigns(state, 200);
+
+    // Then: the first campaign in deterministic display order wins the tie.
+    expect(state.queue.map((entry) => entry.campaignId)).toEqual(['campaign-a']);
   });
 
   test('favorite discovery removes automatic siblings when a manual campaign already represents the game', () => {
