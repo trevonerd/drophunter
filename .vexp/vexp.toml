@@ -1,0 +1,7 @@
+# vexp configuration (flat keys, no tables)
+# See https://vexp.dev/docs for options
+
+# max_file_size_kb = 512
+# priority_paths   = ["src/", "packages/core/"]
+# depriority_paths = ["docs/", "examples/"]
+# exclude_patterns = ["vendor/**", "dist/**"]
