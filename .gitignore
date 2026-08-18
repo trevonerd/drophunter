@@ -45,6 +45,7 @@ Thumbs.db
 .claude/
 .sisyphus/
 .opencode/
+.superpowers/
 
 # TypeScript build info
 *.tsbuildinfo
