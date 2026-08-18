@@ -205,15 +205,15 @@ The following primitives and repeated components are the reusable surface langua
 
 ### AutomationSummary
 
-- Structure: a quiet compact panel with one heading and one sentence. When automation is enabled, at most one meaningful recent automation event may replace the sentence for exactly six seconds.
-- Copy ownership: it explains only the favorite-campaign automation policy. It never repeats the active campaign, queue order, runtime state, transport mode, health, polling cadence, `Now`/`Next`, or the same activity in another panel.
-- Variants: on, off, and enabled with a transient event. No event is shown while automation is off or the Twitch session is unavailable.
-- Spacing and hierarchy: 12px heading, 11px copy, compact 8-10px panel padding, standard dark border, no large icon or decorative glow.
-- Accessibility: transient feedback uses one polite live region; static policy copy does not announce repeatedly.
+- Structure: a compact inline control row headed `Favorite auto-start`, with its On/Off state and the existing switch control. When enabled, at most one meaningful recent automation event may appear below it for exactly six seconds.
+- Copy ownership: it controls only favorite-campaign auto-start. It never repeats the active campaign, queue order, runtime state, transport mode, health, polling cadence, `Now`/`Next`, or the same activity in another panel.
+- Variants: on, off, enabled with a transient event, and notification-permission denied. No event is shown while automation is off or the Twitch session is unavailable.
+- Spacing and hierarchy: 12px heading, 10px state/event copy, compact 8px vertical/10px horizontal subpanel padding, no large icon or decorative glow.
+- Accessibility: the control is a native button with `role=switch` and `aria-checked`; transient activity and permission feedback use concise polite live regions.
 
 ### SessionSummary
 
-- Structure: one persistent compact operational section below AutomationSummary. Its first line pairs state and campaign (`Running · Game · Campaign`); a compact trailing indicator names the effective watch source (`Hidden`, `Tab`, or `Manual tab`) without exposing health or cadence diagnostics. Running reuses the standard compact reward row and actions stay inside the section.
+- Structure: one persistent compact operational section below AutomationSummary. Its first line pairs state and campaign (`Running · Game · Campaign`); a compact trailing indicator names the effective watch source (`Hidden`, `Tab`, `Fallback tab`, or `Manual tab`) without exposing health or cadence diagnostics. Running reuses the standard compact reward row and actions stay inside the section.
 - Variants: ready, running, paused, recovering, complete, and attention-required. Running/complete use success accents; paused/recovering use warning accents; attention-required uses the existing danger or violet accent treatment; ready uses neutral surface tokens.
 - Spacing: inline `dh-contain` panel with 12px padding and the existing 8px internal rhythm. The running variant uses `--dh-border-strong` without glow; type remains in the 10-12px compact scale.
 - States: idle names the selected campaign or asks for a selection; running presents the active reward exactly once through `CompactDropCard`; paused and recovering preserve the compact progress readout while explicitly saying progress is not advancing; actual manual Twitch playback suppresses automated transport ticks and appears here as tracking or waiting until the existing TTL expires; crash recovery appears only when actionable; terminal states explain what happens next. Campaign sync and ordinary watch-health details do not belong here.

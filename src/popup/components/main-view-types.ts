@@ -18,6 +18,8 @@ export interface MainViewProps {
   firstSyncConfirmation: boolean;
   firstSyncCampaignCount: number | null;
   queueMessage: string | null;
+  notificationPermissionDenied: boolean;
+  onAutoStartFavoriteGamesToggle: () => void;
   onMuteToggle: () => void;
   onOpenDropsPage: () => void;
   onOpenMonitor: () => void;

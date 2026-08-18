@@ -35,13 +35,9 @@ export function SettingsView({
   onAutoClaimDropsToggle,
   onStreamerSelectionModeChange,
   onPreferredStreamerLanguageChange,
-  onAutoStartFavoriteGamesToggle,
   onFarmCategoryScopeChange,
   onWatchTransportModeChange,
-  favoriteGamesCount,
 }: SettingsViewProps) {
-  const favoriteCount = favoriteGamesCount ?? state.favoriteGames.length;
-
   return (
     <div className="flex flex-col">
       <header className="dh-header flex items-center justify-between px-3 py-2">
@@ -70,10 +66,8 @@ export function SettingsView({
         />
         <FarmingAutomationSettings
           state={state}
-          favoriteCount={favoriteCount}
           notificationPermissionDenied={notificationPermissionDenied}
           onNotificationsEnabledToggle={onNotificationsEnabledToggle}
-          onAutoStartFavoriteGamesToggle={onAutoStartFavoriteGamesToggle}
           onFarmCategoryScopeChange={onFarmCategoryScopeChange}
           onWatchTransportModeChange={onWatchTransportModeChange}
         />

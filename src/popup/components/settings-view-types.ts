@@ -24,8 +24,6 @@ export interface SettingsViewProps {
   onAutoClaimDropsToggle: () => void;
   onStreamerSelectionModeChange: (mode: StreamerSelectionMode) => void;
   onPreferredStreamerLanguageChange: (language: string) => void;
-  onAutoStartFavoriteGamesToggle?: () => void | Promise<void>;
   onFarmCategoryScopeChange?: (scope: FarmCategoryScope) => void;
   onWatchTransportModeChange?: (mode: WatchTransportMode) => void;
-  favoriteGamesCount?: number;
 }
