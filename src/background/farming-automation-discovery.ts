@@ -46,6 +46,7 @@ export async function discoverFarmingAutomationCandidates(
   const availability: Record<string, CampaignAvailability> = {};
   try {
     for (const normalized of refreshed.snapshot.games) {
+      if (normalized.rewardSummary?.completion !== 'farmable') continue;
       const game = cloneFarmingAutomationGame(normalized);
       const directory = await twitch.fetchDirectory(game, language);
       if (directory.kind === 'session-missing') {
