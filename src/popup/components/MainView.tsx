@@ -31,6 +31,8 @@ export function MainView({
   firstSyncConfirmation,
   firstSyncCampaignCount,
   queueMessage,
+  notificationPermissionDenied,
+  onAutoStartFavoriteGamesToggle,
   onMuteToggle,
   onOpenDropsPage,
   onOpenMonitor,
@@ -107,11 +109,19 @@ export function MainView({
         {isSignedOut ? (
           <>
             <TwitchSessionGate queueCount={queueGames.length} onOpenTwitch={onOpenDropsPage} />
-            <AutomationSummary state={state} />
+            <AutomationSummary
+              state={state}
+              notificationPermissionDenied={notificationPermissionDenied}
+              onToggle={onAutoStartFavoriteGamesToggle}
+            />
           </>
         ) : (
           <>
-            <AutomationSummary state={state} />
+            <AutomationSummary
+              state={state}
+              notificationPermissionDenied={notificationPermissionDenied}
+              onToggle={onAutoStartFavoriteGamesToggle}
+            />
             <SessionSummary
               state={state}
               runtimeMode={runtimeMode}

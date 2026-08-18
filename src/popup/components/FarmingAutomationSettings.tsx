@@ -3,10 +3,8 @@ import { SettingRow } from './SettingRow';
 
 interface FarmingAutomationSettingsProps {
   readonly state: AppState;
-  readonly favoriteCount: number;
   readonly notificationPermissionDenied?: boolean;
   readonly onNotificationsEnabledToggle: () => void;
-  readonly onAutoStartFavoriteGamesToggle?: () => void | Promise<void>;
   readonly onFarmCategoryScopeChange?: (scope: FarmCategoryScope) => void;
   readonly onWatchTransportModeChange?: (mode: WatchTransportMode) => void;
 }
@@ -21,46 +19,23 @@ function isWatchTransportMode(value: string): value is WatchTransportMode {
 
 export function FarmingAutomationSettings({
   state,
-  favoriteCount,
   notificationPermissionDenied,
   onNotificationsEnabledToggle,
-  onAutoStartFavoriteGamesToggle,
   onFarmCategoryScopeChange,
   onWatchTransportModeChange,
 }: FarmingAutomationSettingsProps) {
   return (
     <section className="dh-panel dh-contain px-3 py-2.5" aria-labelledby="farming-automation-heading">
       <div className="dh-setting-section-header flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id="farming-automation-heading" className="dh-title text-xs">
-            Farming automation
-          </h2>
-          <p className="dh-copy mt-1 text-[11px] leading-snug">
-            Automatically discover and farm favorite-game campaigns while the browser is open.
-          </p>
-        </div>
-        <span className="shrink-0 text-[10px] text-[color:var(--dh-muted)]">
-          {favoriteCount} favorite {favoriteCount === 1 ? 'game' : 'games'}
-        </span>
+        <h2 id="farming-automation-heading" className="dh-title text-xs">
+          Farming automation
+        </h2>
       </div>
       <div className="mt-2 space-y-2">
-        <SettingRow
-          title="Auto-start favorite games"
-          description="Automatically start newly discovered campaigns for your favorite games. Notifications are required."
-          checked={state.autoStartFavoriteGames}
-          ariaLabel="Auto-start favorite games"
-          onToggle={() => onAutoStartFavoriteGamesToggle?.()}
-          warning={
-            notificationPermissionDenied
-              ? 'Notifications are required for auto-start. Allow them in your browser settings, then try again.'
-              : null
-          }
-        />
         <div className="dh-subpanel px-2.5 py-2">
           <div className="dh-setting-control-row flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="dh-title text-xs">Farm categories</p>
-              <p className="dh-copy mt-1 text-[11px] leading-snug">Limit automatic farming.</p>
+              <p className="dh-title text-xs">Campaign scope</p>
             </div>
             <select
               aria-label="Farm categories"
@@ -80,8 +55,7 @@ export function FarmingAutomationSettings({
         <div className="dh-subpanel px-2.5 py-2">
           <div className="dh-setting-control-row flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="dh-title text-xs">Watch mode</p>
-              <p className="dh-copy mt-1 text-[11px] leading-snug">Choose how DropHunter watches Twitch.</p>
+              <p className="dh-title text-xs">Watch source</p>
             </div>
             <select
               aria-label="Watch mode"
@@ -93,28 +67,14 @@ export function FarmingAutomationSettings({
               disabled={!onWatchTransportModeChange || state.isRunning}
               className="dh-input dh-setting-select min-w-[132px] shrink-0 rounded-md px-2 py-1.5 text-[11px] font-semibold disabled:opacity-70"
             >
-              <option value="tabless">Tabless heartbeat</option>
-              <option value="managed-tab">Managed tab</option>
+              <option value="tabless">No stream tab (preferred)</option>
+              <option value="managed-tab">Managed background tab</option>
             </select>
           </div>
-          <p className="mt-1.5 text-[10px] text-[color:var(--dh-muted)]">
-            {state.watchTransportPreference === 'tabless'
-              ? 'Farms without opening a stream tab. Falls back to a managed tab when heartbeat health fails.'
-              : 'Uses a muted inactive tab, retries playback automatically, and never takes focus.'}
-          </p>
           {state.isRunning && (
             <p className="mt-1 text-[10px] text-[color:var(--dh-muted)]">
               Stop farming to change watch mode.
             </p>
-          )}
-        </div>
-        <div className="dh-subpanel px-2.5 py-2">
-          <p className="dh-title text-xs">Favorite games ({favoriteCount})</p>
-          <p className="dh-copy mt-1 text-[11px] leading-snug">
-            New farmable campaigns from these Twitch categories can be queued automatically.
-          </p>
-          {favoriteCount === 0 && (
-            <p className="mt-1 text-[10px] text-[color:var(--dh-muted)]">No favorite games yet.</p>
           )}
         </div>
         <SettingRow
