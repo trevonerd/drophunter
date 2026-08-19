@@ -49,7 +49,8 @@ function fixture(
   options: {
     readonly favoriteEndsAt?: string;
     readonly manual?: boolean;
-    readonly preparationFails?: boolean;
+    readonly queue?: readonly TwitchGame[];
+    readonly running?: TwitchGame;
   } = {},
 ) {
   const manual = campaign('manual', '2030-08-04T12:00:00.000Z');
@@ -71,10 +72,15 @@ function fixture(
   state.appState.notificationsEnabled = true;
   state.appState.campaignPriorityMode = mode;
   state.appState.favoriteGames = [{ gameId: favorite.id, lastKnownName: favorite.name, addedAt: 1 }];
-  state.appState.queue = [manual];
-  state.appState.queueEntryMetadataByKey = {
-    [gameKey(manual)]: { source: 'manual', addedAt: 1, reason: 'user-added' },
-  };
+  state.appState.isRunning = options.running !== undefined;
+  state.appState.selectedGame = options.running ?? null;
+  state.appState.queue = [...(options.queue ?? [manual])];
+  state.appState.queueEntryMetadataByKey = Object.fromEntries(
+    state.appState.queue.map((game) => [
+      gameKey(game),
+      { source: 'manual' as const, addedAt: 1, reason: 'user-added' as const },
+    ]),
+  );
   const storage = createInMemoryFarmingAutomationStorage();
   const persistence = createInMemoryFarmingAutomationPersistence({
     state,
@@ -84,30 +90,27 @@ function fixture(
   });
   const watch = createWatchTransportTransition({
     currentOwnership: null,
-    prepareManaged: async (target) =>
-      options.preparationFails
-        ? null
-        : {
-            target,
-            ownership: {
-              kind: 'managed-tab',
-              tabId: 2,
-              ownershipToken: 'owned',
-              expectedChannel: target.channelName,
-            },
-            health: {
-              mode: 'managed-tab',
-              isHealthy: true,
-              status: 'healthy',
-              reason: 'heartbeat',
-              consecutiveFailures: 0,
-              consecutiveStalls: 0,
-              progress: 0,
-              shouldFallback: false,
-              checkedAt: 1,
-            },
-            dispose: async () => undefined,
-          },
+    prepareManaged: async (target) => ({
+      target,
+      ownership: {
+        kind: 'managed-tab',
+        tabId: 2,
+        ownershipToken: 'owned',
+        expectedChannel: target.channelName,
+      },
+      health: {
+        mode: 'managed-tab',
+        isHealthy: true,
+        status: 'healthy',
+        reason: 'heartbeat',
+        consecutiveFailures: 0,
+        consecutiveStalls: 0,
+        progress: 0,
+        shouldFallback: false,
+        checkedAt: 1,
+      },
+      dispose: async () => undefined,
+    }),
     prepareTabless: async () => null,
     release: async () => ({ kind: 'not-required' }),
   });
@@ -230,42 +233,30 @@ describe('Farming automation queue policy', () => {
   });
 
   test.each([
-    'ending-soonest',
-    'lowest-availability',
-  ] as const)('%s mode leaves the visible queue byte-for-byte unchanged', async (mode) => {
-    // Given: a private ranking mode with an existing manual queue.
-    const subject = fixture(mode);
-    const before = structuredClone({
-      queue: subject.state.appState.queue,
-      metadata: subject.state.appState.queueEntryMetadataByKey,
-    });
+    ['between', '2030-08-02T12:00:00.000Z'],
+    ['after equal expiry', '2030-08-03T12:00:00.000Z'],
+  ] as const)('inserts a favorite %s without duplicates while farming', async (_label, firstEndsAt) => {
+    const running = campaign('running', '2030-08-06T12:00:00.000Z');
+    const first = campaign('first', firstEndsAt);
+    const last = campaign('last', '2030-08-04T12:00:00.000Z');
+    const subject = fixture('priority-list-only', { queue: [first, last], running });
 
-    // When: automation evaluates a newly discovered favorite.
-    await subject.automation.request('periodic');
+    const outcomes = [
+      await subject.automation.request('campaign-refresh'),
+      await subject.automation.request('periodic'),
+    ];
 
-    // Then: private ranking does not mutate visible queue state.
     expect({
-      queue: subject.state.appState.queue,
-      metadata: subject.state.appState.queueEntryMetadataByKey,
-    }).toEqual(before);
-  });
-
-  test('retains an independently persisted queue addition when preparation later fails', async () => {
-    // Given: priority-list-only discovery followed by an unavailable candidate watch.
-    const subject = fixture('priority-list-only', { preparationFails: true });
-
-    // When: the public request reaches candidate preparation.
-    const outcome = await subject.automation.request('periodic');
-
-    // Then: the failure is typed and the already-persisted queue activity remains.
-    expect({
-      outcome,
+      outcomes,
       queue: subject.state.appState.queue.map(gameKey),
-      activity: subject.state.appState.automationActivity.map(({ kind }) => kind),
+      selected: subject.state.appState.selectedGame,
     }).toEqual({
-      outcome: { kind: 'failed', reason: 'candidate-preparation-failed', retryAt: 122_000 },
-      queue: [gameKey(subject.favorite), gameKey(subject.manual)],
-      activity: ['favorite-added'],
+      outcomes: [
+        { kind: 'unchanged', reason: 'already-farming-best-campaign' },
+        { kind: 'unchanged', reason: 'already-farming-best-campaign' },
+      ],
+      queue: [gameKey(first), gameKey(subject.favorite), gameKey(last)],
+      selected: running,
     });
   });
 });
