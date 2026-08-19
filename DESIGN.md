@@ -205,11 +205,11 @@ The following primitives and repeated components are the reusable surface langua
 
 ### AutomationSummary
 
-- Structure: a compact inline control row headed `Favorite auto-start`, with its On/Off state and the existing switch control. When enabled, at most one meaningful recent automation event may appear below it for exactly six seconds.
+- Structure: a compact inline control row headed `Favorite auto-start` and its switch control. The switch position and semantic on/off color indicate resting state; no duplicate On/Off text is shown. When enabled, at most one meaningful recent automation event may appear below it for exactly six seconds.
 - Queue ownership: a favorite is category-level. In `priority-list-only` mode automation may own at most one queued campaign for each favorite category. A manually queued campaign already represents that category and is never removed; terminal or redundant `favorite-auto` siblings are pruned on the next evaluation.
 - Copy ownership: it controls only favorite-campaign auto-start. It never repeats the active campaign, queue order, runtime state, transport mode, health, polling cadence, `Now`/`Next`, or the same activity in another panel.
 - Variants: on, off, enabled with a transient event, and notification-permission denied. No event is shown while automation is off or the Twitch session is unavailable.
-- Spacing and hierarchy: 12px heading, 10px state/event copy, compact 8px vertical/10px horizontal subpanel padding, no large icon or decorative glow.
+- Spacing and hierarchy: 12px heading, 10px event copy, compact 8px vertical/10px horizontal subpanel padding, no large icon or decorative glow.
 - Accessibility: the control is a native button with `role=switch` and `aria-checked`; transient activity and permission feedback use concise polite live regions.
 
 ### SessionSummary
@@ -240,6 +240,8 @@ The following primitives and repeated components are the reusable surface langua
 - Expanding a game reveals one flat detail surface. Campaigns are separated by dividers rather than nested cards. Each campaign shows title, expiry/next-reward metadata, campaign-aware Add/Remove, and a safe external Link action when required. Farmable Drops render immediately as compact rows inside the expanded game; there is no second campaign-level accordion. Farming-complete campaigns remain one compact campaign line with a `Complete · 100%` badge and no reward rows or queue actions.
 - The game-level Add action targets the first connected, farming-eligible, unqueued campaign in the current calculated order. Precise campaign choice and removal remain available inside the expanded detail. It is disabled when no eligible campaign remains.
 - Favorite and Add controls use a minimum 28px square target. The disclosure control has a visible focus ring, `aria-expanded`, and `aria-controls`; its chevron rotates through transform only. Expanded content is not animated by height.
+- Each category has one persistent preference: normal, favorite, or hidden. Hidden categories are omitted from Available and automation, but remain recoverable from the Hidden filter. The star remains visible; an eye-off action occupies a stable 28px slot revealed on row hover or keyboard focus.
+- Hidden rows replace queue actions with Restore; the star restores directly as favorite. Hiding/restoring emits a six-second polite inline status with Undo. Existing running sessions remain untouched, and retained queue entries are never silently removed.
 - Motion: onboarding pulse-glow is a 2s infinite attention cue; disclosure/action feedback uses the existing 180ms easing and transform/opacity only. Reduced-motion collapses it to an immediate state change.
 - Layout/scroll: the browser remains in popup document flow. Neither the game list nor expanded campaign/Drop detail owns a scrollbar; the popup body is the sole discovery scroll owner.
 
@@ -270,10 +272,10 @@ CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is 
 
 - Structure: bordered dh-panel row with title/copy and a native button role=switch; Telegram extends the pattern with labeled password/text inputs, save/test actions, disclosure guide, and status message.
 - Variants: on/off, disabled-before-configuration, warning/permission-denied, credentials saved/error, setup guide closed/open, streamer-selection pressed/unpressed.
-- Spacing: panel px-3 py-2.5; row gap 12px; switch 48×28px with a 20px thumb and full-pill radius; form groups use 8px vertical spacing.
+- Spacing: panel px-3 py-2.5; row gap 12px; switch has a 36×28px interactive target containing a 34×20px full-pill track and 14px thumb; form groups use 8px vertical spacing.
 - States: default, hover, active, focus-visible ring, on/off thumb transform, busy disabled, warning/error status, disclosure expanded/collapsed.
 - Accessibility: native buttons and inputs, labels above fields, role=switch plus aria-checked, aria-expanded on guide, and role=status aria-live=polite for warnings/action feedback. Never use placeholder text as the only label.
-- Motion: switch thumb translates 19.2px over 180ms; background/border transition 180ms; no disclosure animation exists.
+- Motion: switch thumb translates 11px over 180ms; track background/border transition 180ms; no disclosure animation exists.
 - Layout/scroll: settings content uses popup body scroll; no nested form scroll.
 
 ### Claim log virtualized list

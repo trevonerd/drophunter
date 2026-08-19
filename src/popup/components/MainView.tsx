@@ -1,4 +1,9 @@
-import { dropMatchesGame, favoriteGameIdentityKeys, gameKey } from '../../shared/game-selection.ts';
+import {
+  dropMatchesGame,
+  favoriteGameIdentityKeys,
+  gameKey,
+  hiddenGameIdentityKeys,
+} from '../../shared/game-selection.ts';
 import { isRewardAutomatable } from '../../shared/reward-semantics';
 import type { TwitchGame } from '../../types';
 import { isCampaignFarmable } from '../format';
@@ -44,7 +49,7 @@ export function MainView({
   onAddToQueue,
   onAddAllToQueue,
   onLinkAccount,
-  onSetFavorite,
+  onSetGamePreference,
   onRemoveFromQueue,
   onClearQueue,
   onReorderQueue,
@@ -74,6 +79,7 @@ export function MainView({
   const campaignAvailabilityByKey = state.campaignAvailabilityByKey ?? {};
   const automationActivity = state.automationActivity ?? [];
   const favoriteIds = favoriteGameIdentityKeys(favoriteGames);
+  const hiddenIds = hiddenGameIdentityKeys(state.hiddenGames ?? []);
   const now = Date.now();
   const progressForCampaign = (game: TwitchGame) => {
     const nextReward = catalogDrops.find((drop) => dropMatchesGame(drop, game) && !drop.claimed);
@@ -161,6 +167,7 @@ export function MainView({
                 campaigns={sortedGames}
                 drops={catalogDrops}
                 favoriteGameIds={favoriteIds}
+                hiddenGameIds={hiddenIds}
                 queueGames={queueGames}
                 loadedCampaignKeys={loadedCampaignKeys}
                 progressByCampaignKey={progressForCampaign}
@@ -187,7 +194,7 @@ export function MainView({
                   </>
                 }
                 onOpenTwitchDrops={onOpenDropsPage}
-                onSetFavorite={onSetFavorite}
+                onSetGamePreference={onSetGamePreference}
                 onAddToQueue={(game) => onAddToQueue(game)}
                 onAddAllToQueue={onAddAllToQueue}
                 onRemoveFromQueue={onRemoveFromQueue}

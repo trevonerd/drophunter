@@ -113,6 +113,39 @@ describe('farming automation candidate policy', () => {
     expect(plan.added.map((entry) => gameKey(entry.game))).toEqual([gameKey(second)]);
   });
 
+  test('hidden categories never enter automatic queue planning or candidate ranking', () => {
+    // Given: a favorite category that is also hidden by a later preference action.
+    const hidden = game('campaign-hidden', '2030-08-03T12:00:00.000Z');
+    const snapshot = favoriteSnapshot([hidden], {
+      hiddenGames: [{ gameId: 'same-game', lastKnownName: 'Same Game', hiddenAt: 10 }],
+    });
+
+    // When: the automation policy derives and ranks the refreshed campaigns.
+    const plan = planFavoriteCampaignQueue(snapshot, 20);
+    const candidates = deriveFarmingAutomationCandidates(snapshot, 20);
+    const ranked = rankFarmingAutomationCandidates(snapshot, candidates);
+
+    // Then: hidden campaigns are absent from every future automatic decision.
+    expect(plan.queue).toEqual([]);
+    expect(candidates).toEqual([]);
+    expect(ranked).toEqual([]);
+  });
+
+  test('hidden categories do not alter the underlying available snapshot', () => {
+    // Given: visible and hidden campaigns from distinct categories.
+    const visible = game('campaign-visible', '2030-08-03T12:00:00.000Z', 'visible-game');
+    const hidden = game('campaign-hidden', '2030-08-03T13:00:00.000Z', 'hidden-game');
+    const snapshot = favoriteSnapshot([visible, hidden], {
+      hiddenGames: [{ gameId: 'hidden-game', lastKnownName: 'Same Game', hiddenAt: 10 }],
+    });
+
+    // When: candidate derivation applies hidden filtering.
+    deriveFarmingAutomationCandidates(snapshot, 20);
+
+    // Then: only the derived decision set changes; Twitch's source snapshot remains intact.
+    expect(snapshot.availableGames).toEqual([visible, hidden]);
+  });
+
   test('derives duplicate game ids with independent campaign availability', () => {
     const first = game('campaign-a', '2030-08-03T14:00:00.000Z');
     const second = game('campaign-b', '2030-08-03T12:00:00.000Z');

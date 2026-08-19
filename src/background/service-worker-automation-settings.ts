@@ -1,7 +1,12 @@
-import { isFavoriteGame } from '../shared/game-selection.ts';
-import type { TwitchGame, WatchTransportMode } from '../types/index.ts';
+import {
+  favoriteGameIdentityKeys,
+  hiddenGameIdentityKeys,
+  isFavoriteGame,
+  isHiddenGame,
+} from '../shared/game-selection.ts';
+import type { GamePreference, TwitchGame, WatchTransportMode } from '../types/index.ts';
 import type { FarmingAutomation, FarmingAutomationOutcome } from './farming-automation.ts';
-import { setGameFavorite } from './favorite-games.ts';
+import { setGamePreference } from './favorite-games.ts';
 import type { createNotificationController } from './notifications.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
@@ -42,17 +47,34 @@ export function createServiceWorkerAutomationSettingsHandlers(
   const trackActivity = dependencies.stateLifecycle.trackActivity;
 
   async function handleSetGameFavorite(payload: { readonly game: TwitchGame; readonly favorite: boolean }) {
+    const result = await handleSetGamePreference({
+      game: payload.game,
+      preference: payload.favorite ? 'favorite' : 'normal',
+    });
+    return {
+      success: result.success,
+      favorite: result.preference === 'favorite',
+      removedQueueEntries: result.removedQueueEntries,
+    };
+  }
+
+  async function handleSetGamePreference(payload: {
+    readonly game: TwitchGame;
+    readonly preference: GamePreference;
+  }) {
     await trackActivity('set-game-favorite');
-    const result = setGameFavorite(state.appState, payload.game, payload.favorite, Date.now());
+    const result = setGamePreference(state.appState, payload.game, payload.preference, Date.now());
     await saveState(state);
     await dependencies.automation.request('campaign-refresh');
     return {
       success: true,
-      favorite: isFavoriteGame(
-        payload.game,
-        new Set(state.appState.favoriteGames.map((favorite) => favorite.gameId)),
-      ),
+      preference: isHiddenGame(payload.game, hiddenGameIdentityKeys(state.appState.hiddenGames))
+        ? 'hidden'
+        : isFavoriteGame(payload.game, favoriteGameIdentityKeys(state.appState.favoriteGames))
+          ? 'favorite'
+          : 'normal',
       removedQueueEntries: result.removedQueueEntries,
+      retainedQueueEntries: result.retainedQueueEntries,
     };
   }
 
@@ -112,6 +134,7 @@ export function createServiceWorkerAutomationSettingsHandlers(
     handleSetCampaignPriorityMode,
     handleSetFarmCategoryScope,
     handleSetGameFavorite,
+    handleSetGamePreference,
     handleSetWatchTransportMode,
   };
 }

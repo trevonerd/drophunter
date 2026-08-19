@@ -71,6 +71,7 @@ export type ExpiryStatus = 'safe' | 'warning' | 'urgent' | 'unknown';
 export type StreamerSelectionMode = 'low-view' | 'random' | 'top-viewers';
 export type CampaignPriorityMode = 'ending-soonest' | 'lowest-availability' | 'priority-list-only';
 export type FarmCategoryScope = 'all' | 'favorites-only';
+export type GamePreference = 'normal' | 'favorite' | 'hidden';
 export type QueueEntrySource = 'manual' | 'favorite-auto';
 export type WatchTransportMode = 'managed-tab' | 'tabless';
 export type WatchHealthStatus =
@@ -116,10 +117,17 @@ export interface FavoriteGame {
   readonly identityKeys?: readonly string[];
 }
 
+export interface HiddenGame {
+  readonly gameId: string;
+  readonly lastKnownName: string;
+  readonly hiddenAt: number;
+  readonly identityKeys?: readonly string[];
+}
+
 export interface QueueEntryMetadata {
   readonly source: QueueEntrySource;
   readonly addedAt: number;
-  readonly reason: 'user-added' | 'favorite-discovered';
+  readonly reason: 'user-added' | 'favorite-discovered' | 'retained-after-hide';
 }
 
 export type ManualWatchState = 'inactive' | 'eligible-manual' | 'automation-paused';
@@ -172,6 +180,7 @@ export interface AppState {
   availableGames: TwitchGame[];
   queue: TwitchGame[];
   favoriteGames: FavoriteGame[];
+  hiddenGames: HiddenGame[];
   campaignPriorityMode: CampaignPriorityMode;
   farmCategoryScope: FarmCategoryScope;
   autoStartFavoriteGames: boolean;

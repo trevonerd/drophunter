@@ -4,6 +4,7 @@ import type {
   CampaignPriorityMode,
   ClaimLogEntry,
   FarmCategoryScope,
+  GamePreference,
   PlaybackPrepResult,
   StreamerSelectionMode,
   TwitchGame,
@@ -30,6 +31,7 @@ export const RUNTIME_MESSAGE_TYPES = [
   'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
   'SET_AUTO_CLAIM_DROPS',
   'SET_GAME_FAVORITE',
+  'SET_GAME_PREFERENCE',
   'SET_CAMPAIGN_PRIORITY_MODE',
   'SET_FARM_CATEGORY_SCOPE',
   'SET_AUTO_START_FAVORITES',
@@ -125,6 +127,7 @@ export type RuntimeRequest =
   | { type: 'SET_STREAMER_SELECTION_MODE'; payload?: { mode?: StreamerSelectionMode } }
   | { type: 'SET_PREFERRED_STREAMER_LANGUAGE'; payload?: { language?: string | null } }
   | { type: 'SET_GAME_FAVORITE'; payload: { game: TwitchGame; favorite: boolean } }
+  | { type: 'SET_GAME_PREFERENCE'; payload: { game: TwitchGame; preference: GamePreference } }
   | { type: 'SET_CAMPAIGN_PRIORITY_MODE'; payload: { mode: CampaignPriorityMode } }
   | { type: 'SET_FARM_CATEGORY_SCOPE'; payload: { scope: FarmCategoryScope } }
   | { type: 'SET_WATCH_TRANSPORT_MODE'; payload: { mode: WatchTransportMode } }
@@ -175,6 +178,13 @@ export type RuntimeResponseByType = BooleanToggleResponseByType &
       success: boolean;
       favorite?: boolean;
       removedQueueEntries?: number;
+      error?: string;
+    };
+    SET_GAME_PREFERENCE: {
+      success: boolean;
+      preference?: GamePreference;
+      removedQueueEntries?: number;
+      retainedQueueEntries?: number;
       error?: string;
     };
     SET_CAMPAIGN_PRIORITY_MODE: {
@@ -232,6 +242,10 @@ export function isRuntimeMessageType(value: unknown): value is RuntimeMessageTyp
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isGamePreference(value: unknown): value is GamePreference {
+  return value === 'normal' || value === 'favorite' || value === 'hidden';
 }
 
 function isCampaignRewardSummaryLike(value: unknown): boolean {
@@ -411,6 +425,8 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
       );
     case 'SET_GAME_FAVORITE':
       return isRecord(payload) && isTwitchGameLike(payload.game) && typeof payload.favorite === 'boolean';
+    case 'SET_GAME_PREFERENCE':
+      return isRecord(payload) && isTwitchGameLike(payload.game) && isGamePreference(payload.preference);
     case 'SET_CAMPAIGN_PRIORITY_MODE':
       return (
         isRecord(payload) &&

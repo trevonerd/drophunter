@@ -254,6 +254,7 @@ export function applyExtensionUpdateStateTransition(state: ServiceWorkerState): 
     preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
     watchTransportPreference: state.appState.watchTransportPreference,
     favoriteGames: state.appState.favoriteGames,
+    hiddenGames: state.appState.hiddenGames,
     campaignPriorityMode: state.appState.campaignPriorityMode,
     farmCategoryScope: state.appState.farmCategoryScope,
     autoStartFavoriteGames: state.appState.autoStartFavoriteGames,

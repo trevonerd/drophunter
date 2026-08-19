@@ -38,6 +38,37 @@ function normalizeFavoriteGames(value: unknown): AppState['favoriteGames'] {
     }));
 }
 
+function normalizeHiddenGames(value: unknown): AppState['hiddenGames'] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter(
+      (entry): entry is Record<string, unknown> & AppState['hiddenGames'][number] =>
+        isRecord(entry) &&
+        typeof entry.gameId === 'string' &&
+        entry.gameId.trim().length > 0 &&
+        typeof entry.lastKnownName === 'string' &&
+        Number.isFinite(entry.hiddenAt),
+    )
+    .map((entry) => ({
+      gameId: entry.gameId,
+      lastKnownName: entry.lastKnownName,
+      hiddenAt: entry.hiddenAt,
+      ...(Array.isArray(entry.identityKeys)
+        ? {
+            identityKeys: Array.from(
+              new Set(
+                entry.identityKeys.filter(
+                  (key): key is string => typeof key === 'string' && key.trim().length > 0,
+                ),
+              ),
+            ),
+          }
+        : {}),
+    }));
+}
+
 function normalizeQueueMetadata(value: unknown): AppState['queueEntryMetadataByKey'] {
   if (!isRecord(value)) {
     return {};
@@ -49,7 +80,9 @@ function normalizeQueueMetadata(value: unknown): AppState['queueEntryMetadataByK
         isRecord(metadata) &&
         (metadata.source === 'manual' || metadata.source === 'favorite-auto') &&
         Number.isFinite(metadata.addedAt) &&
-        (metadata.reason === 'user-added' || metadata.reason === 'favorite-discovered')
+        (metadata.reason === 'user-added' ||
+          metadata.reason === 'favorite-discovered' ||
+          metadata.reason === 'retained-after-hide')
       );
     },
   );
@@ -193,10 +226,17 @@ export function normalizeStoredAppState(value: unknown): AppState {
     return createInitialState();
   }
   const defaults = createInitialState();
+  const hiddenGames = normalizeHiddenGames(value.hiddenGames);
+  const hiddenIdentityKeys = new Set(
+    hiddenGames.flatMap((entry) => [entry.gameId, ...(entry.identityKeys ?? [])]),
+  );
   const storedState: AppState = {
     ...createInitialState(),
     ...value,
-    favoriteGames: normalizeFavoriteGames(value.favoriteGames),
+    favoriteGames: normalizeFavoriteGames(value.favoriteGames).filter(
+      (entry) => ![entry.gameId, ...(entry.identityKeys ?? [])].some((key) => hiddenIdentityKeys.has(key)),
+    ),
+    hiddenGames,
     campaignPriorityMode:
       value.campaignPriorityMode === 'ending-soonest' ||
       value.campaignPriorityMode === 'lowest-availability' ||

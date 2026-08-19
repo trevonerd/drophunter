@@ -57,6 +57,7 @@ export interface RuntimeMessageHandlers {
   setStreamerSelectionMode: RuntimeMessageHandler<'SET_STREAMER_SELECTION_MODE'>;
   setPreferredStreamerLanguage: RuntimeMessageHandler<'SET_PREFERRED_STREAMER_LANGUAGE'>;
   setGameFavorite: RuntimeMessageHandler<'SET_GAME_FAVORITE'>;
+  setGamePreference: RuntimeMessageHandler<'SET_GAME_PREFERENCE'>;
   setCampaignPriorityMode: RuntimeMessageHandler<'SET_CAMPAIGN_PRIORITY_MODE'>;
   setFarmCategoryScope: RuntimeMessageHandler<'SET_FARM_CATEGORY_SCOPE'>;
   setAutoStartFavorites: RuntimeMessageHandler<'SET_AUTO_START_FAVORITES'>;
@@ -178,6 +179,8 @@ export function createRuntimeMessageListener(
         return respond(() => handlers.setPreferredStreamerLanguage(message, sender));
       case 'SET_GAME_FAVORITE':
         return respond(() => handlers.setGameFavorite(message, sender));
+      case 'SET_GAME_PREFERENCE':
+        return respond(() => handlers.setGamePreference(message, sender));
       case 'SET_CAMPAIGN_PRIORITY_MODE':
         return respond(() => handlers.setCampaignPriorityMode(message, sender));
       case 'SET_FARM_CATEGORY_SCOPE':

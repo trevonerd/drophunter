@@ -1,7 +1,7 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from '../../shared/browser-api.ts';
-import { dropMatchesGame, isFavoriteGame } from '../../shared/game-selection';
-import type { CampaignPriorityMode, TwitchDrop, TwitchGame } from '../../types';
+import { dropMatchesGame, isFavoriteGame, isHiddenGame } from '../../shared/game-selection';
+import type { CampaignPriorityMode, GamePreference, TwitchDrop, TwitchGame } from '../../types';
 import {
   type CampaignCatalogFilter,
   type CampaignCatalogSortMode,
@@ -10,6 +10,7 @@ import {
   sortCampaignGroups,
 } from './campaign-list-model';
 import { GameCampaignGroup } from './GameCampaignGroup';
+import { EyeOffIcon } from './icons';
 import { OtherDropsDisclosure } from './OtherDropsDisclosure';
 
 export type {
@@ -21,6 +22,7 @@ export interface CampaignListProps {
   readonly campaigns: readonly TwitchGame[];
   readonly drops?: readonly TwitchDrop[];
   readonly favoriteGameIds?: ReadonlySet<string> | readonly string[];
+  readonly hiddenGameIds?: ReadonlySet<string> | readonly string[];
   readonly queueGames?: readonly TwitchGame[];
   readonly loadedCampaignKeys?: ReadonlySet<string> | readonly string[];
   readonly progressByCampaignKey?: CampaignProgressLookup;
@@ -32,6 +34,10 @@ export interface CampaignListProps {
   readonly beforeCatalog?: ReactNode;
   readonly onOpenTwitchDrops?: () => void;
   readonly onSetFavorite?: (game: TwitchGame, favorite: boolean) => void;
+  readonly onSetGamePreference?: (
+    game: TwitchGame,
+    preference: GamePreference,
+  ) => Promise<boolean> | undefined;
   readonly onAddToQueue?: (game: TwitchGame) => void;
   readonly onAddAllToQueue?: (games: readonly TwitchGame[]) => void;
   readonly onRemoveFromQueue?: (game: TwitchGame) => void;
@@ -49,7 +55,7 @@ function isCatalogSortMode(value: unknown): value is CampaignCatalogSortMode {
 }
 
 function isCatalogFilter(value: unknown): value is CampaignCatalogFilter {
-  return value === 'all' || value === 'favorites-only';
+  return value === 'available' || value === 'favorites-only' || value === 'hidden-only' || value === 'all';
 }
 
 function favoriteIdSet(value: ReadonlySet<string> | readonly string[] | undefined): ReadonlySet<string> {
@@ -61,13 +67,14 @@ export function shouldShowOtherDrops(
   query: string,
   resultCount: number,
 ): boolean {
-  return filter === 'all' && query.trim() === '' && resultCount > 0;
+  return (filter === 'available' || filter === 'all') && query.trim() === '' && resultCount > 0;
 }
 
 export function CampaignList({
   campaigns,
   drops = [],
   favoriteGameIds,
+  hiddenGameIds,
   queueGames = [],
   loadedCampaignKeys,
   progressByCampaignKey,
@@ -79,6 +86,7 @@ export function CampaignList({
   beforeCatalog,
   onOpenTwitchDrops,
   onSetFavorite,
+  onSetGamePreference,
   onAddToQueue,
   onAddAllToQueue,
   onRemoveFromQueue,
@@ -86,7 +94,14 @@ export function CampaignList({
 }: CampaignListProps) {
   const [query, setQuery] = useState('');
   const [sortMode, setSortMode] = useState<CampaignCatalogSortMode>(() => initialSortMode(priorityMode));
-  const [filter, setFilter] = useState<CampaignCatalogFilter>('all');
+  const [filter, setFilter] = useState<CampaignCatalogFilter>('available');
+  const [catalogFeedback, setCatalogFeedback] = useState<{
+    readonly message: string;
+    readonly game: TwitchGame;
+    readonly undoPreference: GamePreference;
+    readonly focusUndo: boolean;
+  } | null>(null);
+  const undoButtonRef = useRef<HTMLButtonElement>(null);
   const [activeHighlightKey, setActiveHighlightKey] = useState(highlightedCampaignKey);
   const [expandedGameKey, setExpandedGameKey] = useState<string | null>(null);
 
@@ -105,21 +120,25 @@ export function CampaignList({
         if (!preferences || typeof preferences !== 'object') return;
         const record = preferences as Record<string, unknown>;
         if (isCatalogSortMode(record.sortMode)) setSortMode(record.sortMode);
-        if (isCatalogFilter(record.filter)) setFilter(record.filter);
+        if (isCatalogFilter(record.filter)) setFilter(record.filter === 'all' ? 'available' : record.filter);
       })
       .catch(() => undefined);
   }, []);
 
   const favorites = useMemo(() => favoriteIdSet(favoriteGameIds), [favoriteGameIds]);
+  const hidden = useMemo(() => favoriteIdSet(hiddenGameIds), [hiddenGameIds]);
   const loadedKeys = favoriteIdSet(loadedCampaignKeys);
   const groups = useMemo(() => {
     const grouped = groupCampaigns(campaigns, drops, query).filter((group) => {
-      if (filter === 'all') return true;
       const representative = group.campaigns[0];
-      return representative ? isFavoriteGame(representative, favorites) : false;
+      if (!representative) return false;
+      const isHidden = isHiddenGame(representative, hidden);
+      if (filter === 'available' || filter === 'all') return !isHidden;
+      if (filter === 'hidden-only') return isHidden;
+      return !isHidden && isFavoriteGame(representative, favorites);
     });
     return sortCampaignGroups(grouped, sortMode, progressByCampaignKey);
-  }, [campaigns, drops, favorites, filter, progressByCampaignKey, query, sortMode]);
+  }, [campaigns, drops, favorites, filter, hidden, progressByCampaignKey, query, sortMode]);
   const unmatchedDrops = useMemo(
     () => drops.filter((drop) => !campaigns.some((campaign) => dropMatchesGame(drop, campaign))),
     [campaigns, drops],
@@ -135,15 +154,50 @@ export function CampaignList({
       .set({ [CATALOG_PREFERENCES_KEY]: { sortMode: nextSort, filter: nextFilter } })
       .catch(() => undefined);
   };
+  const handlePreference = async (
+    game: TwitchGame,
+    preference: GamePreference,
+    undoPreference: GamePreference,
+  ) => {
+    const focusUndo =
+      typeof document !== 'undefined' &&
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.classList.contains('dh-game-hide-action');
+    let result = false;
+    if (onSetGamePreference) {
+      result = (await onSetGamePreference(game, preference)) ?? false;
+    } else if (preference === 'favorite' || preference === 'normal') {
+      onSetFavorite?.(game, preference === 'favorite');
+      result = true;
+    }
+    if (result === false) return;
+    const label = game.name;
+    const message =
+      preference === 'hidden'
+        ? `${label} hidden from Available games.`
+        : preference === 'favorite'
+          ? `${label} restored to Favorites.`
+          : `${label} restored to Available games.`;
+    setCatalogFeedback({ message, game, undoPreference, focusUndo });
+  };
+  useEffect(() => {
+    if (!catalogFeedback) return;
+    if (catalogFeedback.focusUndo) undoButtonRef.current?.focus();
+    const timeout = globalThis.setTimeout(() => setCatalogFeedback(null), 6_000);
+    return () => globalThis.clearTimeout(timeout);
+  }, [catalogFeedback]);
   const toggleGame = (key: string) => setExpandedGameKey((current) => (current === key ? null : key));
   const showOtherDrops = shouldShowOtherDrops(filter, query, groups.length);
+  const visibleCampaignCount = groups.reduce((count, group) => count + group.campaigns.length, 0);
+  const filterLabel =
+    filter === 'hidden-only' ? 'Hidden' : filter === 'favorites-only' ? 'Favorites' : 'Available';
 
   return (
     <section aria-label="Campaigns" className="dh-group min-w-0">
       <div className="dh-campaign-browser-heading flex items-center justify-between gap-2">
         <h2 className="dh-title text-xs">Games and campaigns</h2>
         <span className="text-right text-[10px] text-[color:var(--dh-muted)]">
-          {groups.length} games · {campaigns.length} campaigns
+          {groups.length} games · {visibleCampaignCount} campaigns
           <span className="block">Sorted: {orderLabel}</span>
         </span>
       </div>
@@ -185,27 +239,21 @@ export function CampaignList({
             <option value="alphabetical">Alphabetical</option>
           </select>
         </label>
-        <label
-          className="dh-catalog-tool dh-focus"
-          title={filter === 'all' ? 'Show all games' : 'Favorites only'}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill={filter === 'favorites-only' ? 'currentColor' : 'none'}
-            aria-hidden="true"
-          >
-            <path
-              d="m12 3 2.65 5.37 5.93.86-4.29 4.18 1.01 5.91L12 16.53l-5.3 2.79 1.01-5.91-4.29-4.18 5.93-.86L12 3Z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-          </svg>
+        <label className="dh-catalog-tool dh-focus" title={`Filter: ${filterLabel}`}>
+          {filter === 'hidden-only' ? (
+            <EyeOffIcon />
+          ) : filter === 'favorites-only' ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="m12 3 2.65 5.37 5.93.86-4.29 4.18 1.01 5.91L12 16.53l-5.3 2.79 1.01-5.91-4.29-4.18 5.93-.86L12 3Z" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M5 6h14M5 12h14M5 18h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          )}
           <select
             aria-label="Filter games"
-            value={filter}
+            value={filter === 'all' ? 'available' : filter}
             onChange={(event) => {
               const value = event.currentTarget.value;
               if (!isCatalogFilter(value)) return;
@@ -213,14 +261,39 @@ export function CampaignList({
               savePreferences(sortMode, value);
             }}
           >
-            <option value="all">All games</option>
-            <option value="favorites-only">Favorite games only</option>
+            <option value="available">Available</option>
+            <option value="favorites-only">Favorites</option>
+            <option value="hidden-only">Hidden</option>
           </select>
         </label>
       </div>
+      {catalogFeedback && (
+        <p role="status" aria-live="polite" aria-atomic="true" className="dh-catalog-feedback">
+          {catalogFeedback.message}{' '}
+          <button
+            type="button"
+            ref={undoButtonRef}
+            className="dh-focus underline underline-offset-2"
+            onClick={() => {
+              void onSetGamePreference?.(catalogFeedback.game, catalogFeedback.undoPreference);
+              setCatalogFeedback(null);
+            }}
+          >
+            Undo
+          </button>
+        </p>
+      )}
       {groups.length === 0 ? (
         <p className="dh-panel px-3 py-2.5 text-[11px] text-[color:var(--dh-muted)]" role="status">
-          {campaigns.length === 0 ? 'No campaigns available.' : 'No campaigns match your search.'}
+          {campaigns.length === 0
+            ? 'No campaigns available.'
+            : query.trim() !== ''
+              ? `No ${filterLabel.toLocaleLowerCase()} games match your search.`
+              : filter === 'hidden-only'
+                ? 'No hidden games.'
+                : filter === 'favorites-only'
+                  ? 'No favorite games.'
+                  : 'No campaigns match your search.'}
         </p>
       ) : (
         <div>
@@ -233,6 +306,7 @@ export function CampaignList({
                   group={group}
                   allDrops={drops}
                   favorite={representative ? isFavoriteGame(representative, favorites) : false}
+                  hidden={representative ? isHiddenGame(representative, hidden) : false}
                   queueGames={queueGames}
                   loadedCampaignKeys={loadedKeys}
                   expanded={expandedGameKey === group.key}
@@ -242,6 +316,9 @@ export function CampaignList({
                   now={now}
                   runningGame={runningGame}
                   onToggleGame={toggleGame}
+                  onSetGamePreference={(game, preference, undoPreference) =>
+                    handlePreference(game, preference, undoPreference)
+                  }
                   onSetFavorite={onSetFavorite}
                   onAddToQueue={onAddToQueue}
                   onAddAllToQueue={onAddAllToQueue}

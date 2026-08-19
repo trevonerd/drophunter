@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { sendRuntimeMessage } from '../shared/messages';
 import { deriveRuntimeMode } from '../shared/runtime-status';
+import type { GamePreference } from '../types';
 import { PopupView, type PopupViewName } from './components/PopupView';
 import { deriveCampaignSyncStatus, STALE_THRESHOLD_MS } from './constants';
 import { useAppState } from './hooks/useAppState';
@@ -91,7 +92,8 @@ function App() {
         onAddToQueue: (game) => void actions.handleAddToQueue(game ?? state.selectedGame),
         onAddAllToQueue: (games) => void actions.handleAddAllToQueue(games),
         onLinkAccount: actions.handleLinkAccount,
-        onSetFavorite: (game, favorite) => void actions.handleSetFavorite(game, favorite),
+        onSetGamePreference: (game, preference: GamePreference) =>
+          actions.handleSetGamePreference(game, preference),
         onRemoveFromQueue: (game) => void actions.handleRemoveFromQueue(game),
         onClearQueue: () => void actions.handleClearQueue(),
         onReorderQueue: (fromIndex, toIndex) => void actions.handleReorderQueue(fromIndex, toIndex),

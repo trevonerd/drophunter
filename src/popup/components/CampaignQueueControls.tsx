@@ -1,4 +1,4 @@
-import type { CampaignPriorityMode, TwitchGame } from '../../types';
+import type { CampaignPriorityMode, QueueEntryMetadata, TwitchGame } from '../../types';
 import { getCampaignIndicatorKinds, getCampaignStatusLines } from '../format';
 import { CampaignStatusIndicators } from './CampaignStatusIndicators';
 import { QueueChips } from './QueueChips';
@@ -20,12 +20,7 @@ export function CampaignQueueControls({
   readonly queueGames: TwitchGame[];
   readonly isRunning: boolean;
   readonly campaignPriorityMode: CampaignPriorityMode;
-  readonly queueEntryMetadataByKey: Readonly<
-    Record<
-      string,
-      { source: 'manual' | 'favorite-auto'; addedAt: number; reason: 'user-added' | 'favorite-discovered' }
-    >
-  >;
+  readonly queueEntryMetadataByKey: Readonly<Record<string, QueueEntryMetadata>>;
   readonly favoriteGameIds: ReadonlySet<string>;
   readonly now: number;
   readonly queueMessage: string | null;

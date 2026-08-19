@@ -1,4 +1,4 @@
-import { favoriteGameIdentityKeys, gameKey } from '../shared/game-selection.ts';
+import { favoriteGameIdentityKeys, gameKey, hiddenGameIdentityKeys } from '../shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer, WatchTransportMode } from '../types/index.ts';
 import type {
   FarmingAutomationPolicySnapshot,
@@ -102,6 +102,7 @@ export function createFarmingAutomationPolicySnapshot(
   return {
     availableGames: snapshot.games.map(cloneGame),
     favoriteGames: structuredClone(state.appState.favoriteGames),
+    hiddenGames: structuredClone(state.appState.hiddenGames),
     queue: structuredClone(state.appState.queue),
     queueEntryMetadataByKey: structuredClone(state.appState.queueEntryMetadataByKey),
     campaignPriorityMode: state.appState.campaignPriorityMode,
@@ -127,6 +128,7 @@ export function farmingAutomationStateFingerprint(state: ServiceWorkerState, gen
     selected: app.selectedGame ? gameKey(app.selectedGame) : null,
     queue: app.queue.map((game) => [gameKey(game), app.queueEntryMetadataByKey[gameKey(game)] ?? null]),
     favorites: [...favoriteGameIdentityKeys(app.favoriteGames)].sort(),
+    hiddenGames: [...hiddenGameIdentityKeys(app.hiddenGames)].sort(),
     priorityMode: app.campaignPriorityMode,
     farmScope: app.farmCategoryScope,
     preferredLanguage: app.preferredStreamerLanguage,

@@ -25,6 +25,7 @@ describe('normalizeStoredAppState', () => {
     expect(state.recoveryReason).toBeNull();
     expect(state.lastStopReason).toBeNull();
     expect(state.favoriteGames).toEqual([]);
+    expect(state.hiddenGames).toEqual([]);
     expect(state.campaignPriorityMode).toBe('ending-soonest');
     expect(state.farmCategoryScope).toBe('all');
     expect(state.autoStartFavoriteGames).toBe(false);
@@ -51,5 +52,44 @@ describe('normalizeStoredAppState', () => {
     expect(state.farmCategoryScope).toBe('all');
     expect(state.autoStartFavoriteGames).toBe(false);
     expect(state.queueEntryMetadataByKey).toEqual({});
+  });
+
+  test('normalizes hidden games and resolves malformed overlap in favor of hidden', () => {
+    // Given: stored category preferences containing an overlap and malformed hidden records.
+    const stored = {
+      favoriteGames: [
+        { gameId: 'valorant', lastKnownName: 'Valorant', addedAt: 100, identityKeys: ['509658'] },
+        { gameId: 'other', lastKnownName: 'Other', addedAt: 110 },
+      ],
+      hiddenGames: [
+        { gameId: 'valorant', lastKnownName: 'Valorant', hiddenAt: 200, identityKeys: ['509658', '509658'] },
+        { gameId: '', lastKnownName: 'Broken', hiddenAt: 300 },
+        { gameId: 'missing-time', lastKnownName: 'Broken' },
+      ],
+    };
+
+    // When: persisted state crosses the normalization boundary.
+    const state = normalizeStoredAppState(stored);
+
+    // Then: hidden is durable, aliases are deduplicated, and it wins the overlap.
+    expect(state.hiddenGames).toEqual([
+      { gameId: 'valorant', lastKnownName: 'Valorant', hiddenAt: 200, identityKeys: ['509658'] },
+    ]);
+    expect(state.favoriteGames).toEqual([{ gameId: 'other', lastKnownName: 'Other', addedAt: 110 }]);
+  });
+
+  test('accepts retained-after-hide queue metadata', () => {
+    // Given: a queued campaign retained by an explicit hide action.
+    const stored = {
+      queueEntryMetadataByKey: {
+        retained: { source: 'manual', addedAt: 123, reason: 'retained-after-hide' },
+      },
+    };
+
+    // When: state is restored after a service-worker restart.
+    const state = normalizeStoredAppState(stored);
+
+    // Then: retained ownership survives normalization.
+    expect(state.queueEntryMetadataByKey).toEqual(stored.queueEntryMetadataByKey);
   });
 });

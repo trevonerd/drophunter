@@ -8,7 +8,7 @@ import {
   isFavoriteGame,
 } from '../../shared/game-selection';
 import { sendRuntimeMessage } from '../../shared/messages';
-import type { AppState, TwitchGame } from '../../types';
+import type { AppState, GamePreference, TwitchGame } from '../../types';
 import { formatFarmingCompleteQueueMessage } from '../format';
 import { logPopupWarn } from '../logging';
 import { INITIAL_QUEUE_FEEDBACK_STATE, publishQueueFeedback } from '../queue-feedback';
@@ -136,6 +136,53 @@ export function usePopupActions({
     }
   };
 
+  const handleSetGamePreference = async (game: TwitchGame, preference: GamePreference): Promise<boolean> => {
+    const previousState = {
+      favoriteGames: state.favoriteGames,
+      hiddenGames: state.hiddenGames,
+      queueEntryMetadataByKey: state.queueEntryMetadataByKey,
+    };
+    const aliases = new Set(gameCategoryIdentityKeys(game));
+    setState((prev) => {
+      const matches = (entry: { readonly gameId: string; readonly identityKeys?: readonly string[] }) =>
+        [entry.gameId, ...(entry.identityKeys ?? [])].some((key) => aliases.has(key));
+      const favoriteGames = prev.favoriteGames.filter((entry) => !matches(entry));
+      const hiddenGames = prev.hiddenGames.filter((entry) => !matches(entry));
+      if (preference === 'favorite') {
+        favoriteGames.push({
+          gameId: gameCategoryKey(game),
+          lastKnownName: game.name,
+          addedAt: Date.now(),
+          identityKeys: gameCategoryIdentityKeys(game),
+        });
+      }
+      if (preference === 'hidden') {
+        hiddenGames.push({
+          gameId: gameCategoryKey(game),
+          lastKnownName: game.name,
+          hiddenAt: Date.now(),
+          identityKeys: gameCategoryIdentityKeys(game),
+        });
+      }
+      return { ...prev, favoriteGames, hiddenGames };
+    });
+    const response = await sendRuntimeMessage({
+      type: 'SET_GAME_PREFERENCE',
+      payload: { game, preference },
+    }).catch(() => null);
+    if (!response?.success) {
+      setState((previous) => ({
+        ...previous,
+        favoriteGames: previousState.favoriteGames,
+        hiddenGames: previousState.hiddenGames,
+        queueEntryMetadataByKey: previousState.queueEntryMetadataByKey,
+      }));
+      setQueueMessage('Unable to update game preference.');
+      return false;
+    }
+    return true;
+  };
+
   const handleRemoveFromQueue = async (game: TwitchGame) => {
     try {
       const response = await sendRuntimeMessage({ type: 'REMOVE_FROM_QUEUE', payload: { game } });
@@ -220,6 +267,7 @@ export function usePopupActions({
     handleAddAllToQueue,
     handleLinkAccount,
     handleSetFavorite,
+    handleSetGamePreference,
     handleRemoveFromQueue,
     handleClearQueue,
     handleReorderQueue,
