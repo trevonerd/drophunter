@@ -3,7 +3,6 @@ import {
   type CampaignPriorityCandidate,
   insertFavoriteCampaignByDeadline,
   orderCampaignCandidates,
-  shouldPreemptForFavorite,
 } from '../src/background/campaign-priority.ts';
 import type { TwitchGame } from '../src/types/index.ts';
 
@@ -112,13 +111,5 @@ describe('CampaignPriorityPolicy', () => {
 
     expect(result.queue.map((entry) => entry.campaignId)).toEqual(['first', 'favorite', 'second', 'third']);
     expect(result.position).toBe(2);
-  });
-
-  test('preempts only when the new favorite campaign expires earlier', () => {
-    const current = game('current', '2026-08-03T14:00:00.000Z');
-
-    expect(shouldPreemptForFavorite(current, game('earlier', '2026-08-03T12:00:00.000Z'))).toBe(true);
-    expect(shouldPreemptForFavorite(current, game('equal', current.endsAt ?? ''))).toBe(false);
-    expect(shouldPreemptForFavorite(current, game('later', '2026-08-03T16:00:00.000Z'))).toBe(false);
   });
 });

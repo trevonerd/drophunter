@@ -69,6 +69,7 @@ function reward(game: TwitchGame): TwitchDrop {
 }
 
 function fixture(stage: FailureStage) {
+  const startFailure = stage === 'preparation' || stage === 'commit';
   const incumbent = campaign('a', '2030-08-03T16:00:00.000Z');
   const candidate = campaign('b', '2030-08-03T12:00:00.000Z');
   const drops = [reward(incumbent), reward(candidate)];
@@ -85,8 +86,8 @@ function fixture(stage: FailureStage) {
   const state = createServiceWorkerState();
   state.appState.autoStartFavoriteGames = true;
   state.appState.notificationsEnabled = true;
-  state.appState.isRunning = true;
-  state.appState.selectedGame = incumbent;
+  state.appState.isRunning = !startFailure;
+  state.appState.selectedGame = startFailure ? null : incumbent;
   state.appState.favoriteGames = [{ gameId: incumbent.id, lastKnownName: incumbent.name, addedAt: 1 }];
   if (stage === 'queue-write') state.appState.campaignPriorityMode = 'priority-list-only';
   const base = createInMemoryFarmingAutomationPersistence({
@@ -116,12 +117,14 @@ function fixture(stage: FailureStage) {
   };
   let disposals = 0;
   const watch = createWatchTransportTransition({
-    currentOwnership: {
-      kind: 'managed-tab',
-      tabId: 10,
-      ownershipToken: 'owned-a',
-      expectedChannel: 'incumbent',
-    },
+    currentOwnership: startFailure
+      ? null
+      : {
+          kind: 'managed-tab',
+          tabId: 10,
+          ownershipToken: 'owned-a',
+          expectedChannel: 'incumbent',
+        },
     prepareManaged: async (target) =>
       stage === 'preparation'
         ? null
@@ -191,7 +194,7 @@ function fixture(stage: FailureStage) {
     now: () => 2_000,
     random: () => 0,
   });
-  return { automation, disposals: () => disposals, incumbent, state, watch };
+  return { automation, disposals: () => disposals, incumbent, startFailure, state, watch };
 }
 
 const cases: readonly (readonly [FailureStage, FarmingAutomationOutcome])[] = [
@@ -208,14 +211,14 @@ const cases: readonly (readonly [FailureStage, FarmingAutomationOutcome])[] = [
 ];
 
 describe('Farming automation operational failures', () => {
-  test.each(cases)('maps %s failures without replacing the incumbent session', async (stage, expected) => {
-    // Given: incumbent A is running and one operational boundary is configured to fail.
+  test.each(cases)('maps %s failures without replacing a stable session', async (stage, expected) => {
+    // Given: one operational boundary is configured to fail before a stable transition.
     const subject = fixture(stage);
 
     // When: the public automation request reaches that boundary.
     const outcome = await subject.automation.request('periodic');
 
-    // Then: the stable outcome is returned and A remains selected and owned.
+    // Then: the stable outcome is returned without replacing the prior session.
     expect({
       outcome,
       selected: subject.state.appState.selectedGame,
@@ -223,8 +226,10 @@ describe('Farming automation operational failures', () => {
       disposals: subject.disposals(),
     }).toEqual({
       outcome: expected,
-      selected: subject.incumbent,
-      ownership: { kind: 'managed-tab', tabId: 10, ownershipToken: 'owned-a', expectedChannel: 'incumbent' },
+      selected: subject.startFailure ? null : subject.incumbent,
+      ownership: subject.startFailure
+        ? null
+        : { kind: 'managed-tab', tabId: 10, ownershipToken: 'owned-a', expectedChannel: 'incumbent' },
       disposals: stage === 'commit' ? 1 : 0,
     });
   });

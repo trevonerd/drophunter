@@ -6,11 +6,7 @@ import {
 } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import type { CampaignAvailability, FarmCategoryScope, TwitchDrop, TwitchGame } from '../types/index.ts';
-import {
-  type CampaignPriorityCandidate,
-  orderCampaignCandidates,
-  shouldPreemptForFavorite,
-} from './campaign-priority.ts';
+import { type CampaignPriorityCandidate, orderCampaignCandidates } from './campaign-priority.ts';
 import {
   type FavoriteCampaignQueuePlan,
   type FavoriteCampaignQueuePlanInput,
@@ -45,17 +41,11 @@ export interface FarmingAutomationPolicyPlan {
 
 export interface FarmingAutomationTransitionInput {
   readonly isRunning: boolean;
-  readonly currentCampaign: TwitchGame | null;
   readonly rankedCandidates: readonly FarmingAutomationCandidate[];
 }
 
 export type FarmingAutomationTransitionDecision =
   | { readonly kind: 'start'; readonly campaign: TwitchGame }
-  | {
-      readonly kind: 'preempt';
-      readonly campaign: TwitchGame;
-      readonly currentCampaign: TwitchGame;
-    }
   | {
       readonly kind: 'unchanged';
       readonly reason: 'no-campaign' | 'already-running';
@@ -184,13 +174,6 @@ export function decideFarmingAutomationTransition(
     return { kind: 'start', campaign: candidate.game };
   }
 
-  const currentCampaign = input.currentCampaign;
-  if (!currentCampaign || gameKey(currentCampaign) === gameKey(candidate.game)) {
-    return { kind: 'unchanged', reason: 'already-running', campaign: candidate.game };
-  }
-  if (candidate.isFavorite && shouldPreemptForFavorite(currentCampaign, candidate.game)) {
-    return { kind: 'preempt', campaign: candidate.game, currentCampaign };
-  }
   return { kind: 'unchanged', reason: 'already-running', campaign: candidate.game };
 }
 

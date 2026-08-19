@@ -73,6 +73,7 @@ function fixture(candidateEndsAt: string, deduplicated = false) {
   const state = createServiceWorkerState();
   state.appState.autoStartFavoriteGames = true;
   state.appState.notificationsEnabled = true;
+  state.appState.campaignPriorityMode = 'priority-list-only';
   state.appState.isRunning = true;
   state.appState.selectedGame = incumbent;
   state.appState.favoriteGames = [{ gameId: 'shared-game', lastKnownName: 'Shared Game', addedAt: 1 }];
@@ -181,18 +182,27 @@ function fixture(candidateEndsAt: string, deduplicated = false) {
   };
 }
 
-describe('Farming automation preemption', () => {
-  test('preempts only for a strictly earlier favorite and preserves duplicate campaign identity', async () => {
+describe('Farming automation running-session preservation', () => {
+  test('queues a strictly earlier favorite without preempting the active campaign', async () => {
     // Given: A and B share a game ID, while favorite B has a strictly earlier finite expiry.
     const subject = fixture('2030-08-03T12:00:00.000Z');
 
     // When: the public campaign-refresh request evaluates the ranked candidates.
     const outcome = await subject.automation.request('campaign-refresh');
 
-    // Then: B commits as a campaign-aware preemption through the real transition.
-    expect({ outcome, selected: gameKey(subject.state.appState.selectedGame ?? subject.incumbent) }).toEqual({
-      outcome: { kind: 'started', campaignKey: gameKey(subject.candidate), transition: 'preemption' },
-      selected: gameKey(subject.candidate),
+    // Then: A keeps farming while B becomes the first future queue entry.
+    expect({
+      outcome,
+      queue: subject.state.appState.queue.map(gameKey),
+      selected: subject.state.appState.selectedGame,
+      commits: subject.commits(),
+      preparations: subject.preparations(),
+    }).toEqual({
+      outcome: { kind: 'unchanged', reason: 'already-farming-best-campaign' },
+      queue: [gameKey(subject.candidate)],
+      selected: subject.incumbent,
+      commits: 0,
+      preparations: 0,
     });
   });
 
@@ -215,16 +225,22 @@ describe('Farming automation preemption', () => {
     });
   });
 
-  test('deduplicates an already-applied campaign pair before preparation', async () => {
-    // Given: durable facts already record the same A to B preemption pair.
+  test('does not revive a preemption recorded by legacy durable facts', async () => {
+    // Given: durable facts still contain an A to B preemption from an older release.
     const subject = fixture('2030-08-03T12:00:00.000Z', true);
 
-    // When: the same pair is evaluated again.
+    // When: automation evaluates the same pair under the queue-only policy.
     const outcome = await subject.automation.request('periodic');
 
-    // Then: deduplication prevents both provisional preparation and commit.
-    expect({ outcome, commits: subject.commits(), preparations: subject.preparations() }).toEqual({
-      outcome: { kind: 'unchanged', reason: 'preemption-already-applied' },
+    // Then: the active session stays untouched and B remains a future queue entry.
+    expect({
+      outcome,
+      queue: subject.state.appState.queue.map(gameKey),
+      commits: subject.commits(),
+      preparations: subject.preparations(),
+    }).toEqual({
+      outcome: { kind: 'unchanged', reason: 'already-farming-best-campaign' },
+      queue: [gameKey(subject.candidate)],
       commits: 0,
       preparations: 0,
     });
