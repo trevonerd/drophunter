@@ -109,12 +109,3 @@ export function insertFavoriteCampaignByDeadline(
   result.splice(index, 0, favoriteCampaign);
   return { queue: result, position: index + 1 };
 }
-
-export function shouldPreemptForFavorite(
-  currentCampaign: TwitchGame,
-  newFavoriteCampaign: TwitchGame,
-): boolean {
-  const currentExpiry = expiryTime(currentCampaign);
-  const favoriteExpiry = expiryTime(newFavoriteCampaign);
-  return Number.isFinite(currentExpiry) && Number.isFinite(favoriteExpiry) && favoriteExpiry < currentExpiry;
-}

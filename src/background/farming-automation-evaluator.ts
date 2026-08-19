@@ -164,7 +164,6 @@ export function createFarmingAutomationEvaluator(
 
     const decision = decideFarmingAutomationTransition({
       isRunning: dependencies.state.appState.isRunning,
-      currentCampaign: dependencies.state.appState.selectedGame,
       rankedCandidates: plan.rankedCandidates,
     });
     if (decision.kind === 'unchanged') {
@@ -179,16 +178,6 @@ export function createFarmingAutomationEvaluator(
       facts,
       dependencies.runtime.generation,
     );
-    if (decision.kind === 'preempt') {
-      const fromCampaignKey = gameKey(decision.currentCampaign);
-      const toCampaignKey = gameKey(decision.campaign);
-      if (
-        facts.lastPreemption?.fromCampaignKey === fromCampaignKey &&
-        facts.lastPreemption.toCampaignKey === toCampaignKey
-      ) {
-        return { kind: 'unchanged', reason: 'preemption-already-applied' };
-      }
-    }
     const transitionRequest = createFarmingAutomationTransitionRequest(
       decision,
       discovery.snapshot,

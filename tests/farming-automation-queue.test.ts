@@ -46,15 +46,23 @@ function reward(game: TwitchGame): TwitchDrop {
 
 function fixture(
   mode: CampaignPriorityMode,
-  options: { readonly manual?: boolean; readonly preparationFails?: boolean } = {},
+  options: {
+    readonly favoriteEndsAt?: string;
+    readonly manual?: boolean;
+    readonly preparationFails?: boolean;
+  } = {},
 ) {
   const manual = campaign('manual', '2030-08-04T12:00:00.000Z');
-  const favorite = campaign('favorite', '2030-08-03T12:00:00.000Z');
-  const drop = reward(favorite);
+  const favorite = campaign('favorite', options.favoriteEndsAt ?? '2030-08-03T12:00:00.000Z');
+  const manualDrop = reward(manual);
+  const favoriteDrop = reward(favorite);
   const snapshot: FarmingAutomationTwitchSnapshot = {
-    games: [favorite],
-    drops: [drop],
-    campaignDropsByKey: { [gameKey(favorite)]: [drop] },
+    games: [manual, favorite],
+    drops: [manualDrop, favoriteDrop],
+    campaignDropsByKey: {
+      [gameKey(manual)]: [manualDrop],
+      [gameKey(favorite)]: [favoriteDrop],
+    },
     campaignChannelsMap: {},
     updatedAt: 1_000,
   };
@@ -161,6 +169,36 @@ function fixture(
 }
 
 describe('Farming automation queue policy', () => {
+  test.each([
+    {
+      favoriteEndsAt: '2030-08-03T12:00:00.000Z',
+      selected: 'campaign:campaign-favorite',
+      queue: ['campaign:campaign-favorite', 'campaign:campaign-manual'],
+    },
+    {
+      favoriteEndsAt: '2030-08-05T12:00:00.000Z',
+      selected: 'campaign:campaign-manual',
+      queue: ['campaign:campaign-manual', 'campaign:campaign-favorite'],
+    },
+  ])('starts the correct campaign immediately according to expiry when idle', async (scenario) => {
+    // Given: an idle extension with one manual campaign and one discovered favorite.
+    const subject = fixture('priority-list-only', { favoriteEndsAt: scenario.favoriteEndsAt });
+
+    // When: the public automation request reconciles the queue.
+    const outcome = await subject.automation.request('campaign-refresh');
+
+    // Then: farming starts immediately from the earlier campaign and leaves the other queued.
+    expect({
+      outcome,
+      selected: subject.state.appState.selectedGame ? gameKey(subject.state.appState.selectedGame) : null,
+      queue: subject.state.appState.queue.map(gameKey),
+    }).toEqual({
+      outcome: { kind: 'started', campaignKey: scenario.selected, transition: 'start' },
+      selected: scenario.selected,
+      queue: scenario.queue,
+    });
+  });
+
   test('adds favorite-auto queue entries during manual watch without starting', async () => {
     // Given: priority-list-only mode, a manual queue entry, and eligible manual Twitch viewing.
     const subject = fixture('priority-list-only', { manual: true });

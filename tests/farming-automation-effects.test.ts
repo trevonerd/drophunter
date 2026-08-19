@@ -19,7 +19,7 @@ import { createWatchTransportTransition } from '../src/background/watch-transpor
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
 
-type PostCommitFailure = 'facts' | 'notification' | 'release' | 'alarm' | 'cleanup-write' | null;
+type PostCommitFailure = 'facts' | 'notification' | 'alarm' | null;
 
 function campaign(id: string, endsAt: string): TwitchGame {
   return {
@@ -66,8 +66,8 @@ function fixture(failure: PostCommitFailure = null) {
   const state = createServiceWorkerState();
   state.appState.autoStartFavoriteGames = true;
   state.appState.notificationsEnabled = true;
-  state.appState.isRunning = true;
-  state.appState.selectedGame = incumbent;
+  state.appState.isRunning = false;
+  state.appState.selectedGame = null;
   state.appState.favoriteGames = [{ gameId: incumbent.id, lastKnownName: incumbent.name, addedAt: 1 }];
   const storage = createInMemoryFarmingAutomationStorage();
   const events: string[] = [];
@@ -89,20 +89,9 @@ function fixture(failure: PostCommitFailure = null) {
       events.push('facts');
       return failure === 'facts' ? { kind: 'failed', reason: 'storage-unavailable' } : base.saveFacts(facts);
     },
-    updateReceiptCleanup: async (update) => {
-      events.push('cleanup');
-      return failure === 'cleanup-write'
-        ? { kind: 'failed', reason: 'storage-unavailable' }
-        : base.updateReceiptCleanup(update);
-    },
   };
   const watch = createWatchTransportTransition({
-    currentOwnership: {
-      kind: 'managed-tab',
-      tabId: 10,
-      ownershipToken: 'owned-a',
-      expectedChannel: 'incumbent',
-    },
+    currentOwnership: null,
     prepareManaged: async (target) => ({
       target,
       ownership: {
@@ -125,11 +114,7 @@ function fixture(failure: PostCommitFailure = null) {
       dispose: async () => undefined,
     }),
     prepareTabless: async () => null,
-    release: async () => {
-      events.push('release');
-      if (failure === 'release') throw new DOMException('release failed', 'InvalidStateError');
-      return { kind: 'released', method: 'closed' };
-    },
+    release: async () => ({ kind: 'released', method: 'none' }),
   });
   const browser: FarmingAutomationBrowser = {
     watch,
@@ -184,43 +169,31 @@ function fixture(failure: PostCommitFailure = null) {
 
 describe('Farming automation ordered effects', () => {
   test('resolves after durable state and broadcasts before notification', async () => {
-    // Given: incumbent A and a healthy, earlier favorite candidate B.
+    // Given: an idle extension and a healthy favorite candidate B.
     const subject = fixture();
 
     // When: the public request commits and completes all ordered effects.
     const outcome = await subject.automation.request('periodic');
 
-    // Then: durable broadcasts precede notification, cleanup, and alarm scheduling.
+    // Then: durable broadcasts precede notification and alarm scheduling.
     expect({
       outcome,
       events: subject.events,
       activity: subject.state.appState.automationActivity.map(({ kind }) => kind),
       cleanup: subject.storage.getLocal(FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY),
     }).toEqual({
-      outcome: { kind: 'started', campaignKey: gameKey(subject.candidate), transition: 'preemption' },
-      events: [
-        'refresh',
-        'broadcast',
-        'commit',
-        'facts',
-        'broadcast',
-        'notification',
-        'release',
-        'cleanup',
-        'alarm',
-      ],
-      activity: ['preempted'],
-      cleanup: expect.objectContaining({
-        cleanup: { kind: 'released', releasedAt: 2_000, method: 'closed' },
-      }),
+      outcome: { kind: 'started', campaignKey: gameKey(subject.candidate), transition: 'start' },
+      events: ['refresh', 'broadcast', 'commit', 'facts', 'broadcast', 'notification', 'alarm'],
+      activity: ['auto-started'],
+      cleanup: expect.objectContaining({ transition: 'start' }),
     });
   });
 
   test('maps failures without disturbing the committed session', async () => {
     // Given: each best-effort post-commit boundary fails independently.
-    const failures = ['facts', 'notification', 'release', 'alarm', 'cleanup-write'] as const;
+    const failures = ['facts', 'notification', 'alarm'] as const;
 
-    // When: each public request commits B before its configured effect failure.
+    // When: each public request starts B before its configured effect failure.
     const results = await Promise.all(
       failures.map(async (failure) => {
         const subject = fixture(failure);
@@ -233,11 +206,11 @@ describe('Farming automation ordered effects', () => {
       }),
     );
 
-    // Then: every outcome stays started and B remains the live owned session.
+    // Then: B remains the live owned session after each best-effort effect failure.
     expect(results).toEqual(
       failures.map((failure) => ({
         failure,
-        outcome: { kind: 'started', campaignKey: 'campaign:campaign-b', transition: 'preemption' },
+        outcome: { kind: 'started', campaignKey: 'campaign:campaign-b', transition: 'start' },
         selected: 'campaign:campaign-b',
         ownership: { kind: 'managed-tab', tabId: 11, ownershipToken: 'owned-b', expectedChannel: 'channel' },
       })),
@@ -245,7 +218,7 @@ describe('Farming automation ordered effects', () => {
   });
 
   test('does not duplicate notification or activity on the next public evaluation', async () => {
-    // Given: one successful automatic preemption already produced its durable presentation.
+    // Given: one successful automatic start already produced its durable presentation.
     const subject = fixture();
     await subject.automation.request('periodic');
 

@@ -71,33 +71,16 @@ export function createFarmingAutomationTransitionRequest(
   watchMode: WatchTransportMode,
   expectedFingerprint: string,
 ): AutomaticFarmingSessionTransitionRequest {
-  switch (decision.kind) {
-    case 'start': {
-      const toCampaignKey = gameKey(decision.campaign);
-      return {
-        attemptId: farmingAutomationAttemptId('start', null, toCampaignKey, snapshot),
-        transition: 'start',
-        fromCampaignKey: null,
-        candidate: decision.campaign,
-        snapshot,
-        watchMode,
-        expectedFingerprint,
-      };
-    }
-    case 'preempt': {
-      const fromCampaignKey = gameKey(decision.currentCampaign);
-      const toCampaignKey = gameKey(decision.campaign);
-      return {
-        attemptId: farmingAutomationAttemptId('preemption', fromCampaignKey, toCampaignKey, snapshot),
-        transition: 'preemption',
-        fromCampaignKey,
-        candidate: decision.campaign,
-        snapshot,
-        watchMode,
-        expectedFingerprint,
-      };
-    }
-  }
+  const toCampaignKey = gameKey(decision.campaign);
+  return {
+    attemptId: farmingAutomationAttemptId('start', null, toCampaignKey, snapshot),
+    transition: 'start',
+    fromCampaignKey: null,
+    candidate: decision.campaign,
+    snapshot,
+    watchMode,
+    expectedFingerprint,
+  };
 }
 
 export function factsWithFarmingAutomationManualWatch(
