@@ -44,6 +44,7 @@ export const createInitialState = (): AppState => ({
   availableGames: [],
   queue: [],
   favoriteGames: [],
+  hiddenGames: [],
   campaignPriorityMode: 'ending-soonest',
   farmCategoryScope: 'all',
   autoStartFavoriteGames: false,

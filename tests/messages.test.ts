@@ -59,6 +59,23 @@ describe('runtime message protocol', () => {
     ).toBe(false);
   });
 
+  test('validates atomic game preference payloads', () => {
+    // Given: a campaign preference request with a valid game identity.
+    const game = { id: 'valorant', name: 'Valorant', imageUrl: '' };
+
+    // When: each supported preference crosses the runtime boundary.
+    const valid = ['normal', 'favorite', 'hidden'].map((preference) =>
+      isRuntimeRequest({ type: 'SET_GAME_PREFERENCE', payload: { game, preference } }),
+    );
+
+    // Then: only the three typed states are accepted.
+    expect(valid).toEqual([true, true, true]);
+    expect(isRuntimeRequest({ type: 'SET_GAME_PREFERENCE', payload: { game, preference: 'deleted' } })).toBe(
+      false,
+    );
+    expect(isRuntimeRequest({ type: 'SET_GAME_PREFERENCE', payload: { game } })).toBe(false);
+  });
+
   test('maps request types to response types at compile time', () => {
     type ResponseKeys = keyof RuntimeResponseByType;
     type RequestTypes = RuntimeRequest['type'];

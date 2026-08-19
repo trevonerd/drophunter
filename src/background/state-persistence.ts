@@ -289,6 +289,7 @@ export async function resetStateForInactivity(
     streamerSelectionMode: state.appState.streamerSelectionMode,
     preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
     favoriteGames: state.appState.favoriteGames,
+    hiddenGames: state.appState.hiddenGames,
     campaignPriorityMode: state.appState.campaignPriorityMode,
     farmCategoryScope: state.appState.farmCategoryScope,
     autoStartFavoriteGames: state.appState.autoStartFavoriteGames,

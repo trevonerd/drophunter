@@ -34,6 +34,16 @@ export function favoriteGameIdentityKeys(
   return new Set(favorites.flatMap((favorite) => [favorite.gameId, ...(favorite.identityKeys ?? [])]));
 }
 
+export function hiddenGameIdentityKeys(
+  hiddenGames: readonly { readonly gameId: string; readonly identityKeys?: readonly string[] }[],
+): ReadonlySet<string> {
+  return new Set(hiddenGames.flatMap((hidden) => [hidden.gameId, ...(hidden.identityKeys ?? [])]));
+}
+
+export function isHiddenGame(game: TwitchGame, hiddenGameIds: ReadonlySet<string>): boolean {
+  return gameCategoryIdentityKeys(game).some((key) => hiddenGameIds.has(key));
+}
+
 export function isFavoriteGame(game: TwitchGame, favoriteGameIds: ReadonlySet<string>): boolean {
   return gameCategoryIdentityKeys(game).some((key) => favoriteGameIds.has(key));
 }

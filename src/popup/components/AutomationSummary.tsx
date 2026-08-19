@@ -45,9 +45,6 @@ export function AutomationSummary({ state, notificationPermissionDenied, onToggl
           <h2 id="automation-summary-heading" className="dh-title text-xs">
             Favorite auto-start
           </h2>
-          <p className="mt-0.5 text-[10px] text-[color:var(--dh-muted)]">
-            {state.autoStartFavoriteGames ? 'On' : 'Off'}
-          </p>
         </div>
         <button
           type="button"

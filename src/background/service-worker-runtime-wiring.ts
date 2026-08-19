@@ -100,6 +100,7 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
       setPreferredStreamerLanguage: (message) =>
         settingsHandlers.handleSetPreferredStreamerLanguage(message.payload),
       setGameFavorite: (message) => settingsHandlers.handleSetGameFavorite(message.payload),
+      setGamePreference: (message) => settingsHandlers.handleSetGamePreference(message.payload),
       setCampaignPriorityMode: (message) => settingsHandlers.handleSetCampaignPriorityMode(message.payload),
       setFarmCategoryScope: (message) => settingsHandlers.handleSetFarmCategoryScope(message.payload),
       setAutoStartFavorites: (message) => settingsHandlers.handleSetAutoStartFavorites(message.payload),

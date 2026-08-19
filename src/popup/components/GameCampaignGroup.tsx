@@ -1,5 +1,5 @@
 import { gameKey } from '../../shared/game-selection.ts';
-import type { TwitchDrop, TwitchGame } from '../../types';
+import type { GamePreference, TwitchDrop, TwitchGame } from '../../types';
 import { CampaignDetail } from './CampaignDetail';
 import {
   type CampaignGameGroup,
@@ -14,6 +14,7 @@ interface GameCampaignGroupProps {
   readonly group: CampaignGameGroup;
   readonly allDrops: readonly TwitchDrop[];
   readonly favorite: boolean;
+  readonly hidden: boolean;
   readonly queueGames: readonly TwitchGame[];
   readonly loadedCampaignKeys: ReadonlySet<string>;
   readonly expanded: boolean;
@@ -24,6 +25,11 @@ interface GameCampaignGroupProps {
   readonly runningGame?: TwitchGame | null;
   readonly onToggleGame: (key: string) => void;
   readonly onSetFavorite?: (game: TwitchGame, favorite: boolean) => void;
+  readonly onSetGamePreference?: (
+    game: TwitchGame,
+    preference: GamePreference,
+    undoPreference: GamePreference,
+  ) => void;
   readonly onAddToQueue?: (game: TwitchGame) => void;
   readonly onAddAllToQueue?: (games: readonly TwitchGame[]) => void;
   readonly onRemoveFromQueue?: (game: TwitchGame) => void;
@@ -92,6 +98,15 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
       ),
     );
   const highlighted = props.group.campaigns.some((game) => gameKey(game) === props.highlightedCampaignKey);
+  const setPreference = (preference: GamePreference, undoPreference: GamePreference) => {
+    if (props.onSetGamePreference) {
+      props.onSetGamePreference(representative, preference, undoPreference);
+      return;
+    }
+    if (preference === 'favorite' || preference === 'normal') {
+      props.onSetFavorite?.(representative, preference === 'favorite');
+    }
+  };
   return (
     <li
       data-game-key={props.group.key}
@@ -155,13 +170,48 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
           type="button"
           className="dh-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--dh-warning)] transition-colors duration-[180ms] ease-[var(--dh-ease)] hover:bg-[color:var(--dh-surface-3)] disabled:opacity-55"
           aria-pressed={props.favorite}
-          aria-label={`${props.favorite ? 'Remove' : 'Add'} ${props.group.name} ${props.favorite ? 'from' : 'to'} favorite games`}
-          title={props.favorite ? 'Remove from favorite games' : 'Add to favorite games'}
-          onClick={() => props.onSetFavorite?.(representative, !props.favorite)}
-          disabled={props.actionLoading || !props.onSetFavorite}
+          aria-label={
+            props.hidden
+              ? `Restore ${props.group.name} as a favorite game`
+              : `${props.favorite ? 'Remove' : 'Add'} ${props.group.name} ${props.favorite ? 'from' : 'to'} favorite games`
+          }
+          title={
+            props.hidden
+              ? 'Restore as favorite'
+              : props.favorite
+                ? 'Remove from favorite games'
+                : 'Add to favorite games'
+          }
+          onClick={() =>
+            setPreference(
+              props.favorite ? 'normal' : 'favorite',
+              props.hidden ? 'hidden' : props.favorite ? 'favorite' : 'normal',
+            )
+          }
+          disabled={props.actionLoading || (!props.onSetFavorite && !props.onSetGamePreference)}
         >
           <FavoriteStar filled={props.favorite} />
         </button>
+        {!props.hidden && (
+          <button
+            type="button"
+            className="dh-game-hide-action dh-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--dh-muted)] transition-[background-color,opacity,color] duration-[180ms] ease-[var(--dh-ease)] hover:bg-[color:var(--dh-surface-3)] hover:text-[color:var(--dh-text)]"
+            aria-label={`Hide ${props.group.name}`}
+            title={`Hide ${props.group.name}`}
+            onClick={() => setPreference('hidden', props.favorite ? 'favorite' : 'normal')}
+            disabled={props.actionLoading || !props.onSetGamePreference}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 4.2A10.6 10.6 0 0 1 12 4c5.2 0 8.7 4.1 9.8 8a12.4 12.4 0 0 1-3.1 5.1M6.2 6.2C4.5 7.5 3.3 9.4 2.2 12c.5 1.5 1.4 2.9 2.6 4.1A10.9 10.9 0 0 0 12 20c1.8 0 3.4-.4 4.8-1.1"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
         <span
           className="inline-flex"
           title={subscriptionOnly ? 'This game only has subscription rewards available.' : undefined}
@@ -170,16 +220,27 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
             type="button"
             className="dh-action-secondary dh-focus h-7 shrink-0 rounded-md px-2 text-[10px] font-semibold disabled:opacity-45"
             aria-label={
-              addableCampaigns.length > 0
-                ? `Add all available ${props.group.name} campaigns to queue`
-                : completed
-                  ? `All ${props.group.name} campaigns are complete`
-                  : `No more ${props.group.name} campaigns can be added`
+              props.hidden
+                ? `Restore ${props.group.name} to available games`
+                : addableCampaigns.length > 0
+                  ? `Add all available ${props.group.name} campaigns to queue`
+                  : completed
+                    ? `All ${props.group.name} campaigns are complete`
+                    : `No more ${props.group.name} campaigns can be added`
             }
-            onClick={() => addableCampaigns.length > 0 && props.onAddAllToQueue?.(addableCampaigns)}
-            disabled={props.actionLoading || addableCampaigns.length === 0 || !props.onAddAllToQueue}
+            onClick={() =>
+              props.hidden
+                ? setPreference('normal', 'hidden')
+                : addableCampaigns.length > 0 && props.onAddAllToQueue?.(addableCampaigns)
+            }
+            disabled={
+              props.actionLoading ||
+              (props.hidden
+                ? !props.onSetGamePreference
+                : addableCampaigns.length === 0 || !props.onAddAllToQueue)
+            }
           >
-            Add
+            {props.hidden ? 'Restore' : 'Add'}
           </button>
         </span>
       </div>
@@ -201,6 +262,7 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
             actionLoading={props.actionLoading}
             now={props.now}
             running={gameKey(game) === runningKey}
+            hidden={props.hidden}
             onAddToQueue={props.onAddToQueue}
             onRemoveFromQueue={props.onRemoveFromQueue}
             onLinkAccount={props.onLinkAccount}

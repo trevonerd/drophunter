@@ -20,7 +20,7 @@ test('automation summary owns policy and does not duplicate session or queue sta
   const stoppedAutomation =
     stoppedMarkup.match(/<section[^>]*aria-labelledby="automation-summary-heading"[\s\S]*?<\/section>/)?.[0] ?? '';
   expect(stoppedAutomation).toContain('Favorite auto-start');
-  expect(stoppedAutomation).toContain('>Off<');
+  expect(stoppedAutomation).toContain('role="switch"');
   expect(stoppedAutomation).not.toContain('data-automation-slot');
   expect(stoppedAutomation).not.toContain('Next Game · Next Campaign');
   expect(
@@ -154,4 +154,3 @@ test('header mute action requires a running DropHunter-owned managed tab', () =>
     'aria-label="Mute stream audio"',
   );
 });
-

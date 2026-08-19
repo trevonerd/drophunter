@@ -17,6 +17,7 @@ export function createExtensionUpdateAppState(appState: AppState): AppState {
     preferredStreamerLanguage: appState.preferredStreamerLanguage,
     watchTransportPreference: appState.watchTransportPreference,
     favoriteGames: appState.favoriteGames,
+    hiddenGames: appState.hiddenGames,
     campaignPriorityMode: appState.campaignPriorityMode,
     farmCategoryScope: appState.farmCategoryScope,
     autoStartFavoriteGames: appState.autoStartFavoriteGames,

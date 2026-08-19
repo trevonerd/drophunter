@@ -22,6 +22,7 @@ interface CampaignDetailProps {
   readonly actionLoading: boolean;
   readonly now: number;
   readonly running?: boolean;
+  readonly hidden?: boolean;
   readonly onAddToQueue?: (game: TwitchGame) => void;
   readonly onRemoveFromQueue?: (game: TwitchGame) => void;
   readonly onLinkAccount?: (game: TwitchGame) => void;
@@ -100,25 +101,27 @@ export function CampaignDetail(props: CampaignDetailProps) {
                 Link account
               </a>
             )}
-            <span
-              title={subscriptionOnly ? 'This campaign only contains subscription rewards.' : undefined}
-              className="inline-flex"
-            >
-              <button
-                type="button"
-                className="dh-action-secondary dh-focus rounded-md px-2 py-1 text-[10px] font-semibold disabled:opacity-55"
-                onClick={() =>
-                  queued ? props.onRemoveFromQueue?.(props.game) : props.onAddToQueue?.(props.game)
-                }
-                disabled={
-                  props.actionLoading ||
-                  (queued ? !props.onRemoveFromQueue : !props.onAddToQueue || !queueEligible)
-                }
-                aria-label={`${queued ? 'Remove' : 'Add'} ${label} ${queued ? 'from' : 'to'} queue`}
+            {!props.hidden && (
+              <span
+                title={subscriptionOnly ? 'This campaign only contains subscription rewards.' : undefined}
+                className="inline-flex"
               >
-                {queued ? 'Remove' : 'Add'}
-              </button>
-            </span>
+                <button
+                  type="button"
+                  className="dh-action-secondary dh-focus rounded-md px-2 py-1 text-[10px] font-semibold disabled:opacity-55"
+                  onClick={() =>
+                    queued ? props.onRemoveFromQueue?.(props.game) : props.onAddToQueue?.(props.game)
+                  }
+                  disabled={
+                    props.actionLoading ||
+                    (queued ? !props.onRemoveFromQueue : !props.onAddToQueue || !queueEligible)
+                  }
+                  aria-label={`${queued ? 'Remove' : 'Add'} ${label} ${queued ? 'from' : 'to'} queue`}
+                >
+                  {queued ? 'Remove' : 'Add'}
+                </button>
+              </span>
+            )}
           </div>
         )}
       </div>

@@ -2,7 +2,9 @@ import {
   dropMatchesGame,
   favoriteGameIdentityKeys,
   gameKey,
+  hiddenGameIdentityKeys,
   isFavoriteGame,
+  isHiddenGame,
 } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import type { CampaignAvailability, FarmCategoryScope, TwitchDrop, TwitchGame } from '../types/index.ts';
@@ -106,17 +108,20 @@ export function deriveFarmingAutomationCandidates(
   now = Date.now(),
 ): readonly FarmingAutomationCandidate[] {
   const favoriteIds = favoriteGameIdentityKeys(snapshot.favoriteGames);
-  return snapshot.availableGames.map((game) => {
-    const facts = candidateFacts(snapshot, game, now);
-    return {
-      game,
-      eligibleStreamerCount: snapshot.campaignAvailabilityByKey[gameKey(game)]?.eligibleStreamerCount ?? 0,
-      hasStartedReward: facts.hasStartedReward ?? false,
-      hasFarmableReward: facts.hasFarmableReward ?? false,
-      isActive: facts.isActive ?? !isExpiredAt(game, now),
-      isFavorite: isFavoriteGame(game, favoriteIds),
-    };
-  });
+  const hiddenIds = hiddenGameIdentityKeys(snapshot.hiddenGames ?? []);
+  return snapshot.availableGames
+    .filter((game) => !isHiddenGame(game, hiddenIds))
+    .map((game) => {
+      const facts = candidateFacts(snapshot, game, now);
+      return {
+        game,
+        eligibleStreamerCount: snapshot.campaignAvailabilityByKey[gameKey(game)]?.eligibleStreamerCount ?? 0,
+        hasStartedReward: facts.hasStartedReward ?? false,
+        hasFarmableReward: facts.hasFarmableReward ?? false,
+        isActive: facts.isActive ?? !isExpiredAt(game, now),
+        isFavorite: isFavoriteGame(game, favoriteIds),
+      };
+    });
 }
 
 export function filterEligibleFarmingAutomationCandidates(
@@ -131,7 +136,9 @@ export function rankFarmingAutomationCandidates(
   snapshot: FarmingAutomationPolicySnapshot,
   candidates: readonly FarmingAutomationCandidate[],
 ): readonly FarmingAutomationCandidate[] {
-  const eligible = filterEligibleFarmingAutomationCandidates(candidates);
+  const eligible = filterEligibleFarmingAutomationCandidates(candidates).filter(
+    (candidate) => !isHiddenGame(candidate.game, hiddenGameIdentityKeys(snapshot.hiddenGames ?? [])),
+  );
   const favoriteIds = favoriteGameIdentityKeys(snapshot.favoriteGames);
   const candidateByKey = new Map(eligible.map((candidate) => [gameKey(candidate.game), candidate]));
   return orderCampaignCandidates(eligible, {

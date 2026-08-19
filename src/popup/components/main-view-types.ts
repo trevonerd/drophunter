@@ -1,5 +1,5 @@
 import type { RuntimeMode } from '../../shared/runtime-status';
-import type { AppState, TwitchDrop, TwitchGame } from '../../types';
+import type { AppState, GamePreference, TwitchDrop, TwitchGame } from '../../types';
 import type { CampaignSyncStatus } from '../constants';
 
 export interface MainViewProps {
@@ -31,7 +31,7 @@ export interface MainViewProps {
   onAddToQueue: (game?: TwitchGame) => void;
   onAddAllToQueue: (games: readonly TwitchGame[]) => void;
   onLinkAccount: (game: TwitchGame) => void;
-  onSetFavorite: (game: TwitchGame, favorite: boolean) => void;
+  onSetGamePreference: (game: TwitchGame, preference: GamePreference) => Promise<boolean> | undefined;
   onRemoveFromQueue: (game: TwitchGame) => void;
   onClearQueue: () => void;
   onReorderQueue: (fromIndex: number, toIndex: number) => void;

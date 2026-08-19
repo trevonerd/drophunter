@@ -24,7 +24,7 @@ export interface CampaignGameGroup {
 }
 
 export type CampaignCatalogSortMode = 'ending-soonest' | 'lowest-availability' | 'alphabetical';
-export type CampaignCatalogFilter = 'all' | 'favorites-only';
+export type CampaignCatalogFilter = 'available' | 'favorites-only' | 'hidden-only' | 'all';
 
 function isMapLike<T>(value: unknown): value is ReadonlyMap<string, T> {
   return Boolean(value && typeof value === 'object' && typeof Reflect.get(value, 'get') === 'function');

@@ -4,7 +4,7 @@ import { AutomationSummary } from '../src/popup/components/AutomationSummary';
 import { SettingsView } from '../src/popup/components/SettingsView';
 import { createInitialState } from '../src/shared/utils';
 
-test('automation shows one recent event only while enabled and never renders an activity feed', () => {
+test('automation shows one recent event only while enabled without duplicating the switch state', () => {
   const recentActivity = {
     id: 'auto-started:campaign-1',
     kind: 'auto-started' as const,
@@ -44,7 +44,8 @@ test('automation shows one recent event only while enabled and never renders an 
   expect(enabledMarkup).not.toContain('>Now<');
   expect(enabledMarkup).not.toContain('>Next<');
   expect(disabledMarkup).not.toContain('Cyberpunk 2077 started automatically.');
-  expect(disabledMarkup).toContain('>Off<');
+  expect(enabledMarkup).not.toContain('>On<');
+  expect(disabledMarkup).not.toContain('>Off<');
   expect(permissionDeniedMarkup).toContain('Notifications are required to turn on favorite auto-start.');
   expect(permissionDeniedMarkup).toContain('role="status"');
 });
