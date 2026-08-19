@@ -102,6 +102,7 @@ export function CampaignList({
     readonly focusUndo: boolean;
   } | null>(null);
   const undoButtonRef = useRef<HTMLButtonElement>(null);
+  const filterSelectRef = useRef<HTMLSelectElement>(null);
   const [activeHighlightKey, setActiveHighlightKey] = useState(highlightedCampaignKey);
   const [expandedGameKey, setExpandedGameKey] = useState<string | null>(null);
 
@@ -170,7 +171,10 @@ export function CampaignList({
       onSetFavorite?.(game, preference === 'favorite');
       result = true;
     }
-    if (result === false) return;
+    if (result === false) {
+      if (focusUndo) globalThis.setTimeout(() => filterSelectRef.current?.focus(), 0);
+      return;
+    }
     const label = game.name;
     const message =
       preference === 'hidden'
@@ -253,6 +257,7 @@ export function CampaignList({
           )}
           <select
             aria-label="Filter games"
+            ref={filterSelectRef}
             value={filter === 'all' ? 'available' : filter}
             onChange={(event) => {
               const value = event.currentTarget.value;
@@ -274,9 +279,13 @@ export function CampaignList({
             type="button"
             ref={undoButtonRef}
             className="dh-focus underline underline-offset-2"
-            onClick={() => {
-              void onSetGamePreference?.(catalogFeedback.game, catalogFeedback.undoPreference);
+            onClick={async () => {
+              const result = await onSetGamePreference?.(
+                catalogFeedback.game,
+                catalogFeedback.undoPreference,
+              );
               setCatalogFeedback(null);
+              if (result !== false) filterSelectRef.current?.focus();
             }}
           >
             Undo
