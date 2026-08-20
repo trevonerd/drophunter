@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { CampaignList, shouldShowOtherDrops } from '../src/popup/components/CampaignList';
+import {
+  CampaignList,
+  resolveStoredCatalogFilter,
+  shouldShowOtherDrops,
+} from '../src/popup/components/CampaignList';
 import { GameCampaignGroup } from '../src/popup/components/GameCampaignGroup';
 import { groupCampaigns, sortCampaignGroups } from '../src/popup/components/campaign-list-model';
 import { campaign, reward } from './fixtures/popup-automation';
@@ -29,6 +33,14 @@ test('campaign catalog supports expiring, availability, and alphabetical sorting
     'Alpha',
     'Beta',
   ]);
+});
+
+test('popup does not reopen on an empty persisted Hidden catalog', () => {
+  expect(resolveStoredCatalogFilter('hidden-only', [])).toBe('available');
+  expect(resolveStoredCatalogFilter('hidden-only', ['game-1'])).toBe('hidden-only');
+  expect(resolveStoredCatalogFilter('all', [])).toBe('available');
+  expect(resolveStoredCatalogFilter('favorites-only', [])).toBe('favorites-only');
+  expect(resolveStoredCatalogFilter('invalid', [])).toBe('available');
 });
 
 test('campaign list exposes compact campaign status and favorite control without repeated position copy', () => {

@@ -7,6 +7,7 @@ import {
 import type { GamePreference, TwitchGame, WatchTransportMode } from '../types/index.ts';
 import type { FarmingAutomation, FarmingAutomationOutcome } from './farming-automation.ts';
 import { setGamePreference } from './favorite-games.ts';
+import { logWarn } from './logging.ts';
 import type { createNotificationController } from './notifications.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
@@ -65,7 +66,11 @@ export function createServiceWorkerAutomationSettingsHandlers(
     await trackActivity('set-game-favorite');
     const result = setGamePreference(state.appState, payload.game, payload.preference, Date.now());
     await saveState(state);
-    await dependencies.automation.request('campaign-refresh');
+    await dependencies.automation.request('campaign-refresh').catch((error: unknown) => {
+      logWarn('Game preference saved, but automation refresh failed', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
     return {
       success: true,
       preference: isHiddenGame(payload.game, hiddenGameIdentityKeys(state.appState.hiddenGames))
