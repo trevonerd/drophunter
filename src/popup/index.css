@@ -415,6 +415,11 @@ body {
   color: var(--dh-text);
 }
 
+.dh-catalog-tool:focus-within {
+  border-color: var(--dh-accent-strong);
+  box-shadow: 0 0 0 2px var(--dh-focus);
+}
+
 .dh-catalog-tool select {
   position: absolute;
   inset: 0;

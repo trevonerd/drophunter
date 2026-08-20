@@ -62,6 +62,16 @@ function favoriteIdSet(value: ReadonlySet<string> | readonly string[] | undefine
   return value instanceof Set ? value : new Set(value ?? []);
 }
 
+export function resolveStoredCatalogFilter(
+  value: unknown,
+  hiddenGameIds: ReadonlySet<string> | readonly string[] | undefined,
+): CampaignCatalogFilter {
+  const storedFilter = value === 'all' ? 'available' : isCatalogFilter(value) ? value : 'available';
+  return storedFilter === 'hidden-only' && favoriteIdSet(hiddenGameIds).size === 0
+    ? 'available'
+    : storedFilter;
+}
+
 export function shouldShowOtherDrops(
   filter: CampaignCatalogFilter,
   query: string,
@@ -95,6 +105,7 @@ export function CampaignList({
   const [query, setQuery] = useState('');
   const [sortMode, setSortMode] = useState<CampaignCatalogSortMode>(() => initialSortMode(priorityMode));
   const [filter, setFilter] = useState<CampaignCatalogFilter>('available');
+  const initialHiddenGameIds = useRef(hiddenGameIds);
   const [catalogFeedback, setCatalogFeedback] = useState<{
     readonly message: string;
     readonly game: TwitchGame;
@@ -121,7 +132,13 @@ export function CampaignList({
         if (!preferences || typeof preferences !== 'object') return;
         const record = preferences as Record<string, unknown>;
         if (isCatalogSortMode(record.sortMode)) setSortMode(record.sortMode);
-        if (isCatalogFilter(record.filter)) setFilter(record.filter === 'all' ? 'available' : record.filter);
+        const restoredFilter = resolveStoredCatalogFilter(record.filter, initialHiddenGameIds.current);
+        setFilter(restoredFilter);
+        if (record.filter !== restoredFilter) {
+          return browser.storage.local.set({
+            [CATALOG_PREFERENCES_KEY]: { ...record, filter: restoredFilter },
+          });
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -280,12 +297,9 @@ export function CampaignList({
             ref={undoButtonRef}
             className="dh-focus underline underline-offset-2"
             onClick={async () => {
-              const result = await onSetGamePreference?.(
-                catalogFeedback.game,
-                catalogFeedback.undoPreference,
-              );
+              await onSetGamePreference?.(catalogFeedback.game, catalogFeedback.undoPreference);
               setCatalogFeedback(null);
-              if (result !== false) filterSelectRef.current?.focus();
+              filterSelectRef.current?.focus();
             }}
           >
             Undo

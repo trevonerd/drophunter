@@ -136,6 +136,29 @@ describe('farming automation runtime wiring', () => {
     ]);
   });
 
+  test('keeps a hidden game persisted when the follow-up automation refresh rejects', async () => {
+    const state = createServiceWorkerState();
+    state.appState.availableGames = [game];
+    const automation: FarmingAutomation = {
+      request: async () => {
+        throw new Error('automation unavailable');
+      },
+      snooze: async () => 'snoozed',
+    };
+    const settings = createServiceWorkerSettingsHandlers(state, createSettingsDependencies(automation));
+
+    const result = await settings.handleSetGamePreference({ game, preference: 'hidden' });
+
+    expect(result).toEqual({
+      success: true,
+      preference: 'hidden',
+      removedQueueEntries: 0,
+      retainedQueueEntries: 0,
+    });
+    expect(state.appState.hiddenGames).toHaveLength(1);
+    expect(state.appState.hiddenGames[0]?.identityKeys).toContain('game-1');
+  });
+
   test('resumes a farming session stopped by an older authentication flow', async () => {
     const state = createServiceWorkerState();
     state.appState.selectedGame = game;
