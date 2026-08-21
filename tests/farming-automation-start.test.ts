@@ -44,7 +44,7 @@ function reward(game: TwitchGame): TwitchDrop {
   };
 }
 
-function startFixture(refreshGate: Promise<void> = Promise.resolve()) {
+function startFixture(refreshGate: Promise<void> = Promise.resolve(), notificationPermission = true) {
   const later = campaign('campaign-later', '2030-08-03T16:00:00.000Z');
   const best = campaign('campaign-best', '2030-08-03T12:00:00.000Z');
   const drops = [reward(later), reward(best)];
@@ -110,7 +110,7 @@ function startFixture(refreshGate: Promise<void> = Promise.resolve()) {
   });
   const browser: FarmingAutomationBrowser = {
     watch,
-    hasNotificationPermission: async () => true,
+    hasNotificationPermission: async () => notificationPermission,
     deliverNotification: async (notification) => {
       events.push(`notification:${notification.id}`);
       return { kind: 'delivered', notificationId: notification.id };
@@ -186,6 +186,22 @@ describe('Farming automation start', () => {
       'alarm',
       'monitor',
     ]);
+  });
+
+  test('starts eligible favorites when notifications are unavailable or disabled', async () => {
+    const fixture = startFixture(Promise.resolve(), false);
+    fixture.state.appState.notificationsEnabled = false;
+
+    const outcome = await fixture.automation.request('campaign-refresh');
+
+    expect(outcome).toEqual({
+      kind: 'started',
+      campaignKey: gameKey(fixture.best),
+      transition: 'start',
+    });
+    expect(fixture.events).not.toContain(
+      'notification:farming-transition:start:idle:campaign:campaign-best:1000',
+    );
   });
 
   test('refreshes disabled availability while preserving the other cheap gates', async () => {

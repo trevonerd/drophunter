@@ -4,9 +4,9 @@ import {
   deriveFarmingAutomationCandidates,
   type FarmingAutomationCandidate,
   type FarmingAutomationPolicySnapshot,
-  planFavoriteCampaignQueue,
   rankFarmingAutomationCandidates,
 } from '../src/background/farming-automation-candidates.ts';
+import { planFavoriteCampaignQueue } from '../src/background/favorite-games.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { QueueEntryMetadata, TwitchDrop, TwitchGame } from '../src/types/index.ts';
 

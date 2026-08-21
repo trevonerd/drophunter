@@ -31,6 +31,7 @@ interface DropsPageRefreshOptions {
     forceSessionRefresh?: boolean;
     acceptAuthoritativeEmpty?: boolean;
     requireFreshSnapshot?: boolean;
+    onProgressiveSnapshotApplied?: () => Promise<void> | void;
   }) => Promise<GamesCacheRefreshResult>;
   saveState: () => Promise<unknown> | unknown;
   broadcastStateUpdate: (appState: AppState) => void;
@@ -128,6 +129,22 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     let sawSession = false;
     let gamesCount = 0;
     let snapshotAvailable = false;
+    let initialSnapshotPublished = false;
+
+    const publishInitialSnapshot = async () => {
+      if (initialSnapshotPublished) return;
+      initialSnapshotPublished = true;
+      gamesCount = state.appState.availableGames.length;
+      snapshotAvailable = true;
+      // A verified campaign batch is enough to let the user act on the
+      // visible Drops. Do not keep the popup's global loader hostage to
+      // unrelated campaign detail requests that are still running.
+      await publishRefreshState(false, {
+        completedAt: Date.now(),
+        campaignCount: gamesCount,
+        error: null,
+      });
+    };
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const isFinalAttemptByCount = attempt === attempts;
@@ -138,6 +155,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
         forceSessionRefresh: !sessionFromTab,
         acceptAuthoritativeEmpty: isFinalAttemptByCount || isFinalAttemptByTime,
         requireFreshSnapshot: true,
+        onProgressiveSnapshotApplied: publishInitialSnapshot,
       });
 
       if (refreshResult.kind === 'refreshed') {

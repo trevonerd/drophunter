@@ -1,4 +1,6 @@
-import type { AppState } from '../types/index.ts';
+import { createInitialState } from '../shared/utils.ts';
+import type { AppState, TwitchDrop, TwitchGame } from '../types/index.ts';
+import type { TwitchSession } from './twitch-api/types.ts';
 import { parseUnverifiableRewardKey } from './unverifiable-reward-key.ts';
 
 export interface UnverifiableRewardMarker {
@@ -241,23 +243,7 @@ export function clearRotationMetadata(state: AppState): AppState {
 // side-effects (clearing cached keys + persisting the new appState).
 export function applyExtensionUpdateStateTransition(state: ServiceWorkerState): void {
   const preserved = {
-    totalDropsClaimed: state.appState.totalDropsClaimed,
-    totalChannelPointsClaimed: state.appState.totalChannelPointsClaimed,
-    monitorAutoOpen: state.appState.monitorAutoOpen,
-    autoResumeOnStartup: state.appState.autoResumeOnStartup,
-    muteFarmingTab: state.appState.muteFarmingTab,
-    notificationsEnabled: state.appState.notificationsEnabled,
-    telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-    autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus,
-    autoClaimDrops: state.appState.autoClaimDrops,
-    streamerSelectionMode: state.appState.streamerSelectionMode,
-    preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
-    watchTransportPreference: state.appState.watchTransportPreference,
-    favoriteGames: state.appState.favoriteGames,
-    hiddenGames: state.appState.hiddenGames,
-    campaignPriorityMode: state.appState.campaignPriorityMode,
-    farmCategoryScope: state.appState.farmCategoryScope,
-    autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
+    ...pickDurablePreferences(state.appState),
     queue: state.appState.queue,
     selectedGame: state.appState.selectedGame,
     isRunning: state.appState.isRunning,
@@ -267,6 +253,31 @@ export function applyExtensionUpdateStateTransition(state: ServiceWorkerState): 
     ...preserved,
   });
   state.cachedDropsSnapshot = [];
+}
+
+// Fields both the extension-update transition and the inactivity reset preserve.
+// Extension update additionally keeps active farming intent (queue/selectedGame/
+// isRunning); inactivity reset deliberately wipes it as volatile session state.
+export function pickDurablePreferences(appState: AppState) {
+  return {
+    totalDropsClaimed: appState.totalDropsClaimed,
+    totalChannelPointsClaimed: appState.totalChannelPointsClaimed,
+    monitorAutoOpen: appState.monitorAutoOpen,
+    autoResumeOnStartup: appState.autoResumeOnStartup,
+    muteFarmingTab: appState.muteFarmingTab,
+    notificationsEnabled: appState.notificationsEnabled,
+    telegramAlertsEnabled: appState.telegramAlertsEnabled,
+    autoClaimChannelPointsBonus: appState.autoClaimChannelPointsBonus,
+    autoClaimDrops: appState.autoClaimDrops,
+    streamerSelectionMode: appState.streamerSelectionMode,
+    preferredStreamerLanguage: appState.preferredStreamerLanguage,
+    watchTransportPreference: appState.watchTransportPreference,
+    favoriteGames: appState.favoriteGames,
+    hiddenGames: appState.hiddenGames,
+    campaignPriorityMode: appState.campaignPriorityMode,
+    farmCategoryScope: appState.farmCategoryScope,
+    autoStartFavoriteGames: appState.autoStartFavoriteGames,
+  };
 }
 
 export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'paused-on-startup' | 'resume-recovery';
@@ -336,10 +347,6 @@ export function applyStartupResumePolicy(
 export function shouldCloseManagedTab(windowTabCount: number | null | undefined): boolean {
   return typeof windowTabCount === 'number' && Number.isFinite(windowTabCount) && windowTabCount > 1;
 }
-
-import { createInitialState } from '../shared/utils.ts';
-import type { TwitchDrop, TwitchGame } from '../types/index.ts';
-import type { TwitchSession } from './twitch-api/types.ts';
 
 export interface ServiceWorkerState {
   appState: AppState;

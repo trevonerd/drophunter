@@ -134,6 +134,59 @@ afterEach(() => {
 });
 
 describe.serial('Twitch campaign synchronization', () => {
+  test.serial(
+    'publishes a verified favorite campaign before slower unrelated detail batches finish',
+    async () => {
+      const campaigns = createCampaigns(21).map((campaign, index) => ({
+        ...campaign,
+        gameName: index === 20 ? 'Favorite Game' : campaign.gameName,
+      }));
+      const favoriteDetails = createDeferred<unknown>();
+      const otherDetails = createDeferred<unknown>();
+      const favoritePublished = createDeferred<void>();
+      const partialSnapshots: Array<{ readonly gameNames: readonly string[] }> = [];
+
+      originalFetch = globalThis.fetch;
+      globalThis.fetch = async (_input, init) => {
+        const payload: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+        if (isRecord(payload) && payload.operationName === 'ViewerDropsDashboard') {
+          return responseFor(dashboardResponse(campaigns));
+        }
+        if (isRecord(payload) && payload.operationName === 'Inventory') {
+          return responseFor(inventoryResponse());
+        }
+        if (Array.isArray(payload)) {
+          const ids = campaignIdsFromPayload(payload);
+          return (ids.includes('campaign-21') ? favoriteDetails.promise : otherDetails.promise).then(
+            responseFor,
+          );
+        }
+        throw new Error('Unexpected Twitch GQL request');
+      };
+
+      const refresh = new TwitchApiClient(createSession()).fetchDropsSnapshot({
+        priorityGameIds: ['favorite-game'],
+        onProgress: (snapshot) => {
+          partialSnapshots.push({ gameNames: snapshot.games.map((game) => game.name) });
+          if (snapshot.games.some((game) => game.name === 'Favorite Game')) {
+            favoritePublished.resolve();
+          }
+        },
+      });
+
+      await Promise.resolve();
+      favoriteDetails.resolve(campaignDetailsResponse(['campaign-21']));
+      await Promise.resolve();
+      await favoritePublished.promise;
+
+      expect(partialSnapshots).toEqual([{ gameNames: ['Favorite Game'] }]);
+
+      otherDetails.resolve(campaignDetailsResponse(campaigns.slice(0, 20).map((campaign) => campaign.id)));
+      const snapshot = await refresh;
+      expect(snapshot.games).toHaveLength(21);
+    },
+  );
+
   test.serial('preserves Twitch category identity and only safe external account-link URLs', async () => {
     const campaigns = [
       { id: 'campaign-safe', gameName: 'Cyberpunk 2077' },

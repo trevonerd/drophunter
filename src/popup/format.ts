@@ -1,11 +1,15 @@
 // Extracted from src/popup/App.tsx (presentation formatting helpers).
 import { getGameDisplayLabel, isSameGameIdentity } from '../shared/game-selection';
 import {
+  formatEtaMinutes,
   formatFarmingCompleteStatusLine,
   formatRecoveryAttemptLabel,
   formatRecoveryReason,
   formatRetryLabel,
 } from '../shared/runtime-status';
+
+export { formatEtaMinutes };
+
 import type { CampaignCompletion, CampaignRemainderReason, ExpiryStatus, TwitchGame } from '../types';
 
 export type CampaignIndicatorKind =
@@ -167,25 +171,6 @@ export function rewardInitials(name: string): string {
     .slice(0, 2)
     .map((token) => token[0]?.toUpperCase() ?? '')
     .join('');
-}
-
-export function formatEtaMinutes(value?: number | null): string | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return null;
-  }
-  const minutes = Math.max(0, Math.round(value));
-  if (minutes <= 0) {
-    return '< 1m';
-  }
-  const hours = Math.floor(minutes / 60);
-  const rem = minutes % 60;
-  if (hours === 0) {
-    return `${rem}m`;
-  }
-  if (rem === 0) {
-    return `${hours}h`;
-  }
-  return `${hours}h ${rem}m`;
 }
 
 export function formatClaimedAt(timestamp: number): string {

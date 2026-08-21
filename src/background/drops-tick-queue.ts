@@ -8,7 +8,7 @@ import {
   queueEntryMatchesGame,
   reorderQueue,
 } from './queue-operations';
-import type { ServiceWorkerState } from './service-worker';
+import type { ServiceWorkerState } from './runtime-state.ts';
 
 function assertNever(value: never): never {
   throw new TypeError(`Unhandled add-to-queue completion: ${String(value)}`);

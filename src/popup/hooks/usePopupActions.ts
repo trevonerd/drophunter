@@ -1,12 +1,6 @@
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useReducer, useState } from 'react';
 import { browser } from '../../shared/browser-api.ts';
-import {
-  favoriteGameIdentityKeys,
-  gameCategoryIdentityKeys,
-  gameCategoryKey,
-  getGameDisplayLabel,
-  isFavoriteGame,
-} from '../../shared/game-selection';
+import { gameCategoryIdentityKeys, gameCategoryKey, getGameDisplayLabel } from '../../shared/game-selection';
 import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState, GamePreference, TwitchGame } from '../../types';
 import { formatFarmingCompleteQueueMessage } from '../format';
@@ -102,38 +96,6 @@ export function usePopupActions({
       browser.alarms.create('campaignLinkRecheck:1', { delayInMinutes: 0.5 }),
       browser.alarms.create('campaignLinkRecheck:2', { delayInMinutes: 1.5 }),
     ]).catch(() => undefined);
-  };
-
-  const handleSetFavorite = async (game: TwitchGame, favorite: boolean) => {
-    const previousFavorites = state.favoriteGames;
-    const categoryKey = gameCategoryKey(game);
-    const categoryAliases = new Set(gameCategoryIdentityKeys(game));
-    setState((prev) => ({
-      ...prev,
-      favoriteGames: favorite
-        ? isFavoriteGame(game, favoriteGameIdentityKeys(prev.favoriteGames))
-          ? prev.favoriteGames
-          : [
-              ...prev.favoriteGames,
-              {
-                gameId: categoryKey,
-                lastKnownName: game.name,
-                addedAt: Date.now(),
-                identityKeys: gameCategoryIdentityKeys(game),
-              },
-            ]
-        : prev.favoriteGames.filter(
-            (entry) => ![entry.gameId, ...(entry.identityKeys ?? [])].some((key) => categoryAliases.has(key)),
-          ),
-    }));
-    const response = await sendRuntimeMessage({
-      type: 'SET_GAME_FAVORITE',
-      payload: { game, favorite },
-    }).catch(() => null);
-    if (!response?.success) {
-      setState((previous) => ({ ...previous, favoriteGames: previousFavorites }));
-      setQueueMessage('Unable to update favorite games.');
-    }
   };
 
   const handleSetGamePreference = async (game: TwitchGame, preference: GamePreference): Promise<boolean> => {
@@ -266,7 +228,6 @@ export function usePopupActions({
     handleAddToQueue,
     handleAddAllToQueue,
     handleLinkAccount,
-    handleSetFavorite,
     handleSetGamePreference,
     handleRemoveFromQueue,
     handleClearQueue,

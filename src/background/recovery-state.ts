@@ -24,7 +24,7 @@ import {
   clearTerminalStopStatus,
 } from '../shared/runtime-status';
 import { logWarn } from './logging';
-import type { ServiceWorkerState } from './service-worker';
+import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   computeRecoveryBackoffMs,
   MAX_PERSISTENT_RECOVERY_CYCLES,

@@ -109,6 +109,22 @@ test('campaign browser does not report zero Drops before that campaign is hydrat
   expect(markup).not.toContain('0 claimed');
 });
 
+test('campaign browser replaces an endless Drop spinner with a delayed retry status', () => {
+  const markup = renderToStaticMarkup(
+    <CampaignList
+      campaigns={[campaign()]}
+      drops={[]}
+      loadedCampaignKeys={[]}
+      queueGames={[]}
+      refreshInProgress
+      refreshStartedAt={Date.now() - 15_001}
+    />,
+  );
+
+  expect(markup).toContain('Still loading Drops — retrying…');
+  expect(markup).not.toContain('Loading Drops…');
+});
+
 test('farming-complete campaign stays a closed one-line result', () => {
   // Given
   const completedCampaign = campaign({

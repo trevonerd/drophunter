@@ -7,6 +7,7 @@ import {
   isHiddenGame,
 } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isExpiredGame } from '../shared/utils.ts';
 import type { CampaignAvailability, FarmCategoryScope, TwitchDrop, TwitchGame } from '../types/index.ts';
 import { type CampaignPriorityCandidate, orderCampaignCandidates } from './campaign-priority.ts';
 import {
@@ -54,22 +55,6 @@ export type FarmingAutomationTransitionDecision =
       readonly campaign?: TwitchGame;
     };
 
-function expiryTime(game: TwitchGame): number {
-  if (!game.endsAt) {
-    return Number.POSITIVE_INFINITY;
-  }
-  const parsed = Date.parse(game.endsAt);
-  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
-}
-
-function isExpiredAt(game: TwitchGame, now: number): boolean {
-  if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)) {
-    return game.expiresInMs <= 0;
-  }
-  const expiry = expiryTime(game);
-  return Number.isFinite(expiry) && expiry <= now;
-}
-
 function campaignDrops(snapshot: FarmingAutomationPolicySnapshot, game: TwitchGame): readonly TwitchDrop[] {
   const key = gameKey(game);
   const byKey = snapshot.campaignDropsByKey?.[key];
@@ -99,7 +84,7 @@ function candidateFacts(
     hasFarmableReward:
       drops.length > 0 ? drops.some((drop) => !drop.claimed && isRewardFarmableNow(drop, now)) : true,
     hasStartedReward,
-    isActive: !isExpiredAt(game, now),
+    isActive: !isExpiredGame(game, now),
   };
 }
 
@@ -118,7 +103,7 @@ export function deriveFarmingAutomationCandidates(
         eligibleStreamerCount: snapshot.campaignAvailabilityByKey[gameKey(game)]?.eligibleStreamerCount ?? 0,
         hasStartedReward: facts.hasStartedReward ?? false,
         hasFarmableReward: facts.hasFarmableReward ?? false,
-        isActive: facts.isActive ?? !isExpiredAt(game, now),
+        isActive: facts.isActive ?? !isExpiredGame(game, now),
         isFavorite: isFavoriteGame(game, favoriteIds),
       };
     });
@@ -183,6 +168,3 @@ export function decideFarmingAutomationTransition(
 
   return { kind: 'unchanged', reason: 'already-running', campaign: candidate.game };
 }
-
-export type { FavoriteCampaignAddition, FavoriteCampaignQueuePlan } from './favorite-games.ts';
-export { planFavoriteCampaignQueue } from './favorite-games.ts';

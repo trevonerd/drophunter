@@ -8,7 +8,7 @@ import {
   clearTwitchSessionCache as clearTwitchSessionCacheExt,
   ensureSessionIntegrity as ensureSessionIntegrityExt,
 } from './session-management.ts';
-import { TwitchApiClient } from './twitch-api/client.ts';
+import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import { isLikelyAuthError, TwitchSession } from './twitch-api/types.ts';
 
 function applyApiBackoff(state: ServiceWorkerState) {
@@ -90,8 +90,9 @@ async function fetchSnapshotWithIntegrityRetry(
 export async function fetchDropsSnapshotFromApi(
   state: ServiceWorkerState,
   session: TwitchSession,
+  options: FetchDropsSnapshotOptions = {},
 ): Promise<DropsSnapshot | null> {
-  return fetchSnapshotWithIntegrityRetry(state, session, (client) => client.fetchDropsSnapshot());
+  return fetchSnapshotWithIntegrityRetry(state, session, (client) => client.fetchDropsSnapshot(options));
 }
 
 export async function fetchInventorySnapshotFromApi(
@@ -230,6 +231,7 @@ export async function fetchDropsSnapshotFromApiWrapper(
     logWarn: (msg: string, ctx?: unknown) => void;
     logInfo: (msg: string, ctx?: unknown) => void;
   },
+  options: FetchDropsSnapshotOptions = {},
 ): Promise<DropsSnapshot | null> {
   let session = await callbacks.onEnsureTwitchSession(forceSessionRefresh);
   if (!session) {
@@ -290,12 +292,12 @@ export async function fetchDropsSnapshotFromApiWrapper(
   });
 
   try {
-    return await fetchDropsSnapshotFromApi(state, session);
+    return await fetchDropsSnapshotFromApi(state, session, options);
   } catch (error) {
     if (callbacks.onIsLikelyAuthError(error)) {
       callbacks.onClearTwitchSessionCache(state);
       if (!forceSessionRefresh) {
-        return fetchDropsSnapshotFromApiWrapper(state, true, callbacks, deps);
+        return fetchDropsSnapshotFromApiWrapper(state, true, callbacks, deps, options);
       }
       deps.logWarn('Twitch API auth failed after forced session refresh:', String(error));
       await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);

@@ -73,10 +73,9 @@ test('popup no longer carries the removed dropdown selection workflow', () => {
   expect(source).not.toContain('pendingGameRef');
 });
 
-test('popup favorite updates use the same category aliases as durable storage', () => {
+test('popup preference updates use the same category aliases as durable storage', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('isFavoriteGame(game, favoriteGameIdentityKeys(prev.favoriteGames))');
   expect(source).toContain('[entry.gameId, ...(entry.identityKeys ?? [])]');
 });
 

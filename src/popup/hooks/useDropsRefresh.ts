@@ -108,5 +108,5 @@ export function useDropsRefresh({ state, setState, setQueueMessage, isStale }: U
     state.lastSuccessfulRefreshAt,
   ]);
 
-  return { dropsRefreshLoading, activeSyncError, syncError, openDropsPage };
+  return { dropsRefreshLoading, activeSyncError, openDropsPage };
 }

@@ -17,6 +17,7 @@ interface GameCampaignGroupProps {
   readonly hidden: boolean;
   readonly queueGames: readonly TwitchGame[];
   readonly loadedCampaignKeys: ReadonlySet<string>;
+  readonly refreshDelayed?: boolean;
   readonly expanded: boolean;
   readonly progressByCampaignKey?: CampaignProgressLookup;
   readonly highlightedCampaignKey: string | null;
@@ -249,6 +250,7 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
             allDrops={props.allDrops}
             queueGames={props.queueGames}
             loadedCampaignKeys={props.loadedCampaignKeys}
+            refreshDelayed={props.refreshDelayed}
             progressByCampaignKey={props.progressByCampaignKey}
             highlightedCampaignKey={props.highlightedCampaignKey}
             actionLoading={props.actionLoading}

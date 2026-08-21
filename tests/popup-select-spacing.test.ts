@@ -5,6 +5,10 @@ const campaignListSource = readFileSync(
   new URL('../src/popup/components/CampaignList.tsx', import.meta.url),
   'utf8',
 );
+const campaignListStateSource = readFileSync(
+  new URL('../src/popup/components/useCampaignListState.ts', import.meta.url),
+  'utf8',
+);
 const popupStyles = readFileSync(new URL('../src/popup/index.css', import.meta.url), 'utf8');
 
 test('campaign toolbar keeps search flexible beside compact sort and filter controls', () => {
@@ -20,7 +24,7 @@ test('transparent catalog selects retain a visible keyboard focus indicator', ()
 });
 
 test('Undo always hands focus back before its feedback is removed', () => {
-  expect(campaignListSource).toContain(
-    'setCatalogFeedback(null);\n              filterSelectRef.current?.focus();',
+  expect(campaignListStateSource).toContain(
+    'setCatalogFeedback(null);\n    filterSelectRef.current?.focus();',
   );
 });

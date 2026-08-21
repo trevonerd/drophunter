@@ -20,7 +20,6 @@ import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
 
 type FailureStage =
-  | 'permission'
   | 'session'
   | 'refresh'
   | 'directory-session'
@@ -156,7 +155,7 @@ function fixture(stage: FailureStage) {
   });
   const browser: FarmingAutomationBrowser = {
     watch,
-    hasNotificationPermission: async () => stage !== 'permission',
+    hasNotificationPermission: async () => true,
     deliverNotification: async ({ id }) => ({ kind: 'delivered', notificationId: id }),
     observeManualTabs: async () =>
       stage === 'observation' ? { kind: 'failed' } : { kind: 'observed', tabs: [] },
@@ -198,7 +197,6 @@ function fixture(stage: FailureStage) {
 }
 
 const cases: readonly (readonly [FailureStage, FarmingAutomationOutcome])[] = [
-  ['permission', { kind: 'failed', reason: 'notifications-unavailable' }],
   ['session', { kind: 'failed', reason: 'twitch-session-missing', retryAt: 122_000 }],
   ['refresh', { kind: 'failed', reason: 'drops-refresh-failed', retryAt: 122_000 }],
   ['directory-session', { kind: 'failed', reason: 'twitch-session-missing', retryAt: 122_000 }],

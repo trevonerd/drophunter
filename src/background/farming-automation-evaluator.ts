@@ -87,17 +87,6 @@ export function createFarmingAutomationEvaluator(
       triggers.has('campaign-refresh') &&
       dependencies.state.appState.campaignPriorityMode === 'lowest-availability';
     if (cheapGate && !refreshAvailabilityOnly) return cheapGate;
-    if (!refreshAvailabilityOnly) {
-      try {
-        if (!(await dependencies.browser.hasNotificationPermission())) {
-          return { kind: 'failed', reason: 'notifications-unavailable' };
-        }
-      } catch (error) {
-        if (!(error instanceof Error)) throw error;
-        return { kind: 'failed', reason: 'notifications-unavailable' };
-      }
-    }
-
     const beforeRefresh = currentStateFingerprint();
     const discovery = await discoverFarmingAutomationCandidates(
       dependencies.twitch,

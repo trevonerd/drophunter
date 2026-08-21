@@ -19,7 +19,7 @@ import {
 } from './session-management.ts';
 import { createSessionOrchestrator } from './session-orchestrator.ts';
 import { sessionDebugSummary } from './state-persistence.ts';
-import { TwitchApiClient } from './twitch-api/client.ts';
+import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import { createTwitchSpadeHeartbeat } from './twitch-api/spade-heartbeat.ts';
 import {
   DEFAULT_TWITCH_CLIENT_ID,
@@ -53,6 +53,7 @@ export function createServiceWorkerTwitchGateway(
     logWarn,
   });
   const twitchSpadeHeartbeat = createTwitchSpadeHeartbeat({ clientId: DEFAULT_TWITCH_CLIENT_ID });
+  let latestProgressSnapshot: DropsSnapshot | null = null;
 
   async function ensureContentScriptOnTab(tabId: number): Promise<void> {
     await sessionOrchestrator.ensureContentScriptOnTab(tabId);
@@ -86,6 +87,35 @@ export function createServiceWorkerTwitchGateway(
       },
       { TwitchApiClient, sessionDebugSummary, PROGRESS_POLL_MS, logDebug, logWarn, logInfo },
     );
+  }
+
+  async function fetchDropsSnapshotProgressively(
+    forceSessionRefresh = false,
+    options: FetchDropsSnapshotOptions = {},
+  ): Promise<DropsSnapshot | null> {
+    latestProgressSnapshot = null;
+    const snapshot = await fetchDropsSnapshotFromApiWrapper(
+      state,
+      forceSessionRefresh,
+      {
+        onEnsureTwitchSession: ensureTwitchSession,
+        onEnsureSessionIntegrity: ensureSessionIntegrity,
+        onPersistTwitchSession: persistTwitchSession,
+        onStopFarmingSession: dependencies.recoverTwitchSession,
+        onIsLikelyAuthError: isLikelyAuthError,
+        onClearTwitchSessionCache: clearTwitchSessionCache,
+      },
+      { TwitchApiClient, sessionDebugSummary, PROGRESS_POLL_MS, logDebug, logWarn, logInfo },
+      {
+        ...options,
+        onProgress: async (snapshot) => {
+          latestProgressSnapshot = snapshot;
+          await options.onProgress?.(snapshot);
+        },
+      },
+    );
+    if (snapshot) latestProgressSnapshot = snapshot;
+    return snapshot;
   }
 
   async function fetchInventorySnapshot(
@@ -170,6 +200,8 @@ export function createServiceWorkerTwitchGateway(
     ensureTwitchSession,
     fetchDirectoryStreamers,
     fetchDropsSnapshot,
+    fetchDropsSnapshotProgressively,
+    getLatestProgressSnapshot: () => latestProgressSnapshot,
     fetchInventorySnapshot,
     fetchStreamContext,
     heartbeat,

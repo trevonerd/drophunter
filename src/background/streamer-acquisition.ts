@@ -27,7 +27,7 @@ import {
   clearNoStreamersRecoveryState,
   clearRecoveryState,
 } from './recovery-state';
-import type { ServiceWorkerState } from './service-worker';
+import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   classifyStreamHealth,
   computeEffectiveStallThreshold,
@@ -42,6 +42,60 @@ import {
   StreamRotationReason,
 } from './stream-rotation';
 import { PickStreamerResult, StreamerSelectionPreferences } from './streamer-selection';
+
+// ============================================================================
+// Shared callback/option types (named once — previously repeated as anonymous
+// literal types across rotateStreamer / rotateStreamerIfInvalid signatures).
+// ============================================================================
+
+type EnterPersistentRecoveryFn = (
+  state: ServiceWorkerState,
+  reason: StreamRotationReason,
+  message: string,
+  opts?: {
+    onSkipCurrentGame?: () => Promise<void>;
+    onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
+  },
+) => Promise<void>;
+
+interface RotateStreamerOptions {
+  onOpenStreamer?: () => Promise<boolean>;
+  onSaveState?: () => Promise<void>;
+  onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
+  onEnterPersistentRecovery?: EnterPersistentRecoveryFn;
+  onSkipCurrentGame?: () => Promise<void>;
+}
+
+type RotateStreamerFn = (
+  state: ServiceWorkerState,
+  reason: StreamRotationReason,
+  opts?: RotateStreamerOptions,
+) => Promise<boolean>;
+
+interface StreamContext {
+  channelName: string;
+  categorySlug: string;
+  categoryLabel: string;
+  streamTitle: string;
+  titleContainsDrops: boolean;
+  hasDropsSignal: boolean;
+  isLive: boolean;
+  pageUrl: string;
+}
+
+interface RotateStreamerIfInvalidOptions {
+  onFetchStreamContext?: (tabId: number) => Promise<StreamContext | null>;
+  onResolveCategorySlug?: (game: TwitchGame) => Promise<string>;
+  onAttemptPlaybackSelfHeal?: (tabId: number) => Promise<void>;
+  onSaveState?: () => Promise<void>;
+  onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
+  onRotateStreamer?: RotateStreamerFn;
+  onOpenStreamer?: () => Promise<boolean>;
+  onEnterPersistentRecovery?: EnterPersistentRecoveryFn;
+  onSkipCurrentGame?: () => Promise<void>;
+  onForceRefreshDropsData?: () => Promise<void>;
+  onTablessWatchActive?: () => boolean;
+}
 
 // ============================================================================
 // Internal helpers (private to this module)
@@ -77,6 +131,315 @@ function filterStreamersByAllowedChannels(
   }
   const allowedSet = new Set(allowed.map((channel) => channel.toLowerCase()));
   return streamers.filter((streamer) => allowedSet.has(streamer.name.toLowerCase()));
+}
+
+// Shared payload every onRotateStreamer call site passes through unchanged.
+function rotateStreamerOptsFrom(opts: RotateStreamerIfInvalidOptions | undefined): RotateStreamerOptions {
+  return {
+    onOpenStreamer: opts?.onOpenStreamer,
+    onSaveState: opts?.onSaveState,
+    onSaveTimingState: opts?.onSaveTimingState,
+    onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
+    onSkipCurrentGame: opts?.onSkipCurrentGame,
+  };
+}
+
+// Shared by "no managed tab" and "managed tab vanished" — both fall back to the
+// same open-failed rotation, gated by the same recovery-backoff check.
+async function rotateForOpenFailed(
+  state: ServiceWorkerState,
+  opts: RotateStreamerIfInvalidOptions | undefined,
+): Promise<void> {
+  if (
+    state.recoveryBackoffUntil > 0 &&
+    Date.now() < state.recoveryBackoffUntil &&
+    (state.appState.recoveryReason === 'open-failed' || state.appState.recoveryReason === 'no-streamers')
+  ) {
+    return;
+  }
+  if (opts?.onRotateStreamer) {
+    await opts.onRotateStreamer(state, 'open-failed', rotateStreamerOptsFrom(opts));
+  }
+}
+
+// Stream context could not be read from the tab (still loading, DOM changed, etc).
+// Distinguishes "navigated off Twitch" from "still on Twitch, context missing" and
+// keeps the current streamer if drop progress is recent enough to trust it.
+async function handleMissingStreamContext(
+  state: ServiceWorkerState,
+  tab: { url?: string },
+  opts: RotateStreamerIfInvalidOptions | undefined,
+  now: number,
+  effectiveThreshold: number,
+): Promise<void> {
+  const tabUrl = tab.url ?? '';
+  const isStillOnTwitch = /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(tabUrl);
+  if (!isStillOnTwitch) {
+    logInfo('Managed tab navigated away from Twitch', { tabUrl });
+    state.invalidStreamChecks = INVALID_STREAM_THRESHOLD;
+  } else if (
+    shouldKeepStreamerWhileDropProgresses({
+      currentDrop: state.appState.currentDrop,
+      lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+      now,
+      effectiveThresholdMs: effectiveThreshold,
+      reason: 'missing-context',
+    })
+  ) {
+    logDebug('Stream context missing but drop progress is recent; keeping current streamer', {
+      tabUrl,
+      lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+      effectiveThresholdMs: effectiveThreshold,
+    });
+    state.invalidStreamChecks = 0;
+    return;
+  } else {
+    state.invalidStreamChecks += 1;
+  }
+  if (state.invalidStreamChecks >= INVALID_STREAM_THRESHOLD) {
+    if (now - state.lastStreamRotationAt < STREAM_ROTATE_COOLDOWN_MS) {
+      return;
+    }
+    state.invalidStreamChecks = 0;
+    if (opts?.onRotateStreamer) {
+      await opts.onRotateStreamer(
+        state,
+        isStillOnTwitch ? 'missing-context' : 'navigated-away',
+        rotateStreamerOptsFrom(opts),
+      );
+    }
+  }
+}
+
+// Computes stream-health classification from live tab context: whether it's the
+// right channel/game, whether a Drops signal is present when expected, and whether
+// progress has stalled past the (possibly shortened) threshold. Clears the offline
+// streak on a live reading, since a fresh live read means the outage (if any) ended.
+async function evaluateStreamHealth(
+  state: ServiceWorkerState,
+  context: StreamContext,
+  effectiveThreshold: number,
+  now: number,
+  opts: RotateStreamerIfInvalidOptions | undefined,
+): Promise<{ health: ReturnType<typeof classifyStreamHealth>; stallThreshold: number }> {
+  const sameChannel =
+    !state.appState.activeStreamer || context.channelName === state.appState.activeStreamer.name;
+  const hasDropsSignal = context.titleContainsDrops || context.hasDropsSignal;
+  const selectedCategorySlug = opts?.onResolveCategorySlug
+    ? normalizeToken(await opts.onResolveCategorySlug(state.appState.selectedGame!))
+    : '';
+  const contextCategorySlug = normalizeToken(context.categorySlug);
+  const sameGame =
+    selectedCategorySlug.length === 0 || contextCategorySlug.length === 0
+      ? true
+      : selectedCategorySlug === contextCategorySlug;
+  const campaignGone = haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
+  const automatablePendingDrops = state.appState.pendingDrops.some(isRewardFarmableNow);
+  const expectsDropsSignal =
+    (state.appState.currentDrop != null && isRewardFarmableNow(state.appState.currentDrop)) ||
+    automatablePendingDrops ||
+    campaignGone;
+
+  logDebug('Stream health inputs', {
+    expectsDropsSignal,
+    hasDropsSignal,
+    campaignGone,
+    currentDrop: !!state.appState.currentDrop,
+    farmablePending: automatablePendingDrops,
+  });
+
+  // A stream that expects but shows no Drops signal is likely the wrong channel; shorten its
+  // stall window so we abandon it sooner instead of wasting the full threshold on it.
+  const noDropsSignal = expectsDropsSignal && !hasDropsSignal;
+  const stallThreshold = noDropsSignal
+    ? Math.min(effectiveThreshold, NO_DROPS_SIGNAL_STALL_THRESHOLD_MS)
+    : effectiveThreshold;
+  const progressStalled =
+    state.lastProgressAdvanceAt > 0 &&
+    state.appState.currentDrop != null &&
+    now - state.lastProgressAdvanceAt >= stallThreshold;
+
+  const health = classifyStreamHealth({
+    isLive: context.isLive,
+    sameChannel,
+    sameGame,
+    hasDropsSignal,
+    progressStalled,
+    expectsDropsSignal,
+  });
+
+  // A live reading clears any pending offline confirmation streak.
+  if (context.isLive) {
+    state.offlineChecks = 0;
+  }
+
+  return { health, stallThreshold };
+}
+
+// Offline is only acted on after OFFLINE_CONFIRMATION_CHECKS consecutive readings —
+// a single one is usually a transient ad break or player re-render, not a real
+// outage. Once confirmed: clear stale stalled-progress recovery, respect an
+// existing recovery backoff, give up the game if persistent-recovery cycles are
+// exhausted, otherwise rotate immediately.
+async function handleOfflineStream(
+  state: ServiceWorkerState,
+  context: StreamContext,
+  opts: RotateStreamerIfInvalidOptions | undefined,
+  now: number,
+): Promise<void> {
+  state.offlineChecks += 1;
+  if (state.offlineChecks < OFFLINE_CONFIRMATION_CHECKS) {
+    logDebug('Offline reading not yet confirmed; keeping current streamer', {
+      offlineChecks: state.offlineChecks,
+      required: OFFLINE_CONFIRMATION_CHECKS,
+      channel: state.appState.activeStreamer?.name ?? context.channelName,
+    });
+    return;
+  }
+  if (state.appState.recoveryReason === 'stalled-progress') {
+    clearRecoveryState(state);
+  }
+  // Respect backoff when already in offline/open-failed recovery — prevents a
+  // fast rotation loop when no replacement streamer is available (e.g. event-only
+  // drops with no live channels).
+  if (
+    state.recoveryBackoffUntil > 0 &&
+    now < state.recoveryBackoffUntil &&
+    (state.appState.recoveryReason === 'offline' ||
+      state.appState.recoveryReason === 'open-failed' ||
+      state.appState.recoveryReason === 'no-streamers')
+  ) {
+    logDebug('Offline detected but in recovery backoff, skipping rotation', {
+      recoveryReason: state.appState.recoveryReason,
+      backoffRemainingMs: state.recoveryBackoffUntil - now,
+    });
+    return;
+  }
+  // If persistent recovery cycles are exhausted, skip the game rather than
+  // looping forever — handles the case where no replacement streamer exists.
+  if (state.stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
+    logWarn('Offline recovery exhausted — skipping game', {
+      stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+      channel: state.appState.activeStreamer?.name ?? context.channelName,
+    });
+    if (opts?.onSkipCurrentGame) {
+      await opts.onSkipCurrentGame();
+    }
+    return;
+  }
+  state.invalidStreamChecks = 0;
+  logInfo('Offline stream detected, rotating immediately', {
+    channel: state.appState.activeStreamer?.name ?? context.channelName,
+    pageUrl: context.pageUrl,
+  });
+  if (opts?.onRotateStreamer) {
+    await opts.onRotateStreamer(state, 'offline', rotateStreamerOptsFrom(opts));
+  }
+}
+
+// Stalled progress goes through two sub-phases before rotating to a different
+// streamer: attempt 1 is an in-place playback self-heal (handles a stuck player
+// or ad without losing a good Drops channel); attempts 2+ force a fresh
+// campaign+inventory poll first, since Twitch's claimed-rewards backend can lag
+// behind its own notification/badge grant and make a stale cached drop look
+// stalled when it is already done.
+async function handleStalledProgress(
+  state: ServiceWorkerState,
+  tab: { id?: number },
+  opts: RotateStreamerIfInvalidOptions | undefined,
+  now: number,
+  stallThreshold: number,
+): Promise<void> {
+  if (state.stalledRecoveryAttempts >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS) {
+    logWarn('Stalled progress recovery exhausted — skipping game', {
+      stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+      maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+      progress: state.appState.currentDrop?.progress ?? null,
+      currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
+    });
+    if (opts?.onSkipCurrentGame) {
+      await opts.onSkipCurrentGame();
+    }
+    return;
+  }
+  if (
+    state.recoveryBackoffUntil > 0 &&
+    now < state.recoveryBackoffUntil &&
+    state.appState.recoveryReason === 'stalled-progress'
+  ) {
+    return;
+  }
+  if (state.stalledRecoveryAttempts === 0) {
+    state.stalledRecoveryAttempts = 1;
+    state.lastRecoveryAttemptAt = now;
+    state.recoveryBackoffUntil = now + STALLED_PROGRESS_RETRY_MS;
+    applyRecoveryState(state, 'stalled-progress', state.recoveryBackoffUntil);
+    logInfo('Attempting in-place playback self-heal before rotating', {
+      stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+      maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+      recoveryBackoffUntil: state.recoveryBackoffUntil,
+    });
+    if (opts?.onAttemptPlaybackSelfHeal && tab.id) {
+      await opts.onAttemptPlaybackSelfHeal(tab.id);
+    }
+    if (opts?.onSaveState) {
+      await opts.onSaveState();
+    }
+    if (opts?.onSaveTimingState) {
+      await opts.onSaveTimingState(state);
+    }
+    return;
+  }
+  if (opts?.onForceRefreshDropsData) {
+    await opts.onForceRefreshDropsData();
+    if (state.stalledRecoveryAttempts === 0 || state.appState.currentDrop == null) {
+      return;
+    }
+  }
+  // Rotate to a DIFFERENT streamer. The stall threshold plus the self-heal backoff already
+  // rate-limit this, so the generic rotation cooldown does not apply; advance the attempt
+  // counter only when we actually rotate.
+  state.stalledRecoveryAttempts = Math.min(
+    MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+    state.stalledRecoveryAttempts + 1,
+  );
+  state.lastRecoveryAttemptAt = now;
+  state.recoveryBackoffUntil = 0;
+  state.invalidStreamChecks = 0;
+  applyRecoveryState(state, 'stalled-progress', null);
+  logInfo('Drop progress stalled, rotating to a different streamer', {
+    stalledRecoveryAttempts: state.stalledRecoveryAttempts,
+    maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
+    progress: state.appState.currentDrop?.progress ?? null,
+    currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
+    requiredMinutes: state.appState.currentDrop?.requiredMinutes ?? null,
+    effectiveThresholdMs: stallThreshold,
+    stalledForMs: now - state.lastProgressAdvanceAt,
+  });
+  if (opts?.onRotateStreamer) {
+    await opts.onRotateStreamer(state, 'stalled-progress', rotateStreamerOptsFrom(opts));
+  }
+}
+
+// Fallback for every other invalid-stream reason (wrong channel/game, etc): accrue
+// invalid checks, then rotate once the threshold and cooldown both clear.
+async function handleGenericInvalidStream(
+  state: ServiceWorkerState,
+  health: ReturnType<typeof classifyStreamHealth>,
+  opts: RotateStreamerIfInvalidOptions | undefined,
+  now: number,
+): Promise<void> {
+  state.invalidStreamChecks += health.invalidIncrement;
+  if (state.invalidStreamChecks < INVALID_STREAM_THRESHOLD) {
+    return;
+  }
+  if (now - state.lastStreamRotationAt < STREAM_ROTATE_COOLDOWN_MS) {
+    return;
+  }
+  state.invalidStreamChecks = 0;
+  if (opts?.onRotateStreamer && health.reason) {
+    await opts.onRotateStreamer(state, health.reason, rotateStreamerOptsFrom(opts));
+  }
 }
 
 // ============================================================================
@@ -161,21 +524,7 @@ export async function acquireStreamerForSelectedGame(
 export async function rotateStreamer(
   state: ServiceWorkerState,
   reason: StreamRotationReason,
-  opts?: {
-    onOpenStreamer?: () => Promise<boolean>;
-    onSaveState?: () => Promise<void>;
-    onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
-    onEnterPersistentRecovery?: (
-      state: ServiceWorkerState,
-      reason: StreamRotationReason,
-      message: string,
-      opts?: {
-        onSkipCurrentGame?: () => Promise<void>;
-        onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
-      },
-    ) => Promise<void>;
-    onSkipCurrentGame?: () => Promise<void>;
-  },
+  opts?: RotateStreamerOptions,
 ): Promise<boolean> {
   state.noProgressRotationAttempts = nextNoProgressRotationAttempts(state.noProgressRotationAttempts, reason);
 
@@ -210,54 +559,7 @@ export async function rotateStreamer(
 
 export async function rotateStreamerIfInvalid(
   state: ServiceWorkerState,
-  opts?: {
-    onFetchStreamContext?: (tabId: number) => Promise<{
-      channelName: string;
-      categorySlug: string;
-      categoryLabel: string;
-      streamTitle: string;
-      titleContainsDrops: boolean;
-      hasDropsSignal: boolean;
-      isLive: boolean;
-      pageUrl: string;
-    } | null>;
-    onResolveCategorySlug?: (game: TwitchGame) => Promise<string>;
-    onAttemptPlaybackSelfHeal?: (tabId: number) => Promise<void>;
-    onSaveState?: () => Promise<void>;
-    onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
-    onRotateStreamer?: (
-      state: ServiceWorkerState,
-      reason: StreamRotationReason,
-      opts?: {
-        onOpenStreamer?: () => Promise<boolean>;
-        onSaveState?: () => Promise<void>;
-        onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
-        onEnterPersistentRecovery?: (
-          state: ServiceWorkerState,
-          reason: StreamRotationReason,
-          message: string,
-          opts?: {
-            onSkipCurrentGame?: () => Promise<void>;
-            onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
-          },
-        ) => Promise<void>;
-        onSkipCurrentGame?: () => Promise<void>;
-      },
-    ) => Promise<boolean>;
-    onOpenStreamer?: () => Promise<boolean>;
-    onEnterPersistentRecovery?: (
-      state: ServiceWorkerState,
-      reason: StreamRotationReason,
-      message: string,
-      opts?: {
-        onSkipCurrentGame?: () => Promise<void>;
-        onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
-      },
-    ) => Promise<void>;
-    onSkipCurrentGame?: () => Promise<void>;
-    onForceRefreshDropsData?: () => Promise<void>;
-    onTablessWatchActive?: () => boolean;
-  },
+  opts?: RotateStreamerIfInvalidOptions,
 ) {
   if (!state.appState.selectedGame) {
     return;
@@ -267,22 +569,7 @@ export async function rotateStreamerIfInvalid(
     if (opts?.onTablessWatchActive?.()) {
       return;
     }
-    if (
-      state.recoveryBackoffUntil > 0 &&
-      Date.now() < state.recoveryBackoffUntil &&
-      (state.appState.recoveryReason === 'open-failed' || state.appState.recoveryReason === 'no-streamers')
-    ) {
-      return;
-    }
-    if (opts?.onRotateStreamer) {
-      await opts.onRotateStreamer(state, 'open-failed', {
-        onOpenStreamer: opts?.onOpenStreamer,
-        onSaveState: opts?.onSaveState,
-        onSaveTimingState: opts?.onSaveTimingState,
-        onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
-        onSkipCurrentGame: opts?.onSkipCurrentGame,
-      });
-    }
+    await rotateForOpenFailed(state, opts);
     return;
   }
 
@@ -290,22 +577,7 @@ export async function rotateStreamerIfInvalid(
   if (!tab?.id) {
     state.appState.tabId = null;
     state.appState.activeStreamer = null;
-    if (
-      state.recoveryBackoffUntil > 0 &&
-      Date.now() < state.recoveryBackoffUntil &&
-      (state.appState.recoveryReason === 'open-failed' || state.appState.recoveryReason === 'no-streamers')
-    ) {
-      return;
-    }
-    if (opts?.onRotateStreamer) {
-      await opts.onRotateStreamer(state, 'open-failed', {
-        onOpenStreamer: opts?.onOpenStreamer,
-        onSaveState: opts?.onSaveState,
-        onSaveTimingState: opts?.onSaveTimingState,
-        onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
-        onSkipCurrentGame: opts?.onSkipCurrentGame,
-      });
-    }
+    await rotateForOpenFailed(state, opts);
     return;
   }
 
@@ -318,98 +590,17 @@ export async function rotateStreamerIfInvalid(
   const effectiveThreshold = computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
 
   if (!context) {
-    const tabUrl = tab.url ?? '';
-    const isStillOnTwitch = /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(tabUrl);
-    if (!isStillOnTwitch) {
-      logInfo('Managed tab navigated away from Twitch', { tabUrl });
-      state.invalidStreamChecks = INVALID_STREAM_THRESHOLD;
-    } else if (
-      shouldKeepStreamerWhileDropProgresses({
-        currentDrop: state.appState.currentDrop,
-        lastProgressAdvanceAt: state.lastProgressAdvanceAt,
-        now,
-        effectiveThresholdMs: effectiveThreshold,
-        reason: 'missing-context',
-      })
-    ) {
-      logDebug('Stream context missing but drop progress is recent; keeping current streamer', {
-        tabUrl,
-        lastProgressAdvanceAt: state.lastProgressAdvanceAt,
-        effectiveThresholdMs: effectiveThreshold,
-      });
-      state.invalidStreamChecks = 0;
-      return;
-    } else {
-      state.invalidStreamChecks += 1;
-    }
-    if (state.invalidStreamChecks >= INVALID_STREAM_THRESHOLD) {
-      if (now - state.lastStreamRotationAt < STREAM_ROTATE_COOLDOWN_MS) {
-        return;
-      }
-      state.invalidStreamChecks = 0;
-      if (opts?.onRotateStreamer) {
-        await opts.onRotateStreamer(state, isStillOnTwitch ? 'missing-context' : 'navigated-away', {
-          onOpenStreamer: opts?.onOpenStreamer,
-          onSaveState: opts?.onSaveState,
-          onSaveTimingState: opts?.onSaveTimingState,
-          onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
-          onSkipCurrentGame: opts?.onSkipCurrentGame,
-        });
-      }
-    }
+    await handleMissingStreamContext(state, tab, opts, now, effectiveThreshold);
     return;
   }
 
-  const sameChannel =
-    !state.appState.activeStreamer || context.channelName === state.appState.activeStreamer.name;
-  const hasDropsSignal = context.titleContainsDrops || context.hasDropsSignal;
-  const selectedCategorySlug = opts?.onResolveCategorySlug
-    ? normalizeToken(await opts.onResolveCategorySlug(state.appState.selectedGame))
-    : '';
-  const contextCategorySlug = normalizeToken(context.categorySlug);
-  const sameGame =
-    selectedCategorySlug.length === 0 || contextCategorySlug.length === 0
-      ? true
-      : selectedCategorySlug === contextCategorySlug;
-  const campaignGone = haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
-  const automatablePendingDrops = state.appState.pendingDrops.some(isRewardFarmableNow);
-  const expectsDropsSignal =
-    (state.appState.currentDrop != null && isRewardFarmableNow(state.appState.currentDrop)) ||
-    automatablePendingDrops ||
-    campaignGone;
-
-  logDebug('Stream health inputs', {
-    expectsDropsSignal,
-    hasDropsSignal,
-    campaignGone,
-    currentDrop: !!state.appState.currentDrop,
-    farmablePending: automatablePendingDrops,
-  });
-
-  // A stream that expects but shows no Drops signal is likely the wrong channel; shorten its
-  // stall window so we abandon it sooner instead of wasting the full threshold on it.
-  const noDropsSignal = expectsDropsSignal && !hasDropsSignal;
-  const stallThreshold = noDropsSignal
-    ? Math.min(effectiveThreshold, NO_DROPS_SIGNAL_STALL_THRESHOLD_MS)
-    : effectiveThreshold;
-  const progressStalled =
-    state.lastProgressAdvanceAt > 0 &&
-    state.appState.currentDrop != null &&
-    now - state.lastProgressAdvanceAt >= stallThreshold;
-
-  const health = classifyStreamHealth({
-    isLive: context.isLive,
-    sameChannel,
-    sameGame,
-    hasDropsSignal,
-    progressStalled,
-    expectsDropsSignal,
-  });
-
-  // A live reading clears any pending offline confirmation streak.
-  if (context.isLive) {
-    state.offlineChecks = 0;
-  }
+  const { health, stallThreshold } = await evaluateStreamHealth(
+    state,
+    context,
+    effectiveThreshold,
+    now,
+    opts,
+  );
 
   if (health.isHealthy) {
     state.invalidStreamChecks = 0;
@@ -420,60 +611,7 @@ export async function rotateStreamerIfInvalid(
     // Require consecutive offline readings before reloading — a single one is usually a
     // transient ad break or player re-render, not a real outage. Reloading then would be
     // the "tab reloads for no reason while the drop is still advancing" bug.
-    state.offlineChecks += 1;
-    if (state.offlineChecks < OFFLINE_CONFIRMATION_CHECKS) {
-      logDebug('Offline reading not yet confirmed; keeping current streamer', {
-        offlineChecks: state.offlineChecks,
-        required: OFFLINE_CONFIRMATION_CHECKS,
-        channel: state.appState.activeStreamer?.name ?? context.channelName,
-      });
-      return;
-    }
-    if (state.appState.recoveryReason === 'stalled-progress') {
-      clearRecoveryState(state);
-    }
-    // Respect backoff when already in offline/open-failed recovery — prevents a
-    // fast rotation loop when no replacement streamer is available (e.g. event-only
-    // drops with no live channels).
-    if (
-      state.recoveryBackoffUntil > 0 &&
-      now < state.recoveryBackoffUntil &&
-      (state.appState.recoveryReason === 'offline' ||
-        state.appState.recoveryReason === 'open-failed' ||
-        state.appState.recoveryReason === 'no-streamers')
-    ) {
-      logDebug('Offline detected but in recovery backoff, skipping rotation', {
-        recoveryReason: state.appState.recoveryReason,
-        backoffRemainingMs: state.recoveryBackoffUntil - now,
-      });
-      return;
-    }
-    // If persistent recovery cycles are exhausted, skip the game rather than
-    // looping forever — handles the case where no replacement streamer exists.
-    if (state.stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
-      logWarn('Offline recovery exhausted — skipping game', {
-        stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-        channel: state.appState.activeStreamer?.name ?? context.channelName,
-      });
-      if (opts?.onSkipCurrentGame) {
-        await opts.onSkipCurrentGame();
-      }
-      return;
-    }
-    state.invalidStreamChecks = 0;
-    logInfo('Offline stream detected, rotating immediately', {
-      channel: state.appState.activeStreamer?.name ?? context.channelName,
-      pageUrl: context.pageUrl,
-    });
-    if (opts?.onRotateStreamer) {
-      await opts.onRotateStreamer(state, 'offline', {
-        onOpenStreamer: opts?.onOpenStreamer,
-        onSaveState: opts?.onSaveState,
-        onSaveTimingState: opts?.onSaveTimingState,
-        onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
-        onSkipCurrentGame: opts?.onSkipCurrentGame,
-      });
-    }
+    await handleOfflineStream(state, context, opts, now);
     return;
   }
 
@@ -499,110 +637,11 @@ export async function rotateStreamerIfInvalid(
   }
 
   if (health.reason === 'stalled-progress') {
-    if (state.stalledRecoveryAttempts >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS) {
-      logWarn('Stalled progress recovery exhausted — skipping game', {
-        stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-        maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-        progress: state.appState.currentDrop?.progress ?? null,
-        currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
-      });
-      if (opts?.onSkipCurrentGame) {
-        await opts.onSkipCurrentGame();
-      }
-      return;
-    }
-    if (
-      state.recoveryBackoffUntil > 0 &&
-      now < state.recoveryBackoffUntil &&
-      state.appState.recoveryReason === 'stalled-progress'
-    ) {
-      return;
-    }
-    if (state.stalledRecoveryAttempts === 0) {
-      // Attempt 1: in-place playback self-heal before giving up the streamer (handles a
-      // stuck player or ad without losing a good Drops channel).
-      state.stalledRecoveryAttempts = 1;
-      state.lastRecoveryAttemptAt = now;
-      state.recoveryBackoffUntil = now + STALLED_PROGRESS_RETRY_MS;
-      applyRecoveryState(state, 'stalled-progress', state.recoveryBackoffUntil);
-      logInfo('Attempting in-place playback self-heal before rotating', {
-        stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-        maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-        recoveryBackoffUntil: state.recoveryBackoffUntil,
-      });
-      if (opts?.onAttemptPlaybackSelfHeal && tab.id) {
-        await opts.onAttemptPlaybackSelfHeal(tab.id);
-      }
-      if (opts?.onSaveState) {
-        await opts.onSaveState();
-      }
-      if (opts?.onSaveTimingState) {
-        await opts.onSaveTimingState(state);
-      }
-      return;
-    }
-    // Attempts 2+: self-heal did not help. Before rotating, force a fresh campaign+inventory
-    // poll — Twitch's claimed-rewards backend can lag behind its own notification/badge grant,
-    // so a stale cached drop can look stalled when it is already done. If the refresh proves
-    // progress (via detectRecoveryProof clearing stalledRecoveryAttempts) or the drop is gone,
-    // skip rotating a perfectly good streamer for nothing.
-    if (opts?.onForceRefreshDropsData) {
-      await opts.onForceRefreshDropsData();
-      if (state.stalledRecoveryAttempts === 0 || state.appState.currentDrop == null) {
-        return;
-      }
-    }
-    // Rotate to a DIFFERENT streamer. The stall threshold plus the self-heal backoff already
-    // rate-limit this, so the generic rotation cooldown does not apply; advance the attempt
-    // counter only when we actually rotate.
-    state.stalledRecoveryAttempts = Math.min(
-      MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-      state.stalledRecoveryAttempts + 1,
-    );
-    state.lastRecoveryAttemptAt = now;
-    state.recoveryBackoffUntil = 0;
-    state.invalidStreamChecks = 0;
-    applyRecoveryState(state, 'stalled-progress', null);
-    logInfo('Drop progress stalled, rotating to a different streamer', {
-      stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-      maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-      progress: state.appState.currentDrop?.progress ?? null,
-      currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
-      requiredMinutes: state.appState.currentDrop?.requiredMinutes ?? null,
-      effectiveThresholdMs: stallThreshold,
-      stalledForMs: now - state.lastProgressAdvanceAt,
-    });
-    if (opts?.onRotateStreamer) {
-      await opts.onRotateStreamer(state, 'stalled-progress', {
-        onOpenStreamer: opts?.onOpenStreamer,
-        onSaveState: opts?.onSaveState,
-        onSaveTimingState: opts?.onSaveTimingState,
-        onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
-        onSkipCurrentGame: opts?.onSkipCurrentGame,
-      });
-    }
-    return;
-  } else {
-    state.invalidStreamChecks += health.invalidIncrement;
-  }
-  if (state.invalidStreamChecks < INVALID_STREAM_THRESHOLD) {
+    await handleStalledProgress(state, tab, opts, now, stallThreshold);
     return;
   }
 
-  if (now - state.lastStreamRotationAt < STREAM_ROTATE_COOLDOWN_MS) {
-    return;
-  }
-
-  state.invalidStreamChecks = 0;
-  if (opts?.onRotateStreamer && health.reason) {
-    await opts.onRotateStreamer(state, health.reason, {
-      onOpenStreamer: opts?.onOpenStreamer,
-      onSaveState: opts?.onSaveState,
-      onSaveTimingState: opts?.onSaveTimingState,
-      onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
-      onSkipCurrentGame: opts?.onSkipCurrentGame,
-    });
-  }
+  await handleGenericInvalidStream(state, health, opts, now);
 }
 
 export async function openBestStreamerForSelectedGame(

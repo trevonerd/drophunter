@@ -1,22 +1,17 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { browser } from '../../shared/browser-api.ts';
-import { dropMatchesGame, isFavoriteGame, isHiddenGame } from '../../shared/game-selection';
+import { type ReactNode, useEffect, useState } from 'react';
+import { isFavoriteGame, isHiddenGame } from '../../shared/game-selection';
 import type { CampaignPriorityMode, GamePreference, TwitchDrop, TwitchGame } from '../../types';
-import {
-  type CampaignCatalogFilter,
-  type CampaignCatalogSortMode,
-  type CampaignProgressLookup,
-  groupCampaigns,
-  sortCampaignGroups,
-} from './campaign-list-model';
+import type { CampaignProgressLookup } from './campaign-list-model';
 import { GameCampaignGroup } from './GameCampaignGroup';
 import { EyeOffIcon } from './icons';
 import { OtherDropsDisclosure } from './OtherDropsDisclosure';
+import { useCampaignListState } from './useCampaignListState';
 
 export type {
   CampaignProgressLookup,
   CampaignProgressSummary,
 } from './campaign-list-model';
+export { resolveStoredCatalogFilter, shouldShowOtherDrops } from './useCampaignListState';
 
 export interface CampaignListProps {
   readonly campaigns: readonly TwitchGame[];
@@ -25,6 +20,8 @@ export interface CampaignListProps {
   readonly hiddenGameIds?: ReadonlySet<string> | readonly string[];
   readonly queueGames?: readonly TwitchGame[];
   readonly loadedCampaignKeys?: ReadonlySet<string> | readonly string[];
+  readonly refreshInProgress?: boolean;
+  readonly refreshStartedAt?: number | null;
   readonly progressByCampaignKey?: CampaignProgressLookup;
   readonly priorityMode?: CampaignPriorityMode;
   readonly highlightedCampaignKey?: string | null;
@@ -44,40 +41,8 @@ export interface CampaignListProps {
   readonly onLinkAccount?: (game: TwitchGame) => void;
 }
 
-const CATALOG_PREFERENCES_KEY = 'campaignCatalogPreferences';
-
-function initialSortMode(priorityMode: CampaignPriorityMode | undefined): CampaignCatalogSortMode {
-  return priorityMode === 'lowest-availability' ? 'lowest-availability' : 'ending-soonest';
-}
-
-function isCatalogSortMode(value: unknown): value is CampaignCatalogSortMode {
-  return value === 'ending-soonest' || value === 'lowest-availability' || value === 'alphabetical';
-}
-
-function isCatalogFilter(value: unknown): value is CampaignCatalogFilter {
-  return value === 'available' || value === 'favorites-only' || value === 'hidden-only' || value === 'all';
-}
-
 function favoriteIdSet(value: ReadonlySet<string> | readonly string[] | undefined): ReadonlySet<string> {
   return value instanceof Set ? value : new Set(value ?? []);
-}
-
-export function resolveStoredCatalogFilter(
-  value: unknown,
-  hiddenGameIds: ReadonlySet<string> | readonly string[] | undefined,
-): CampaignCatalogFilter {
-  const storedFilter = value === 'all' ? 'available' : isCatalogFilter(value) ? value : 'available';
-  return storedFilter === 'hidden-only' && favoriteIdSet(hiddenGameIds).size === 0
-    ? 'available'
-    : storedFilter;
-}
-
-export function shouldShowOtherDrops(
-  filter: CampaignCatalogFilter,
-  query: string,
-  resultCount: number,
-): boolean {
-  return (filter === 'available' || filter === 'all') && query.trim() === '' && resultCount > 0;
 }
 
 export function CampaignList({
@@ -87,6 +52,8 @@ export function CampaignList({
   hiddenGameIds,
   queueGames = [],
   loadedCampaignKeys,
+  refreshInProgress = false,
+  refreshStartedAt = null,
   progressByCampaignKey,
   priorityMode,
   highlightedCampaignKey = null,
@@ -102,116 +69,50 @@ export function CampaignList({
   onRemoveFromQueue,
   onLinkAccount,
 }: CampaignListProps) {
-  const [query, setQuery] = useState('');
-  const [sortMode, setSortMode] = useState<CampaignCatalogSortMode>(() => initialSortMode(priorityMode));
-  const [filter, setFilter] = useState<CampaignCatalogFilter>('available');
-  const initialHiddenGameIds = useRef(hiddenGameIds);
-  const [catalogFeedback, setCatalogFeedback] = useState<{
-    readonly message: string;
-    readonly game: TwitchGame;
-    readonly undoPreference: GamePreference;
-    readonly focusUndo: boolean;
-  } | null>(null);
-  const undoButtonRef = useRef<HTMLButtonElement>(null);
-  const filterSelectRef = useRef<HTMLSelectElement>(null);
-  const [activeHighlightKey, setActiveHighlightKey] = useState(highlightedCampaignKey);
-  const [expandedGameKey, setExpandedGameKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    setActiveHighlightKey(highlightedCampaignKey);
-    if (!highlightedCampaignKey) return;
-    const timeout = globalThis.setTimeout(() => setActiveHighlightKey(null), 180);
-    return () => globalThis.clearTimeout(timeout);
-  }, [highlightedCampaignKey]);
-
-  useEffect(() => {
-    browser.storage.local
-      .get([CATALOG_PREFERENCES_KEY])
-      .then((stored) => {
-        const preferences = stored[CATALOG_PREFERENCES_KEY];
-        if (!preferences || typeof preferences !== 'object') return;
-        const record = preferences as Record<string, unknown>;
-        if (isCatalogSortMode(record.sortMode)) setSortMode(record.sortMode);
-        const restoredFilter = resolveStoredCatalogFilter(record.filter, initialHiddenGameIds.current);
-        setFilter(restoredFilter);
-        if (record.filter !== restoredFilter) {
-          return browser.storage.local.set({
-            [CATALOG_PREFERENCES_KEY]: { ...record, filter: restoredFilter },
-          });
-        }
-      })
-      .catch(() => undefined);
-  }, []);
-
-  const favorites = useMemo(() => favoriteIdSet(favoriteGameIds), [favoriteGameIds]);
-  const hidden = useMemo(() => favoriteIdSet(hiddenGameIds), [hiddenGameIds]);
+  const {
+    query,
+    setQuery,
+    sortMode,
+    updateSortMode,
+    filter,
+    updateFilter,
+    catalogFeedback,
+    undoButtonRef,
+    filterSelectRef,
+    undoPreference,
+    activeHighlightKey,
+    expandedGameKey,
+    toggleGame,
+    favorites,
+    hidden,
+    groups,
+    unmatchedDrops,
+    orderLabel,
+    filterLabel,
+    showOtherDrops,
+    visibleCampaignCount,
+    handlePreference,
+  } = useCampaignListState({
+    campaigns,
+    drops,
+    favoriteGameIds,
+    hiddenGameIds,
+    progressByCampaignKey,
+    priorityMode,
+    highlightedCampaignKey,
+    onSetFavorite,
+    onSetGamePreference,
+  });
   const loadedKeys = favoriteIdSet(loadedCampaignKeys);
-  const groups = useMemo(() => {
-    const grouped = groupCampaigns(campaigns, drops, query).filter((group) => {
-      const representative = group.campaigns[0];
-      if (!representative) return false;
-      const isHidden = isHiddenGame(representative, hidden);
-      if (filter === 'available' || filter === 'all') return !isHidden;
-      if (filter === 'hidden-only') return isHidden;
-      return !isHidden && isFavoriteGame(representative, favorites);
-    });
-    return sortCampaignGroups(grouped, sortMode, progressByCampaignKey);
-  }, [campaigns, drops, favorites, filter, hidden, progressByCampaignKey, query, sortMode]);
-  const unmatchedDrops = useMemo(
-    () => drops.filter((drop) => !campaigns.some((campaign) => dropMatchesGame(drop, campaign))),
-    [campaigns, drops],
-  );
-  const orderLabel =
-    sortMode === 'ending-soonest'
-      ? 'Expiring first'
-      : sortMode === 'lowest-availability'
-        ? 'Lowest availability'
-        : 'Alphabetical';
-  const savePreferences = (nextSort: CampaignCatalogSortMode, nextFilter: CampaignCatalogFilter) => {
-    void browser.storage.local
-      .set({ [CATALOG_PREFERENCES_KEY]: { sortMode: nextSort, filter: nextFilter } })
-      .catch(() => undefined);
-  };
-  const handlePreference = async (
-    game: TwitchGame,
-    preference: GamePreference,
-    undoPreference: GamePreference,
-  ) => {
-    const focusUndo =
-      typeof document !== 'undefined' &&
-      document.activeElement instanceof HTMLElement &&
-      document.activeElement.classList.contains('dh-game-hide-action');
-    let result = false;
-    if (onSetGamePreference) {
-      result = (await onSetGamePreference(game, preference)) ?? false;
-    } else if (preference === 'favorite' || preference === 'normal') {
-      onSetFavorite?.(game, preference === 'favorite');
-      result = true;
-    }
-    if (result === false) {
-      if (focusUndo) globalThis.setTimeout(() => filterSelectRef.current?.focus(), 0);
-      return;
-    }
-    const label = game.name;
-    const message =
-      preference === 'hidden'
-        ? `${label} hidden from Available games.`
-        : preference === 'favorite'
-          ? `${label} restored to Favorites.`
-          : `${label} restored to Available games.`;
-    setCatalogFeedback({ message, game, undoPreference, focusUndo });
-  };
+  const [refreshNow, setRefreshNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!catalogFeedback) return;
-    if (catalogFeedback.focusUndo) undoButtonRef.current?.focus();
-    const timeout = globalThis.setTimeout(() => setCatalogFeedback(null), 6_000);
-    return () => globalThis.clearTimeout(timeout);
-  }, [catalogFeedback]);
-  const toggleGame = (key: string) => setExpandedGameKey((current) => (current === key ? null : key));
-  const showOtherDrops = shouldShowOtherDrops(filter, query, groups.length);
-  const visibleCampaignCount = groups.reduce((count, group) => count + group.campaigns.length, 0);
-  const filterLabel =
-    filter === 'hidden-only' ? 'Hidden' : filter === 'favorites-only' ? 'Favorites' : 'Available';
+    if (!refreshInProgress || !refreshStartedAt) return;
+    const delay = Math.max(0, 15_000 - (Date.now() - refreshStartedAt));
+    const timeout = window.setTimeout(() => setRefreshNow(Date.now()), delay);
+    return () => window.clearTimeout(timeout);
+  }, [refreshInProgress, refreshStartedAt]);
+  const refreshDelayed =
+    refreshInProgress && refreshStartedAt !== null && refreshNow - refreshStartedAt >= 15_000;
 
   return (
     <section aria-label="Campaigns" className="dh-group min-w-0">
@@ -250,9 +151,9 @@ export function CampaignList({
             value={sortMode}
             onChange={(event) => {
               const value = event.currentTarget.value;
-              if (!isCatalogSortMode(value)) return;
-              setSortMode(value);
-              savePreferences(value, filter);
+              if (value === 'ending-soonest' || value === 'lowest-availability' || value === 'alphabetical') {
+                updateSortMode(value);
+              }
             }}
           >
             <option value="ending-soonest">Expiring first</option>
@@ -278,9 +179,9 @@ export function CampaignList({
             value={filter === 'all' ? 'available' : filter}
             onChange={(event) => {
               const value = event.currentTarget.value;
-              if (!isCatalogFilter(value)) return;
-              setFilter(value);
-              savePreferences(sortMode, value);
+              if (value === 'available' || value === 'favorites-only' || value === 'hidden-only') {
+                updateFilter(value);
+              }
             }}
           >
             <option value="available">Available</option>
@@ -296,11 +197,7 @@ export function CampaignList({
             type="button"
             ref={undoButtonRef}
             className="dh-focus underline underline-offset-2"
-            onClick={async () => {
-              await onSetGamePreference?.(catalogFeedback.game, catalogFeedback.undoPreference);
-              setCatalogFeedback(null);
-              filterSelectRef.current?.focus();
-            }}
+            onClick={undoPreference}
           >
             Undo
           </button>
@@ -332,6 +229,7 @@ export function CampaignList({
                   hidden={representative ? isHiddenGame(representative, hidden) : false}
                   queueGames={queueGames}
                   loadedCampaignKeys={loadedKeys}
+                  refreshDelayed={refreshDelayed}
                   expanded={expandedGameKey === group.key}
                   progressByCampaignKey={progressByCampaignKey}
                   highlightedCampaignKey={activeHighlightKey}

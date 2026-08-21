@@ -4,6 +4,7 @@ import { pickNearestDrop } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
 import {
   deriveRuntimeMode,
+  formatEtaMinutes,
   formatFarmingCompleteStatusLines,
   formatRecoveryAttemptLabel,
   formatRecoveryReason,
@@ -16,22 +17,7 @@ import type { AppState, AutomationActivityEntry } from '../types';
 const AUTOMATION_NOTICE_TTL_MS = 6_000;
 
 function etaLabel(value?: number | null): string {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return 'ETA n/a';
-  }
-  const minutes = Math.max(0, Math.round(value));
-  if (minutes <= 0) {
-    return 'ETA < 1m';
-  }
-  const hours = Math.floor(minutes / 60);
-  const rem = minutes % 60;
-  if (hours === 0) {
-    return `ETA ${rem}m`;
-  }
-  if (rem === 0) {
-    return `ETA ${hours}h`;
-  }
-  return `ETA ${hours}h ${rem}m`;
+  return `ETA ${formatEtaMinutes(value) ?? 'n/a'}`;
 }
 
 function updatedLabel(timestamp: number): string {

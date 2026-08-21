@@ -153,6 +153,8 @@ export interface DropsSnapshot {
   games: TwitchGame[];
   drops: TwitchDrop[];
   campaignChannelsMap?: Record<string, string[] | null>;
+  /** True only when this campaign snapshot was paired with a successful inventory read. */
+  inventoryVerified?: boolean;
   updatedAt: number;
 }
 

@@ -51,6 +51,7 @@ type TwitchGateway = Pick<
   ReturnType<typeof createServiceWorkerTwitchGateway>,
   | 'ensureContentScriptOnTab'
   | 'fetchDropsSnapshot'
+  | 'fetchDropsSnapshotProgressively'
   | 'persistSessionFromDropsPage'
   | 'shouldRefreshCampaignsAfterSessionSync'
 >;
@@ -79,6 +80,12 @@ export function createServiceWorkerContentHandlers(
 ) {
   const gamesCacheRefreshDependencies: GamesCacheRefreshDeps = {
     fetchDropsSnapshot: dependencies.twitchGateway.fetchDropsSnapshot,
+    fetchDropsSnapshotProgressively: dependencies.twitchGateway.fetchDropsSnapshotProgressively,
+    onProgressiveSnapshotApplied: () => {
+      void dependencies.automation.request('campaign-refresh').catch((error) => {
+        logDebug('Progressive favorite auto-start evaluation failed', { error: String(error) });
+      });
+    },
     replaceAvailableGames,
     annotateGameCompletion,
     normalizeGameSelection,

@@ -51,6 +51,8 @@ export type FarmingAutomationDirectoryResult =
 export interface FarmingAutomationTwitchSource {
   readonly loadSession: (forceRefresh: boolean) => Promise<TwitchSession | null>;
   readonly fetchCampaignSnapshot: (session: TwitchSession) => Promise<DropsSnapshot | null>;
+  /** Whether a specific campaign snapshot already includes a fresh inventory projection. */
+  readonly campaignSnapshotIncludesInventory?: (snapshot: DropsSnapshot) => boolean;
   readonly fetchInventorySnapshot?: (
     session: TwitchSession,
     baseDrops: readonly TwitchDrop[],
@@ -123,7 +125,7 @@ export function createFarmingAutomationTwitchAdapter(
     if (!campaignSnapshot) throw new FarmingAutomationCampaignRefreshError('Empty Twitch campaign snapshot');
 
     let combinedSnapshot = campaignSnapshot;
-    if (source.fetchInventorySnapshot) {
+    if (source.fetchInventorySnapshot && !source.campaignSnapshotIncludesInventory?.(campaignSnapshot)) {
       let inventorySnapshot: DropsSnapshot | null;
       try {
         inventorySnapshot = await source.fetchInventorySnapshot(session, campaignSnapshot.drops);
