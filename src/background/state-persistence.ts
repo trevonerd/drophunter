@@ -9,8 +9,8 @@ import {
   TIMING_STATE_KEY,
 } from './constants';
 import { logDebug, logWarn } from './logging';
-import { normalizeTimingState, TimingState } from './runtime-state';
-import type { ServiceWorkerState } from './service-worker';
+import { normalizeTimingState, pickDurablePreferences, TimingState } from './runtime-state';
+import type { ServiceWorkerState } from './runtime-state.ts';
 import type { TwitchSession } from './twitch-api/types';
 
 let timingSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -276,25 +276,7 @@ export async function resetStateForInactivity(
     TIMING_STATE_KEY: string;
   },
 ): Promise<void> {
-  const persistentState = {
-    totalDropsClaimed: state.appState.totalDropsClaimed,
-    totalChannelPointsClaimed: state.appState.totalChannelPointsClaimed,
-    monitorAutoOpen: state.appState.monitorAutoOpen,
-    autoResumeOnStartup: state.appState.autoResumeOnStartup,
-    muteFarmingTab: state.appState.muteFarmingTab,
-    notificationsEnabled: state.appState.notificationsEnabled,
-    telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-    autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus,
-    autoClaimDrops: state.appState.autoClaimDrops,
-    streamerSelectionMode: state.appState.streamerSelectionMode,
-    preferredStreamerLanguage: state.appState.preferredStreamerLanguage,
-    favoriteGames: state.appState.favoriteGames,
-    hiddenGames: state.appState.hiddenGames,
-    campaignPriorityMode: state.appState.campaignPriorityMode,
-    farmCategoryScope: state.appState.farmCategoryScope,
-    autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
-    watchTransportPreference: state.appState.watchTransportPreference,
-  };
+  const persistentState = pickDurablePreferences(state.appState);
   callbacks.onStopMonitoring();
   state.appState = callbacks.onClearRotationMetadata({
     ...deps.createInitialState(),

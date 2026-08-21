@@ -7,14 +7,14 @@ export function toSlug(value: string): string {
     .replace(/^-|-$/g, '');
 }
 
-export function isExpiredGame(game: TwitchGame): boolean {
+export function isExpiredGame(game: TwitchGame, now: number = Date.now()): boolean {
   if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)) {
     return game.expiresInMs <= 0;
   }
   if (game.endsAt) {
     const endsAtMs = new Date(game.endsAt).getTime();
     if (Number.isFinite(endsAtMs)) {
-      return endsAtMs <= Date.now();
+      return endsAtMs <= now;
     }
   }
   return false;

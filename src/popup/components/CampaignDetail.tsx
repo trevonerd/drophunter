@@ -17,6 +17,7 @@ interface CampaignDetailProps {
   readonly allDrops: readonly TwitchDrop[];
   readonly queueGames: readonly TwitchGame[];
   readonly loadedCampaignKeys: ReadonlySet<string>;
+  readonly refreshDelayed?: boolean;
   readonly progressByCampaignKey?: CampaignProgressLookup;
   readonly highlightedCampaignKey: string | null;
   readonly actionLoading: boolean;
@@ -127,7 +128,7 @@ export function CampaignDetail(props: CampaignDetailProps) {
       </div>
       {!completed && !loaded && (
         <p className="mt-1 text-[10px] text-[color:var(--dh-muted)]" role="status">
-          Loading Drops…
+          {props.refreshDelayed ? 'Still loading Drops — retrying…' : 'Loading Drops…'}
         </p>
       )}
       {!completed && loaded && rewards.length === 0 && (

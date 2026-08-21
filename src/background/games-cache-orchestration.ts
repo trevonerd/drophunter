@@ -5,7 +5,7 @@
 // explicit `state` + dep callbacks — they do NOT close over any adapter
 // factory and have no shared mutable state.
 
-import { dropMatchesGame, isSameGameIdentity } from '../shared/game-selection';
+import { dropMatchesGame, gameKey, isSameGameIdentity } from '../shared/game-selection';
 import { isRewardAutomatable } from '../shared/reward-semantics';
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
 import {
@@ -32,12 +32,24 @@ export interface RefreshGamesCacheOptions {
   // by one-shot call sites (e.g. session sync) that have no internal
   // retry-until-ready loop of their own, unlike the drops-page-refresh flow.
   requireConsecutiveEmptyConfirmation?: boolean;
+  // A partial campaign batch has been applied and persisted. Callers that
+  // present refresh progress can release their initial loading state while
+  // the remaining batches continue in the background.
+  onProgressiveSnapshotApplied?: () => Promise<void> | void;
 }
 
 export type { GamesCacheRefreshResult } from './games-cache-refresh-state.ts';
 
 export interface GamesCacheRefreshDeps {
   fetchDropsSnapshot: (forceSessionRefresh: boolean) => Promise<DropsSnapshot | null>;
+  fetchDropsSnapshotProgressively?: (
+    forceSessionRefresh: boolean,
+    options: {
+      readonly priorityGameIds: readonly string[];
+      readonly onProgress: (snapshot: DropsSnapshot) => Promise<void>;
+    },
+  ) => Promise<DropsSnapshot | null>;
+  onProgressiveSnapshotApplied?: () => void;
   replaceAvailableGames: (games: TwitchGame[]) => TwitchGame[];
   annotateGameCompletion: (
     games: TwitchGame[],
@@ -71,7 +83,20 @@ export async function refreshGamesCacheFromHiddenFetch(
   const refreshInFlight = (async (): Promise<GamesCacheRefreshResult> => {
     let fetchedGames: TwitchGame[] = [];
     let provenance: DropsSnapshotProvenance = 'cached';
-    const apiSnapshot = await deps.fetchDropsSnapshot(Boolean(options.forceSessionRefresh));
+    const priorityGameIds = state.appState.favoriteGames.flatMap((favorite) => [
+      favorite.gameId,
+      ...(favorite.identityKeys ?? []),
+    ]);
+    const apiSnapshot = deps.fetchDropsSnapshotProgressively
+      ? await deps.fetchDropsSnapshotProgressively(Boolean(options.forceSessionRefresh), {
+          priorityGameIds,
+          onProgress: async (snapshot) => {
+            await applyProgressiveCampaignSnapshot(state, snapshot, deps);
+            await options.onProgressiveSnapshotApplied?.();
+            deps.onProgressiveSnapshotApplied?.();
+          },
+        })
+      : await deps.fetchDropsSnapshot(Boolean(options.forceSessionRefresh));
     if (!apiSnapshot && options.requireFreshSnapshot) {
       return { kind: 'unavailable', games: state.appState.availableGames };
     }
@@ -198,6 +223,34 @@ export async function refreshGamesCacheFromHiddenFetch(
   setGamesCacheRefreshInFlight(state, refreshInFlight);
 
   return refreshInFlight;
+}
+
+async function applyProgressiveCampaignSnapshot(
+  state: ServiceWorkerState,
+  snapshot: DropsSnapshot,
+  deps: GamesCacheRefreshDeps,
+): Promise<void> {
+  const mergedGames = deps.replaceAvailableGames([...state.appState.availableGames, ...snapshot.games]);
+  const mergedSnapshot: DropsSnapshot = {
+    games: mergedGames,
+    drops: mergeUniqueDrops(state.cachedDropsSnapshot, snapshot.drops),
+    campaignChannelsMap: { ...state.cachedCampaignChannelsMap, ...snapshot.campaignChannelsMap },
+    updatedAt: snapshot.updatedAt,
+  };
+  const reconciledDrops = reconcileUnverifiableRewardMarkers(state, mergedSnapshot, 'campaign-authoritative');
+  state.cachedDropsSnapshot = reconciledDrops;
+  state.cachedCampaignChannelsMap = mergedSnapshot.campaignChannelsMap ?? state.cachedCampaignChannelsMap;
+  const annotatedGames = deps.annotateGameCompletion(mergedGames, reconciledDrops, 'campaign-authoritative');
+  state.appState.availableGames = annotatedGames;
+  state.appState.campaignDropsByKey = Object.fromEntries(
+    annotatedGames.map((game) => [
+      gameKey(game),
+      reconciledDrops.filter((drop) => dropMatchesGame(drop, game)),
+    ]),
+  );
+  if (state.appState.selectedGame) deps.splitDropsForSelectedGame(state, reconciledDrops);
+  state.appState.lastSuccessfulRefreshAt = Date.now();
+  await deps.saveState(state);
 }
 
 async function applyAuthoritativeEmptyCampaignRefresh(

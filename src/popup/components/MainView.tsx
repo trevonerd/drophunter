@@ -170,6 +170,8 @@ export function MainView({
                 hiddenGameIds={hiddenIds}
                 queueGames={queueGames}
                 loadedCampaignKeys={loadedCampaignKeys}
+                refreshInProgress={dropsRefreshLoading}
+                refreshStartedAt={state.lastDropsPageRefreshAttemptAt}
                 progressByCampaignKey={progressForCampaign}
                 priorityMode={campaignPriorityMode}
                 highlightedCampaignKey={highlightedCampaignKey}

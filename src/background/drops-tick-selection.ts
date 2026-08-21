@@ -2,7 +2,7 @@
 import type { TwitchDrop, TwitchGame } from '../types';
 import { rememberInspectedCampaignSummary } from './drops-projection-semantics.ts';
 import { markQueueEntryManual } from './queue-operations';
-import type { ServiceWorkerState } from './service-worker';
+import type { ServiceWorkerState } from './runtime-state.ts';
 
 export interface HandleSetSelectedGameCallbacks {
   onTrackActivity: (reason: string) => Promise<void>;

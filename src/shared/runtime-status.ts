@@ -203,3 +203,22 @@ export function formatRetryLabel(timestamp?: number | null, now = Date.now()): s
   }
   return `retry in ${Math.ceil(seconds / 60)}m`;
 }
+
+export function formatEtaMinutes(value?: number | null): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  const minutes = Math.max(0, Math.round(value));
+  if (minutes <= 0) {
+    return '< 1m';
+  }
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  if (hours === 0) {
+    return `${rem}m`;
+  }
+  if (rem === 0) {
+    return `${hours}h`;
+  }
+  return `${hours}h ${rem}m`;
+}

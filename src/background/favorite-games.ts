@@ -4,6 +4,7 @@ import {
   gameCategoryKey,
   gameKey,
 } from '../shared/game-selection.ts';
+import { isExpiredGame } from '../shared/utils.ts';
 import type {
   AppState,
   CampaignPriorityMode,
@@ -41,17 +42,6 @@ function manualMetadata(addedAt: number): QueueEntryMetadata {
 
 function favoriteMetadata(addedAt: number): QueueEntryMetadata {
   return { source: 'favorite-auto', addedAt, reason: 'favorite-discovered' };
-}
-
-function isExpiredAt(game: TwitchGame, now: number): boolean {
-  if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)) {
-    return game.expiresInMs <= 0;
-  }
-  if (!game.endsAt) {
-    return false;
-  }
-  const endsAt = Date.parse(game.endsAt);
-  return Number.isFinite(endsAt) && endsAt <= now;
 }
 
 function planQueueMetadata(
@@ -122,7 +112,7 @@ export function planFavoriteCampaignQueue(
       const favoriteKey = matchingFavoriteKey(game, input.favoriteGames);
       return favoriteKey &&
         !queuedKeys.has(gameKey(game)) &&
-        !isExpiredAt(game, now) &&
+        !isExpiredGame(game, now) &&
         game.rewardSummary?.completion === 'farmable'
         ? [{ game, favoriteKey }]
         : [];

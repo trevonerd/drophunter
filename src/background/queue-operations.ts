@@ -9,7 +9,7 @@ import { isExpiredGame } from '../shared/utils';
 import { TwitchGame } from '../types';
 import { CRASH_RECOVERY_GRACE_MS, QUEUE_MISSING_CONFIRM_THRESHOLD } from './constants';
 import { logDebug } from './logging';
-import type { ServiceWorkerState } from './service-worker';
+import type { ServiceWorkerState } from './runtime-state.ts';
 
 // queue-operations.ts — campaign-aware queue identity + pure queue mutators.
 // Owns queue shape + campaign-aware identity (see AGENTS.md: prefer campaignId;

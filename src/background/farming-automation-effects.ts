@@ -200,7 +200,7 @@ export async function runFarmingAutomationStartedEffects(input: StartedEffectsIn
   const saved = await saveFarmingAutomationFacts(input.persistence, input.facts);
   if (!saved) logWarn('Farming automation activity presentation failed');
 
-  if (activityAdded) {
+  if (activityAdded && input.state.appState.notificationsEnabled) {
     try {
       const delivered = await input.browser.deliverNotification({
         id: transitionActivityId(input.receipt),

@@ -188,14 +188,6 @@ export function dedupeGamesByIdentity(games: TwitchGame[]): TwitchGame[] {
   return Array.from(merged.values());
 }
 
-export function isSameGame(left: TwitchGame, right: TwitchGame): boolean {
-  return (
-    left.id === right.id ||
-    Boolean(left.campaignId && right.campaignId && left.campaignId === right.campaignId) ||
-    gameKey(left) === gameKey(right)
-  );
-}
-
 export function findMatchingGame(target: TwitchGame, source: TwitchGame[]): TwitchGame | null {
   const targetKey = gameKey(target);
   const exact = source.find((game) =>

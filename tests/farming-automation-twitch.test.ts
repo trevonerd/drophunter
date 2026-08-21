@@ -135,6 +135,31 @@ describe('farming automation Twitch adapter', () => {
     await expect(inventoryAdapter.refresh()).rejects.toBeInstanceOf(FarmingAutomationInventoryRefreshError);
   });
 
+  test('uses a verified progressive campaign snapshot without a second inventory round-trip', async () => {
+    let inventoryCalls = 0;
+    const verifiedSnapshot: DropsSnapshot = {
+      games: [game('campaign-a')],
+      drops: [drop('campaign-a', 10)],
+      inventoryVerified: true,
+      updatedAt: 10,
+    };
+    const adapter = createFarmingAutomationTwitchAdapter(
+      source({
+        fetchCampaignSnapshot: async () => verifiedSnapshot,
+        campaignSnapshotIncludesInventory: (snapshot) => snapshot.inventoryVerified === true,
+        fetchInventorySnapshot: async () => {
+          inventoryCalls += 1;
+          return { games: [], drops: [], updatedAt: 11 };
+        },
+      }),
+    );
+
+    const result = await adapter.refresh();
+
+    expect(result.kind).toBe('ready');
+    expect(inventoryCalls).toBe(0);
+  });
+
   test('returns refresh failure without projecting or mutating live state', async () => {
     const liveProjection = {
       selectedGame: game('incumbent'),

@@ -106,6 +106,56 @@ const freshFarmableReward: TwitchDrop = {
 };
 
 describe('refreshGamesCacheFromHiddenFetch terminal inspection', () => {
+  test('projects a verified favorite batch and requests automation without disrupting the manual queue', async () => {
+    const state = createServiceWorkerState();
+    const favoriteCampaign: TwitchGame = {
+      id: 'favorite-game',
+      name: 'Favorite Game',
+      imageUrl: '',
+      campaignId: 'favorite-campaign',
+      dropCount: 1,
+    };
+    const favoriteDrop: TwitchDrop = {
+      ...freshFarmableReward,
+      id: 'favorite-drop',
+      gameId: favoriteCampaign.id,
+      gameName: favoriteCampaign.name,
+      campaignId: favoriteCampaign.campaignId,
+    };
+    state.appState.favoriteGames = [{ gameId: 'favorite-game', lastKnownName: 'Favorite Game', addedAt: 1 }];
+    state.appState.queue = [selectedCampaign];
+    const clearCalls = { count: 0 };
+    const deps = makeDeps(
+      {
+        games: [selectedCampaign, favoriteCampaign],
+        drops: [subscriptionReward, favoriteDrop],
+        updatedAt: 2,
+      },
+      clearCalls,
+    );
+    let callbackCount = 0;
+    let observedQueue: readonly string[] = [];
+    deps.fetchDropsSnapshotProgressively = async (_force, options) => {
+      expect(options.priorityGameIds).toContain('favorite-game');
+      await options.onProgress({ games: [favoriteCampaign], drops: [favoriteDrop], updatedAt: 1 });
+      observedQueue = state.appState.queue.map((game) => game.campaignId ?? '');
+      return {
+        games: [selectedCampaign, favoriteCampaign],
+        drops: [subscriptionReward, favoriteDrop],
+        updatedAt: 2,
+      };
+    };
+    deps.onProgressiveSnapshotApplied = () => {
+      callbackCount += 1;
+    };
+
+    await refreshGamesCacheFromHiddenFetch(state, {}, deps);
+
+    expect(observedQueue).toEqual(['terminal-campaign']);
+    expect(callbackCount).toBe(1);
+    expect(state.appState.campaignDropsByKey['campaign:favorite-campaign']).toHaveLength(1);
+  });
+
   test('preserves a still-present farming-complete campaign and projected remainder context while idle', async () => {
     // Given: an idle terminal selection with the canonical stop copy and a Twitch-native marker.
     const state = createServiceWorkerState();

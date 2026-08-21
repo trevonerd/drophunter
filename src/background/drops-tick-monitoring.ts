@@ -8,7 +8,7 @@ import {
   TICK_WATCHDOG_TIMEOUT_MS,
 } from './constants';
 import { logDebug, logWarn } from './logging';
-import type { ServiceWorkerState } from './service-worker';
+import type { ServiceWorkerState } from './runtime-state.ts';
 
 export interface CheckDropProgressCallbacks {
   onEnforcePlaybackPolicy: () => Promise<void>;

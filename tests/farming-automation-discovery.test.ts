@@ -6,6 +6,7 @@ import type {
 } from '../src/background/farming-automation-twitch.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { CampaignCompletion, TwitchGame } from '../src/types/index.ts';
+import { createDeferred, flushMicrotasks } from './support/farming-automation-fixtures.ts';
 
 function campaign(campaignId: string, completion: CampaignCompletion): TwitchGame {
   return {
@@ -92,4 +93,60 @@ test('directory discovery requests only classified farmable campaigns', async ()
     directoryKeys: [gameKey(farmable)],
     availabilityKeys: [gameKey(farmable)],
   });
+});
+
+test('starts farmable directory lookups concurrently after the authoritative refresh', async () => {
+  // Given: two classified campaigns whose directory requests are independently delayed.
+  const first = campaign('first', 'farmable');
+  const second = campaign('second', 'farmable');
+  const snapshot: FarmingAutomationTwitchSnapshot = {
+    games: [first, second],
+    drops: [],
+    campaignDropsByKey: {},
+    campaignChannelsMap: {},
+    updatedAt: 1_000,
+  };
+  const firstDirectory = createDeferred<void>();
+  const secondDirectory = createDeferred<void>();
+  const requestedCampaigns: string[] = [];
+  const twitch: FarmingAutomationTwitchAdapter = {
+    refresh: async () => ({
+      kind: 'ready',
+      snapshot,
+      refreshPatch: {
+        availableGames: snapshot.games,
+        allDrops: snapshot.drops,
+        campaignDropsByKey: snapshot.campaignDropsByKey,
+        campaignChannelsMap: snapshot.campaignChannelsMap,
+      },
+    }),
+    fetchDirectory: async (game) => {
+      const campaignId = game.campaignId ?? 'missing';
+      requestedCampaigns.push(campaignId);
+      await (campaignId === 'first' ? firstDirectory.promise : secondDirectory.promise);
+      return {
+        kind: 'ready',
+        target: {
+          campaignKey: gameKey(game),
+          campaignId: game.campaignId ?? null,
+          gameId: game.id,
+          gameName: game.name,
+          categoryId: null,
+          categorySlug: 'marvel-rivals',
+        },
+        streamers: [{ id: campaignId, name: campaignId, displayName: campaignId, isLive: true }],
+        languageFilterApplied: false,
+      };
+    },
+  };
+
+  // When: discovery begins after the authoritative catalog is ready.
+  const pending = discoverFarmingAutomationCandidates(twitch, '', 2_000);
+  await flushMicrotasks();
+
+  // Then: a slow first directory cannot postpone issuing the second request.
+  expect(requestedCampaigns).toEqual(['first', 'second']);
+  firstDirectory.resolve(undefined);
+  secondDirectory.resolve(undefined);
+  await expect(pending).resolves.toMatchObject({ kind: 'ready' });
 });

@@ -36,6 +36,7 @@ type TwitchGateway = Pick<
   | 'ensureTwitchSession'
   | 'fetchDirectoryStreamers'
   | 'fetchDropsSnapshot'
+  | 'getLatestProgressSnapshot'
   | 'fetchInventorySnapshot'
   | 'fetchStreamContext'
   | 'heartbeat'
@@ -111,7 +112,10 @@ export async function assembleServiceWorkerFarmingAutomation(
   });
   const twitch = createFarmingAutomationTwitchAdapter({
     loadSession: dependencies.twitchGateway.ensureTwitchSession,
-    fetchCampaignSnapshot: () => dependencies.twitchGateway.fetchDropsSnapshot(),
+    fetchCampaignSnapshot: async () =>
+      dependencies.twitchGateway.getLatestProgressSnapshot() ??
+      (await dependencies.twitchGateway.fetchDropsSnapshot()),
+    campaignSnapshotIncludesInventory: (snapshot) => snapshot.inventoryVerified === true,
     fetchInventorySnapshot: (_session, baseDrops) =>
       dependencies.twitchGateway.fetchInventorySnapshot([...baseDrops]),
     fetchDirectoryStreamers: async (game, _session, language) => {

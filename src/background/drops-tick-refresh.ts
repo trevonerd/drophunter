@@ -2,7 +2,7 @@
 import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
 import { detectNewlyClaimedDrops, recordClaimedDrops } from './claim-log.ts';
 import { completedDropKeys, type DropsSnapshotProvenance } from './drops-projection.ts';
-import type { ServiceWorkerState } from './service-worker';
+import type { ServiceWorkerState } from './runtime-state.ts';
 
 export interface RefreshDropsDataCallbacks {
   onFetchDropsSnapshotFromApi: (force?: boolean) => Promise<DropsSnapshot | null>;

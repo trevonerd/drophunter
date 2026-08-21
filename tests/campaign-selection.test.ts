@@ -5,7 +5,6 @@ import {
   dropMatchesGame,
   findMatchingGame,
   getGameDisplayLabel,
-  isSameGame,
   isSameGameIdentity,
 } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
@@ -173,7 +172,6 @@ describe('campaign-aware game selection', () => {
     const first = createGame({ id: 'campaign-1', campaignId: 'campaign-1' });
     const second = createGame({ id: 'campaign-2', campaignId: 'campaign-2' });
 
-    expect(isSameGame(first, second)).toBe(false);
     expect(isSameGameIdentity(first, second)).toBe(false);
   });
 
@@ -181,7 +179,6 @@ describe('campaign-aware game selection', () => {
     const first = createGame({ id: 'shared-game-id', campaignId: 'campaign-a' });
     const second = createGame({ id: 'shared-game-id', campaignId: 'campaign-b' });
 
-    expect(isSameGame(first, second)).toBe(true);
     expect(isSameGameIdentity(first, second)).toBe(false);
   });
 });

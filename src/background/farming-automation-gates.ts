@@ -169,9 +169,6 @@ export function cheapFarmingAutomationGate(
   snoozed: boolean,
 ): FarmingAutomationOutcome | null {
   if (!state.appState.autoStartFavoriteGames) return { kind: 'unchanged', reason: 'disabled' };
-  if (!state.appState.notificationsEnabled) {
-    return { kind: 'failed', reason: 'notifications-unavailable' };
-  }
   if (snoozed) return { kind: 'unchanged', reason: 'snoozed' };
   if (state.appState.isPaused) return { kind: 'unchanged', reason: 'paused' };
   return null;

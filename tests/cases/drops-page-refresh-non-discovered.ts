@@ -1,5 +1,10 @@
 import { expect, test } from 'bun:test';
-import { createDropsPageState, createTabsApi, createTestRefresher } from '../fixtures/drops-page-refresh.ts';
+import {
+  createDropsPageState,
+  createTabsApi,
+  createTestRefresher,
+  setDiscoveredGame,
+} from '../fixtures/drops-page-refresh.ts';
 
 export function registerNonDiscoveredDropsPageRefreshCases() {
   test('waited refresh treats a signed-in authoritative zero-campaign result as a successful sync', async () => {
@@ -106,6 +111,48 @@ export function registerNonDiscoveredDropsPageRefreshCases() {
       'save',
       'broadcast',
     ]);
+  });
+
+  test('releases the global loader after the first progressive campaign batch', async () => {
+    const state = createDropsPageState();
+    const tabsApi = createTabsApi();
+    let releaseFinalBatch: () => void = () => {};
+    const finalBatch = new Promise<void>((resolve) => {
+      releaseFinalBatch = resolve;
+    });
+    let releaseTabLoad: () => void = () => {};
+    const tabLoad = new Promise<void>((resolve) => {
+      releaseTabLoad = resolve;
+    });
+    let reportInitialBatch: () => void = () => {};
+    const initialBatchReported = new Promise<void>((resolve) => {
+      reportInitialBatch = resolve;
+    });
+    const refresher = createTestRefresher(state, tabsApi, {
+      waitForTabComplete: async () => {
+        await tabLoad;
+      },
+      refreshGamesCacheFromHiddenFetch: async (options) => {
+        setDiscoveredGame(state);
+        await options.onProgressiveSnapshotApplied?.();
+        reportInitialBatch();
+        await finalBatch;
+        return { kind: 'refreshed', games: state.appState.availableGames };
+      },
+      campaignRefreshAttempts: 1,
+      campaignRefreshRetryDelayMs: 0,
+    });
+
+    await refresher.openDropsPageAndRefresh({ waitForRefresh: false });
+    releaseTabLoad();
+    await initialBatchReported;
+
+    expect(state.appState.dropsPageRefreshInProgress).toBe(false);
+    expect(state.appState.lastDropsPageRefreshCampaignCount).toBe(1);
+    expect(state.appState.lastDropsPageRefreshError).toBeNull();
+
+    releaseFinalBatch();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   test('clears background refresh progress when the async refresh fails', async () => {
