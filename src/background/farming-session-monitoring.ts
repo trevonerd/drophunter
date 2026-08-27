@@ -10,12 +10,16 @@ import {
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
 import { logWarn } from './logging.ts';
 import { normalizeQueueSelection } from './queue-operations.ts';
+import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 
 type FarmingSessionMonitoringDependencies = {
   readonly onRotateStreamerIfInvalid: () => Promise<void>;
   readonly onAcquireStreamerForSelectedGame: () => Promise<boolean>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
   readonly onHandleRecoverySkip: () => Promise<void>;
+  readonly onRecoverStalledProgress: (
+    source: StalledProgressSource,
+  ) => Promise<StalledProgressRecoveryResult>;
 };
 
 export type FarmingSessionMonitoring = {
@@ -72,8 +76,32 @@ export function createFarmingSessionMonitoring(
     }
 
     const health = await adapters.watchTransport?.tick();
+    const stalledRecoveryDue =
+      state.appState.recoveryReason === 'stalled-progress' && context.now() >= state.recoveryBackoffUntil;
+    const tablessStallDetected =
+      health?.mode === 'tabless' && health.reason === 'stalled-progress' && health.shouldFallback;
+    const tablessRecoveryDue =
+      stalledRecoveryDue && (health?.mode === 'tabless' || state.appState.watchTransportMode === 'tabless');
+    if (tablessStallDetected || tablessRecoveryDue) {
+      const result = await dependencies.onRecoverStalledProgress({ kind: 'tabless' });
+      return result.kind === 'selection-changed';
+    }
+    if (stalledRecoveryDue && state.appState.tabId) {
+      const result = await dependencies.onRecoverStalledProgress({
+        kind: 'managed-tab',
+        tabId: state.appState.tabId,
+      });
+      return result.kind === 'selection-changed';
+    }
     if (health?.mode !== 'managed-tab' || !health.shouldFallback) {
       return false;
+    }
+    if (health.reason === 'stalled-progress' && state.appState.tabId) {
+      const result = await dependencies.onRecoverStalledProgress({
+        kind: 'managed-tab',
+        tabId: state.appState.tabId,
+      });
+      return result.kind === 'selection-changed';
     }
     await dependencies.onHandleRecoverySkip();
     return true;
@@ -156,7 +184,6 @@ export function createFarmingSessionMonitoring(
 
   function startMonitoring(): void {
     browser.alarms.create(ALARM_NAME, { periodInMinutes: Math.max(0.5, PROGRESS_POLL_MS / 60_000) });
-    checkDropProgress().catch((error) => logWarn('Initial monitoring error:', String(error)));
   }
 
   function stopMonitoring(): void {

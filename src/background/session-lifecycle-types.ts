@@ -27,6 +27,10 @@ export type StopFarmingSessionOptions = {
   ) => ServiceWorkerState['appState'];
   readonly onApplyStopState?: (state: ServiceWorkerState, reason: string, message: string | null) => void;
   readonly onNotify?: (title: string, message: string) => Promise<void>;
+  // Fires for every automatic (non user-stop) terminal reason, independent of
+  // whether a desktop `notification` was supplied — covers reasons like
+  // no-active-campaigns that never had a desktop notification.
+  readonly onSystemAlert?: (reason: string, message: string) => Promise<void>;
   readonly onSaveState?: () => Promise<void>;
   readonly onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
 };
@@ -38,6 +42,7 @@ export type AdvanceQueueOptions = QueueProgressOptions & {
   readonly onClearManagedTabOwnership?: () => void;
   readonly onApplyStopState?: (state: ServiceWorkerState, reason: string, message: string | null) => void;
   readonly onNotify?: (title: string, message: string) => Promise<void>;
+  readonly onSystemAlert?: (reason: string, message: string) => Promise<void>;
 };
 
 export type CompletedQueueContext = {

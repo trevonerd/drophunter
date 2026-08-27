@@ -76,6 +76,12 @@ export async function stopFarmingSession(
   if (options?.notification && options.onNotify) {
     await options.onNotify(options.notification.title, options.notification.message);
   }
+  if (options?.stopReason && options.stopReason !== 'user-stop' && options.onSystemAlert) {
+    const alertMessage = options.stopMessage ?? options.notification?.message ?? null;
+    if (alertMessage) {
+      await options.onSystemAlert(options.stopReason, alertMessage);
+    }
+  }
   if (options?.onSaveState) {
     await options.onSaveState();
   }
@@ -114,18 +120,19 @@ export async function finalizeCompletedQueue(
     : queueCompleteMessage;
   const farmingCompleteReasons = context.terminalFarmingCompleteGame?.rewardSummary?.remainderReasons ?? [];
   const farmingCompleteLines = formatFarmingCompleteStatusLines(farmingCompleteReasons);
+  const stopReason = context.terminalFarmingCompleteGame
+    ? farmingCompleteReasons.includes('unverifiable-twitch')
+      ? 'unverifiable-twitch'
+      : 'farming-complete'
+    : 'queue-complete';
+  const stopMessage = context.terminalFarmingCompleteGame
+    ? farmingCompleteLines.join('\n') || 'Farming finished.'
+    : queueCompleteMessage;
   if (options?.onApplyStopState) {
-    options.onApplyStopState(
-      state,
-      context.terminalFarmingCompleteGame
-        ? farmingCompleteReasons.includes('unverifiable-twitch')
-          ? 'unverifiable-twitch'
-          : 'farming-complete'
-        : 'queue-complete',
-      context.terminalFarmingCompleteGame
-        ? farmingCompleteLines.join('\n') || 'Farming finished.'
-        : queueCompleteMessage,
-    );
+    options.onApplyStopState(state, stopReason, stopMessage);
+  }
+  if (options?.onSystemAlert) {
+    await options.onSystemAlert(stopReason, stopMessage);
   }
   if (options?.onStopMonitoring) {
     options.onStopMonitoring();

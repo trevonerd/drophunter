@@ -2,10 +2,18 @@ import { browser } from '../shared/browser-api.ts';
 import { clearTerminalStopStatus } from '../shared/runtime-status.ts';
 import { TWITCH_SESSION_RETRY_COOLDOWN_MS, TWITCH_SESSION_STORAGE_KEY } from './constants.ts';
 import { logDebug, logWarn } from './logging.ts';
-import type { ServiceWorkerState } from './service-worker.ts';
+import type { ServiceWorkerState } from './runtime-state.ts';
+import { recoverTwitchSessionFromStorageKeys } from './session-storage-recovery.ts';
 import { sessionDebugSummary } from './state-persistence.ts';
 import { fetchTwitchIntegrityToken } from './twitch-api/gql.ts';
-import { sanitizeTwitchSession, TwitchSession } from './twitch-api/types.ts';
+import { sanitizeTwitchSession, type TwitchSession } from './twitch-api/types.ts';
+
+export { readTwitchSessionViaExecuteScript } from './session-page-extraction.ts';
+export {
+  findSessionCandidateDeep,
+  recoverTwitchSessionFromStorageKeys,
+  trySanitizeSessionCandidate,
+} from './session-storage-recovery.ts';
 
 export async function persistTwitchSession(session: TwitchSession | null) {
   if (session) {
@@ -20,114 +28,6 @@ export function clearTwitchSessionCache(state: ServiceWorkerState) {
   void persistTwitchSession(null);
 }
 
-export function trySanitizeSessionCandidate(candidate: unknown): TwitchSession | null {
-  return sanitizeTwitchSession(candidate);
-}
-
-export function findSessionCandidateDeep(value: unknown, depth = 0): TwitchSession | null {
-  if (depth > 4 || value == null) {
-    return null;
-  }
-
-  const direct = trySanitizeSessionCandidate(value);
-  if (direct) {
-    return direct;
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      return findSessionCandidateDeep(parsed, depth + 1);
-    } catch {
-      return null;
-    }
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const session = findSessionCandidateDeep(item, depth + 1);
-      if (session) {
-        return session;
-      }
-    }
-    return null;
-  }
-
-  if (typeof value === 'object') {
-    for (const nested of Object.values(value as Record<string, unknown>)) {
-      const session = findSessionCandidateDeep(nested, depth + 1);
-      if (session) {
-        return session;
-      }
-    }
-  }
-
-  return null;
-}
-
-export async function recoverTwitchSessionFromStorageKeys(): Promise<TwitchSession | null> {
-  const [localAll, syncAll] = await Promise.all([
-    browser.storage.local.get(null).catch(() => ({}) as Record<string, unknown>),
-    browser.storage.sync.get(null).catch(() => ({}) as Record<string, unknown>),
-  ]);
-
-  const local = localAll as Record<string, unknown>;
-  const sync = syncAll as Record<string, unknown>;
-
-  const directCandidate = trySanitizeSessionCandidate({
-    oauthToken:
-      local.oauthToken ??
-      sync.oauthToken ??
-      local.authToken ??
-      sync.authToken ??
-      local.accessToken ??
-      sync.accessToken ??
-      local.token ??
-      sync.token,
-    userId: local.userId ?? sync.userId ?? local.userID ?? sync.userID,
-    deviceId:
-      local.deviceId ??
-      sync.deviceId ??
-      local.local_copy_unique_id ??
-      sync.local_copy_unique_id ??
-      local.device_id ??
-      sync.device_id,
-    uuid:
-      local.uuid ??
-      sync.uuid ??
-      local.clientSessionId ??
-      sync.clientSessionId ??
-      local['client-session-id'] ??
-      sync['client-session-id'],
-    clientIntegrity:
-      local.clientIntegrity ?? sync.clientIntegrity ?? local['client-integrity'] ?? sync['client-integrity'],
-    clientId: local.clientId ?? sync.clientId,
-  });
-  if (directCandidate) {
-    logDebug('Recovered Twitch session from flat storage keys', sessionDebugSummary(directCandidate));
-    return directCandidate;
-  }
-
-  const allEntries = [...Object.entries(local), ...Object.entries(sync)];
-  for (const [key, value] of allEntries) {
-    const session = findSessionCandidateDeep(value);
-    if (session) {
-      logDebug('Recovered Twitch session from storage entry', {
-        key,
-        ...sessionDebugSummary(session),
-      });
-      return session;
-    }
-  }
-
-  logWarn('No Twitch session recovered from storage keys');
-  return null;
-}
-
 export async function refreshTwitchIntegrityToken(
   state: ServiceWorkerState,
   session: TwitchSession,
@@ -139,13 +39,8 @@ export async function refreshTwitchIntegrityToken(
       hasPreviousIntegrity: Boolean(session.clientIntegrity),
     });
     const token = await fetchTwitchIntegrityToken(session);
-    if (!token) {
-      return null;
-    }
-    const updatedSession: TwitchSession = {
-      ...session,
-      clientIntegrity: token,
-    };
+    if (!token) return null;
+    const updatedSession: TwitchSession = { ...session, clientIntegrity: token };
     state.twitchSessionCache = updatedSession;
     await persistTwitchSession(updatedSession);
     logDebug('Twitch Client-Integrity token refreshed', {
@@ -161,19 +56,18 @@ export async function refreshTwitchIntegrityToken(
 
 export async function loadPageIntegrityToken(): Promise<string | null> {
   try {
-    const stored = (await browser.storage.local.get(['twitchIntegrity']).catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    const integ = stored.twitchIntegrity as { token?: string; expiration?: number } | undefined;
-    if (!integ || typeof integ.token !== 'string' || !integ.token) {
+    const stored: Record<string, unknown> = await browser.storage.local
+      .get(['twitchIntegrity'])
+      .catch(() => ({}));
+    const integ = stored.twitchIntegrity;
+    if (!integ || typeof integ !== 'object') return null;
+    const record = integ as Record<string, unknown>;
+    if (typeof record.token !== 'string' || !record.token) return null;
+    if (typeof record.expiration === 'number' && record.expiration > 0 && record.expiration < Date.now()) {
+      logDebug('Page-intercepted integrity token has expired', { expiration: record.expiration });
       return null;
     }
-    if (typeof integ.expiration === 'number' && integ.expiration > 0 && integ.expiration < Date.now()) {
-      logDebug('Page-intercepted integrity token has expired', { expiration: integ.expiration });
-      return null;
-    }
-    return integ.token;
+    return record.token;
   } catch {
     return null;
   }
@@ -184,10 +78,7 @@ export async function ensureSessionIntegrity(
   session: TwitchSession,
   forceRefresh = false,
 ): Promise<TwitchSession> {
-  if (!forceRefresh && session.clientIntegrity) {
-    return session;
-  }
-
+  if (!forceRefresh && session.clientIntegrity) return session;
   const pageToken = await loadPageIntegrityToken();
   if (pageToken && !forceRefresh) {
     logDebug('Using page-intercepted integrity token', { hasToken: true });
@@ -196,118 +87,7 @@ export async function ensureSessionIntegrity(
     await persistTwitchSession(updated);
     return updated;
   }
-
-  const refreshed = await refreshTwitchIntegrityToken(state, session);
-  return refreshed ?? session;
-}
-
-export async function readTwitchSessionViaExecuteScript(tabId: number): Promise<TwitchSession | null> {
-  try {
-    const execution = await browser.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const normalize = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-        const normalizeToken = (value: unknown): string =>
-          normalize(value)
-            .replace(/^oauth:/i, '')
-            .replace(/^oauth\s+/i, '')
-            .trim();
-        const getCookie = (name: string): string => {
-          const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
-          return match?.[1] ? decodeURIComponent(match[1]) : '';
-        };
-        const parseTwilight = (): { oauthToken: string; userId: string } => {
-          const keys = [
-            'twilight-user',
-            'twilight-user-data',
-            'twilight-user-data-v2',
-            '__twilight-user',
-            'twilight-session',
-          ];
-          const stores: Storage[] = [window.localStorage, window.sessionStorage];
-          for (const store of stores) {
-            for (const key of keys) {
-              const raw = store.getItem(key);
-              if (!raw) {
-                continue;
-              }
-              try {
-                const parsed = JSON.parse(raw) as Record<string, unknown>;
-                const parsedUser =
-                  parsed.user && typeof parsed.user === 'object'
-                    ? (parsed.user as Record<string, unknown>)
-                    : null;
-                const oauthToken =
-                  normalizeToken(parsed.authToken) ||
-                  normalizeToken(parsed.token) ||
-                  normalizeToken(parsed.accessToken) ||
-                  normalizeToken(parsed.oauthToken);
-                const userId =
-                  normalize(parsed.userID) ||
-                  normalize(parsed.userId) ||
-                  normalize(parsed.id) ||
-                  normalize(parsedUser?.id);
-                if (oauthToken || userId) {
-                  return { oauthToken, userId };
-                }
-              } catch {}
-            }
-          }
-          return { oauthToken: '', userId: '' };
-        };
-
-        const twilight = parseTwilight();
-        const oauthToken =
-          twilight.oauthToken ||
-          normalizeToken(getCookie('auth-token')) ||
-          normalizeToken(getCookie('__Secure-auth-token'));
-        const userId = twilight.userId || '';
-        const deviceId =
-          normalize(window.localStorage.getItem('local_copy_unique_id')) ||
-          normalize(window.localStorage.getItem('device_id')) ||
-          normalize(window.localStorage.getItem('deviceId')) ||
-          normalize(window.sessionStorage.getItem('local_copy_unique_id')) ||
-          normalize(window.sessionStorage.getItem('device_id')) ||
-          normalize(window.sessionStorage.getItem('deviceId')) ||
-          normalize(getCookie('unique_id')) ||
-          normalize(getCookie('__Secure-unique_id')) ||
-          normalize(getCookie('device_id'));
-        const uuid =
-          normalize(window.localStorage.getItem('client-session-id')) ||
-          normalize(window.localStorage.getItem('clientSessionId')) ||
-          normalize(window.sessionStorage.getItem('client-session-id')) ||
-          normalize(window.sessionStorage.getItem('clientSessionId')) ||
-          Math.random().toString(16).slice(2, 10);
-        const clientIntegrity =
-          normalize(window.localStorage.getItem('client-integrity')) ||
-          normalize(window.localStorage.getItem('clientIntegrity'));
-
-        if (!oauthToken || !deviceId) {
-          return null;
-        }
-
-        return {
-          oauthToken,
-          userId,
-          deviceId,
-          uuid,
-          clientIntegrity: clientIntegrity || undefined,
-        };
-      },
-    });
-    const raw = execution[0]?.result;
-    const session = sanitizeTwitchSession(raw as unknown);
-    if (session) {
-      logDebug('Extracted Twitch session via executeScript', { tabId, ...sessionDebugSummary(session) });
-      return session;
-    }
-    logWarn('executeScript session extraction returned empty payload', { tabId });
-    return null;
-  } catch (error) {
-    logWarn('executeScript session extraction failed', { tabId, error: String(error) });
-    return null;
-  }
+  return (await refreshTwitchIntegrityToken(state, session)) ?? session;
 }
 
 export interface EnsureTwitchSessionCallbacks {
@@ -318,7 +98,6 @@ export interface EnsureTwitchSessionCallbacks {
     stopMessage?: string | null;
   }) => Promise<void>;
 }
-
 export interface EnsureTwitchSessionDeps {
   sanitizeTwitchSession: (raw: unknown) => TwitchSession | null;
   sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
@@ -332,42 +111,30 @@ export async function ensureTwitchSession(
   callbacks: EnsureTwitchSessionCallbacks,
   deps: EnsureTwitchSessionDeps,
 ): Promise<TwitchSession | null> {
-  if (!forceRefresh && state.twitchSessionCache) {
-    return state.twitchSessionCache;
-  }
-
-  const now = Date.now();
-  if (!forceRefresh && now - state.twitchSessionLastAttemptAt < TWITCH_SESSION_RETRY_COOLDOWN_MS) {
+  const sessionAtStart = state.twitchSessionCache;
+  if (!forceRefresh && state.twitchSessionCache) return state.twitchSessionCache;
+  if (!forceRefresh && Date.now() - state.twitchSessionLastAttemptAt < TWITCH_SESSION_RETRY_COOLDOWN_MS)
     return null;
-  }
-
-  if (state.twitchSessionFetchInFlight) {
-    return state.twitchSessionFetchInFlight;
-  }
-
+  if (state.twitchSessionFetchInFlight) return state.twitchSessionFetchInFlight;
   state.twitchSessionFetchInFlight = (async () => {
     state.twitchSessionLastAttemptAt = Date.now();
     if (!forceRefresh) {
-      const storageResult = (await browser.storage.local.get(['twitchSession']).catch(() => ({}))) as Record<
-        string,
-        unknown
-      >;
-      const fromStorageRaw = storageResult.twitchSession;
-      const fromStorage = deps.sanitizeTwitchSession(fromStorageRaw as unknown);
+      const result: Record<string, unknown> = await browser.storage.local
+        .get(['twitchSession'])
+        .catch(() => ({}));
+      const fromStorage = deps.sanitizeTwitchSession(result.twitchSession);
       if (fromStorage) {
         state.twitchSessionCache = fromStorage;
         return fromStorage;
       }
-
-      const recoveredSession = await recoverTwitchSessionFromStorageKeys();
-      if (recoveredSession) {
-        state.twitchSessionCache = recoveredSession;
-        await deps.persistTwitchSession(recoveredSession);
+      const recovered = await recoverTwitchSessionFromStorageKeys();
+      if (recovered) {
+        state.twitchSessionCache = recovered;
+        await deps.persistTwitchSession(recovered);
         state.twitchSessionLastAttemptAt = Date.now();
-        return recoveredSession;
+        return recovered;
       }
     }
-
     const fromOpenTabs = await callbacks.onFindTwitchSessionInOpenTabs();
     if (fromOpenTabs) {
       state.twitchSessionCache = fromOpenTabs;
@@ -375,20 +142,18 @@ export async function ensureTwitchSession(
       state.twitchSessionLastAttemptAt = Date.now();
       return fromOpenTabs;
     }
-
+    if (state.twitchSessionCache && state.twitchSessionCache !== sessionAtStart)
+      return state.twitchSessionCache;
     deps.clearTwitchSessionCache(state);
     return null;
   })()
     .then((session) => {
-      if (session && !state.appState.twitchSessionDetected) {
-        state.appState.twitchSessionDetected = true;
-      }
+      if (session && !state.appState.twitchSessionDetected) state.appState.twitchSessionDetected = true;
       return session;
     })
     .finally(() => {
       state.twitchSessionFetchInFlight = null;
     });
-
   return state.twitchSessionFetchInFlight;
 }
 
@@ -399,9 +164,6 @@ export interface SyncTwitchSessionCallbacks {
   onBroadcastStateUpdate: () => void;
 }
 
-// Caller owns trust verification, init wait, and payload unwrap. This module
-// owns the sync policy: sanitize, mutate cache/timing/appState, clear a stale
-// sign-in stop, persist the session, log, and branch into refresh+broadcast.
 export async function syncTwitchSessionFromContentScriptExt(
   state: ServiceWorkerState,
   rawPayload: unknown,
@@ -409,16 +171,12 @@ export async function syncTwitchSessionFromContentScriptExt(
   callbacks: SyncTwitchSessionCallbacks,
 ): Promise<{ success: boolean; error?: string }> {
   const incoming = sanitizeTwitchSession(rawPayload);
-  if (!incoming) {
-    return { success: false, error: 'Invalid session payload' };
-  }
+  if (!incoming) return { success: false, error: 'Invalid session payload' };
   state.twitchSessionCache = incoming;
   state.twitchSessionLastAttemptAt = 0;
   state.appState.twitchSessionDetected = true;
   const hadStaleSignInStop = state.appState.lastStopReason === 'sign-in-required';
-  if (hadStaleSignInStop) {
-    state.appState = clearTerminalStopStatus(state.appState);
-  }
+  if (hadStaleSignInStop) state.appState = clearTerminalStopStatus(state.appState);
   await persistTwitchSession(incoming);
   logDebug('Twitch session synced from content script', sessionDebugSummary(incoming));
   if (senderTabId && callbacks.shouldRefreshCampaignsAfterSessionSync()) {
@@ -437,26 +195,18 @@ export interface SyncTwitchIntegrityPayload {
   expiration?: number;
   request_id?: string;
 }
-
-// Caller owns trust verification. This module owns the integrity-sync policy:
-// token validation, fallback-flag reset, session-cache mutation, and the
-// fire-and-forget storage write. The persist is best-effort.
 export async function syncTwitchIntegrityFromContentScriptExt(
   state: ServiceWorkerState,
   payload: SyncTwitchIntegrityPayload | undefined,
 ): Promise<{ success: boolean; error?: string }> {
   const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
-  if (!token) {
-    return { success: false, error: 'Empty integrity token' };
-  }
+  if (!token) return { success: false, error: 'Empty integrity token' };
   const expiration = typeof payload?.expiration === 'number' ? payload.expiration : 0;
   logDebug('Integrity token synced from content script', {
     hasToken: true,
     expiration,
     hasSession: Boolean(state.twitchSessionCache),
   });
-  // A fresh page-intercepted token means integrity is working — reset the fallback flag
-  // so the next request re-attempts with integrity instead of staying in no-integrity mode.
   state.integrityFallbackActive = false;
   state.integrityFallbackActiveUntil = 0;
   if (state.twitchSessionCache) {
@@ -464,7 +214,9 @@ export async function syncTwitchIntegrityFromContentScriptExt(
     persistTwitchSession(state.twitchSessionCache).catch(() => undefined);
   }
   browser.storage.local
-    .set({ twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' } })
+    .set({
+      twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' },
+    })
     .catch(() => undefined);
   return { success: true };
 }

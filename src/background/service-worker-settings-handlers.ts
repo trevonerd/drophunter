@@ -138,6 +138,12 @@ export function createServiceWorkerSettingsHandlers(
       await trackActivity('set-telegram-alerts-enabled');
       return dependencies.telegramNotifier.setTelegramAlertsEnabled(payload?.enabled !== false);
     },
+    handleSetTelegramSystemAlertsEnabled: async (payload?: { readonly enabled?: boolean }) => {
+      await trackActivity('set-telegram-system-alerts-enabled');
+      state.appState.telegramSystemAlertsEnabled = payload?.enabled !== false;
+      await saveState(state);
+      return { success: true, telegramSystemAlertsEnabled: state.appState.telegramSystemAlertsEnabled };
+    },
     handleSetTelegramCredentials: async (payload?: {
       readonly botToken?: string;
       readonly chatId?: string;

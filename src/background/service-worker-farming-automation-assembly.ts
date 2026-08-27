@@ -46,6 +46,7 @@ export interface ServiceWorkerFarmingAutomationAssemblyDependencies {
   readonly browserEvents: BrowserEvents;
   readonly startMonitoring: () => void;
   readonly twitchGateway: TwitchGateway;
+  readonly telegramNotify?: (reason: string, message: string) => Promise<void>;
 }
 
 export interface ServiceWorkerFarmingAutomationAssembly {
@@ -173,6 +174,7 @@ export async function assembleServiceWorkerFarmingAutomation(
       return result.kind === 'failed' ? { kind: 'failed', reason: 'persistence-failed' } : null;
     },
     onStarted: dependencies.startMonitoring,
+    telegramNotify: dependencies.telegramNotify,
   });
   await initializeFarmingAutomationLifecycle({
     automation,

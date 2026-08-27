@@ -193,6 +193,7 @@ type StartedEffectsInput = {
   readonly receipt: FarmingSessionTransitionReceiptV1;
   readonly obsolete: WatchOwnershipV1 | null;
   readonly now: number;
+  readonly telegramNotify?: (reason: string, message: string) => Promise<void>;
 };
 
 export async function runFarmingAutomationStartedEffects(input: StartedEffectsInput): Promise<void> {
@@ -200,19 +201,26 @@ export async function runFarmingAutomationStartedEffects(input: StartedEffectsIn
   const saved = await saveFarmingAutomationFacts(input.persistence, input.facts);
   if (!saved) logWarn('Farming automation activity presentation failed');
 
-  if (activityAdded && input.state.appState.notificationsEnabled) {
-    try {
-      const delivered = await input.browser.deliverNotification({
-        id: transitionActivityId(input.receipt),
-        title: input.receipt.transition === 'preemption' ? 'Campaign priority changed' : 'Farming started',
-        message: input.state.appState.lastAutomationMessage ?? 'Farming started automatically.',
-        priority: 2,
-      });
-      if (delivered.kind === 'unavailable') logWarn('Farming automation notification unavailable');
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      logWarn('Farming automation notification failed', { message: error.message });
+  if (activityAdded) {
+    const automationMessage = input.state.appState.lastAutomationMessage ?? 'Farming started automatically.';
+    if (input.state.appState.notificationsEnabled) {
+      try {
+        const delivered = await input.browser.deliverNotification({
+          id: transitionActivityId(input.receipt),
+          title: input.receipt.transition === 'preemption' ? 'Campaign priority changed' : 'Farming started',
+          message: automationMessage,
+          priority: 2,
+        });
+        if (delivered.kind === 'unavailable') logWarn('Farming automation notification unavailable');
+      } catch (error) {
+        if (!(error instanceof Error)) throw error;
+        logWarn('Farming automation notification failed', { message: error.message });
+      }
     }
+    await input.telegramNotify?.(
+      input.receipt.transition === 'preemption' ? 'preempted' : 'auto-started',
+      automationMessage,
+    );
   }
 
   if (input.obsolete !== null && input.receipt.cleanup.kind === 'pending') {

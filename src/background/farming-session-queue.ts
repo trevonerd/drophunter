@@ -78,6 +78,7 @@ export function createFarmingSessionQueue(
       onNotify: async (title, message) => {
         await adapters.notify(title, message);
       },
+      onSystemAlert: adapters.telegramSystemAlert,
       onRefreshDropsData: dependencies.onRefreshDropsData,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,

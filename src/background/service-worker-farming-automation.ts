@@ -41,6 +41,11 @@ export function createServiceWorkerFarmingAutomationRuntime(
       if (result.kind === 'failed') throw result.error;
       return result.automation.snooze(reason);
     },
+    async suppressCampaignUntilRefresh(campaignKey) {
+      const result = await ready;
+      if (result.kind === 'failed') throw result.error;
+      return result.automation.suppressCampaignUntilRefresh(campaignKey);
+    },
   };
   const publicManualWatch: FarmingAutomationManualWatchController = {
     async evaluate(input) {

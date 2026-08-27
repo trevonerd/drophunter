@@ -1,0 +1,45 @@
+import type { AppState, TwitchDrop, TwitchGame } from '../types/index.ts';
+import type { UnverifiableRewardMarker } from './runtime-timing-state.ts';
+import type { TwitchSession } from './twitch-api/types.ts';
+
+export interface ServiceWorkerState {
+  appState: AppState;
+  monitorTickInFlight: boolean;
+  tickGeneration: number;
+  invalidStreamChecks: number;
+  lastStreamRotationAt: number;
+  streamValidationGraceUntil: number;
+  lastTrackedProgress: number;
+  lastTrackedMinutes: number;
+  lastTrackedDropKey: string | null;
+  lastProgressAdvanceAt: number;
+  noProgressRotationAttempts: number;
+  offlineChecks: number;
+  avoidStreamerName: string | null;
+  playbackAttentionWarningSent: boolean;
+  gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null;
+  twitchSessionCache: TwitchSession | null;
+  twitchSessionFetchInFlight: Promise<TwitchSession | null> | null;
+  twitchSessionLastAttemptAt: number;
+  cachedDropsSnapshot: TwitchDrop[];
+  previousAllDropsCount: number;
+  cachedCampaignChannelsMap: Record<string, string[] | null>;
+  lastFullRefreshAt: number;
+  dropClaimInFlight: boolean;
+  dropClaimRetryAtById: Map<string, number>;
+  queueMissingStreak: Map<string, number>;
+  lastActivityAt: number;
+  apiConsecutiveFailures: number;
+  apiBackoffUntil: number;
+  integrityFallbackActive: boolean;
+  integrityFallbackActiveUntil: number;
+  recoveryBackoffUntil: number;
+  lastRecoveryAttemptAt: number;
+  stalledRecoveryAttempts: number;
+  recoveryNotificationSent: boolean;
+  lastHeartbeatAt: number;
+  lastLifecycleCheckAt: number;
+  lastGamesCacheRefreshAt: number;
+  emptyCampaignRefreshStreak: number;
+  unverifiableRewardsByKey: Record<string, UnverifiableRewardMarker>;
+}

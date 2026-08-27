@@ -8,11 +8,10 @@ import {
   dispatchMessage,
   getAppStateFromStorage,
   syncTestSession,
-  waitForAppState,
 } from '../helpers/service-worker-harness.ts';
 
 export function registerRefreshLaunchCases() {
-  test('OPEN_DROPS_PAGE_AND_REFRESH opens Twitch, extracts session, and refreshes campaigns', async () => {
+  test('OPEN_DROPS_AND_SYNC opens Twitch, extracts session, and refreshes campaigns', async () => {
     const chrome = chromeMocks.chrome;
     let createCalls = 0;
     let executeScriptCalls = 0;
@@ -48,16 +47,14 @@ export function registerRefreshLaunchCases() {
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-open-page', currentMinutes: 0 }]);
 
     const beforeRefresh = Date.now();
-    const response = (await dispatchMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' })) as {
+    const response = (await dispatchMessage({ type: 'OPEN_DROPS_AND_SYNC' })) as {
       success?: boolean;
-      gamesCount?: number;
-      opened?: boolean;
+      result?: { kind?: string; campaignCount?: number };
       appState?: AppState;
     };
 
     expect(response.success).toBe(true);
-    expect(response.opened).toBe(true);
-    expect(response.gamesCount).toBe(1);
+    expect(response.result).toMatchObject({ kind: 'synced', campaignCount: 1 });
     expect(response.appState?.dropsPageRefreshInProgress).toBe(false);
     expect(response.appState?.lastSuccessfulRefreshAt).toBeGreaterThanOrEqual(beforeRefresh);
     expect(createCalls).toBe(1);
@@ -68,7 +65,7 @@ export function registerRefreshLaunchCases() {
     expect(state.lastSuccessfulRefreshAt).toBe(response.appState?.lastSuccessfulRefreshAt);
   });
 
-  test('OPEN_DROPS_PAGE_AND_REFRESH can refresh through an inactive Twitch tab', async () => {
+  test('OPEN_DROPS_AND_SYNC always opens a missing Twitch tab in the foreground', async () => {
     const chrome = chromeMocks.chrome;
     const createdActiveValues: boolean[] = [];
     chromeMocks.tabs.setTabsQueryResult([]);
@@ -98,19 +95,18 @@ export function registerRefreshLaunchCases() {
     };
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-inactive-open-page', currentMinutes: 0 }]);
 
-    const response = (await dispatchMessage({
-      type: 'OPEN_DROPS_PAGE_AND_REFRESH',
-      payload: { waitForRefresh: true, active: false },
-    })) as { success?: boolean; gamesCount?: number; opened?: boolean };
+    const response = (await dispatchMessage({ type: 'OPEN_DROPS_AND_SYNC' })) as {
+      success?: boolean;
+      result?: { kind?: string; campaignCount?: number };
+    };
 
     expect(response.success).toBe(true);
-    expect(response.opened).toBe(true);
-    expect(response.gamesCount).toBe(1);
-    expect(createdActiveValues).toEqual([false]);
+    expect(response.result).toMatchObject({ kind: 'synced', campaignCount: 1 });
+    expect(createdActiveValues).toEqual([true]);
     expect(getAppStateFromStorage().dropsPageRefreshInProgress).toBe(false);
   });
 
-  test('OPEN_DROPS_PAGE_AND_REFRESH foreground async launch later populates campaign storage', async () => {
+  test('OPEN_DROPS_AND_SYNC completes the authoritative refresh before responding', async () => {
     const chrome = chromeMocks.chrome;
     const asyncGame: TwitchGame = {
       id: 'async-game',
@@ -147,21 +143,16 @@ export function registerRefreshLaunchCases() {
     };
     enqueueDropsSnapshot([{ game: asyncGame, dropId: 'drop-async-launch', currentMinutes: 0 }]);
 
-    const response = (await dispatchMessage({
-      type: 'OPEN_DROPS_PAGE_AND_REFRESH',
-      payload: { waitForRefresh: false, active: true },
-    })) as { success?: boolean; opened?: boolean; refreshed?: boolean };
+    const response = (await dispatchMessage({ type: 'OPEN_DROPS_AND_SYNC' })) as {
+      success?: boolean;
+      result?: { kind?: string; campaignCount?: number };
+    };
 
     expect(response.success).toBe(true);
-    expect(response.opened).toBe(true);
-    expect(response.refreshed).toBe(false);
+    expect(response.result).toMatchObject({ kind: 'synced', campaignCount: 1 });
     expect(createdActiveValues).toEqual([true]);
-    expect(getAppStateFromStorage().dropsPageRefreshInProgress).toBe(true);
-
-    const refreshedState = await waitForAppState(
-      (state) => state.availableGames.some((game) => game.campaignId === asyncGame.campaignId),
-      'async Drops page refresh did not populate campaigns',
-    );
+    const refreshedState = getAppStateFromStorage();
+    expect(refreshedState.availableGames.some((game) => game.campaignId === asyncGame.campaignId)).toBe(true);
     expect(refreshedState.dropsPageRefreshInProgress).toBe(false);
     expect(refreshedState.lastDropsPageRefreshError).toBeNull();
     expect(typeof refreshedState.lastDropsPageRefreshCompletedAt).toBe('number');

@@ -12,13 +12,14 @@ interface UseDropsRefreshArgs {
   isStale: boolean;
 }
 
-export function useDropsRefresh({ state, setState, setQueueMessage, isStale }: UseDropsRefreshArgs) {
+export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRefreshArgs) {
   const [manualDropsRefreshLoading, setManualDropsRefreshLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [autoRefreshAttemptedFor, setAutoRefreshAttemptedFor] = useState<number | null>(null);
 
   const dropsRefreshLoading = manualDropsRefreshLoading || state.dropsPageRefreshInProgress;
-  const activeSyncError = dropsRefreshLoading ? null : (syncError ?? state.lastDropsPageRefreshError ?? null);
+  const persistedSyncError =
+    state.campaignSyncState.status === 'retry-scheduled' ? state.campaignSyncState.error : null;
+  const activeSyncError = dropsRefreshLoading ? null : (syncError ?? persistedSyncError);
 
   useEffect(() => {
     if (dropsRefreshLoading) {
@@ -27,12 +28,10 @@ export function useDropsRefresh({ state, setState, setQueueMessage, isStale }: U
   }, [dropsRefreshLoading]);
 
   const openDropsPage = useCallback(
-    async (options: { active?: boolean } = {}) => {
+    async (_options: { active?: boolean } = {}) => {
       if (dropsRefreshLoading) {
         return;
       }
-      const active = options.active !== false;
-
       setManualDropsRefreshLoading(true);
       setQueueMessage(null);
       setSyncError(null);
@@ -46,17 +45,15 @@ export function useDropsRefresh({ state, setState, setQueueMessage, isStale }: U
 
       try {
         const response = await sendRuntimeMessage({
-          type: 'OPEN_DROPS_PAGE_AND_REFRESH',
-          payload: { waitForRefresh: false, active },
+          type: 'OPEN_DROPS_AND_SYNC',
         }).catch((error: unknown) => ({
           success: false as const,
-          opened: false,
-          refreshed: false,
-          gamesCount: 0,
+          result: undefined,
           appState: undefined,
           error: String(error),
         }));
         const errorMessage = response?.error ?? '';
+        if (response?.appState) setState(response.appState);
         if (!response?.success) {
           let visibleError = errorMessage || 'Refresh failed.';
           if (/sign in|session/i.test(errorMessage)) {
@@ -85,28 +82,6 @@ export function useDropsRefresh({ state, setState, setQueueMessage, isStale }: U
     },
     [dropsRefreshLoading, setQueueMessage, setState],
   );
-
-  useEffect(() => {
-    const refreshKey = state.lastSuccessfulRefreshAt ?? 0;
-    if (
-      !isStale ||
-      dropsRefreshLoading ||
-      activeSyncError ||
-      refreshKey === 0 ||
-      autoRefreshAttemptedFor === refreshKey
-    ) {
-      return;
-    }
-    setAutoRefreshAttemptedFor(refreshKey);
-    void openDropsPage({ active: false });
-  }, [
-    activeSyncError,
-    autoRefreshAttemptedFor,
-    dropsRefreshLoading,
-    isStale,
-    openDropsPage,
-    state.lastSuccessfulRefreshAt,
-  ]);
 
   return { dropsRefreshLoading, activeSyncError, openDropsPage };
 }

@@ -9,6 +9,9 @@ export default defineConfig({
   manifestVersion: 3,
   manifest: EXTENSION_MANIFEST,
   vite: (configEnv) => ({
+    build: {
+      modulePreload: false,
+    },
     define: {
       __DROPHUNTER_DEBUG_LOGS__: JSON.stringify(configEnv.mode !== 'production'),
     },

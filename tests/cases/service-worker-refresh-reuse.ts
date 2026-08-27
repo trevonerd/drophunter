@@ -9,7 +9,7 @@ import {
 } from '../helpers/service-worker-harness.ts';
 
 export function registerRefreshReuseCases() {
-  test('OPEN_DROPS_PAGE_AND_REFRESH reuses an existing Twitch Drops tab', async () => {
+  test('OPEN_DROPS_AND_SYNC reuses an existing Twitch Drops tab', async () => {
     const chrome = chromeMocks.chrome;
     let createCalls = 0;
     let updateCalls = 0;
@@ -46,13 +46,13 @@ export function registerRefreshReuseCases() {
     };
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-existing-tab', currentMinutes: 0 }]);
 
-    const response = (await dispatchMessage({ type: 'OPEN_DROPS_PAGE_AND_REFRESH' })) as {
+    const response = (await dispatchMessage({ type: 'OPEN_DROPS_AND_SYNC' })) as {
       success?: boolean;
-      opened?: boolean;
+      result?: { kind?: string };
     };
 
     expect(response.success).toBe(true);
-    expect(response.opened).toBe(false);
+    expect(response.result?.kind).toBe('synced');
     expect(createCalls).toBe(0);
     expect(updateCalls).toBe(1);
     expect(getAppStateFromStorage().availableGames).toHaveLength(1);

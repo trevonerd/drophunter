@@ -79,6 +79,7 @@ export function createServiceWorkerTwitchGateway(
       forceSessionRefresh,
       {
         onEnsureTwitchSession: ensureTwitchSession,
+        onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
         onEnsureSessionIntegrity: ensureSessionIntegrity,
         onPersistTwitchSession: persistTwitchSession,
         onStopFarmingSession: dependencies.recoverTwitchSession,
@@ -99,6 +100,7 @@ export function createServiceWorkerTwitchGateway(
       forceSessionRefresh,
       {
         onEnsureTwitchSession: ensureTwitchSession,
+        onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
         onEnsureSessionIntegrity: ensureSessionIntegrity,
         onPersistTwitchSession: persistTwitchSession,
         onStopFarmingSession: dependencies.recoverTwitchSession,
@@ -128,6 +130,7 @@ export function createServiceWorkerTwitchGateway(
       forceSessionRefresh,
       {
         onEnsureTwitchSession: ensureTwitchSession,
+        onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
         onIsLikelyAuthError: isLikelyAuthError,
         onClearTwitchSessionCache: clearTwitchSessionCache,
         onStopFarmingSession: dependencies.recoverTwitchSession,
@@ -177,7 +180,7 @@ export function createServiceWorkerTwitchGateway(
     if (baseDrops.length === 0) {
       return state.appState.currentDrop?.currentMinutes ?? null;
     }
-    const snapshot = await fetchInventorySnapshot(baseDrops, true);
+    const snapshot = await fetchInventorySnapshot(baseDrops);
     const drops = snapshot?.drops ?? baseDrops;
     const progress = dropsForFarmingTarget(drops, target)
       .map((drop) => drop.currentMinutes)

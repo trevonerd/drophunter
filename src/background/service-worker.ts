@@ -1,5 +1,6 @@
 import { automationNotificationPersistence } from './automation-notification-persistence.ts';
 import { setClaimRecordedHandler } from './claim-log.ts';
+import { CAMPAIGN_SYNC_ALARM_NAME } from './constants.ts';
 import { createFarmingSession } from './farming-session.ts';
 import { logDebug, logWarn } from './logging.ts';
 import { createNotificationController } from './notifications.ts';
@@ -79,6 +80,7 @@ farmingAutomationRuntime = createServiceWorkerFarmingAutomationRuntime(state, {
   browserEvents,
   startMonitoring: () => farmingSession.startMonitoring(),
   twitchGateway,
+  telegramNotify: telegramNotifier.notifySystemEvent,
 });
 
 const stateLifecycle = createServiceWorkerStateLifecycle(state, {
@@ -106,6 +108,9 @@ farmingSession = createFarmingSession(state, {
   openMonitorDashboardWindow: browserEvents.openMonitorDashboardWindow,
   sendAlert: browserEvents.sendAlert,
   notify,
+  telegramSystemAlert: telegramNotifier.notifySystemEvent,
+  suppressCampaignUntilRefresh: (campaignKey) =>
+    farmingAutomationRuntime.automation.suppressCampaignUntilRefresh(campaignKey),
   saveState,
   saveTimingState,
   broadcastStateUpdate,
@@ -130,12 +135,20 @@ const settingsHandlers = createServiceWorkerSettingsHandlers(state, {
   telegramNotifier,
 });
 
+function beginServiceWorkerInitialization(): Promise<void> {
+  const initialization = stateLifecycle.beginInitialization(async () => {
+    await notificationController.syncPermissionState();
+    await telegramNotifier.syncPermissionState();
+    browser.alarms.create(CAMPAIGN_SYNC_ALARM_NAME, { periodInMinutes: 30 });
+  });
+  void initialization
+    .then(() => contentHandlers.requestActivationSync('worker-start'))
+    .catch((error) => logWarn('Initial activation sync failed:', String(error)));
+  return initialization;
+}
+
 const startServiceWorkerOnce = createServiceWorkerStarter({
-  beginInitialization: () =>
-    stateLifecycle.beginInitialization(async () => {
-      await notificationController.syncPermissionState();
-      await telegramNotifier.syncPermissionState();
-    }),
+  beginInitialization: beginServiceWorkerInitialization,
   registerBrowserEvents: () =>
     browserEvents.register({
       getInitPromise: stateLifecycle.getInitPromise,
@@ -143,7 +156,8 @@ const startServiceWorkerOnce = createServiceWorkerStarter({
       onExtensionUpdate: stateLifecycle.handleExtensionUpdate,
       onExtensionStorageCleared: stateLifecycle.handleExtensionStorageCleared,
       onMonitoringAlarm: farmingSession.checkDropProgress,
-      onLinkRecheckAlarm: farmingSession.handleRefreshDrops,
+      onActivationSync: contentHandlers.requestActivationSync,
+      onLinkRecheckAlarm: () => contentHandlers.requestActivationSync('worker-start'),
     }),
   registerRuntime: () =>
     registerServiceWorkerRuntime({

@@ -3,7 +3,11 @@ import { dropStateKey } from './drops-projection.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 export type GamesCacheRefreshResult =
-  | { readonly kind: 'refreshed'; readonly games: TwitchGame[] }
+  | {
+      readonly kind: 'refreshed';
+      readonly games: TwitchGame[];
+      readonly authoritativeEmpty?: boolean;
+    }
   | { readonly kind: 'cached'; readonly games: TwitchGame[] }
   | { readonly kind: 'unavailable'; readonly games: TwitchGame[] };
 

@@ -27,6 +27,8 @@ type AddToQueueRuntimeMessageHandler = (
 ) => MaybePromise<RuntimeResponseByType['ADD_TO_QUEUE']>;
 
 export interface RuntimeMessageHandlers {
+  activatePopup: RuntimeMessageHandler<'ACTIVATE_POPUP'>;
+  openDropsAndSync: RuntimeMessageHandler<'OPEN_DROPS_AND_SYNC'>;
   ensureGamesCache: RuntimeMessageHandler<'ENSURE_GAMES_CACHE'>;
   openDropsPageAndRefresh: RuntimeMessageHandler<'OPEN_DROPS_PAGE_AND_REFRESH'>;
   markDropsRefreshNoticeSeen: RuntimeMessageHandler<'MARK_DROPS_REFRESH_NOTICE_SEEN'>;
@@ -48,6 +50,7 @@ export interface RuntimeMessageHandlers {
   setMuteFarmingTab: RuntimeMessageHandler<'SET_MUTE_FARMING_TAB'>;
   setNotificationsEnabled: RuntimeMessageHandler<'SET_NOTIFICATIONS_ENABLED'>;
   setTelegramAlertsEnabled: RuntimeMessageHandler<'SET_TELEGRAM_ALERTS_ENABLED'>;
+  setTelegramSystemAlertsEnabled: RuntimeMessageHandler<'SET_TELEGRAM_SYSTEM_ALERTS_ENABLED'>;
   setTelegramCredentials: RuntimeMessageHandler<'SET_TELEGRAM_CREDENTIALS'>;
   testTelegramAlerts: RuntimeMessageHandler<'TEST_TELEGRAM_ALERTS'>;
   getTelegramSettings: RuntimeMessageHandler<'GET_TELEGRAM_SETTINGS'>;
@@ -121,6 +124,10 @@ export function createRuntimeMessageListener(
 
       case 'ENSURE_GAMES_CACHE':
         return respond(() => handlers.ensureGamesCache(message, sender));
+      case 'ACTIVATE_POPUP':
+        return respond(() => handlers.activatePopup(message, sender));
+      case 'OPEN_DROPS_AND_SYNC':
+        return respond(() => handlers.openDropsAndSync(message, sender));
       case 'OPEN_DROPS_PAGE_AND_REFRESH':
         return respond(() => handlers.openDropsPageAndRefresh(message, sender));
       case 'MARK_DROPS_REFRESH_NOTICE_SEEN':
@@ -161,6 +168,8 @@ export function createRuntimeMessageListener(
         return respond(() => handlers.setNotificationsEnabled(message, sender));
       case 'SET_TELEGRAM_ALERTS_ENABLED':
         return respond(() => handlers.setTelegramAlertsEnabled(message, sender));
+      case 'SET_TELEGRAM_SYSTEM_ALERTS_ENABLED':
+        return respond(() => handlers.setTelegramSystemAlertsEnabled(message, sender));
       case 'SET_TELEGRAM_CREDENTIALS':
         return respond(() => handlers.setTelegramCredentials(message, sender));
       case 'TEST_TELEGRAM_ALERTS':

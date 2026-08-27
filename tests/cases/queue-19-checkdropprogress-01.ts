@@ -150,7 +150,7 @@ export function registerQueue19Part01() {
       expect(calls).toEqual(['playback', 'refresh', 'claim', 'queue', 'rotate', 'channel-points', 'queue']);
     });
 
-    test('requests a full campaign refresh when the full tick interval elapses', async () => {
+    test('never requests a campaign refresh from the progress tick', async () => {
       const state = createMinimalState();
       state.appState.isRunning = true;
       state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
@@ -178,7 +178,7 @@ export function registerQueue19Part01() {
         onSaveTimingState: async () => undefined,
       });
 
-      expect(refreshOptions[0]).toEqual({ includeCampaignFetch: true, includeInventoryFetch: true });
+      expect(refreshOptions[0]).toEqual({ includeCampaignFetch: false, includeInventoryFetch: true });
     });
 
     test('does not validate the old tab while no-streamers retry backoff is active', async () => {

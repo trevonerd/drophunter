@@ -57,6 +57,7 @@ function App() {
     availableCampaignCount: state.availableGames.length,
     twitchSessionDetected: state.twitchSessionDetected,
     isStale,
+    campaignSyncState: state.campaignSyncState,
   });
 
   return (
@@ -106,6 +107,7 @@ function App() {
         onNotificationsEnabledToggle: () => void settings.handleNotificationsEnabledToggle(),
         notificationPermissionDenied: settings.notificationPermissionDenied,
         onTelegramAlertsToggle: telegram.handleTelegramAlertsToggle,
+        onTelegramSystemAlertsToggle: telegram.handleTelegramSystemAlertsToggle,
         onSaveTelegramCredentials: telegram.saveTelegramCredentials,
         onTestTelegramAlerts: telegram.testTelegramAlerts,
         onLoadTelegramSettings: telegram.loadTelegramSettings,

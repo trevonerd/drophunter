@@ -50,6 +50,13 @@ export interface FarmingSessionAdapters {
   readonly openMonitorDashboardWindow: (options: { readonly toggle: boolean }) => Promise<unknown>;
   readonly sendAlert: (kind: 'drop-complete' | 'all-complete', message: string) => Promise<void>;
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
+  // Non-claim Telegram system alert (auto-start, preemption, terminal
+  // skip/stop, recovery). Optional so tests/harnesses that don't care about
+  // Telegram can omit it entirely.
+  readonly telegramSystemAlert?: (reason: string, message: string) => Promise<void>;
+  readonly suppressCampaignUntilRefresh?: (
+    campaignKey: string,
+  ) => Promise<'suppressed' | 'persistence-failed'>;
   readonly saveState: (state: ServiceWorkerState) => Promise<void>;
   readonly saveTimingState: (state: ServiceWorkerState) => Promise<void>;
   readonly broadcastStateUpdate: (appState: AppState) => void;

@@ -47,6 +47,7 @@ export type FarmingAutomationEvaluatorDependencies = {
   readonly now: () => number;
   readonly random: () => number;
   readonly onStarted?: () => void;
+  readonly telegramNotify?: (reason: string, message: string) => Promise<void>;
 };
 
 export function createFarmingAutomationEvaluator(
@@ -96,6 +97,10 @@ export function createFarmingAutomationEvaluator(
     if (discovery.kind === 'failed') return retry(discovery.reason);
     if (currentStateFingerprint() !== beforeRefresh) {
       return { kind: 'unchanged', reason: 'superseded-by-state-change' };
+    }
+    if (facts.suppressedCampaignKeys.length > 0) {
+      facts = { ...facts, suppressedCampaignKeys: [] };
+      if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
     }
     if (refreshAvailabilityOnly) {
       const persisted = await persistFarmingAutomationPlan({
@@ -210,6 +215,7 @@ export function createFarmingAutomationEvaluator(
       receipt,
       obsolete: result.kind === 'committed' ? result.obsolete : null,
       now,
+      telegramNotify: dependencies.telegramNotify,
     });
     if (receipt.transition === 'start') dependencies.onStarted?.();
     return { kind: 'started', campaignKey: receipt.toCampaignKey, transition: receipt.transition };

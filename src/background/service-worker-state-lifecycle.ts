@@ -94,8 +94,14 @@ export function createServiceWorkerStateLifecycle(
   }
 
   async function handleExtensionUpdate(): Promise<void> {
+    const updateIntent = {
+      wasRunning: state.appState.isRunning || state.appState.wasRunning,
+      queue: state.appState.queue.slice(),
+      selectedGame: state.appState.selectedGame,
+      queueEntryMetadataByKey: { ...state.appState.queueEntryMetadataByKey },
+    };
     await dependencies.getFarmingSession().stop({ skipTimingStateSave: true });
-    applyExtensionUpdateStateTransition(state);
+    applyExtensionUpdateStateTransition(state, updateIntent);
     await clearExtensionRuntimeStorage();
     await persistExtensionResetState(state);
   }

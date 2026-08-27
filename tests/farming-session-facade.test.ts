@@ -44,7 +44,6 @@ describe('farming session facade', () => {
       'handleAddToQueue',
       'handleClearQueue',
       'handlePauseFarming',
-      'handleRefreshDrops',
       'handleRemoveFromQueue',
       'handleReorderQueue',
       'handleResumeFarming',
@@ -60,7 +59,7 @@ describe('farming session facade', () => {
     ]);
   });
 
-  test('keeps tick and refresh outside the mutation epoch', async () => {
+  test('keeps tick and progress refresh outside the mutation epoch', async () => {
     // Given
     const state = createServiceWorkerState();
     const session = createFarmingSession(state, createAdapters());
@@ -69,7 +68,6 @@ describe('farming session facade', () => {
     // When
     await session.checkDropProgress();
     await session.refreshDropsData();
-    await session.handleRefreshDrops();
 
     // Then
     expect(currentFarmingSessionEpoch(state)).toBe(capturedEpoch);

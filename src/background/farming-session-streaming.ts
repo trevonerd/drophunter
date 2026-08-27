@@ -1,4 +1,4 @@
-import { getGameDisplayLabel } from '../shared/game-selection.ts';
+import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import {
@@ -14,6 +14,11 @@ import {
   skipCurrentGameDueToStall,
 } from './session-lifecycle.ts';
 import type { StopFarmingSessionRequest } from './session-lifecycle-types.ts';
+import {
+  recoverStalledProgress as recoverStalledProgressOperation,
+  type StalledProgressRecoveryResult,
+  type StalledProgressSource,
+} from './stalled-progress-recovery.ts';
 import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from './stream-rotation.ts';
 import {
   acquireStreamerForSelectedGame as acquireStreamer,
@@ -26,12 +31,14 @@ import { normalizePreferredStreamerLanguage, pickStreamerForPreferences } from '
 type FarmingSessionStreamingDependencies = {
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<void>;
   readonly onStopFarmingSession: (options: StopFarmingSessionRequest) => Promise<void>;
+  readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
 };
 
 export type FarmingSessionStreaming = {
   readonly acquireStreamerForSelectedGame: () => Promise<boolean>;
   readonly ensureWorkspaceForSelectedGame: () => Promise<void>;
   readonly handleRecoverySkip: () => Promise<void>;
+  readonly recoverStalledProgress: (source: StalledProgressSource) => Promise<StalledProgressRecoveryResult>;
   readonly rotateStreamerIfInvalid: () => Promise<void>;
 };
 
@@ -53,6 +60,8 @@ export function createFarmingSessionStreaming(
             return true;
           }
           const health = await adapters.watchTransport.start(streamer);
+          state.appState.watchTransportMode = health.mode;
+          state.appState.watchHealth = health;
           return health.mode === 'tabless' || health.status !== 'failed';
         },
       },
@@ -108,6 +117,9 @@ export function createFarmingSessionStreaming(
       exhaustedStalledRecovery && currentDrop ? markDropUnverifiable(state, currentDrop) : false;
 
     if (!markedUnverifiable) {
+      if (state.appState.selectedGame) {
+        await adapters.suppressCampaignUntilRefresh?.(gameKey(state.appState.selectedGame));
+      }
       await skipCurrentGameDueToStall(state, {
         onEnsureWorkspace: ensureWorkspaceForSelectedGame,
         onRefreshDropsData: dependencies.onRefreshDropsData,
@@ -138,6 +150,9 @@ export function createFarmingSessionStreaming(
       return;
     }
 
+    if (state.appState.selectedGame) {
+      await adapters.suppressCampaignUntilRefresh?.(gameKey(state.appState.selectedGame));
+    }
     await skipCurrentGameAndAdvanceQueue(state, 'unverifiable-twitch', {
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
       onRefreshDropsData: dependencies.onRefreshDropsData,
@@ -146,6 +161,54 @@ export function createFarmingSessionStreaming(
       onSaveTimingState: adapters.saveTimingState,
       onStopFarmingSession: dependencies.onStopFarmingSession,
       onNotify: adapters.notify,
+    });
+  }
+
+  async function recoverStalledProgress(
+    source: StalledProgressSource,
+  ): Promise<StalledProgressRecoveryResult> {
+    return recoverStalledProgressOperation(state, source, {
+      now: context.now,
+      onCampaignRefresh: () =>
+        dependencies.onRefreshDropsData({
+          includeCampaignFetch: true,
+          includeInventoryFetch: false,
+          forceInventoryFetch: true,
+          suppressNotifications: true,
+        }),
+      onInventoryRefresh: () =>
+        dependencies.onRefreshDropsData({
+          includeCampaignFetch: false,
+          includeInventoryFetch: true,
+          forceInventoryFetch: true,
+          suppressNotifications: true,
+        }),
+      onAdvanceQueueIfCompleted: dependencies.onAdvanceQueueIfCompleted,
+      onAttemptPlaybackSelfHeal: adapters.attemptPlaybackSelfHeal,
+      onRestartTablessWatcher: async () => {
+        const activeStreamer = state.appState.activeStreamer;
+        if (activeStreamer && adapters.watchTransport) {
+          await adapters.watchTransport.start(activeStreamer);
+          return;
+        }
+        await acquireStreamerForSelectedGame();
+      },
+      onRotateManagedStreamer: async () => {
+        await rotateStreamer(state, 'stalled-progress', {
+          onOpenStreamer: acquireStreamerForSelectedGame,
+          onSaveState: () => adapters.saveState(state),
+          onSaveTimingState: adapters.saveTimingState,
+          onEnterPersistentRecovery: async (nextState, reason, message, recoveryOptions) =>
+            enterPersistentRecovery(nextState, reason, message, {
+              ...recoveryOptions,
+              onNotify: adapters.notify,
+              onSystemAlert: adapters.telegramSystemAlert,
+            }),
+        });
+      },
+      onSkipCurrentGame: handleRecoverySkip,
+      onSaveState: () => adapters.saveState(state),
+      onSaveTimingState: adapters.saveTimingState,
     });
   }
 
@@ -162,8 +225,10 @@ export function createFarmingSessionStreaming(
         enterPersistentRecovery(nextState, reason, message, {
           ...recoveryOptions,
           onNotify: adapters.notify,
+          onSystemAlert: adapters.telegramSystemAlert,
         }),
       onSkipCurrentGame: handleRecoverySkip,
+      onRecoverStalledProgress: recoverStalledProgress,
       onForceRefreshDropsData: () =>
         dependencies.onRefreshDropsData({
           includeCampaignFetch: true,
@@ -180,6 +245,7 @@ export function createFarmingSessionStreaming(
     acquireStreamerForSelectedGame,
     ensureWorkspaceForSelectedGame,
     handleRecoverySkip,
+    recoverStalledProgress,
     rotateStreamerIfInvalid,
   };
 }

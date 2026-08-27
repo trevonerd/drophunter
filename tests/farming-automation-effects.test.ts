@@ -50,6 +50,7 @@ function reward(game: TwitchGame): TwitchDrop {
 }
 
 function fixture(failure: PostCommitFailure = null) {
+  const telegramAlerts: Array<{ reason: string; message: string }> = [];
   const incumbent = campaign('a', '2030-08-03T16:00:00.000Z');
   const candidate = campaign('b', '2030-08-03T12:00:00.000Z');
   const drops = [reward(incumbent), reward(candidate)];
@@ -163,8 +164,11 @@ function fixture(failure: PostCommitFailure = null) {
     },
     now: () => 2_000,
     random: () => 0,
+    telegramNotify: async (reason, message) => {
+      telegramAlerts.push({ reason, message });
+    },
   });
-  return { automation, candidate, events, state, storage, watch };
+  return { automation, candidate, events, state, storage, telegramAlerts, watch };
 }
 
 describe('Farming automation ordered effects', () => {
@@ -187,6 +191,9 @@ describe('Farming automation ordered effects', () => {
       activity: ['auto-started'],
       cleanup: expect.objectContaining({ transition: 'start' }),
     });
+    expect(subject.telegramAlerts).toEqual([
+      { reason: 'auto-started', message: subject.state.appState.lastAutomationMessage },
+    ]);
   });
 
   test('maps failures without disturbing the committed session', async () => {
@@ -235,5 +242,6 @@ describe('Farming automation ordered effects', () => {
       notifications: 1,
       activity: 1,
     });
+    expect(subject.telegramAlerts.length).toBe(1);
   });
 });

@@ -17,11 +17,13 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   const streaming = createFarmingSessionStreaming(context, {
     onRefreshDropsData: refreshDropsData,
     onStopFarmingSession: stop,
+    onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
   });
   const {
     acquireStreamerForSelectedGame,
     ensureWorkspaceForSelectedGame,
     handleRecoverySkip,
+    recoverStalledProgress,
     rotateStreamerIfInvalid,
   } = streaming;
   const monitoring = createFarmingSessionMonitoring(context, {
@@ -29,6 +31,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onAcquireStreamerForSelectedGame: acquireStreamerForSelectedGame,
     onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
     onHandleRecoverySkip: handleRecoverySkip,
+    onRecoverStalledProgress: recoverStalledProgress,
   });
   const { checkDropProgress, startMonitoring, stopMonitoring } = monitoring;
   const queue = createFarmingSessionQueue(context, {
@@ -54,7 +57,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   });
   const {
     handlePauseFarming,
-    handleRefreshDrops,
     handleResumeFarming,
     handleStartFarming,
     handleStopFarming,
@@ -80,7 +82,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     handleAddToQueue,
     handleClearQueue,
     handlePauseFarming,
-    handleRefreshDrops,
     handleRemoveFromQueue,
     handleReorderQueue,
     handleResumeFarming,

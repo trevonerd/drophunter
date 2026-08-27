@@ -36,6 +36,24 @@ export function useTelegramSettings({ state, setState }: UseTelegramSettingsArgs
     return response;
   };
 
+  const handleTelegramSystemAlertsToggle = async () => {
+    const next = !state.telegramSystemAlertsEnabled;
+    setState((prev) => ({ ...prev, telegramSystemAlertsEnabled: next }));
+    const response = await sendRuntimeMessage({
+      type: 'SET_TELEGRAM_SYSTEM_ALERTS_ENABLED',
+      payload: { enabled: next },
+    });
+    if (!response?.success) {
+      setState((prev) => ({ ...prev, telegramSystemAlertsEnabled: !next }));
+      return response;
+    }
+    setState((prev) => ({
+      ...prev,
+      telegramSystemAlertsEnabled: response.telegramSystemAlertsEnabled ?? next,
+    }));
+    return response;
+  };
+
   const saveTelegramCredentials = async (botToken: string, chatId: string) => {
     return sendRuntimeMessage({
       type: 'SET_TELEGRAM_CREDENTIALS',
@@ -53,6 +71,7 @@ export function useTelegramSettings({ state, setState }: UseTelegramSettingsArgs
 
   return {
     handleTelegramAlertsToggle,
+    handleTelegramSystemAlertsToggle,
     saveTelegramCredentials,
     testTelegramAlerts,
     loadTelegramSettings,

@@ -162,4 +162,70 @@ describe('session lifecycle facade', () => {
     expect(state.appState.isPaused).toBe(false);
     expect(state.appState.tabId).toBeNull();
   });
+
+  test('fires onSystemAlert for an automatic stop reason', async () => {
+    // Given
+    const state = createServiceWorkerState();
+    const systemAlerts: Array<{ reason: string; message: string }> = [];
+
+    // When
+    await stopFarmingSession(state, {
+      stopReason: 'no-active-campaigns',
+      stopMessage: 'No active Twitch Drops campaigns found.',
+      onSystemAlert: async (reason, message) => {
+        systemAlerts.push({ reason, message });
+      },
+    });
+
+    // Then
+    expect(systemAlerts).toEqual([
+      { reason: 'no-active-campaigns', message: 'No active Twitch Drops campaigns found.' },
+    ]);
+  });
+
+  test('does not fire onSystemAlert for a manual user-stop', async () => {
+    // Given
+    const state = createServiceWorkerState();
+    const systemAlerts: Array<{ reason: string; message: string }> = [];
+
+    // When
+    await stopFarmingSession(state, {
+      stopReason: 'user-stop',
+      stopMessage: 'Stopped by user.',
+      onSystemAlert: async (reason, message) => {
+        systemAlerts.push({ reason, message });
+      },
+    });
+
+    // Then
+    expect(systemAlerts).toEqual([]);
+  });
+
+  test('fires onSystemAlert when the queue completes with no pending rewards', async () => {
+    // Given
+    const completedGame = game('completed');
+    const state = createServiceWorkerState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = completedGame;
+    state.appState.availableGames = [completedGame];
+    state.appState.queue = [completedGame];
+    state.appState.allDrops = [drop(completedGame, true)];
+    state.appState.pendingDrops = [];
+    state.appState.currentDrop = null;
+    const systemAlerts: Array<{ reason: string; message: string }> = [];
+
+    // When
+    const running = await advanceQueueIfCompleted(state, {
+      onSaveTimingState: async () => {},
+      onSystemAlert: async (reason, message) => {
+        systemAlerts.push({ reason, message });
+      },
+    });
+
+    // Then
+    expect(running).toBe(false);
+    expect(systemAlerts).toEqual([
+      { reason: 'queue-complete', message: 'Queue completed. No pending rewards left.' },
+    ]);
+  });
 });

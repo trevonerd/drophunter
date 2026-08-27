@@ -191,4 +191,36 @@ export function registerDiscoveredDropsPageRefreshCases() {
     expect(tabsApi.activated).toEqual([]);
     expect(tabsApi.created).toEqual([]);
   });
+
+  test('automatic sync does not create a Drops tab when none exists', async () => {
+    const state = createDropsPageState();
+    const tabsApi = createTabsApi();
+
+    const result = await createTestRefresher(state, tabsApi).openDropsPageAndRefresh({
+      active: false,
+      openIfMissing: false,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Open Twitch Drops');
+    expect(tabsApi.created).toEqual([]);
+  });
+
+  test('reloads a discarded existing Drops tab at most once and reuses it', async () => {
+    const state = createDropsPageState();
+    setDiscoveredGame(state);
+    const tabsApi = createTabsApi();
+    tabsApi.setQueryResult([{ id: 12, discarded: true }]);
+
+    const result = await createTestRefresher(state, tabsApi).openDropsPageAndRefresh({
+      active: false,
+      openIfMissing: false,
+    });
+
+    expect(result.success).toBe(true);
+    expect(tabsApi.created).toEqual([]);
+    expect(tabsApi.updated).toEqual([
+      { tabId: 12, properties: { url: 'https://www.twitch.tv/drops/campaigns' } },
+    ]);
+  });
 }

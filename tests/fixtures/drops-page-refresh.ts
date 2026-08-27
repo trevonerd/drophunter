@@ -8,30 +8,34 @@ export interface TabsApiHarness {
   readonly created: string[];
   readonly createdActive: boolean[];
   readonly activated: number[];
-  setQueryResult(tabs: Array<{ id?: number }>): void;
-  query(): Promise<Array<{ id?: number }>>;
-  update(tabId: number): Promise<{ id: number }>;
+  readonly updated: Array<{ tabId: number; properties: { active?: boolean; url?: string } }>;
+  setQueryResult(tabs: Array<{ id?: number; discarded?: boolean }>): void;
+  query(): Promise<Array<{ id?: number; discarded?: boolean }>>;
+  update(tabId: number, properties?: { active?: boolean; url?: string }): Promise<{ id: number }>;
   create(createData: { url: string; active: boolean }): Promise<{ id: number }>;
 }
 
 export function createTabsApi(): TabsApiHarness {
-  let queryResult: Array<{ id?: number }> = [];
+  let queryResult: Array<{ id?: number; discarded?: boolean }> = [];
   const created: string[] = [];
   const createdActive: boolean[] = [];
   const activated: number[] = [];
+  const updated: Array<{ tabId: number; properties: { active?: boolean; url?: string } }> = [];
 
   return {
     created,
     createdActive,
     activated,
+    updated,
     setQueryResult(tabs) {
       queryResult = tabs;
     },
     async query() {
       return queryResult;
     },
-    async update(tabId) {
-      activated.push(tabId);
+    async update(tabId, properties = {}) {
+      updated.push({ tabId, properties });
+      if (properties.active) activated.push(tabId);
       return { id: tabId };
     },
     async create(createData) {
