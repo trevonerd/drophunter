@@ -27,6 +27,7 @@ export type FarmingAutomationFactsV1 = {
   readonly lastPreemption: FarmingAutomationLastPreemptionV1 | null;
   readonly manualWatch: FarmingAutomationManualWatchV1 | null;
   readonly nextEvaluationAt: number | null;
+  readonly suppressedCampaignKeys: readonly string[];
 };
 
 export type WatchOwnershipV1 =
@@ -179,4 +180,5 @@ export type FarmingAutomationOutcome =
 export interface FarmingAutomation {
   request(trigger: FarmingAutomationTrigger): Promise<FarmingAutomationOutcome>;
   snooze(reason: 'manual-pause' | 'manual-stop'): Promise<'snoozed' | 'persistence-failed'>;
+  suppressCampaignUntilRefresh(campaignKey: string): Promise<'suppressed' | 'persistence-failed'>;
 }

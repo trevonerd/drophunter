@@ -39,8 +39,9 @@ export function registerAutoClaimClaimingCases(harness: AutoClaimHarness): void 
     await harness.triggerAlarm([createSeedDrop(), claimable], [createSeedDrop(), claimed]);
 
     await harness.waitForState(
-      (state) => state.totalDropsClaimed === baselineClaims + 1,
-      'claim counter did not increment by 1',
+      (state) =>
+        state.totalDropsClaimed === baselineClaims + 1 && harness.claimRequests.includes('claim-time-drop'),
+      'claim did not complete and increment the counter by 1',
     );
     expect(harness.claimRequests).toEqual(['claim-time-drop']);
   });
@@ -63,8 +64,8 @@ export function registerAutoClaimClaimingCases(harness: AutoClaimHarness): void 
     await harness.triggerAlarm([createSeedDrop(), ...claimable], [createSeedDrop(), ...claimed]);
 
     await harness.waitForState(
-      (state) => state.totalDropsClaimed === baselineClaims + 3,
-      'claim counter did not increment by 3',
+      (state) => state.totalDropsClaimed === baselineClaims + 3 && harness.claimRequests.length === 3,
+      'claims did not complete and increment the counter by 3',
     );
     expect(harness.claimRequests).toEqual(['claim-cross-one', 'claim-cross-two', 'claim-cross-three']);
   });

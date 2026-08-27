@@ -154,3 +154,34 @@ test('header mute action requires a running DropHunter-owned managed tab', () =>
     'aria-label="Mute stream audio"',
   );
 });
+
+test('session recovery exposes Open Twitch Drops only for authentication recovery', () => {
+  const selected = game();
+  const authRecoveryMarkup = renderMainView(
+    {
+      ...appState(selected),
+      isRunning: true,
+      recoveryReason: 'sign-in-required',
+      recoveryAttempts: 1,
+      recoveryBackoffUntil: 60_000,
+    },
+    [],
+    { runtimeMode: 'recovering', recoveryNow: 1 },
+  );
+  const otherRecoveryMarkup = renderMainView(
+    {
+      ...appState(selected),
+      isRunning: true,
+      recoveryReason: 'no-streamers',
+      recoveryAttempts: 1,
+      recoveryBackoffUntil: 60_000,
+    },
+    [],
+    { runtimeMode: 'recovering', recoveryNow: 1 },
+  );
+
+  expect(authRecoveryMarkup).toContain('<button type="button"');
+  expect(authRecoveryMarkup).toContain('Open Twitch Drops</button>');
+  expect(authRecoveryMarkup).toContain('Stop</button>');
+  expect(otherRecoveryMarkup).not.toContain('Open Twitch Drops</button>');
+});

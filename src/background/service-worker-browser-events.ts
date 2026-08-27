@@ -1,6 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
-import type { TwitchStreamer } from '../types/index.ts';
-import { ALARM_NAME, INVALID_STREAM_THRESHOLD } from './constants.ts';
+import type { ActivationTrigger, TwitchStreamer } from '../types/index.ts';
+import { ALARM_NAME, CAMPAIGN_SYNC_RETRY_ALARM_NAME, INVALID_STREAM_THRESHOLD } from './constants.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
 import {
@@ -46,6 +46,7 @@ interface ServiceWorkerBrowserRegistration {
   readonly onExtensionUpdate: () => Promise<unknown>;
   readonly onExtensionStorageCleared: () => Promise<unknown>;
   readonly onMonitoringAlarm: () => Promise<unknown>;
+  readonly onActivationSync: (trigger: ActivationTrigger) => Promise<unknown>;
   readonly onLinkRecheckAlarm: () => Promise<unknown>;
 }
 
@@ -207,6 +208,8 @@ export function createServiceWorkerBrowserEvents(
   function register(registration: ServiceWorkerBrowserRegistration): void {
     registerExtensionLifecycleListeners({
       alarmName: ALARM_NAME,
+      campaignSyncAlarmName: 'campaignSync',
+      campaignSyncRetryAlarmName: CAMPAIGN_SYNC_RETRY_ALARM_NAME,
       automationPeriodicAlarmName: FARMING_AUTOMATION_PERIODIC_ALARM,
       automationDeadlineAlarmName: FARMING_AUTOMATION_DEADLINE_ALARM,
       farmingAutomation: registration.farmingAutomation,
@@ -215,6 +218,7 @@ export function createServiceWorkerBrowserEvents(
       onExtensionUpdate: registration.onExtensionUpdate,
       onExtensionStorageCleared: registration.onExtensionStorageCleared,
       onAlarm: registration.onMonitoringAlarm,
+      onActivationSync: registration.onActivationSync,
       onLinkRecheckAlarm: registration.onLinkRecheckAlarm,
       onManagedTabRemoved: handleManagedTabRemoved,
       onManagedTabNavigatedAway: handleManagedTabNavigatedAway,

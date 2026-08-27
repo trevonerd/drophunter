@@ -1,5 +1,5 @@
 // Extracted from src/popup/App.tsx (top-level constants and CampaignSyncStatus type).
-import type { StreamerSelectionMode } from '../types';
+import type { CampaignSyncState, StreamerSelectionMode } from '../types';
 
 export const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: string }> = [
   { value: 'low-view', label: 'Low view' },
@@ -13,7 +13,7 @@ export const TELEGRAM_HOST_PERMISSION: chrome.permissions.Permissions = {
   origins: ['https://api.telegram.org/*'],
 };
 
-export const STALE_THRESHOLD_MS = 60 * 60 * 1000;
+export const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 
 export const STREAMER_LANGUAGE_OPTIONS = [
   { value: '', label: 'Any' },
@@ -60,6 +60,7 @@ export interface CampaignSyncStatusInput {
   availableCampaignCount: number;
   twitchSessionDetected: boolean;
   isStale: boolean;
+  campaignSyncState?: CampaignSyncState;
 }
 
 export function deriveCampaignSyncStatus({
@@ -69,7 +70,11 @@ export function deriveCampaignSyncStatus({
   availableCampaignCount,
   twitchSessionDetected,
   isStale,
+  campaignSyncState,
 }: CampaignSyncStatusInput): CampaignSyncStatus {
+  if (campaignSyncState?.status === 'needs-session') return 'signed-out';
+  if (campaignSyncState?.status === 'syncing') return 'syncing';
+  if (campaignSyncState?.status === 'retry-scheduled') return 'failed';
   if (!gamesLoading && !twitchSessionDetected) return 'signed-out';
   if (dropsRefreshLoading) return 'syncing';
   if (activeSyncError) return 'failed';

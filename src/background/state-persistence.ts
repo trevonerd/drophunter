@@ -1,45 +1,18 @@
 import { normalizeStoredAppState } from '../shared/app-state-sync.ts';
 import { browser } from '../shared/browser-api.ts';
 import type { AppState, TwitchDrop } from '../types';
-import {
-  DROPS_SNAPSHOT_CACHE_KEY,
-  GAMES_CACHE_TTL_MS,
-  LAST_ACTIVITY_AT_KEY,
-  TIMING_SAVE_DEBOUNCE_MS,
-  TIMING_STATE_KEY,
-} from './constants';
+import { DROPS_SNAPSHOT_CACHE_KEY, GAMES_CACHE_TTL_MS, LAST_ACTIVITY_AT_KEY } from './constants';
 import { logDebug, logWarn } from './logging';
-import { normalizeTimingState, pickDurablePreferences, TimingState } from './runtime-state';
+import { pickDurablePreferences } from './runtime-state';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { TwitchSession } from './twitch-api/types';
 
-let timingSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-let timingSaveResolvers: Array<() => void> = [];
-const timingSaveDebounceMs = Math.max(0, TIMING_SAVE_DEBOUNCE_MS - 100);
-let timingSaveDebounceMsForTests: number | null = null;
-
-export function setTimingSaveDebounceMsForTests(delayMs: number | null) {
-  if (delayMs === null) {
-    clearPendingTimingStateSaveForTests();
-    timingSaveDebounceMsForTests = null;
-    return;
-  }
-  timingSaveDebounceMsForTests = Math.max(0, delayMs);
-}
-
-function resolvePendingTimingSaves() {
-  const resolvers = timingSaveResolvers;
-  timingSaveResolvers = [];
-  for (const pendingResolve of resolvers) pendingResolve();
-}
-
-export function clearPendingTimingStateSaveForTests() {
-  if (timingSaveDebounceTimer !== null) {
-    clearTimeout(timingSaveDebounceTimer);
-    timingSaveDebounceTimer = null;
-  }
-  resolvePendingTimingSaves();
-}
+export {
+  clearPendingTimingStateSaveForTests,
+  loadTimingState,
+  saveTimingState,
+  setTimingSaveDebounceMsForTests,
+} from './timing-state-persistence.ts';
 
 export function sessionDebugSummary(session: TwitchSession | null) {
   if (!session) {
@@ -60,91 +33,6 @@ export async function markActivity(state: ServiceWorkerState, reason: string) {
   state.lastActivityAt = Date.now();
   await browser.storage.local.set({ [LAST_ACTIVITY_AT_KEY]: state.lastActivityAt }).catch(() => undefined);
   logDebug('Activity marked', { reason, lastActivityAt: state.lastActivityAt });
-}
-
-export async function saveTimingState(state: ServiceWorkerState) {
-  return new Promise<void>((resolve) => {
-    timingSaveResolvers.push(resolve);
-
-    if (timingSaveDebounceTimer !== null) {
-      clearTimeout(timingSaveDebounceTimer);
-    }
-
-    timingSaveDebounceTimer = setTimeout(async () => {
-      timingSaveDebounceTimer = null;
-      try {
-        const timing: TimingState = {
-          lastStreamRotationAt: state.lastStreamRotationAt,
-          streamValidationGraceUntil: state.streamValidationGraceUntil,
-          invalidStreamChecks: state.invalidStreamChecks,
-          noProgressRotationAttempts: state.noProgressRotationAttempts,
-          twitchSessionLastAttemptAt: state.twitchSessionLastAttemptAt,
-          dropClaimRetryAtById: Object.fromEntries(state.dropClaimRetryAtById),
-          lastProgressAdvanceAt: state.lastProgressAdvanceAt,
-          lastTrackedProgress: state.lastTrackedProgress,
-          lastTrackedMinutes: state.lastTrackedMinutes,
-          lastTrackedDropKey: state.lastTrackedDropKey,
-          apiConsecutiveFailures: state.apiConsecutiveFailures,
-          apiBackoffUntil: state.apiBackoffUntil,
-          integrityFallbackActive: state.integrityFallbackActive,
-          integrityFallbackActiveUntil: state.integrityFallbackActiveUntil,
-          recoveryBackoffUntil: state.recoveryBackoffUntil,
-          lastRecoveryAttemptAt: state.lastRecoveryAttemptAt,
-          stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-          recoveryNotificationSent: state.recoveryNotificationSent,
-          lastHeartbeatAt: state.lastHeartbeatAt,
-          offlineChecks: state.offlineChecks,
-          avoidStreamerName: state.avoidStreamerName,
-          cachedCampaignChannelsMap: state.cachedCampaignChannelsMap,
-          previousAllDropsCount: state.previousAllDropsCount,
-          unverifiableRewardsByKey: state.unverifiableRewardsByKey,
-        };
-        await browser.storage.local.set({ [TIMING_STATE_KEY]: timing }).catch(() => undefined);
-      } catch {
-        // Browser storage can be unavailable after extension/test teardown.
-      } finally {
-        resolvePendingTimingSaves();
-      }
-    }, timingSaveDebounceMsForTests ?? timingSaveDebounceMs);
-  });
-}
-
-export async function loadTimingState(state: ServiceWorkerState) {
-  try {
-    const result = await browser.storage.local.get([TIMING_STATE_KEY]);
-    const saved = normalizeTimingState(result[TIMING_STATE_KEY]);
-    state.lastStreamRotationAt = saved.lastStreamRotationAt;
-    state.streamValidationGraceUntil = saved.streamValidationGraceUntil;
-    state.invalidStreamChecks = saved.invalidStreamChecks;
-    state.noProgressRotationAttempts = saved.noProgressRotationAttempts;
-    state.twitchSessionLastAttemptAt = saved.twitchSessionLastAttemptAt;
-    if (saved.dropClaimRetryAtById) {
-      state.dropClaimRetryAtById.clear();
-      for (const [id, at] of Object.entries(saved.dropClaimRetryAtById)) {
-        state.dropClaimRetryAtById.set(id, at);
-      }
-    }
-    state.lastProgressAdvanceAt = saved.lastProgressAdvanceAt;
-    state.lastTrackedProgress = saved.lastTrackedProgress;
-    state.lastTrackedMinutes = saved.lastTrackedMinutes;
-    state.lastTrackedDropKey = saved.lastTrackedDropKey;
-    state.apiConsecutiveFailures = saved.apiConsecutiveFailures;
-    state.apiBackoffUntil = saved.apiBackoffUntil;
-    state.integrityFallbackActive = saved.integrityFallbackActive;
-    state.integrityFallbackActiveUntil = saved.integrityFallbackActiveUntil;
-    state.recoveryBackoffUntil = saved.recoveryBackoffUntil;
-    state.lastRecoveryAttemptAt = saved.lastRecoveryAttemptAt;
-    state.stalledRecoveryAttempts = saved.stalledRecoveryAttempts;
-    state.recoveryNotificationSent = saved.recoveryNotificationSent;
-    state.lastHeartbeatAt = saved.lastHeartbeatAt ?? 0;
-    state.offlineChecks = saved.offlineChecks;
-    state.avoidStreamerName = saved.avoidStreamerName;
-    state.cachedCampaignChannelsMap = saved.cachedCampaignChannelsMap;
-    state.previousAllDropsCount = saved.previousAllDropsCount;
-    state.unverifiableRewardsByKey = saved.unverifiableRewardsByKey;
-  } catch (error) {
-    logWarn('Failed to load timing state from local storage:', String(error));
-  }
 }
 
 export function shouldRefreshGamesCache(state: ServiceWorkerState, force = false): boolean {
@@ -233,7 +121,7 @@ export async function loadState(
         await browser.storage.local.set({ appState: state.appState }).catch(() => undefined);
       }
     }
-    state.twitchSessionCache = deps.sanitizeTwitchSession(result[deps.TWITCH_SESSION_STORAGE_KEY] as unknown);
+    state.twitchSessionCache = deps.sanitizeTwitchSession(result[deps.TWITCH_SESSION_STORAGE_KEY]);
     const storedDropsSnapshot = result[deps.DROPS_SNAPSHOT_CACHE_KEY];
     state.cachedDropsSnapshot = Array.isArray(storedDropsSnapshot)
       ? (storedDropsSnapshot as TwitchDrop[])

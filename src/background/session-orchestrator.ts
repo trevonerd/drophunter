@@ -2,7 +2,7 @@ import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 import type { TwitchSession } from './twitch-api/types';
 
-const DEFAULT_SESSION_READ_ATTEMPTS = 4;
+const DEFAULT_SESSION_READ_ATTEMPTS = 3;
 const DEFAULT_SESSION_READ_RETRY_DELAY_MS = 350;
 
 interface TwitchTab {
@@ -13,6 +13,7 @@ interface TwitchTab {
 
 interface TabsApi {
   query(queryInfo: { url?: string | string[] }): Promise<TwitchTab[]>;
+  create(createProperties: { url: string; active: boolean }): Promise<TwitchTab | null>;
   sendMessage(tabId: number, message: unknown): Promise<unknown>;
 }
 
@@ -21,7 +22,7 @@ interface ScriptingApi {
 }
 
 interface SessionOrchestratorState {
-  appState: Pick<AppState, 'availableGames' | 'lastSuccessfulRefreshAt'>;
+  appState: Pick<AppState, 'availableGames' | 'lastSuccessfulRefreshAt' | 'recoveryReason'>;
   twitchSessionCache: TwitchSession | null;
   twitchSessionLastAttemptAt: number;
 }
@@ -33,6 +34,8 @@ interface SessionOrchestratorOptions {
   sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
   readTwitchSessionViaExecuteScript: (tabId: number) => Promise<TwitchSession | null>;
   persistTwitchSession: (session: TwitchSession) => Promise<unknown> | unknown;
+  waitForTabComplete?: (tabId: number) => Promise<unknown> | unknown;
+  closeTemporaryTabIfSafe?: (tabId: number) => Promise<boolean>;
   sessionReadAttempts?: number;
   sessionReadRetryDelayMs?: number;
   logDebug: (...args: unknown[]) => void;
@@ -50,6 +53,7 @@ export function createSessionOrchestrator(
 ) {
   const getTabsApi = () => options.tabsApi ?? browser.tabs;
   const getScriptingApi = () => options.scriptingApi ?? browser.scripting;
+  let authRecoveryInFlight: Promise<TwitchSession | null> | null = null;
   const wait = (delayMs: number) =>
     delayMs <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, delayMs));
 
@@ -165,6 +169,33 @@ export function createSessionOrchestrator(
     return session;
   };
 
+  const recoverTwitchSessionAfterAuthError = async (): Promise<TwitchSession | null> => {
+    if (authRecoveryInFlight) {
+      return authRecoveryInFlight;
+    }
+    if (state.appState.recoveryReason === 'sign-in-required') {
+      return null;
+    }
+
+    authRecoveryInFlight = (async () => {
+      const fromOpenTabs = await findTwitchSessionInOpenTabs().catch(() => null);
+      if (fromOpenTabs) {
+        state.twitchSessionCache = fromOpenTabs;
+        state.twitchSessionLastAttemptAt = 0;
+        await options.persistTwitchSession(fromOpenTabs);
+        return fromOpenTabs;
+      }
+
+      // Authentication recovery is passive. Opening Twitch is an explicit user
+      // action handled by OPEN_DROPS_AND_SYNC, never a hidden side effect.
+      return null;
+    })().finally(() => {
+      authRecoveryInFlight = null;
+    });
+
+    return authRecoveryInFlight;
+  };
+
   const shouldRefreshCampaignsAfterSessionSync = (staleThresholdMs: number, now = Date.now()): boolean =>
     state.appState.availableGames.length === 0 ||
     now - (state.appState.lastSuccessfulRefreshAt ?? 0) > staleThresholdMs;
@@ -174,6 +205,7 @@ export function createSessionOrchestrator(
     findTwitchSessionInOpenTabs,
     persistSessionFromDropsPage,
     readTwitchSessionFromTab,
+    recoverTwitchSessionAfterAuthError,
     shouldRefreshCampaignsAfterSessionSync,
   };
 }

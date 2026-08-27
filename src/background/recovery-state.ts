@@ -100,6 +100,7 @@ export async function enterPersistentRecovery(
   opts?: {
     onSkipCurrentGame?: () => Promise<void>;
     onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
+    onSystemAlert?: (reason: string, message: string) => Promise<void>;
   },
 ) {
   state.stalledRecoveryAttempts += 1;
@@ -124,5 +125,6 @@ export async function enterPersistentRecovery(
   if (!state.recoveryNotificationSent) {
     state.recoveryNotificationSent = true;
     await opts?.onNotify?.('DropHunter is still recovering', message, 1);
+    await opts?.onSystemAlert?.('persistent-recovery', message);
   }
 }

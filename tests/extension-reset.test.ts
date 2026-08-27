@@ -8,7 +8,7 @@ import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 
 describe('extension update reset', () => {
-  test('preserves lifetime stats and user preferences but clears campaign execution state', () => {
+  test('preserves lifetime stats, preferences, queue and resume intent while clearing volatile state', () => {
     const reset = createExtensionUpdateAppState({
       ...createInitialState(),
       totalDropsClaimed: 42,
@@ -31,9 +31,10 @@ describe('extension update reset', () => {
       notificationsEnabled: true,
       watchTransportPreference: 'tabless',
       availableGames: [],
-      queue: [],
-      selectedGame: null,
+      queue: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
+      selectedGame: { id: 'game-1', name: 'Stale Game', imageUrl: '' },
       isRunning: false,
+      wasRunning: true,
       watchFallbackReason: null,
       tabId: null,
     });
@@ -66,6 +67,7 @@ describe('extension update reset', () => {
     expect(state.apiBackoffUntil).toBe(0);
     expect(state.dropClaimRetryAtById.size).toBe(0);
     expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.wasRunning).toBe(true);
     expect(state.appState).toBe(appStateReference);
   });
 

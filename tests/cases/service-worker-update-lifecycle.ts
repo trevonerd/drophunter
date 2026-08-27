@@ -87,13 +87,21 @@ export function registerUpdateLifecycleCase() {
     expect(reloadedState.appState.allDrops).toEqual([]);
     expect(reloadedState.appState.pendingDrops).toEqual([]);
     expect(reloadedState.appState.completedDrops).toEqual([]);
-    expect(reloadedState.appState.queue).toEqual([]);
-    expect(reloadedState.appState.selectedGame).toBeNull();
+    expect(reloadedState.appState.queue).toEqual(beforeUpdate.queue);
+    expect(reloadedState.appState.selectedGame).toEqual(beforeUpdate.selectedGame);
+    expect(reloadedState.appState.wasRunning).toBe(beforeUpdate.isRunning);
     expect(reloadedState.appState.isRunning).toBe(false);
     expect(reloadedState.appState.monitorAutoOpen).toBe(true);
     expect(reloadedState.appState.muteFarmingTab).toBe(true);
     expect(reloadedState.appState.totalDropsClaimed).toBe(beforeUpdate.totalDropsClaimed);
-    expect(chromeMocks.storage.local._store.has(serviceWorkerModule.TIMING_STATE_KEY)).toBe(false);
+    const resetTimingState = chromeMocks.storage.local._store.get(serviceWorkerModule.TIMING_STATE_KEY) as {
+      apiBackoffUntil?: number;
+      lastLifecycleCheckAt?: number;
+      lastTrackedDropKey?: string | null;
+    };
+    expect(resetTimingState.lastTrackedDropKey).toBeNull();
+    expect(resetTimingState.apiBackoffUntil).toBe(0);
+    expect(resetTimingState.lastLifecycleCheckAt).toBeGreaterThan(0);
     expect(chromeMocks.storage.local._store.has('farmingAutomationFactsV1')).toBe(false);
     expect(chromeMocks.storage.local._store.has('farmingSessionTransitionReceiptV1')).toBe(false);
   });

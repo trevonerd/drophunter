@@ -9,6 +9,7 @@ export interface SettingsViewProps {
   onNotificationsEnabledToggle: () => void;
   notificationPermissionDenied?: boolean;
   onTelegramAlertsToggle: () => Promise<{ success: boolean; error?: string } | undefined>;
+  onTelegramSystemAlertsToggle: () => Promise<{ success: boolean; error?: string } | undefined>;
   onSaveTelegramCredentials: (
     botToken: string,
     chatId: string,

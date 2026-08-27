@@ -71,6 +71,7 @@ test('createInitialState returns fresh state object', () => {
   expect(state.muteFarmingTab).toBe(true);
   expect(state.notificationsEnabled).toBe(false);
   expect(state.telegramAlertsEnabled).toBe(false);
+  expect(state.telegramSystemAlertsEnabled).toBe(false);
   expect(state.autoClaimChannelPointsBonus).toBe(true);
   expect(state.selectedGame).toBe(null);
   expect(state.activeStreamer).toBe(null);

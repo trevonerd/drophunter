@@ -1,12 +1,12 @@
 import { browser } from '../shared/browser-api.ts';
 import { replaceAvailableGames } from '../shared/game-selection.ts';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status.ts';
-import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
-import type { TwitchGame } from '../types/index.ts';
+import type { ActivationTrigger, CampaignSyncState } from '../types/index.ts';
 import {
-  attemptAutoClaimChannelPointsBonusExt,
-  recordChannelPointsBonusClaimedExt,
-} from './channel-points.ts';
+  type ActivationSyncAttempt,
+  createActivationSyncCoordinator,
+} from './activation-sync-coordinator.ts';
+import { CAMPAIGN_SYNC_RETRY_ALARM_NAME } from './constants.ts';
 import { createDropsPageRefresher } from './drops-page-refresh.ts';
 import {
   annotateGameCompletion,
@@ -18,31 +18,21 @@ import {
 } from './drops-projection.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
 import type { createFarmingSession } from './farming-session.ts';
-import {
-  type EnsureGamesCacheDeps,
-  type GamesCacheRefreshDeps,
-  handleEnsureGamesCache,
-  refreshGamesCacheFromHiddenFetch,
-} from './games-cache-orchestration.ts';
-import { logDebug } from './logging.ts';
+import { type GamesCacheRefreshDeps, refreshGamesCacheFromHiddenFetch } from './games-cache-orchestration.ts';
 import { normalizeQueueSelection } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { createServiceWorkerContentUtilities } from './service-worker-content-utilities.ts';
 import type { createServiceWorkerStateLifecycle } from './service-worker-state-lifecycle.ts';
+import { createServiceWorkerTwitchContentHandlers } from './service-worker-twitch-content-handlers.ts';
 import type { createServiceWorkerTwitchGateway } from './service-worker-twitch-gateway.ts';
 import { resetStreamTrackingState } from './session-lifecycle.ts';
-import {
-  syncTwitchIntegrityFromContentScriptExt,
-  syncTwitchSessionFromContentScriptExt,
-} from './session-management.ts';
-import {
-  broadcastStateUpdate,
-  saveState,
-  saveTimingState,
-  shouldRefreshGamesCache,
-} from './state-persistence.ts';
+import { broadcastStateUpdate, saveState, saveTimingState } from './state-persistence.ts';
 import { waitForTabComplete } from './tab-management.ts';
 
-type FarmingSession = Pick<ReturnType<typeof createFarmingSession>, 'resumeAfterAuthRecovery' | 'stop'>;
+type FarmingSession = Pick<
+  ReturnType<typeof createFarmingSession>,
+  'handleStartFarming' | 'resumeAfterAuthRecovery' | 'stop'
+>;
 type StateLifecycle = Pick<
   ReturnType<typeof createServiceWorkerStateLifecycle>,
   'awaitInitialization' | 'ensureStateHydratedForCache' | 'getInitPromise' | 'trackActivity'
@@ -64,15 +54,8 @@ interface ServiceWorkerContentDependencies {
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
 }
 
-export type TwitchSessionRecoveryIntent = 'none' | 'continue' | 'resume';
-
-export function twitchSessionRecoveryIntent(
-  appState: Pick<ServiceWorkerState['appState'], 'lastStopReason' | 'recoveryReason'>,
-): TwitchSessionRecoveryIntent {
-  if (appState.lastStopReason === 'sign-in-required') return 'resume';
-  if (appState.recoveryReason === 'sign-in-required') return 'continue';
-  return 'none';
-}
+export type { TwitchSessionRecoveryIntent } from './service-worker-twitch-content-handlers.ts';
+export { twitchSessionRecoveryIntent } from './service-worker-twitch-content-handlers.ts';
 
 export function createServiceWorkerContentHandlers(
   state: ServiceWorkerState,
@@ -81,11 +64,6 @@ export function createServiceWorkerContentHandlers(
   const gamesCacheRefreshDependencies: GamesCacheRefreshDeps = {
     fetchDropsSnapshot: dependencies.twitchGateway.fetchDropsSnapshot,
     fetchDropsSnapshotProgressively: dependencies.twitchGateway.fetchDropsSnapshotProgressively,
-    onProgressiveSnapshotApplied: () => {
-      void dependencies.automation.request('campaign-refresh').catch((error) => {
-        logDebug('Progressive favorite auto-start evaluation failed', { error: String(error) });
-      });
-    },
     replaceAvailableGames,
     annotateGameCompletion,
     normalizeGameSelection,
@@ -102,14 +80,6 @@ export function createServiceWorkerContentHandlers(
   };
   const refreshGamesCache = (options: Parameters<typeof refreshGamesCacheFromHiddenFetch>[1]) =>
     refreshGamesCacheFromHiddenFetch(state, options, gamesCacheRefreshDependencies);
-  const ensureGamesCacheDependencies: EnsureGamesCacheDeps = {
-    awaitInitPromise: dependencies.stateLifecycle.getInitPromise,
-    trackActivity: dependencies.stateLifecycle.trackActivity,
-    ensureStateHydratedForCache: dependencies.stateLifecycle.ensureStateHydratedForCache,
-    shouldRefreshGamesCache,
-    refreshGamesCacheFromHiddenFetch: refreshGamesCache,
-    saveState,
-  };
   const dropsPageRefresher = createDropsPageRefresher(state, {
     trackActivity: dependencies.stateLifecycle.trackActivity,
     ensureStateHydratedForCache: dependencies.stateLifecycle.ensureStateHydratedForCache,
@@ -120,144 +90,164 @@ export function createServiceWorkerContentHandlers(
     broadcastStateUpdate,
   });
 
-  async function ensureGamesCache(payload?: { readonly force?: boolean }) {
-    return handleEnsureGamesCache(state, payload, ensureGamesCacheDependencies);
+  const publishCampaignSyncState = async (campaignSyncState: CampaignSyncState): Promise<void> => {
+    state.appState.campaignSyncState = campaignSyncState;
+    state.appState.dropsPageRefreshInProgress = campaignSyncState.status === 'syncing';
+    state.appState.lastDropsPageRefreshAttemptAt = campaignSyncState.lastAttemptAt;
+    state.appState.lastDropsPageRefreshCampaignCount = campaignSyncState.campaignCount;
+    if (campaignSyncState.status === 'idle' && campaignSyncState.lastSuccessAt !== null) {
+      state.appState.lastSuccessfulRefreshAt = campaignSyncState.lastSuccessAt;
+      state.appState.lastDropsPageRefreshCompletedAt = campaignSyncState.lastSuccessAt;
+      state.appState.lastDropsPageRefreshError = null;
+    } else if (campaignSyncState.status === 'needs-session') {
+      state.appState.lastDropsPageRefreshError = 'Open Twitch Drops so DropHunter can detect your session.';
+    } else if (campaignSyncState.status === 'retry-scheduled') {
+      state.appState.lastDropsPageRefreshError = campaignSyncState.error;
+    } else {
+      state.appState.lastDropsPageRefreshError = null;
+    }
+    await saveState(state);
+    broadcastStateUpdate(state.appState);
+  };
+
+  const activationSyncCoordinator = createActivationSyncCoordinator({
+    getCampaignSyncState: () => state.appState.campaignSyncState,
+    setCampaignSyncState: publishCampaignSyncState,
+    scheduleRetry: async (retryAt) => {
+      browser.alarms.create(CAMPAIGN_SYNC_RETRY_ALARM_NAME, { when: retryAt });
+    },
+    clearRetry: () => browser.alarms.clear(CAMPAIGN_SYNC_RETRY_ALARM_NAME).then(() => undefined),
+    shouldRunPeriodicSync: () => state.appState.isRunning || state.appState.autoStartFavoriteGames,
+    performSync: async (trigger): Promise<ActivationSyncAttempt> => {
+      const manual = trigger === 'manual';
+      if (!manual) {
+        const directRefresh = await refreshGamesCache({
+          requireFreshSnapshot: true,
+          requireConsecutiveEmptyConfirmation: true,
+        });
+        if (directRefresh.kind === 'refreshed') {
+          if (directRefresh.games.length > 0 || directRefresh.authoritativeEmpty === true) {
+            await dependencies.automation.request('campaign-refresh');
+            return { kind: 'synced', campaignCount: state.appState.availableGames.length };
+          }
+          return {
+            kind: 'transient-error',
+            error: 'Empty Twitch campaign data is awaiting confirmation.',
+          };
+        }
+      }
+      const waitForRestoredTab = trigger === 'browser-start' || trigger === 'wake';
+      const result = await dropsPageRefresher.openDropsPageAndRefresh({
+        active: manual,
+        openIfMissing: manual,
+        waitForExistingTabMs: waitForRestoredTab ? 10_000 : 0,
+      });
+      if (!result.success) {
+        const error = result.error || 'Twitch campaign data is temporarily unavailable.';
+        if (state.twitchSessionCache) return { kind: 'transient-error', error };
+        return /open twitch|sign in|session/i.test(error)
+          ? { kind: 'needs-session' }
+          : { kind: 'transient-error', error };
+      }
+
+      // Favorite discovery runs once, after the authoritative merge completes.
+      await dependencies.automation.request('campaign-refresh');
+      if (
+        trigger === 'extension-update' &&
+        state.appState.wasRunning &&
+        state.appState.autoResumeOnStartup &&
+        !state.appState.isRunning &&
+        state.appState.selectedGame
+      ) {
+        const resumed = await dependencies.farmingSession.handleStartFarming({
+          game: state.appState.selectedGame,
+        });
+        if (resumed.success) state.appState.wasRunning = false;
+      }
+      return { kind: 'synced', campaignCount: result.gamesCount };
+    },
+  });
+
+  async function requestActivationSync(trigger: ActivationTrigger) {
+    await dependencies.stateLifecycle.awaitInitialization();
+    const now = Date.now();
+    const previousLifecycleCheckAt = state.lastLifecycleCheckAt;
+    state.lastLifecycleCheckAt = now;
+    void saveTimingState(state);
+    const effectiveTrigger =
+      trigger !== 'manual' &&
+      trigger !== 'extension-update' &&
+      previousLifecycleCheckAt > 0 &&
+      now - previousLifecycleCheckAt > 2 * 60_000
+        ? 'wake'
+        : trigger;
+    return activationSyncCoordinator.request(effectiveTrigger);
   }
 
-  async function openDropsPageAndRefresh(message?: {
+  const activatePopup = () => requestActivationSync('popup-open');
+  const openDropsAndSync = () => requestActivationSync('manual');
+
+  async function ensureGamesCache(payload?: { readonly force?: boolean }) {
+    const result = await requestActivationSync(payload?.force ? 'worker-start' : 'popup-open');
+    return {
+      success: result.kind !== 'needs-session' && result.kind !== 'retry-scheduled',
+      refreshed: result.kind === 'synced',
+      gamesCount: state.appState.availableGames.length,
+      games: state.appState.availableGames,
+      ...(result.kind === 'retry-scheduled' ? { error: result.error } : {}),
+    };
+  }
+
+  async function refreshDrops() {
+    await requestActivationSync('worker-start');
+    // One-release compatibility adapter: the legacy command only acknowledged
+    // that refresh work was scheduled. Detailed state is exposed by ACTIVATE_POPUP.
+    return { success: true };
+  }
+
+  async function openDropsPageAndRefresh(_message?: {
     readonly payload?: { readonly waitForRefresh?: boolean; readonly active?: boolean };
   }) {
-    await dependencies.stateLifecycle.awaitInitialization();
-    return dropsPageRefresher.openDropsPageAndRefresh({
-      waitForRefresh: message?.payload?.waitForRefresh,
-      active: message?.payload?.active,
-    });
+    const result = await openDropsAndSync();
+    return {
+      success: result.kind === 'synced' || result.kind === 'cache-fresh',
+      opened: true,
+      refreshed: result.kind === 'synced',
+      gamesCount: state.appState.availableGames.length,
+      appState: state.appState,
+      ...(result.kind === 'needs-session'
+        ? { error: 'Open Twitch Drops so DropHunter can detect your session.' }
+        : result.kind === 'retry-scheduled'
+          ? { error: result.error }
+          : {}),
+    };
   }
 
-  async function recordChannelPointsBonusClaimed(channelName?: string | null): Promise<void> {
-    await recordChannelPointsBonusClaimedExt(
-      state.appState,
-      {
-        saveState: () => saveState(state),
-        notify: dependencies.notify,
-        awaitInit: dependencies.stateLifecycle.awaitInitialization,
-      },
-      channelName,
-    );
-  }
+  const contentUtilities = createServiceWorkerContentUtilities(state, {
+    automation: dependencies.automation,
+    notify: dependencies.notify,
+    awaitInitialization: dependencies.stateLifecycle.awaitInitialization,
+    ensureContentScriptOnTab: dependencies.twitchGateway.ensureContentScriptOnTab,
+  });
 
-  async function attemptAutoClaimChannelPointsBonus() {
-    return attemptAutoClaimChannelPointsBonusExt(state.appState, {
-      ensureContentScriptOnTab: dependencies.twitchGateway.ensureContentScriptOnTab,
-      sendMessageToTab: (tabId: number, message: unknown) =>
-        browser.tabs.sendMessage(tabId, message).catch(() => null),
-      getTab: (tabId: number) => browser.tabs.get(tabId).catch(() => null),
-      recordBonusClaimed: recordChannelPointsBonusClaimed,
-    });
-  }
-
-  async function handleUpdateGames(payload?: TwitchGame[]) {
-    state.appState.availableGames = replaceAvailableGames(payload ?? []);
-    state.appState.availableGames = annotateGameCompletion(
-      state.appState.availableGames,
-      state.cachedDropsSnapshot,
-    );
-    if (state.appState.availableGames.length > 0) state.appState.lastSuccessfulRefreshAt = Date.now();
-    normalizeGameSelection(state, state.appState.availableGames, true);
-    normalizeQueueSelection(state, state.appState.availableGames, true);
-    await saveState(state);
-    saveTimingState(state).catch(() => undefined);
-    await dependencies.automation.request('campaign-refresh');
-    return { success: true };
-  }
-
-  function isTrustedTwitchSender(sender: chrome.runtime.MessageSender): boolean {
-    const url = sender.tab?.url ?? sender.url ?? '';
-    if (getFarmableTwitchChannelNameFromUrl(url) !== null) return true;
-    try {
-      const parsed = new URL(url);
-      return (
-        /(^|\.)twitch\.tv$/i.test(parsed.hostname) && /^\/drops\/campaigns(?:\/|$)/i.test(parsed.pathname)
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  function sessionPayloadCandidate(payload: unknown): unknown {
-    return payload && typeof payload === 'object' && 'session' in payload ? payload.session : payload;
-  }
-
-  async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.MessageSender) {
-    if (!isTrustedTwitchSender(sender)) return { success: false, error: 'Untrusted message sender' };
-    await dependencies.stateLifecycle.awaitInitialization();
-    const recoveryIntent = twitchSessionRecoveryIntent(state.appState);
-    const result = await syncTwitchSessionFromContentScriptExt(
-      state,
-      sessionPayloadCandidate(payload),
-      sender.tab?.id,
-      {
-        shouldRefreshCampaignsAfterSessionSync:
-          dependencies.twitchGateway.shouldRefreshCampaignsAfterSessionSync,
-        onRefreshCampaigns: () => refreshGamesCache({ requireConsecutiveEmptyConfirmation: true }),
-        onSaveState: () => saveState(state),
-        onBroadcastStateUpdate: () => broadcastStateUpdate(state.appState),
-      },
-    );
-    if (!result.success || recoveryIntent === 'none') {
-      return result;
-    }
-
-    state.apiConsecutiveFailures = 0;
-    state.apiBackoffUntil = 0;
-    state.recoveryBackoffUntil = 0;
-    state.lastRecoveryAttemptAt = 0;
-    state.recoveryNotificationSent = false;
-    state.appState = clearRecoveryStatus(clearTerminalStopStatus(state.appState));
-    switch (recoveryIntent) {
-      case 'resume':
-        await dependencies.farmingSession.resumeAfterAuthRecovery();
-        break;
-      case 'continue':
-        await saveState(state);
-        break;
-      default:
-        recoveryIntent satisfies never;
-    }
-    return result;
-  }
-
-  async function handleSyncTwitchIntegrity(
-    payload:
-      | { readonly token?: string; readonly expiration?: number; readonly request_id?: string }
-      | undefined,
-    sender: chrome.runtime.MessageSender | undefined,
-  ) {
-    if (!sender || !isTrustedTwitchSender(sender)) {
-      return { success: false, error: 'Untrusted message sender' };
-    }
-    return syncTwitchIntegrityFromContentScriptExt(state, payload);
-  }
-
-  async function handleChannelPointsBonusClaimed(
-    payload: { readonly channelName?: string | null } | undefined,
-    sender: chrome.runtime.MessageSender,
-  ) {
-    if (!isTrustedTwitchSender(sender)) return { success: false, error: 'Untrusted message sender' };
-    logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });
-    const channelName =
-      payload?.channelName ?? getFarmableTwitchChannelNameFromUrl(sender.tab?.url ?? '') ?? null;
-    await recordChannelPointsBonusClaimed(channelName);
-    return { success: true };
-  }
+  const twitchContentHandlers = createServiceWorkerTwitchContentHandlers(state, {
+    awaitInitialization: dependencies.stateLifecycle.awaitInitialization,
+    shouldRefreshCampaignsAfterSessionSync: dependencies.twitchGateway.shouldRefreshCampaignsAfterSessionSync,
+    requestAuthRecoveredSync: () => requestActivationSync('auth-recovered'),
+    resumeAfterAuthRecovery: dependencies.farmingSession.resumeAfterAuthRecovery,
+    recordChannelPointsBonusClaimed: contentUtilities.recordChannelPointsBonusClaimed,
+  });
 
   return {
-    attemptAutoClaimChannelPointsBonus,
+    activatePopup,
+    attemptAutoClaimChannelPointsBonus: contentUtilities.attemptAutoClaimChannelPointsBonus,
     ensureGamesCache,
-    handleChannelPointsBonusClaimed,
-    handleSyncTwitchIntegrity,
-    handleSyncTwitchSession,
-    handleUpdateGames,
+    getAppState: () => state.appState,
+    ...twitchContentHandlers,
+    handleUpdateGames: contentUtilities.handleUpdateGames,
+    openDropsAndSync,
     openDropsPageAndRefresh,
+    refreshDrops,
+    requestActivationSync,
   };
 }

@@ -36,7 +36,6 @@ type SuccessResult = { readonly success: true };
 
 export type FarmingSessionHandlers = {
   readonly handlePauseFarming: () => Promise<SuccessResult>;
-  readonly handleRefreshDrops: () => Promise<SuccessResult>;
   readonly handleResumeFarming: () => Promise<SuccessResult>;
   readonly handleStartFarming: (payload: StartFarmingPayload) => Promise<StartFarmingResult>;
   readonly handleStopFarming: () => Promise<SuccessResult>;
@@ -65,6 +64,7 @@ export function createFarmingSessionHandlers(
       onNotify: async (title, message) => {
         await adapters.notify(title, message);
       },
+      onSystemAlert: adapters.telegramSystemAlert,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: options?.skipTimingStateSave ? undefined : adapters.saveTimingState,
     });
@@ -89,7 +89,7 @@ export function createFarmingSessionHandlers(
     if (!advanced) {
       return { success: false, error: 'Queue completed. No pending rewards left.' };
     }
-    if (!state.appState.tabId && state.appState.selectedGame) {
+    if (!state.appState.activeStreamer && !state.appState.tabId && state.appState.selectedGame) {
       await dependencies.onAcquireStreamer();
     }
     if (state.appState.monitorAutoOpen) {
@@ -121,16 +121,18 @@ export function createFarmingSessionHandlers(
     if (!state.appState.isRunning) return;
 
     state.apiConsecutiveFailures += 1;
-    const retryDelayMs = Math.min(2 ** state.apiConsecutiveFailures * PROGRESS_POLL_MS, 10 * 60_000);
+    const retryDelayMs = Math.min(
+      2 ** Math.max(0, state.apiConsecutiveFailures - 1) * PROGRESS_POLL_MS,
+      10 * 60_000,
+    );
     state.apiBackoffUntil = Date.now() + retryDelayMs;
     applyTwitchSessionRecoveryState(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
 
     if (options?.notification && !state.recoveryNotificationSent) {
       state.recoveryNotificationSent = true;
-      await adapters.notify(
-        options.notification.title,
-        `${options.notification.message} Viewing continues and farming will resume automatically.`,
-      );
+      const fullMessage = `${options.notification.message} Viewing continues and farming will resume automatically.`;
+      await adapters.notify(options.notification.title, fullMessage);
+      await adapters.telegramSystemAlert?.('sign-in-recovery', fullMessage);
     }
     await adapters.saveState(state);
     await adapters.saveTimingState(state);
@@ -198,19 +200,8 @@ export function createFarmingSessionHandlers(
     return runFarmingSessionMutation(state, resume);
   }
 
-  async function handleRefreshDrops(): Promise<SuccessResult> {
-    await adapters.trackActivity('refresh-drops');
-    await dependencies.onRefreshDropsData({
-      includeCampaignFetch: true,
-      includeInventoryFetch: Boolean(state.appState.selectedGame),
-      forceInventoryFetch: true,
-    });
-    return { success: true };
-  }
-
   return {
     handlePauseFarming,
-    handleRefreshDrops,
     handleResumeFarming,
     handleStartFarming,
     handleStopFarming,

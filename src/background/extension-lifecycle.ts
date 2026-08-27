@@ -1,4 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
+import type { ActivationTrigger } from '../types/index.ts';
 import type { FarmingAutomationBrowser } from './farming-automation-browser.ts';
 import type { FarmingAutomation, FarmingAutomationPersistence } from './farming-automation-contracts.ts';
 import type { FarmingAutomationRecoveryResult } from './farming-automation-recovery.ts';
@@ -41,6 +42,8 @@ export interface ExtensionLifecycleApi {
 interface ExtensionLifecycleOptions {
   readonly api?: ExtensionLifecycleApi;
   readonly alarmName: string;
+  readonly campaignSyncAlarmName?: string;
+  readonly campaignSyncRetryAlarmName?: string;
   readonly automationPeriodicAlarmName?: string;
   readonly automationDeadlineAlarmName?: string;
   readonly farmingAutomation: Pick<FarmingAutomation, 'request'>;
@@ -49,6 +52,7 @@ interface ExtensionLifecycleOptions {
   readonly onExtensionUpdate: (details: chrome.runtime.InstalledDetails) => Promise<unknown> | unknown;
   readonly onExtensionStorageCleared?: () => Promise<unknown> | unknown;
   readonly onAlarm: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
+  readonly onActivationSync?: (trigger: ActivationTrigger) => Promise<unknown> | unknown;
   readonly onLinkRecheckAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
   readonly onManagedTabRemoved: (tabId: number) => Promise<unknown> | unknown;
   readonly onManagedTabNavigatedAway: (tabId: number, url: string) => Promise<unknown> | unknown;
@@ -129,6 +133,7 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
       (async () => {
         await awaitInitialization(options.getInitPromise);
         await options.farmingAutomation.request('browser-start');
+        await options.onActivationSync?.('browser-start');
       })(),
       'onStartup error',
       options.logWarn,
@@ -141,6 +146,7 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
         await awaitInitialization(options.getInitPromise);
         if (details.reason === 'update') {
           await options.onExtensionUpdate(details);
+          await options.onActivationSync?.('extension-update');
         }
       })(),
       'onInstalled error',
@@ -170,6 +176,8 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
 
   api.alarms.onAlarm.addListener((alarm) => {
     const isMonitoringAlarm = alarm.name === options.alarmName;
+    const isCampaignSyncAlarm =
+      alarm.name === options.campaignSyncAlarmName || alarm.name === options.campaignSyncRetryAlarmName;
     const isAutomationAlarm =
       (options.automationPeriodicAlarmName !== undefined &&
         alarm.name === options.automationPeriodicAlarmName) ||
@@ -177,14 +185,20 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
         alarm.name === options.automationDeadlineAlarmName);
     const isLinkRecheckAlarm =
       options.linkRecheckAlarmPrefix !== undefined && alarm.name.startsWith(options.linkRecheckAlarmPrefix);
-    if (!isMonitoringAlarm && !isAutomationAlarm && !isLinkRecheckAlarm) {
+    if (!isMonitoringAlarm && !isCampaignSyncAlarm && !isAutomationAlarm && !isLinkRecheckAlarm) {
       return;
     }
     reportAsyncError(
       (async () => {
         await awaitInitialization(options.getInitPromise);
         if (isMonitoringAlarm) {
+          // A normal progress alarm only performs a cache-aware activation check.
+          // requestActivationSync promotes it to `wake` after a persisted lifecycle
+          // gap, while routine 60-second ticks never force a campaign refresh.
+          if (options.onActivationSync) await options.onActivationSync('periodic-campaign');
           await options.onAlarm(alarm);
+        } else if (isCampaignSyncAlarm) {
+          if (options.onActivationSync) await options.onActivationSync('periodic-campaign');
         } else if (isAutomationAlarm) {
           await options.farmingAutomation.request('periodic');
         } else {

@@ -65,6 +65,28 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
   const userActions = createFarmingAutomationUserActionHandlers(dependencies.automation, farmingSession);
   registerRuntimeMessageRouter(
     {
+      activatePopup: async () => {
+        const result = await contentHandlers.activatePopup();
+        return {
+          success: result.kind !== 'retry-scheduled',
+          result,
+          appState: contentHandlers.getAppState(),
+          ...(result.kind === 'retry-scheduled' ? { error: result.error } : {}),
+        };
+      },
+      openDropsAndSync: async () => {
+        const result = await contentHandlers.openDropsAndSync();
+        return {
+          success: result.kind === 'synced' || result.kind === 'cache-fresh',
+          result,
+          appState: contentHandlers.getAppState(),
+          ...(result.kind === 'needs-session'
+            ? { error: 'Open Twitch Drops so DropHunter can detect your session.' }
+            : result.kind === 'retry-scheduled'
+              ? { error: result.error }
+              : {}),
+        };
+      },
       ensureGamesCache: (message) => contentHandlers.ensureGamesCache(message.payload),
       openDropsPageAndRefresh: (message) => contentHandlers.openDropsPageAndRefresh(message),
       markDropsRefreshNoticeSeen: (message) => stateLifecycle.markDropsRefreshNoticeSeen(message.payload),
@@ -83,11 +105,13 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
         contentHandlers.handleSyncTwitchSession(message.payload, sender),
       syncTwitchIntegrity: (message, sender) =>
         contentHandlers.handleSyncTwitchIntegrity(message.payload, sender),
-      refreshDrops: farmingSession.handleRefreshDrops,
+      refreshDrops: contentHandlers.refreshDrops,
       setMonitorAutoOpen: (message) => settingsHandlers.handleSetMonitorAutoOpen(message.payload),
       setMuteFarmingTab: (message) => settingsHandlers.handleSetMuteFarmingTab(message.payload),
       setNotificationsEnabled: (message) => settingsHandlers.handleSetNotificationsEnabled(message.payload),
       setTelegramAlertsEnabled: (message) => settingsHandlers.handleSetTelegramAlertsEnabled(message.payload),
+      setTelegramSystemAlertsEnabled: (message) =>
+        settingsHandlers.handleSetTelegramSystemAlertsEnabled(message.payload),
       setTelegramCredentials: (message) => settingsHandlers.handleSetTelegramCredentials(message.payload),
       testTelegramAlerts: settingsHandlers.handleTestTelegramAlerts,
       getTelegramSettings: settingsHandlers.handleGetTelegramSettings,

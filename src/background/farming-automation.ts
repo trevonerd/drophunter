@@ -27,6 +27,7 @@ interface FarmingAutomationHarnessDependencies {
   readonly persistSnooze?: (
     reason: 'manual-pause' | 'manual-stop',
   ) => Promise<'snoozed' | 'persistence-failed'>;
+  readonly persistCampaignSuppression?: (campaignKey: string) => Promise<'suppressed' | 'persistence-failed'>;
   readonly scheduler?: FarmingAutomationScheduler;
 }
 
@@ -54,6 +55,16 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
         if (!dependencies.persistSnooze) return 'snoozed';
         try {
           return await dependencies.persistSnooze(reason);
+        } catch (error) {
+          if (error instanceof Error) return 'persistence-failed';
+          throw error;
+        }
+      },
+      async suppressCampaignUntilRefresh(campaignKey) {
+        scheduler.invalidate();
+        if (!dependencies.persistCampaignSuppression) return 'suppressed';
+        try {
+          return await dependencies.persistCampaignSuppression(campaignKey);
         } catch (error) {
           if (error instanceof Error) return 'persistence-failed';
           throw error;
@@ -87,6 +98,23 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
       try {
         const persisted = await dependencies.persistence.setSnooze();
         return persisted.kind === 'written' ? 'snoozed' : 'persistence-failed';
+      } catch (error) {
+        if (!(error instanceof Error)) throw error;
+        return 'persistence-failed';
+      }
+    },
+    async suppressCampaignUntilRefresh(campaignKey) {
+      runtime.generation += 1;
+      scheduler.invalidate();
+      try {
+        const loaded = await dependencies.persistence.loadFacts();
+        if (loaded.kind === 'failed') return 'persistence-failed';
+        if (loaded.value.suppressedCampaignKeys.includes(campaignKey)) return 'suppressed';
+        const persisted = await dependencies.persistence.saveFacts({
+          ...loaded.value,
+          suppressedCampaignKeys: [...loaded.value.suppressedCampaignKeys, campaignKey],
+        });
+        return persisted.kind === 'written' ? 'suppressed' : 'persistence-failed';
       } catch (error) {
         if (!(error instanceof Error)) throw error;
         return 'persistence-failed';

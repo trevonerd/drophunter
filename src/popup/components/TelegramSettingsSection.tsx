@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 interface TelegramSettingsSectionProps {
   enabled: boolean;
   onToggle: () => Promise<{ success: boolean; error?: string } | undefined>;
+  systemAlertsEnabled: boolean;
+  onSystemAlertsToggle: () => Promise<{ success: boolean; error?: string } | undefined>;
   onSaveCredentials: (
     botToken: string,
     chatId: string,
@@ -18,6 +20,8 @@ interface TelegramSettingsSectionProps {
 export function TelegramSettingsSection({
   enabled,
   onToggle,
+  systemAlertsEnabled,
+  onSystemAlertsToggle,
   onSaveCredentials,
   onTestAlerts,
   onLoadSettings,
@@ -102,6 +106,28 @@ export function TelegramSettingsSection({
         <p className="dh-copy mt-1.5 text-[11px] leading-snug opacity-80">
           Save a bot token and chat ID below before enabling alerts.
         </p>
+      )}
+
+      {enabled && (
+        <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-[color:var(--dh-border)] pt-2.5">
+          <div className="min-w-0">
+            <p className="dh-title text-[11px]">System notifications</p>
+            <p className="dh-copy mt-0.5 text-[11px] leading-snug">
+              Also send auto-start, campaign-skip, queue-complete and recovery updates.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={systemAlertsEnabled}
+            aria-label="Telegram system notifications"
+            onClick={() => void runAction(onSystemAlertsToggle)}
+            disabled={busy}
+            className={`dh-switch shrink-0 dh-focus ${systemAlertsEnabled ? 'dh-switch--on' : ''}`}
+          >
+            <span className="dh-switch__thumb" />
+          </button>
+        </div>
       )}
 
       <div className="mt-3 space-y-2">

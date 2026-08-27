@@ -1,12 +1,7 @@
 // Owns one monitoring tick, including transport, refresh, claim, and queue sequencing.
 import { browser } from '../shared/browser-api.ts';
 import { gameKey } from '../shared/game-selection';
-import {
-  CRASH_RECOVERY_GRACE_MS,
-  FULL_REFRESH_INTERVAL_MS,
-  STREAM_VALIDATION_GRACE_MS,
-  TICK_WATCHDOG_TIMEOUT_MS,
-} from './constants';
+import { CRASH_RECOVERY_GRACE_MS, STREAM_VALIDATION_GRACE_MS, TICK_WATCHDOG_TIMEOUT_MS } from './constants';
 import { logDebug, logWarn } from './logging';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
@@ -99,29 +94,22 @@ export async function checkDropProgress(
     await callbacks.onEnforcePlaybackPolicy();
     if (isStaleTick()) return;
 
-    const isFullTick = Date.now() - state.lastFullRefreshAt >= FULL_REFRESH_INTERVAL_MS;
-    if (isFullTick) {
-      await callbacks.onRefreshDropsData({ includeCampaignFetch: true, includeInventoryFetch: true });
-      if (isStaleTick()) return;
-      state.lastFullRefreshAt = Date.now();
-    } else {
-      await callbacks.onRefreshDropsData();
-      if (isStaleTick()) return;
-    }
+    // The 60-second farming tick owns transport, inventory progress and claims
+    // only. Campaign discovery is coordinated independently every 30 minutes.
+    await callbacks.onRefreshDropsData({ includeCampaignFetch: false, includeInventoryFetch: true });
+    if (isStaleTick()) return;
 
     const claimedAny = await callbacks.onAutoClaimClaimableDrops();
     if (isStaleTick()) return;
-    // A light refresh can discover a claimable reward without reconciling the
-    // campaign view. Confirm successful claims before queue mutation; a full
-    // tick already fetched both campaign and inventory moments ago.
-    if (claimedAny && !isFullTick) {
+    // Confirm a successful claim from inventory before queue mutation without
+    // coupling claim handling back to a full campaign refresh.
+    if (claimedAny) {
       await callbacks.onRefreshDropsData({
-        includeCampaignFetch: true,
+        includeCampaignFetch: false,
         includeInventoryFetch: true,
         forceInventoryFetch: true,
       });
       if (isStaleTick()) return;
-      state.lastFullRefreshAt = Date.now();
     }
 
     const selectedBeforeAdvance = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;

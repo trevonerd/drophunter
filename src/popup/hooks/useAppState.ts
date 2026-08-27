@@ -1,6 +1,7 @@
 // Extracted from src/popup/App.tsx (App state loading + live subscription).
 import { useEffect, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../../shared/app-state-sync';
+import { sendRuntimeMessage } from '../../shared/messages.ts';
 import { createInitialState } from '../../shared/utils';
 import type { AppState } from '../../types';
 import { logPopupError } from '../logging';
@@ -13,6 +14,8 @@ export function useAppState() {
     const loadState = async () => {
       try {
         setState(await loadStoredAppState());
+        const activation = await sendRuntimeMessage({ type: 'ACTIVATE_POPUP' });
+        if (activation?.appState) setState(activation.appState);
       } catch (error) {
         logPopupError('Error loading state:', error);
       } finally {

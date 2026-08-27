@@ -1,133 +1,39 @@
 import { browser } from '../shared/browser-api.ts';
-import type { AppState, ClaimLogEntry } from '../types/index.ts';
+import type { ClaimLogEntry } from '../types/index.ts';
 import { TELEGRAM_CREDENTIALS_KEY } from './constants.ts';
 import { logWarn } from './logging.ts';
+import {
+  callTelegramApi,
+  formatClaimNotificationMessage,
+  formatSystemEventMessage,
+  normalizeTelegramCredentials,
+  TELEGRAM_HOST_PERMISSION,
+  TELEGRAM_TEST_MESSAGE,
+  type TelegramCredentials,
+  type TelegramNotifierOptions,
+  type TelegramNotifierState,
+  type TelegramNotifyContext,
+} from './telegram-notification-core.ts';
+import { createTelegramNotifierSettings } from './telegram-notifier-settings.ts';
 
-export const TELEGRAM_HOST_PERMISSION: chrome.permissions.Permissions = {
-  origins: ['https://api.telegram.org/*'],
-};
-
-const BOT_TOKEN_PATTERN = /^\d+:[A-Za-z0-9_-]+$/;
-
-export interface TelegramCredentials {
-  botToken: string;
-  chatId: string;
-}
-
-export interface TelegramNotifyContext {
-  selectedGameLabel?: string | null;
-  activeStreamerName?: string | null;
-}
-
-interface TelegramNotifierState {
-  appState: Pick<AppState, 'telegramAlertsEnabled' | 'selectedGame' | 'activeStreamer'>;
-}
-
-interface TelegramNotifierOptions {
-  permissionsApi?: Pick<typeof chrome.permissions, 'contains' | 'request'>;
-  fetchApi?: typeof fetch;
-  saveState: () => Promise<unknown> | unknown;
-  loadCredentials: () => Promise<TelegramCredentials | null>;
-  saveCredentials: (credentials: TelegramCredentials | null) => Promise<void>;
-}
-
-interface TelegramApiResponse {
-  ok: boolean;
-  description?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-export function isValidBotToken(token: string): boolean {
-  return BOT_TOKEN_PATTERN.test(token.trim());
-}
-
-export function isValidChatId(chatId: string): boolean {
-  const trimmed = chatId.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed.startsWith('@')) {
-    return trimmed.length > 1;
-  }
-  return /^-?\d+$/.test(trimmed);
-}
-
-export function normalizeTelegramCredentials(raw: unknown): TelegramCredentials | null {
-  if (!isRecord(raw)) {
-    return null;
-  }
-  const botToken = typeof raw.botToken === 'string' ? raw.botToken.trim() : '';
-  const chatId = typeof raw.chatId === 'string' ? raw.chatId.trim() : '';
-  if (!isValidBotToken(botToken) || !isValidChatId(chatId)) {
-    return null;
-  }
-  return { botToken, chatId };
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function formatClaimedAt(claimedAt: number): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(claimedAt));
-}
-
-export function formatClaimNotificationMessage(
-  entry: ClaimLogEntry,
-  context: TelegramNotifyContext = {},
-): string {
-  const lines = ['🎁 <b>Drop claimed</b>', ''];
-  lines.push(`<b>${escapeHtml(entry.dropName)}</b>`);
-  lines.push(escapeHtml(entry.campaignLabel || entry.gameName || 'Twitch Drop'));
-  lines.push('');
-
-  if (entry.benefitName) {
-    lines.push(`▸ Reward: ${escapeHtml(entry.benefitName)}`);
-  }
-  lines.push(`▸ Claimed: ${escapeHtml(formatClaimedAt(entry.claimedAt))}`);
-
-  if (context.selectedGameLabel) {
-    lines.push(`▸ Farming: ${escapeHtml(context.selectedGameLabel)}`);
-  }
-  if (context.activeStreamerName) {
-    lines.push(`▸ Streamer: ${escapeHtml(context.activeStreamerName)}`);
-  }
-
-  return lines.join('\n');
-}
-
-export const TELEGRAM_TEST_MESSAGE = 'DropHunter test — Telegram alerts are working.';
-
-async function callTelegramApi<T extends TelegramApiResponse>(
-  token: string,
-  method: string,
-  body: Record<string, unknown>,
-  fetchApi: typeof fetch,
-): Promise<T> {
-  const response = await fetchApi(`https://api.telegram.org/bot${token}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const payload = (await response.json().catch(() => null)) as T | null;
-  if (!payload?.ok) {
-    throw new Error(payload?.description ?? `Telegram API ${method} failed`);
-  }
-  return payload;
-}
+export type {
+  TelegramCredentials,
+  TelegramNotifyContext,
+  TelegramSystemEventReason,
+} from './telegram-notification-core.ts';
+export {
+  formatClaimNotificationMessage,
+  formatSystemEventMessage,
+  isValidBotToken,
+  isValidChatId,
+  normalizeTelegramCredentials,
+  TELEGRAM_HOST_PERMISSION,
+  TELEGRAM_TEST_MESSAGE,
+} from './telegram-notification-core.ts';
 
 export function createTelegramNotifier(state: TelegramNotifierState, options: TelegramNotifierOptions) {
   const permissionsApi = options.permissionsApi ?? browser.permissions;
   const fetchApi = options.fetchApi ?? fetch;
-
   const hasTelegramHostPermission = async (): Promise<boolean> => {
     try {
       return await permissionsApi.contains(TELEGRAM_HOST_PERMISSION);
@@ -135,7 +41,6 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       return false;
     }
   };
-
   const requestTelegramHostPermission = async (): Promise<boolean> => {
     try {
       return await permissionsApi.request(TELEGRAM_HOST_PERMISSION);
@@ -143,28 +48,16 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       return false;
     }
   };
-
   const syncPermissionState = async () => {
-    if (!state.appState.telegramAlertsEnabled) {
-      return;
-    }
-    if (await hasTelegramHostPermission()) {
-      return;
-    }
+    if (!state.appState.telegramAlertsEnabled || (await hasTelegramHostPermission())) return;
     state.appState.telegramAlertsEnabled = false;
     await options.saveState();
   };
-
   const buildNotifyContext = (): TelegramNotifyContext => ({
     selectedGameLabel: state.appState.selectedGame?.displayName ?? state.appState.selectedGame?.name ?? null,
     activeStreamerName: state.appState.activeStreamer?.displayName ?? null,
   });
-
-  const sendMessage = async (
-    credentials: TelegramCredentials,
-    text: string,
-    photoUrl?: string,
-  ): Promise<void> => {
+  const sendMessage = async (credentials: TelegramCredentials, text: string, photoUrl?: string) => {
     if (photoUrl) {
       await callTelegramApi(
         credentials.botToken,
@@ -179,7 +72,6 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       );
       return;
     }
-
     await callTelegramApi(
       credentials.botToken,
       'sendMessage',
@@ -192,36 +84,39 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       fetchApi,
     );
   };
-
-  const notifyClaimedDrops = async (entries: ClaimLogEntry[]): Promise<void> => {
-    if (!state.appState.telegramAlertsEnabled || entries.length === 0) {
-      return;
-    }
+  const ensureReadyToSend = async (): Promise<TelegramCredentials | null> => {
+    if (!state.appState.telegramAlertsEnabled) return null;
     if (!(await hasTelegramHostPermission())) {
       state.appState.telegramAlertsEnabled = false;
       await options.saveState();
-      return;
+      return null;
     }
-
-    const credentials = await options.loadCredentials();
-    if (!credentials) {
-      return;
-    }
-
+    return options.loadCredentials();
+  };
+  const notifyClaimedDrops = async (entries: ClaimLogEntry[]): Promise<void> => {
+    if (entries.length === 0) return;
+    const credentials = await ensureReadyToSend();
+    if (!credentials) return;
     const context = buildNotifyContext();
     for (const entry of entries) {
       try {
-        const message = formatClaimNotificationMessage(entry, context);
-        await sendMessage(credentials, message, entry.imageUrl);
+        await sendMessage(credentials, formatClaimNotificationMessage(entry, context), entry.imageUrl);
       } catch (error) {
         logWarn('Telegram claim alert failed:', String(error));
       }
     }
   };
-
-  const validateSetup = async (
-    credentials: TelegramCredentials,
-  ): Promise<{ success: boolean; error?: string }> => {
+  const notifySystemEvent = async (reason: string, message: string): Promise<void> => {
+    if (!state.appState.telegramSystemAlertsEnabled) return;
+    const credentials = await ensureReadyToSend();
+    if (!credentials) return;
+    try {
+      await sendMessage(credentials, formatSystemEventMessage(reason, message));
+    } catch (error) {
+      logWarn('Telegram system alert failed:', String(error));
+    }
+  };
+  const validateSetup = async (credentials: TelegramCredentials) => {
     try {
       await callTelegramApi(credentials.botToken, 'getMe', {}, fetchApi);
       return { success: true };
@@ -229,17 +124,12 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       return { success: false, error: String(error) };
     }
   };
-
-  const sendTestAlert = async (): Promise<{ success: boolean; error?: string }> => {
+  const sendTestAlert = async () => {
     if (!(await hasTelegramHostPermission())) {
       return { success: false, error: 'Telegram host permission was not granted' };
     }
-
     const credentials = await options.loadCredentials();
-    if (!credentials) {
-      return { success: false, error: 'Telegram bot token and chat ID are required' };
-    }
-
+    if (!credentials) return { success: false, error: 'Telegram bot token and chat ID are required' };
     try {
       await sendMessage(credentials, TELEGRAM_TEST_MESSAGE);
       return { success: true };
@@ -247,129 +137,20 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       return { success: false, error: String(error) };
     }
   };
-
-  // Owns the enable/disable policy: disabled short-circuits, enabled requires
-  // stored credentials + host permission + a successful getMe probe, otherwise
-  // flips the flag off and surfaces the first failing gate. Caller owns
-  // activity-side-effect.
-  const setTelegramAlertsEnabled = async (
-    enabled: boolean,
-  ): Promise<{ success: boolean; telegramAlertsEnabled: boolean; error?: string }> => {
-    if (!enabled) {
-      state.appState.telegramAlertsEnabled = false;
-      await options.saveState();
-      return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
-    }
-    const credentials = await options.loadCredentials();
-    if (!credentials) {
-      state.appState.telegramAlertsEnabled = false;
-      await options.saveState();
-      return {
-        success: false,
-        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-        error: 'Telegram bot token and chat ID are required',
-      };
-    }
-    if (!(await hasTelegramHostPermission())) {
-      const granted = await requestTelegramHostPermission();
-      if (!granted) {
-        state.appState.telegramAlertsEnabled = false;
-        await options.saveState();
-        return {
-          success: false,
-          telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-          error: 'Telegram host permission was not granted',
-        };
-      }
-    }
-    const validation = await validateSetup(credentials);
-    if (!validation.success) {
-      state.appState.telegramAlertsEnabled = false;
-      await options.saveState();
-      return {
-        success: false,
-        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
-        error: validation.error ?? 'Telegram bot validation failed',
-      };
-    }
-    state.appState.telegramAlertsEnabled = true;
-    await options.saveState();
-    return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
-  };
-
-  // Owns credential assembly, clear-fallback, format validation, host-permission
-  // gate, setup validation, and persistence. Returns a consistent shape with
-  // optional configured/chatId/error so callers can branch on `success` alone.
-  // Caller owns activity-side-effect.
-  const setTelegramCredentials = async (input: {
-    botToken?: string;
-    chatId?: string;
-    clearToken?: boolean;
-  }): Promise<{
-    success: boolean;
-    configured?: boolean;
-    chatId?: string | null;
-    error?: string;
-  }> => {
-    const existing = await options.loadCredentials();
-    const nextToken = input.clearToken
-      ? ''
-      : typeof input.botToken === 'string' && input.botToken.trim()
-        ? input.botToken.trim()
-        : (existing?.botToken ?? '');
-    const nextChatId =
-      typeof input.chatId === 'string' && input.chatId.trim()
-        ? input.chatId.trim()
-        : (existing?.chatId ?? '');
-
-    if (!nextToken || !nextChatId) {
-      if (!nextToken && !nextChatId && !existing) {
-        return { success: true, configured: false, chatId: null };
-      }
-      return { success: false, error: 'Telegram bot token and chat ID are required' };
-    }
-
-    if (!isValidBotToken(nextToken)) {
-      return { success: false, error: 'Telegram bot token format is invalid' };
-    }
-    if (!isValidChatId(nextChatId)) {
-      return { success: false, error: 'Telegram chat ID format is invalid' };
-    }
-
-    const credentials = normalizeTelegramCredentials({ botToken: nextToken, chatId: nextChatId });
-    if (!credentials) {
-      return { success: false, error: 'Telegram credentials are invalid' };
-    }
-
-    if (!(await hasTelegramHostPermission())) {
-      const granted = await requestTelegramHostPermission();
-      if (!granted) {
-        return { success: false, error: 'Telegram host permission was not granted' };
-      }
-    }
-
-    const validation = await validateSetup(credentials);
-    if (!validation.success) {
-      return { success: false, error: validation.error ?? 'Telegram bot validation failed' };
-    }
-
-    await options.saveCredentials(credentials);
-    return {
-      success: true,
-      configured: true,
-      chatId: credentials.chatId,
-    };
-  };
-
+  const settings = createTelegramNotifierSettings(state, options, {
+    hasPermission: hasTelegramHostPermission,
+    requestPermission: requestTelegramHostPermission,
+    validateSetup,
+  });
   return {
     hasTelegramHostPermission,
     requestTelegramHostPermission,
     syncPermissionState,
     notifyClaimedDrops,
+    notifySystemEvent,
     validateSetup,
     sendTestAlert,
-    setTelegramAlertsEnabled,
-    setTelegramCredentials,
+    ...settings,
   };
 }
 
@@ -391,13 +172,7 @@ export async function saveTelegramCredentials(credentials: TelegramCredentials |
   await browser.storage.local.set({ [TELEGRAM_CREDENTIALS_KEY]: credentials });
 }
 
-export async function getTelegramSettingsSummary(): Promise<{
-  configured: boolean;
-  chatId: string | null;
-}> {
+export async function getTelegramSettingsSummary() {
   const credentials = await loadTelegramCredentials();
-  return {
-    configured: credentials !== null,
-    chatId: credentials?.chatId ?? null,
-  };
+  return { configured: credentials !== null, chatId: credentials?.chatId ?? null };
 }

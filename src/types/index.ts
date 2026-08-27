@@ -158,6 +158,10 @@ export interface DropsSnapshot {
   updatedAt: number;
 }
 
+import type { CampaignSyncState } from './activation-sync.ts';
+
+export type { ActivationSyncResult, ActivationTrigger, CampaignSyncState } from './activation-sync.ts';
+
 export interface AppState {
   selectedGame: TwitchGame | null;
   isRunning: boolean;
@@ -167,6 +171,7 @@ export interface AppState {
   muteFarmingTab: boolean;
   notificationsEnabled: boolean;
   telegramAlertsEnabled: boolean;
+  telegramSystemAlertsEnabled: boolean;
   autoClaimChannelPointsBonus: boolean;
   autoClaimDrops: boolean;
   totalDropsClaimed: number;
@@ -204,6 +209,8 @@ export interface AppState {
   // source (storage/tab/content-script). Used to tell "never signed in" apart
   // from "signed in but 0 active campaigns" in the popup empty state.
   twitchSessionDetected: boolean;
+  wasRunning: boolean;
+  campaignSyncState: CampaignSyncState;
   dropsPageRefreshInProgress: boolean;
   lastDropsPageRefreshAttemptAt?: number | null;
   lastDropsPageRefreshCompletedAt?: number | null;

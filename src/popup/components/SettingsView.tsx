@@ -27,6 +27,7 @@ export function SettingsView({
   onNotificationsEnabledToggle,
   notificationPermissionDenied,
   onTelegramAlertsToggle,
+  onTelegramSystemAlertsToggle,
   onSaveTelegramCredentials,
   onTestTelegramAlerts,
   onLoadTelegramSettings,
@@ -89,6 +90,8 @@ export function SettingsView({
           <TelegramSettingsSection
             enabled={state.telegramAlertsEnabled}
             onToggle={onTelegramAlertsToggle}
+            systemAlertsEnabled={state.telegramSystemAlertsEnabled}
+            onSystemAlertsToggle={onTelegramSystemAlertsToggle}
             onSaveCredentials={onSaveTelegramCredentials}
             onTestAlerts={onTestTelegramAlerts}
             onLoadSettings={onLoadTelegramSettings}
