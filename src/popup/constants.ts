@@ -78,18 +78,18 @@ export function deriveCampaignSyncStatus({
 }: CampaignSyncStatusInput): CampaignSyncStatus {
   const hasUsableCachedState = availableCampaignCount > 0 || isRunning;
   if (twitchSessionSyncState?.status === 'blocked') return 'signed-out';
-  if (!gamesLoading && !twitchSessionDetected && !hasUsableCachedState) return 'signed-out';
   if (dropsRefreshLoading) return 'syncing';
-  if (activeSyncError) return 'failed';
+  if (campaignSyncState?.status === 'retry-scheduled') {
+    return hasUsableCachedState ? 'fresh' : 'syncing';
+  }
+  if (!gamesLoading && !twitchSessionDetected && !hasUsableCachedState) return 'syncing';
   if (campaignSyncState?.status === 'needs-session') {
-    return hasUsableCachedState ? 'fresh' : 'signed-out';
+    return hasUsableCachedState ? 'fresh' : 'syncing';
   }
   if (campaignSyncState?.status === 'syncing') {
     return hasUsableCachedState ? 'fresh' : 'syncing';
   }
-  if (campaignSyncState?.status === 'retry-scheduled') {
-    return hasUsableCachedState ? 'fresh' : 'failed';
-  }
+  if (activeSyncError) return 'failed';
   if (!gamesLoading && availableCampaignCount === 0) return 'empty';
   if (isStale) return 'syncing';
   return 'fresh';
