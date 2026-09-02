@@ -17,8 +17,9 @@ import {
   persistTwitchSession,
   readTwitchSessionViaExecuteScript,
 } from './session-management.ts';
-import { createSessionOrchestrator } from './session-orchestrator.ts';
+import { createSessionOrchestrator, type TwitchApiRequestOptions } from './session-orchestrator.ts';
 import { sessionDebugSummary } from './state-persistence.ts';
+import { waitForTabComplete } from './tab-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import { createTwitchSpadeHeartbeat } from './twitch-api/spade-heartbeat.ts';
 import {
@@ -38,6 +39,7 @@ interface ServiceWorkerTwitchGatewayDependencies {
     readonly stopReason?: string;
     readonly stopMessage?: string | null;
   }) => Promise<void>;
+  readonly resumeAfterAuthRecovery?: () => Promise<void>;
 }
 
 export function createServiceWorkerTwitchGateway(
@@ -49,6 +51,12 @@ export function createServiceWorkerTwitchGateway(
     sessionDebugSummary,
     readTwitchSessionViaExecuteScript,
     persistTwitchSession,
+    waitForTabComplete,
+    closeTemporaryTabIfSafe: (tabId) =>
+      browser.tabs
+        .remove(tabId)
+        .then(() => true)
+        .catch(() => false),
     logDebug,
     logWarn,
   });
@@ -73,10 +81,13 @@ export function createServiceWorkerTwitchGateway(
     );
   }
 
-  async function fetchDropsSnapshot(forceSessionRefresh = false): Promise<DropsSnapshot | null> {
-    return fetchDropsSnapshotFromApiWrapper(
+  async function fetchDropsSnapshot(
+    requestOptions: TwitchApiRequestOptions = {},
+  ): Promise<DropsSnapshot | null> {
+    const shouldResume = state.appState.lastStopReason === 'sign-in-required';
+    const snapshot = await fetchDropsSnapshotFromApiWrapper(
       state,
-      forceSessionRefresh,
+      requestOptions,
       {
         onEnsureTwitchSession: ensureTwitchSession,
         onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
@@ -88,16 +99,19 @@ export function createServiceWorkerTwitchGateway(
       },
       { TwitchApiClient, sessionDebugSummary, PROGRESS_POLL_MS, logDebug, logWarn, logInfo },
     );
+    if (snapshot && shouldResume) await dependencies.resumeAfterAuthRecovery?.();
+    return snapshot;
   }
 
   async function fetchDropsSnapshotProgressively(
-    forceSessionRefresh = false,
     options: FetchDropsSnapshotOptions = {},
+    requestOptions: TwitchApiRequestOptions = {},
   ): Promise<DropsSnapshot | null> {
+    const shouldResume = state.appState.lastStopReason === 'sign-in-required';
     latestProgressSnapshot = null;
     const snapshot = await fetchDropsSnapshotFromApiWrapper(
       state,
-      forceSessionRefresh,
+      requestOptions,
       {
         onEnsureTwitchSession: ensureTwitchSession,
         onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
@@ -117,17 +131,18 @@ export function createServiceWorkerTwitchGateway(
       },
     );
     if (snapshot) latestProgressSnapshot = snapshot;
+    if (snapshot && shouldResume) await dependencies.resumeAfterAuthRecovery?.();
     return snapshot;
   }
 
   async function fetchInventorySnapshot(
     baseDrops: TwitchDrop[],
-    forceSessionRefresh = false,
+    requestOptions: TwitchApiRequestOptions = {},
   ): Promise<DropsSnapshot | null> {
     return fetchInventorySnapshotFromApiWrapper(
       state,
       baseDrops,
-      forceSessionRefresh,
+      requestOptions,
       {
         onEnsureTwitchSession: ensureTwitchSession,
         onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
@@ -174,15 +189,13 @@ export function createServiceWorkerTwitchGateway(
     return response?.success && response.context ? response.context : null;
   }
 
-  async function currentInventoryProgress(target: FarmingTarget): Promise<number | null> {
+  function currentCachedProgress(target: FarmingTarget): number | null {
     const cached = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : state.appState.allDrops;
     const baseDrops = dropsForFarmingTarget(cached, target);
     if (baseDrops.length === 0) {
       return state.appState.currentDrop?.currentMinutes ?? null;
     }
-    const snapshot = await fetchInventorySnapshot(baseDrops);
-    const drops = snapshot?.drops ?? baseDrops;
-    const progress = dropsForFarmingTarget(drops, target)
+    const progress = baseDrops
       .map((drop) => drop.currentMinutes)
       .filter((minutes) => Number.isFinite(minutes));
     return progress.length > 0 ? Math.max(...progress) : null;
@@ -195,7 +208,7 @@ export function createServiceWorkerTwitchGateway(
       return { accepted: false, isLive: true, reason: 'error' };
     }
     const result = await twitchSpadeHeartbeat.heartbeat(target, userId);
-    return { ...result, progress: await currentInventoryProgress(target) };
+    return { ...result, progress: currentCachedProgress(target) };
   }
 
   return {

@@ -22,7 +22,6 @@ import {
   removeTerminalSummary,
   setGamesCacheRefreshInFlight,
 } from './games-cache-refresh-state.ts';
-import { logWarn } from './logging';
 import type { ServiceWorkerState } from './runtime-state';
 
 export type { GamesCacheRefreshDeps, RefreshGamesCacheOptions } from './games-cache-contracts.ts';
@@ -45,7 +44,7 @@ export async function refreshGamesCacheFromHiddenFetch(
       ...(favorite.identityKeys ?? []),
     ]);
     const apiSnapshot = deps.fetchDropsSnapshotProgressively
-      ? await deps.fetchDropsSnapshotProgressively(Boolean(options.forceSessionRefresh), {
+      ? await deps.fetchDropsSnapshotProgressively({
           priorityGameIds,
           onProgress: async (snapshot) => {
             await applyProgressiveCampaignSnapshot(state, snapshot, deps);
@@ -53,7 +52,7 @@ export async function refreshGamesCacheFromHiddenFetch(
             deps.onProgressiveSnapshotApplied?.();
           },
         })
-      : await deps.fetchDropsSnapshot(Boolean(options.forceSessionRefresh));
+      : await deps.fetchDropsSnapshot();
     if (!apiSnapshot && options.requireFreshSnapshot) {
       return { kind: 'unavailable', games: state.appState.availableGames };
     }
@@ -67,28 +66,22 @@ export async function refreshGamesCacheFromHiddenFetch(
     if (apiSnapshot) {
       if (apiSnapshot.games.length === 0 && apiSnapshot.drops.length === 0) {
         const shouldAccept = options.acceptAuthoritativeEmpty !== false;
-        let authoritativeEmpty = false;
         if (shouldAccept) {
-          const decision = deps.recordEmptyCampaignObservation(
-            state,
-            Boolean(options.requireConsecutiveEmptyConfirmation),
-          );
-          if (decision.confirmed) {
-            authoritativeEmpty = true;
-            await applyAuthoritativeEmptyCampaignRefresh(state, deps);
-          } else {
-            logWarn('Empty campaign snapshot received; awaiting confirmation before wiping state', {
-              streak: decision.streak,
-            });
+          const unavailableCampaign = state.appState.isRunning ? state.appState.selectedGame : null;
+          if (unavailableCampaign && deps.onAuthoritativeCampaignUnavailable) {
+            await deps.onAuthoritativeCampaignUnavailable(unavailableCampaign);
           }
+          await applyAuthoritativeEmptyCampaignRefresh(state, deps, unavailableCampaign !== null);
         }
         return {
           kind: 'refreshed',
           games: [],
-          authoritativeEmpty,
+          authoritativeEmpty: shouldAccept,
+          ...(apiSnapshot.inventoryVerified === undefined
+            ? {}
+            : { inventoryVerified: apiSnapshot.inventoryVerified }),
         };
       }
-      state.emptyCampaignRefreshStreak = 0;
       provenance = 'campaign-authoritative';
       if (apiSnapshot.games.length > 0) {
         fetchedGames = apiSnapshot.games;
@@ -117,6 +110,13 @@ export async function refreshGamesCacheFromHiddenFetch(
       ? state.cachedDropsSnapshot.filter((drop) => dropMatchesGame(drop, freshSelectedGame))
       : [];
     const hasFreshFarmableEvidence = freshSelectedDrops.some(isRewardAutomatable);
+    const authoritativeUnavailableCampaign =
+      provenance === 'campaign-authoritative' &&
+      state.appState.isRunning &&
+      previousSelectedGame &&
+      (!freshSelectedGame || !hasFreshFarmableEvidence)
+        ? previousSelectedGame
+        : null;
     const shouldRetainPriorTerminalInspection =
       provenance === 'campaign-authoritative' &&
       previousSelectedGame?.rewardSummary?.completion === 'farming-complete' &&
@@ -160,8 +160,12 @@ export async function refreshGamesCacheFromHiddenFetch(
       );
     }
     state.appState.availableGames = annotatedGames;
-    deps.normalizeGameSelection(state, annotatedGames, Boolean(apiSnapshot));
-    deps.normalizeQueueSelection(state, annotatedGames, Boolean(apiSnapshot));
+    if (authoritativeUnavailableCampaign && deps.onAuthoritativeCampaignUnavailable) {
+      await deps.onAuthoritativeCampaignUnavailable(authoritativeUnavailableCampaign);
+    } else {
+      deps.normalizeGameSelection(state, annotatedGames, Boolean(apiSnapshot));
+      deps.normalizeQueueSelection(state, annotatedGames, Boolean(apiSnapshot));
+    }
     // If a campaign refresh succeeded, the selected campaign split should reflect it,
     // including the valid "no rewards left" case.
     if (state.appState.selectedGame && apiSnapshot) {
@@ -179,7 +183,15 @@ export async function refreshGamesCacheFromHiddenFetch(
     deps.resetStreamTrackingState(state);
     state.lastGamesCacheRefreshAt = Date.now();
     await deps.saveState(state);
-    return { kind: apiSnapshot ? 'refreshed' : 'cached', games: mergedGames };
+    return apiSnapshot
+      ? {
+          kind: 'refreshed',
+          games: mergedGames,
+          ...(apiSnapshot.inventoryVerified === undefined
+            ? {}
+            : { inventoryVerified: apiSnapshot.inventoryVerified }),
+        }
+      : { kind: 'cached', games: mergedGames };
   })().finally(() => {
     setGamesCacheRefreshInFlight(state, null);
   });
@@ -219,13 +231,14 @@ async function applyProgressiveCampaignSnapshot(
 async function applyAuthoritativeEmptyCampaignRefresh(
   state: ServiceWorkerState,
   deps: GamesCacheRefreshDeps,
+  preserveTerminalStop = false,
 ): Promise<void> {
   if (state.appState.isRunning) {
     await deps.stopFarmingSession({
       stopReason: 'no-active-campaigns',
       stopMessage: 'No active Twitch Drops campaigns found.',
     });
-  } else {
+  } else if (!preserveTerminalStop) {
     state.appState = deps.clearTerminalStopStatus(deps.clearRecoveryStatus(state.appState));
   }
 

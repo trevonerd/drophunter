@@ -155,18 +155,16 @@ test('header mute action requires a running DropHunter-owned managed tab', () =>
   );
 });
 
-test('session recovery exposes Open Twitch Drops only for authentication recovery', () => {
+test('non-blocking session retry never exposes Twitch recovery controls', () => {
   const selected = game();
   const authRecoveryMarkup = renderMainView(
     {
       ...appState(selected),
       isRunning: true,
-      recoveryReason: 'sign-in-required',
-      recoveryAttempts: 1,
-      recoveryBackoffUntil: 60_000,
+      twitchSessionSyncState: { status: 'retrying', attempts: 1, nextRetryAt: 60_000 },
     },
     [],
-    { runtimeMode: 'recovering', recoveryNow: 1 },
+    { runtimeMode: 'running', recoveryNow: 1 },
   );
   const otherRecoveryMarkup = renderMainView(
     {
@@ -180,8 +178,8 @@ test('session recovery exposes Open Twitch Drops only for authentication recover
     { runtimeMode: 'recovering', recoveryNow: 1 },
   );
 
-  expect(authRecoveryMarkup).toContain('<button type="button"');
-  expect(authRecoveryMarkup).toContain('Open Twitch Drops</button>');
+  expect(authRecoveryMarkup).not.toContain('Open Twitch Drops</button>');
+  expect(authRecoveryMarkup).toContain('Pause</button>');
   expect(authRecoveryMarkup).toContain('Stop</button>');
   expect(otherRecoveryMarkup).not.toContain('Open Twitch Drops</button>');
 });

@@ -3,6 +3,7 @@ import type { TwitchDrop, TwitchGame } from '../types';
 import { rememberInspectedCampaignSummary } from './drops-projection-semantics.ts';
 import { markQueueEntryManual } from './queue-operations';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import type { SessionRecoveryMode } from './session-orchestrator.ts';
 
 export interface HandleSetSelectedGameCallbacks {
   onTrackActivity: (reason: string) => Promise<void>;
@@ -10,9 +11,9 @@ export interface HandleSetSelectedGameCallbacks {
   onRefreshDropsData: (opts?: {
     includeCampaignFetch?: boolean;
     includeInventoryFetch?: boolean;
-    forceInventoryFetch?: boolean;
+    sessionRecoveryMode?: SessionRecoveryMode;
     suppressNotifications?: boolean;
-  }) => Promise<void>;
+  }) => Promise<unknown>;
   onOpenBestStreamer: () => Promise<boolean>;
   onSaveState: (state: ServiceWorkerState) => Promise<void>;
   onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
@@ -68,7 +69,7 @@ export async function handleSetSelectedGame(
   await callbacks.onRefreshDropsData({
     includeCampaignFetch: true,
     includeInventoryFetch: true,
-    forceInventoryFetch: true,
+    sessionRecoveryMode: 'passive',
     suppressNotifications: true,
   });
   rememberInspectedCampaignSummary(state);

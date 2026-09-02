@@ -40,12 +40,14 @@ function App() {
     onboardingStep: onboarding.onboardingStep,
     setOnboardingStep: onboarding.setOnboardingStep,
   });
-  const { dropsRefreshLoading, activeSyncError, openDropsPage } = useDropsRefresh({
-    state,
-    setState,
-    setQueueMessage: actions.setQueueMessage,
-    isStale,
-  });
+  const { dropsRefreshLoading, activeSyncError, manualRefreshCampaignCount, openDropsPage } = useDropsRefresh(
+    {
+      state,
+      setState,
+      setQueueMessage: actions.setQueueMessage,
+      isStale,
+    },
+  );
   const settings = useSettingsToggles({ state, setState });
   const telegram = useTelegramSettings({ state, setState });
   const runtimeMode = deriveRuntimeMode(state);
@@ -58,6 +60,8 @@ function App() {
     twitchSessionDetected: state.twitchSessionDetected,
     isStale,
     campaignSyncState: state.campaignSyncState,
+    twitchSessionSyncState: state.twitchSessionSyncState,
+    isRunning: state.isRunning,
   });
 
   return (
@@ -80,8 +84,8 @@ function App() {
         runtimeMode,
         recoveryNow,
         onboardingStep: onboarding.onboardingStep,
-        firstSyncConfirmation: onboarding.firstSyncConfirmation,
-        firstSyncCampaignCount: onboarding.firstSyncCampaignCount,
+        firstSyncConfirmation: onboarding.firstSyncConfirmation || manualRefreshCampaignCount !== null,
+        firstSyncCampaignCount: manualRefreshCampaignCount ?? onboarding.firstSyncCampaignCount,
         queueMessage: actions.queueMessage,
         notificationPermissionDenied: settings.notificationPermissionDenied,
         onAutoStartFavoriteGamesToggle: () => void settings.handleAutoStartFavoriteGamesToggle(),
@@ -111,7 +115,6 @@ function App() {
         onSaveTelegramCredentials: telegram.saveTelegramCredentials,
         onTestTelegramAlerts: telegram.testTelegramAlerts,
         onLoadTelegramSettings: telegram.loadTelegramSettings,
-        onAutoResumeOnStartupToggle: () => void settings.handleAutoResumeOnStartupToggle(),
         onFarmCategoryScopeChange: (scope) => void settings.handleFarmCategoryScopeChange(scope),
         onWatchTransportModeChange: (mode) => void settings.handleWatchTransportModeChange(mode),
         onAutoClaimChannelPointsBonusToggle: () => void settings.handleAutoClaimChannelPointsBonusToggle(),

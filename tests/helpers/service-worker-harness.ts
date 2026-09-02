@@ -129,6 +129,23 @@ export async function syncTestSession() {
   );
 }
 
+export async function syncTestSessionWithoutCampaignRefresh() {
+  await dispatchMessage(
+    {
+      type: 'SYNC_TWITCH_SESSION',
+      payload: {
+        session: {
+          oauthToken: 'oauth-token-with-valid-length-1234567890',
+          userId: '123456',
+          deviceId: 'device-12345678',
+          uuid: 'uuid-1',
+        },
+      },
+    },
+    { url: 'https://www.twitch.tv/drops/campaigns' },
+  );
+}
+
 export async function addGameToQueue(game: TwitchGame) {
   await dispatchMessage({ type: 'ADD_TO_QUEUE', payload: { game } });
 }
@@ -136,4 +153,9 @@ export async function addGameToQueue(game: TwitchGame) {
 export async function triggerMonitorAlarm() {
   chromeMocks.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: Date.now() });
   await sleepTick();
+}
+
+export async function triggerInventoryRefreshAlarm() {
+  serviceWorkerModule.setLastInventoryRefreshAtForTests(0);
+  await triggerMonitorAlarm();
 }

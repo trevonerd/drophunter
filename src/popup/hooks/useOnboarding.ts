@@ -5,8 +5,25 @@ import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState } from '../../types';
 import { logPopupWarn } from '../logging';
 
+interface FirstSyncConfirmationInput {
+  readonly onboardingLoaded: boolean;
+  readonly onboardingCompleted: AppState['twitchSessionDetected'];
+  readonly hasUnseenRefreshSuccess: boolean;
+  readonly refreshInProgress: boolean;
+}
+
+export function shouldShowFirstSyncConfirmation({
+  onboardingLoaded,
+  onboardingCompleted,
+  hasUnseenRefreshSuccess,
+  refreshInProgress,
+}: FirstSyncConfirmationInput): boolean {
+  return onboardingLoaded && !onboardingCompleted && hasUnseenRefreshSuccess && !refreshInProgress;
+}
+
 export function useOnboarding(state: AppState) {
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
+  const [onboardingLoaded, setOnboardingLoaded] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState<'selector' | 'start' | null>(null);
   const [firstSyncConfirmation, setFirstSyncConfirmation] = useState(false);
   const [firstSyncCampaignCount, setFirstSyncCampaignCount] = useState<number | null>(null);
@@ -29,6 +46,7 @@ export function useOnboarding(state: AppState) {
       if (stored.onboardingCompleted === true) {
         setOnboardingCompleted(true);
       }
+      setOnboardingLoaded(true);
     };
 
     loadOnboarding();
@@ -46,13 +64,20 @@ export function useOnboarding(state: AppState) {
   }, [firstSyncConfirmation]);
 
   useEffect(() => {
-    if (!hasUnseenRefreshSuccess || state.dropsPageRefreshInProgress) {
+    if (!onboardingLoaded || !hasUnseenRefreshSuccess || state.dropsPageRefreshInProgress) {
       return;
     }
     const count = refreshCampaignCount;
-    setFirstSyncCampaignCount(count);
-    setFirstSyncConfirmation(true);
-    if (!onboardingCompleted) {
+    if (
+      shouldShowFirstSyncConfirmation({
+        onboardingLoaded,
+        onboardingCompleted,
+        hasUnseenRefreshSuccess,
+        refreshInProgress: state.dropsPageRefreshInProgress,
+      })
+    ) {
+      setFirstSyncCampaignCount(count);
+      setFirstSyncConfirmation(true);
       setOnboardingStep((current) => current ?? 'selector');
     }
     setAcknowledgedRefreshCompletedAt(refreshCompletedAt);
@@ -62,6 +87,7 @@ export function useOnboarding(state: AppState) {
     }).catch((error: unknown) => logPopupWarn('MARK_DROPS_REFRESH_NOTICE_SEEN failed:', error));
   }, [
     hasUnseenRefreshSuccess,
+    onboardingLoaded,
     onboardingCompleted,
     refreshCampaignCount,
     refreshCompletedAt,

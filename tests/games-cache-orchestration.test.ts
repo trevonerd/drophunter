@@ -1,161 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  annotateGameCompletion,
-  clearSelectedCompletedIdleCampaignExt,
-  normalizeGameSelection,
-  resetStateForAuthoritativeEmptyCampaignExt,
-  splitDropsForSelectedGame,
-} from '../src/background/drops-projection.ts';
-import {
   handleEnsureGamesCache,
   refreshGamesCacheFromHiddenFetch,
 } from '../src/background/games-cache-orchestration.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
-import { replaceAvailableGames } from '../src/shared/game-selection.ts';
-import { clearRecoveryStatus, clearTerminalStopStatus } from '../src/shared/runtime-status.ts';
-import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../src/types/index.ts';
-
-const selectedCampaign: TwitchGame = {
-  id: 'terminal-game',
-  name: 'Terminal Game',
-  imageUrl: '',
-  campaignId: 'terminal-campaign',
-  campaignName: 'Terminal Campaign',
-  dropCount: 2,
-};
-
-const subscriptionReward: TwitchDrop = {
-  id: 'subscription-reward',
-  name: 'Subscription Reward',
-  gameId: selectedCampaign.id,
-  gameName: selectedCampaign.name,
-  imageUrl: '',
-  campaignId: selectedCampaign.campaignId,
-  progress: 0,
-  currentMinutes: 0,
-  claimed: false,
-  acquisitionMethod: 'subscription',
-  rewardKind: 'in-game',
-  verificationState: 'unassessed',
-};
-
-const unverifiableReward: TwitchDrop = {
-  id: 'unverifiable-reward',
-  name: 'Twitch Badge',
-  gameId: selectedCampaign.id,
-  gameName: selectedCampaign.name,
-  imageUrl: '',
-  campaignId: selectedCampaign.campaignId,
-  progress: 99,
-  currentMinutes: 59,
-  claimed: false,
-  acquisitionMethod: 'watch-time',
-  rewardKind: 'twitch-badge',
-  verificationState: 'unassessed',
-};
-
-function makeDeps(snapshot: DropsSnapshot, clearCalls: { count: number }) {
-  return {
-    fetchDropsSnapshot: async () => snapshot,
-    replaceAvailableGames,
-    annotateGameCompletion,
-    normalizeGameSelection,
-    normalizeQueueSelection: (state: ReturnType<typeof createServiceWorkerState>, games: TwitchGame[]) => {
-      state.appState.queue = state.appState.queue
-        .map((queuedGame) => games.find((game) => game.campaignId === queuedGame.campaignId))
-        .filter((game): game is TwitchGame => game !== undefined);
-    },
-    splitDropsForSelectedGame,
-    recordEmptyCampaignObservation: () => ({ confirmed: true, streak: 0 }),
-    resetStateForAuthoritativeEmptyCampaign: resetStateForAuthoritativeEmptyCampaignExt,
-    clearSelectedCompletedIdleCampaign: (state: ReturnType<typeof createServiceWorkerState>) => {
-      clearCalls.count += 1;
-      clearSelectedCompletedIdleCampaignExt(state);
-    },
-    resetStreamTrackingState: () => undefined,
-    clearRecoveryStatus,
-    clearTerminalStopStatus,
-    stopFarmingSession: async () => undefined,
-    saveState: async () => undefined,
-  };
-}
-
-function farmingCompleteSnapshot(): DropsSnapshot {
-  return {
-    games: [selectedCampaign],
-    drops: [subscriptionReward, unverifiableReward],
-    updatedAt: 1,
-  };
-}
-
-function incompleteTerminalSnapshot(): DropsSnapshot {
-  return {
-    games: [selectedCampaign],
-    drops: [subscriptionReward],
-    updatedAt: 2,
-  };
-}
-
-const freshFarmableReward: TwitchDrop = {
-  ...subscriptionReward,
-  id: 'fresh-farmable-reward',
-  acquisitionMethod: 'watch-time',
-  rewardKind: 'in-game',
-  progress: 12,
-  currentMinutes: 7,
-};
+import type { TwitchGame } from '../src/types/index.ts';
+import {
+  farmingCompleteSnapshot,
+  freshFarmableReward,
+  incompleteTerminalSnapshot,
+  makeGamesCacheDeps as makeDeps,
+  selectedCampaign,
+  subscriptionReward,
+  unverifiableReward,
+} from './fixtures/games-cache-orchestration.ts';
 
 describe('refreshGamesCacheFromHiddenFetch terminal inspection', () => {
-  test('projects a verified favorite batch and requests automation without disrupting the manual queue', async () => {
-    const state = createServiceWorkerState();
-    const favoriteCampaign: TwitchGame = {
-      id: 'favorite-game',
-      name: 'Favorite Game',
-      imageUrl: '',
-      campaignId: 'favorite-campaign',
-      dropCount: 1,
-    };
-    const favoriteDrop: TwitchDrop = {
-      ...freshFarmableReward,
-      id: 'favorite-drop',
-      gameId: favoriteCampaign.id,
-      gameName: favoriteCampaign.name,
-      campaignId: favoriteCampaign.campaignId,
-    };
-    state.appState.favoriteGames = [{ gameId: 'favorite-game', lastKnownName: 'Favorite Game', addedAt: 1 }];
-    state.appState.queue = [selectedCampaign];
-    const clearCalls = { count: 0 };
-    const deps = makeDeps(
-      {
-        games: [selectedCampaign, favoriteCampaign],
-        drops: [subscriptionReward, favoriteDrop],
-        updatedAt: 2,
-      },
-      clearCalls,
-    );
-    let callbackCount = 0;
-    let observedQueue: readonly string[] = [];
-    deps.fetchDropsSnapshotProgressively = async (_force, options) => {
-      expect(options.priorityGameIds).toContain('favorite-game');
-      await options.onProgress({ games: [favoriteCampaign], drops: [favoriteDrop], updatedAt: 1 });
-      observedQueue = state.appState.queue.map((game) => game.campaignId ?? '');
-      return {
-        games: [selectedCampaign, favoriteCampaign],
-        drops: [subscriptionReward, favoriteDrop],
-        updatedAt: 2,
-      };
-    };
-    deps.onProgressiveSnapshotApplied = () => {
-      callbackCount += 1;
-    };
-
-    await refreshGamesCacheFromHiddenFetch(state, {}, deps);
-
-    expect(observedQueue).toEqual(['terminal-campaign']);
-    expect(callbackCount).toBe(1);
-    expect(state.appState.campaignDropsByKey['campaign:favorite-campaign']).toHaveLength(1);
-  });
-
   test('preserves a still-present farming-complete campaign and projected remainder context while idle', async () => {
     // Given: an idle terminal selection with the canonical stop copy and a Twitch-native marker.
     const state = createServiceWorkerState();

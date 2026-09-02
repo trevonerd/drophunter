@@ -12,6 +12,7 @@ export interface TimingState {
   invalidStreamChecks: number;
   noProgressRotationAttempts: number;
   twitchSessionLastAttemptAt: number;
+  lastInventoryRefreshAt: number;
   dropClaimRetryAtById: Record<string, number>;
   lastProgressAdvanceAt: number;
   lastTrackedProgress: number;
@@ -41,6 +42,7 @@ export function createInitialTimingState(): TimingState {
     invalidStreamChecks: 0,
     noProgressRotationAttempts: 0,
     twitchSessionLastAttemptAt: 0,
+    lastInventoryRefreshAt: 0,
     dropClaimRetryAtById: {},
     lastProgressAdvanceAt: 0,
     lastTrackedProgress: -1,
@@ -134,6 +136,7 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
       source.twitchSessionLastAttemptAt,
       initial.twitchSessionLastAttemptAt,
     ),
+    lastInventoryRefreshAt: finiteNumber(source.lastInventoryRefreshAt, initial.lastInventoryRefreshAt),
     dropClaimRetryAtById: isRecord(source.dropClaimRetryAtById)
       ? (source.dropClaimRetryAtById as Record<string, number>)
       : {},

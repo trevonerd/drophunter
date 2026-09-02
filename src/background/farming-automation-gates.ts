@@ -17,6 +17,7 @@ import type { AutomaticFarmingSessionTransitionRequest } from './session-lifecyc
 
 export const FARMING_AUTOMATION_INTERVAL_MS = 2 * 60_000;
 export const FARMING_AUTOMATION_MIN_WAKE_MS = 30_000;
+export const PARKED_CAMPAIGN_RETRY_MS = 5 * 60_000;
 
 export type FarmingAutomationDirectoryCacheEntry = {
   readonly streamers: readonly TwitchStreamer[];
@@ -72,15 +73,33 @@ export function createFarmingAutomationTransitionRequest(
   expectedFingerprint: string,
 ): AutomaticFarmingSessionTransitionRequest {
   const toCampaignKey = gameKey(decision.campaign);
-  return {
-    attemptId: farmingAutomationAttemptId('start', null, toCampaignKey, snapshot),
-    transition: 'start',
-    fromCampaignKey: null,
-    candidate: decision.campaign,
-    snapshot,
-    watchMode,
-    expectedFingerprint,
-  };
+  switch (decision.kind) {
+    case 'start':
+      return {
+        attemptId: farmingAutomationAttemptId('start', null, toCampaignKey, snapshot),
+        transition: 'start',
+        fromCampaignKey: null,
+        candidate: decision.campaign,
+        snapshot,
+        watchMode,
+        expectedFingerprint,
+      };
+    case 'preemption':
+      return {
+        attemptId: farmingAutomationAttemptId(
+          'preemption',
+          decision.fromCampaignKey,
+          toCampaignKey,
+          snapshot,
+        ),
+        transition: 'preemption',
+        fromCampaignKey: decision.fromCampaignKey,
+        candidate: decision.campaign,
+        snapshot,
+        watchMode,
+        expectedFingerprint,
+      };
+  }
 }
 
 export function factsWithFarmingAutomationManualWatch(
@@ -167,9 +186,12 @@ export function expireFarmingAutomationManualWatch(
 export function cheapFarmingAutomationGate(
   state: ServiceWorkerState,
   snoozed: boolean,
+  hasParkedCampaigns = false,
 ): FarmingAutomationOutcome | null {
-  if (!state.appState.autoStartFavoriteGames) return { kind: 'unchanged', reason: 'disabled' };
   if (snoozed) return { kind: 'unchanged', reason: 'snoozed' };
+  if (!state.appState.autoStartFavoriteGames && !hasParkedCampaigns) {
+    return { kind: 'unchanged', reason: 'disabled' };
+  }
   if (state.appState.isPaused) return { kind: 'unchanged', reason: 'paused' };
   return null;
 }

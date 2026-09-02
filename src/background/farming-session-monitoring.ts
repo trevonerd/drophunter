@@ -7,6 +7,7 @@ import {
   checkDropProgress as checkDropProgressCore,
   refreshDropsData as refreshDropsDataCore,
 } from './drops-tick.ts';
+import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
 import { logWarn } from './logging.ts';
 import { normalizeQueueSelection } from './queue-operations.ts';
@@ -24,7 +25,7 @@ type FarmingSessionMonitoringDependencies = {
 
 export type FarmingSessionMonitoring = {
   readonly checkDropProgress: () => Promise<void>;
-  readonly refreshDropsData: (options?: RefreshDropsOptions) => Promise<void>;
+  readonly refreshDropsData: (options?: RefreshDropsOptions) => Promise<RefreshDropsOutcome>;
   readonly startMonitoring: () => void;
   readonly stopMonitoring: () => void;
 };
@@ -134,15 +135,15 @@ export function createFarmingSessionMonitoring(
   async function claimAvailableDrops(): Promise<boolean> {
     return autoClaimClaimableDrops(
       state,
-      (force) => adapters.ensureTwitchSession(force),
+      () => adapters.ensureTwitchSession(),
       async (drop) => {
         await adapters.sendAlert('drop-complete', `Claimed: ${drop.name} (${drop.gameName})`);
       },
     );
   }
 
-  async function refreshDropsData(options: RefreshDropsOptions = {}): Promise<void> {
-    await refreshDropsDataCore(
+  async function refreshDropsData(options: RefreshDropsOptions = {}): Promise<RefreshDropsOutcome> {
+    return refreshDropsDataCore(
       state,
       options,
       {

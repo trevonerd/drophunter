@@ -15,10 +15,15 @@ interface UseDropsRefreshArgs {
 export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRefreshArgs) {
   const [manualDropsRefreshLoading, setManualDropsRefreshLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [manualRefreshCampaignCount, setManualRefreshCampaignCount] = useState<number | null>(null);
 
-  const dropsRefreshLoading = manualDropsRefreshLoading || state.dropsPageRefreshInProgress;
+  const hasUsableCachedState = state.availableGames.length > 0 || state.isRunning;
+  const dropsRefreshLoading =
+    manualDropsRefreshLoading || (state.dropsPageRefreshInProgress && !hasUsableCachedState);
   const persistedSyncError =
-    state.campaignSyncState.status === 'retry-scheduled' ? state.campaignSyncState.error : null;
+    !hasUsableCachedState && state.campaignSyncState.status === 'retry-scheduled'
+      ? state.campaignSyncState.error
+      : null;
   const activeSyncError = dropsRefreshLoading ? null : (syncError ?? persistedSyncError);
 
   useEffect(() => {
@@ -26,6 +31,12 @@ export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRe
       setSyncError(null);
     }
   }, [dropsRefreshLoading]);
+
+  useEffect(() => {
+    if (manualRefreshCampaignCount === null) return;
+    const timer = window.setTimeout(() => setManualRefreshCampaignCount(null), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [manualRefreshCampaignCount]);
 
   const openDropsPage = useCallback(
     async (_options: { active?: boolean } = {}) => {
@@ -35,6 +46,7 @@ export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRe
       setManualDropsRefreshLoading(true);
       setQueueMessage(null);
       setSyncError(null);
+      setManualRefreshCampaignCount(null);
       const attemptAt = Date.now();
       setState((prev) => ({
         ...prev,
@@ -75,13 +87,17 @@ export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRe
             lastDropsPageRefreshError: visibleError,
           }));
           setSyncError(visibleError);
+        } else {
+          setManualRefreshCampaignCount(
+            response.appState?.availableGames.length ?? state.availableGames.length,
+          );
         }
       } finally {
         setManualDropsRefreshLoading(false);
       }
     },
-    [dropsRefreshLoading, setQueueMessage, setState],
+    [dropsRefreshLoading, setQueueMessage, setState, state.availableGames.length],
   );
 
-  return { dropsRefreshLoading, activeSyncError, openDropsPage };
+  return { dropsRefreshLoading, activeSyncError, manualRefreshCampaignCount, openDropsPage };
 }

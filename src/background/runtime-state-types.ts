@@ -25,6 +25,7 @@ export interface ServiceWorkerState {
   previousAllDropsCount: number;
   cachedCampaignChannelsMap: Record<string, string[] | null>;
   lastFullRefreshAt: number;
+  lastInventoryRefreshAt: number;
   dropClaimInFlight: boolean;
   dropClaimRetryAtById: Map<string, number>;
   queueMissingStreak: Map<string, number>;
@@ -40,6 +41,5 @@ export interface ServiceWorkerState {
   lastHeartbeatAt: number;
   lastLifecycleCheckAt: number;
   lastGamesCacheRefreshAt: number;
-  emptyCampaignRefreshStreak: number;
   unverifiableRewardsByKey: Record<string, UnverifiableRewardMarker>;
 }

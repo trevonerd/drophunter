@@ -160,7 +160,6 @@ export function registerQueue19Part01() {
         | {
             includeCampaignFetch?: boolean;
             includeInventoryFetch?: boolean;
-            forceInventoryFetch?: boolean;
           }
         | undefined
       > = [];

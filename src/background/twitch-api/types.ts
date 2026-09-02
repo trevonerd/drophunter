@@ -136,10 +136,6 @@ export function sanitizeTwitchSession(input: unknown): TwitchSession | null {
 export function isLikelyAuthError(error: unknown): boolean {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   return (
-    message.includes('401') ||
-    message.includes('403') ||
-    message.includes('unauthorized') ||
-    message.includes('forbidden') ||
-    message.includes('invalid oauth token')
+    message.includes('401') || message.includes('unauthorized') || message.includes('invalid oauth token')
   );
 }

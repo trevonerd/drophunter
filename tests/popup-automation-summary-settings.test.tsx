@@ -50,7 +50,33 @@ test('automation shows one recent event only while enabled without duplicating t
   expect(permissionDeniedMarkup).toContain('role="status"');
 });
 
-test('settings exposes farming automation controls and the resumed-session wording', () => {
+test('popup keeps an unfarmable warning visible long enough to be seen after the transition', () => {
+  const message =
+    'The Example Game campaign is no longer farmable. DropHunter is moving to the next campaign.';
+  const state = {
+    ...createInitialState(),
+    autoStartFavoriteGames: false,
+    automationActivity: [
+      {
+        id: 'campaign-unfarmable:campaign:campaign-1',
+        kind: 'campaign-unfarmable' as const,
+        at: Date.now() - 10_000,
+        campaignId: 'campaign-1',
+        message,
+      },
+    ],
+  };
+
+  const markup = renderToStaticMarkup(
+    <AutomationSummary state={state} notificationPermissionDenied={false} onToggle={() => {}} />,
+  );
+
+  expect(markup).toContain(message);
+  expect(markup).toContain('role="status"');
+  expect(markup).toContain('aria-live="polite"');
+});
+
+test('settings exposes farming automation controls without an obsolete recovery toggle', () => {
   const state = {
     ...createInitialState(),
     campaignPriorityMode: 'ending-soonest' as const,
@@ -68,7 +94,6 @@ test('settings exposes farming automation controls and the resumed-session wordi
       onSaveTelegramCredentials={async () => undefined}
       onTestTelegramAlerts={async () => undefined}
       onLoadTelegramSettings={async () => undefined}
-      onAutoResumeOnStartupToggle={() => {}}
       onAutoClaimChannelPointsBonusToggle={() => {}}
       onAutoClaimDropsToggle={() => {}}
       onStreamerSelectionModeChange={() => {}}
@@ -86,6 +111,6 @@ test('settings exposes farming automation controls and the resumed-session wordi
   expect(markup).toContain('Watch source');
   expect(markup).toContain('No stream tab (preferred)');
   expect(markup).toContain('Managed background tab');
-  expect(markup).toContain('Resume interrupted session');
-  expect(markup).toContain('Resume a farming session that was already running before the browser stopped.');
+  expect(markup).not.toContain('Resume interrupted session');
+  expect(markup).not.toContain('Resume a farming session that was already running before the browser stopped.');
 });

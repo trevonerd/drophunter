@@ -36,6 +36,22 @@ describe('saveState', () => {
     ]);
   });
 
+  test('persists Twitch session retry state with the cached farming state', async () => {
+    const state = createMinimalState({
+      appState: createAppState({
+        isRunning: true,
+        twitchSessionSyncState: { status: 'retrying', attempts: 2, nextRetryAt: 123_456 },
+      }),
+    });
+
+    await saveState(state);
+
+    expect(mocks.storage.local._store.get('appState')).toMatchObject({
+      isRunning: true,
+      twitchSessionSyncState: { status: 'retrying', attempts: 2, nextRetryAt: 123_456 },
+    });
+  });
+
   test('calls broadcastStateUpdate after persisting', async () => {
     let badgeText = '';
     const originalSetBadgeText = mocks.action.setBadgeText;

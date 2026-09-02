@@ -12,7 +12,6 @@ import {
   annotateGameCompletion,
   clearSelectedCompletedIdleCampaignExt,
   normalizeGameSelection,
-  recordEmptyCampaignObservation,
   resetStateForAuthoritativeEmptyCampaignExt,
   splitDropsForSelectedGame,
 } from './drops-projection.ts';
@@ -31,7 +30,11 @@ import { waitForTabComplete } from './tab-management.ts';
 
 type FarmingSession = Pick<
   ReturnType<typeof createFarmingSession>,
-  'handleStartFarming' | 'resumeAfterAuthRecovery' | 'stop'
+  | 'acquireStreamerForSelectedGame'
+  | 'handleAuthoritativeCampaignUnavailable'
+  | 'handleStartFarming'
+  | 'resumeAfterAuthRecovery'
+  | 'stop'
 >;
 type StateLifecycle = Pick<
   ReturnType<typeof createServiceWorkerStateLifecycle>,
@@ -69,12 +72,13 @@ export function createServiceWorkerContentHandlers(
     normalizeGameSelection,
     normalizeQueueSelection,
     splitDropsForSelectedGame,
-    recordEmptyCampaignObservation,
     resetStateForAuthoritativeEmptyCampaign: resetStateForAuthoritativeEmptyCampaignExt,
     clearSelectedCompletedIdleCampaign: clearSelectedCompletedIdleCampaignExt,
     resetStreamTrackingState,
     clearRecoveryStatus,
     clearTerminalStopStatus,
+    onAuthoritativeCampaignUnavailable: (game) =>
+      dependencies.farmingSession.handleAuthoritativeCampaignUnavailable(game),
     stopFarmingSession: (options) => dependencies.farmingSession.stop(options),
     saveState,
   };
@@ -123,11 +127,26 @@ export function createServiceWorkerContentHandlers(
       if (!manual) {
         const directRefresh = await refreshGamesCache({
           requireFreshSnapshot: true,
-          requireConsecutiveEmptyConfirmation: true,
         });
         if (directRefresh.kind === 'refreshed') {
+          if (state.appState.resumedFromCrash !== null && directRefresh.inventoryVerified === false) {
+            return {
+              kind: 'transient-error',
+              error: 'Twitch inventory is temporarily unavailable.',
+            };
+          }
           if (directRefresh.games.length > 0 || directRefresh.authoritativeEmpty === true) {
             await dependencies.automation.request('campaign-refresh');
+            if (
+              state.appState.resumedFromCrash !== null &&
+              state.appState.isRunning &&
+              !state.appState.isPaused &&
+              !state.appState.activeStreamer &&
+              !state.appState.tabId &&
+              state.appState.selectedGame
+            ) {
+              await dependencies.farmingSession.acquireStreamerForSelectedGame();
+            }
             return { kind: 'synced', campaignCount: state.appState.availableGames.length };
           }
           return {

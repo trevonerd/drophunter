@@ -1,4 +1,5 @@
 import type { TwitchGame, TwitchStreamer } from '../types';
+import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 import type { StreamRotationReason } from './stream-rotation.ts';
@@ -48,7 +49,7 @@ export interface RotateStreamerIfInvalidOptions {
   onOpenStreamer?: () => Promise<boolean>;
   onEnterPersistentRecovery?: EnterPersistentRecoveryFn;
   onSkipCurrentGame?: () => Promise<void>;
-  onForceRefreshDropsData?: () => Promise<void>;
+  onForceRefreshDropsData?: () => Promise<RefreshDropsOutcome>;
   onTablessWatchActive?: () => boolean;
   onRecoverStalledProgress?: (source: StalledProgressSource) => Promise<StalledProgressRecoveryResult>;
 }

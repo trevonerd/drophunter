@@ -144,7 +144,7 @@ describe('fetchDirectoryStreamersFromApi', () => {
     expect(langs).toContain('EN');
   });
 
-  test('clears session cache when isLikelyAuthError and session is present', async () => {
+  test('backs off without clearing the cached session after a directory auth error', async () => {
     const { fetchDirectoryStreamersFromApi } = await import('../../src/background/api-operations.ts');
 
     const session = createSession();
@@ -161,5 +161,7 @@ describe('fetchDirectoryStreamersFromApi', () => {
 
     expect(result).toHaveLength(0);
     expect(result.languageFilterApplied).toBe(false);
+    expect(state.twitchSessionCache).toBe(session);
+    expect(state.apiBackoffUntil).toBeGreaterThan(Date.now());
   });
 });

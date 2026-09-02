@@ -54,7 +54,6 @@ export function SessionSummary(props: SessionSummaryProps) {
   const isRunning = model.mode === 'running';
   const isPaused = model.mode === 'paused';
   const isRecovering = model.mode === 'recovering';
-  const needsTwitchRecovery = isRecovering && props.state.recoveryReason === 'sign-in-required';
   const needsTwitch =
     model.mode === 'attention-required' && props.state.lastStopReason === 'sign-in-required';
   const canStart = !isRunning && !isPaused && !isRecovering && !needsTwitch;
@@ -63,10 +62,6 @@ export function SessionSummary(props: SessionSummaryProps) {
     : props.queueCount > 0
       ? `Start Queue (${props.queueCount})`
       : 'Start Farming';
-  const crashRecoveryCopy =
-    props.state.resumedFromCrash != null && (isRunning || isRecovering)
-      ? 'Resumed after a browser interruption; checking progress.'
-      : null;
 
   return (
     <section
@@ -97,9 +92,6 @@ export function SessionSummary(props: SessionSummaryProps) {
         </div>
         {!isRunning && model.detail && (
           <p className="mt-1 text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{model.detail}</p>
-        )}
-        {crashRecoveryCopy && (
-          <p className="mt-1 text-[10px] leading-snug text-yellow-300">{crashRecoveryCopy}</p>
         )}
         {isRunning && !props.currentAutomatableDrop && (
           <p className="mt-1 text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{model.detail}</p>
@@ -153,15 +145,6 @@ export function SessionSummary(props: SessionSummaryProps) {
             className="dh-focus min-h-8 flex-1 rounded-lg bg-twitch-purple/70 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] disabled:opacity-45"
           >
             Resume
-          </button>
-        )}
-        {needsTwitchRecovery && (
-          <button
-            type="button"
-            onClick={props.onOpenTwitch}
-            className="dh-focus min-h-8 flex-1 rounded-lg bg-twitch-purple/70 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)]"
-          >
-            Open Twitch Drops
           </button>
         )}
         {(isRunning || isPaused || isRecovering) && (

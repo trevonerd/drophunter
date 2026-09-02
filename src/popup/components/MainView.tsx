@@ -73,7 +73,8 @@ export function MainView({
   }
   const gameToStart = getGameToStartFromQueue(selectedGame, queueGames);
   const startDisabled = gameToStart == null || !isCampaignFarmable(gameToStart);
-  const isSignedOut = campaignSyncStatus === 'signed-out';
+  const isSignedOut =
+    state.twitchSessionSyncState?.status === 'blocked' || campaignSyncStatus === 'signed-out';
   const favoriteGames = state.favoriteGames ?? [];
   const campaignPriorityMode = state.campaignPriorityMode ?? 'priority-list-only';
   const campaignAvailabilityByKey = state.campaignAvailabilityByKey ?? {};

@@ -1,6 +1,7 @@
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
 import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import type { TwitchApiRequestOptions } from './session-orchestrator.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
 import type { WatchTransportCoordinator } from './watch-transport-coordinator.ts';
 
@@ -21,7 +22,7 @@ export interface StreamContext {
 export interface RefreshDropsOptions {
   readonly includeCampaignFetch?: boolean;
   readonly includeInventoryFetch?: boolean;
-  readonly forceInventoryFetch?: boolean;
+  readonly sessionRecoveryMode?: TwitchApiRequestOptions['sessionRecoveryMode'];
   readonly suppressNotifications?: boolean;
 }
 
@@ -29,10 +30,10 @@ export interface FarmingSessionAdapters {
   readonly getInitPromise: () => Promise<void> | null;
   readonly trackActivity: (reason: string) => Promise<void>;
   readonly ensureTwitchSession: (forceRefresh?: boolean) => Promise<TwitchSession | null>;
-  readonly fetchDropsSnapshotFromApi: (forceSessionRefresh?: boolean) => Promise<DropsSnapshot | null>;
+  readonly fetchDropsSnapshotFromApi: (options?: TwitchApiRequestOptions) => Promise<DropsSnapshot | null>;
   readonly fetchInventorySnapshotFromApi: (
     baseDrops: TwitchDrop[],
-    forceSessionRefresh?: boolean,
+    options?: TwitchApiRequestOptions,
   ) => Promise<DropsSnapshot | null>;
   readonly fetchDirectoryStreamersFromApi: (
     game: TwitchGame,
@@ -50,6 +51,7 @@ export interface FarmingSessionAdapters {
   readonly openMonitorDashboardWindow: (options: { readonly toggle: boolean }) => Promise<unknown>;
   readonly sendAlert: (kind: 'drop-complete' | 'all-complete', message: string) => Promise<void>;
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
+  readonly notifyCampaignUnavailable?: (game: TwitchGame) => Promise<void>;
   // Non-claim Telegram system alert (auto-start, preemption, terminal
   // skip/stop, recovery). Optional so tests/harnesses that don't care about
   // Telegram can omit it entirely.

@@ -5,11 +5,10 @@ import { DROP_CLAIM_RETRY_COOLDOWN_MS } from './constants.ts';
 import { splitDropsForSelectedGame } from './drops-projection.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './service-worker.ts';
-import { clearTwitchSessionCache, ensureSessionIntegrity } from './session-management.ts';
+import { ensureSessionIntegrity } from './session-management.ts';
 import { saveState } from './state-persistence.ts';
 import { TwitchApiClient } from './twitch-api/client.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
-import { isLikelyAuthError } from './twitch-api/types.ts';
 
 export function applyAutoClaimDropsSetting(st: AppState, enabled: boolean | undefined): AppState {
   return {
@@ -93,7 +92,7 @@ export function markDropClaimedInSnapshot(
 export async function claimDropViaApi(
   state: ServiceWorkerState,
   drop: TwitchDrop,
-  getSession: (force: boolean) => Promise<TwitchSession | null>,
+  getSession: () => Promise<TwitchSession | null>,
 ): Promise<boolean> {
   const claimId = (drop.claimId ?? '').trim();
   if (!claimId) {
@@ -106,43 +105,28 @@ export async function claimDropViaApi(
     return false;
   }
 
-  const tryClaim = async (forceSessionRefresh: boolean): Promise<boolean> => {
-    const session = await getSession(forceSessionRefresh);
+  let lastError: unknown = null;
+  try {
+    const session = await getSession();
     if (!session) {
       logWarn('Auto-claim skipped: Twitch session unavailable', { claimId, dropName: drop.name });
-      return false;
-    }
-    const sessionWithIntegrity = await ensureSessionIntegrity(state, session);
-    const client = new TwitchApiClient(sessionWithIntegrity);
-    return client.claimDropReward(claimId);
-  };
-
-  let lastError: unknown = null;
-  for (const forceSessionRefresh of [false, true] as const) {
-    lastError = null;
-    try {
-      logDebug('Auto-claim attempt', {
-        claimId,
-        dropName: drop.name,
-        game: drop.gameName,
-        forceSessionRefresh,
-      });
-      if (await tryClaim(forceSessionRefresh)) {
+    } else {
+      logDebug('Auto-claim attempt', { claimId, dropName: drop.name, game: drop.gameName });
+      const sessionWithIntegrity = await ensureSessionIntegrity(state, session);
+      const client = new TwitchApiClient(sessionWithIntegrity);
+      if (await client.claimDropReward(claimId)) {
         state.dropClaimRetryAtById.delete(claimId);
         logInfo('Auto-claim success', { claimId, dropName: drop.name });
         return true;
       }
-    } catch (error) {
-      lastError = error;
-      if (isLikelyAuthError(error)) {
-        clearTwitchSessionCache(state);
-      }
-      logWarn('Drop claim attempt failed:', String(error));
     }
+  } catch (error) {
+    lastError = error;
+    logWarn('Drop claim attempt failed:', String(error));
   }
 
   state.dropClaimRetryAtById.set(claimId, Date.now() + DROP_CLAIM_RETRY_COOLDOWN_MS);
-  logWarn('Auto-claim failed twice, scheduled retry', {
+  logWarn('Auto-claim failed, scheduled retry', {
     claimId,
     dropName: drop.name,
     error: lastError === null ? undefined : String(lastError),
@@ -152,7 +136,7 @@ export async function claimDropViaApi(
 
 export async function autoClaimClaimableDrops(
   state: ServiceWorkerState,
-  getSession: (force: boolean) => Promise<TwitchSession | null>,
+  getSession: () => Promise<TwitchSession | null>,
   onDropClaimed?: (drop: TwitchDrop) => void | Promise<void>,
 ): Promise<boolean> {
   if (!shouldAttemptAutoClaimDrops(state.appState)) {

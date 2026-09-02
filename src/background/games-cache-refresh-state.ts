@@ -7,6 +7,7 @@ export type GamesCacheRefreshResult =
       readonly kind: 'refreshed';
       readonly games: TwitchGame[];
       readonly authoritativeEmpty?: boolean;
+      readonly inventoryVerified?: boolean;
     }
   | { readonly kind: 'cached'; readonly games: TwitchGame[] }
   | { readonly kind: 'unavailable'; readonly games: TwitchGame[] };

@@ -50,15 +50,16 @@ describe('session orchestrator', () => {
       logWarn: () => {},
     });
 
-    const session = await orchestrator.recoverTwitchSessionAfterAuthError();
+    const session = await orchestrator.recoverTwitchSessionAfterAuthError('background-tab');
 
     expect(session).toBe(validSession);
     expect(events).toEqual(['read:33', 'persist']);
   });
 
-  test('never opens a temporary tab during automatic auth recovery', async () => {
+  test('does not create a Twitch tab when no existing tab can resynchronize OAuth', async () => {
     const state = createState();
     let createCalls = 0;
+    let closeCalls = 0;
     const orchestrator = createSessionOrchestrator(state, {
       tabsApi: {
         async query() {
@@ -82,31 +83,46 @@ describe('session orchestrator', () => {
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
       waitForTabComplete: async () => {},
-      closeTemporaryTabIfSafe: async () => true,
+      closeTemporaryTabIfSafe: async () => {
+        closeCalls += 1;
+        return true;
+      },
       sessionReadAttempts: 1,
       logDebug: () => {},
       logWarn: () => {},
     });
 
-    expect(await orchestrator.recoverTwitchSessionAfterAuthError()).toBeNull();
-    state.appState.recoveryReason = 'sign-in-required';
-    expect(await orchestrator.recoverTwitchSessionAfterAuthError()).toBeNull();
+    expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBeNull();
+    state.appState.twitchSessionSyncState = {
+      status: 'retrying',
+      attempts: 1,
+      nextRetryAt: Date.now() + 60_000,
+    };
+    expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBeNull();
     expect(createCalls).toBe(0);
+    expect(closeCalls).toBe(0);
   });
 
-  test('deduplicates concurrent passive auth recovery requests', async () => {
+  test('deduplicates concurrent recovery through one existing Twitch tab', async () => {
     const state = createState();
-    let createCalls = 0;
+    let queryCalls = 0;
+    let readCalls = 0;
+    let releaseRead: () => void = () => undefined;
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
     const orchestrator = createSessionOrchestrator(state, {
       tabsApi: {
         async query() {
-          return [];
+          queryCalls += 1;
+          return [{ id: 55, url: 'https://www.twitch.tv/drops/inventory', active: false }];
         },
         async create() {
-          createCalls += 1;
-          return { id: 55, url: 'https://www.twitch.tv/drops/campaigns', active: false };
+          throw new Error('must not create a Twitch tab');
         },
         async sendMessage() {
+          readCalls += 1;
+          await readGate;
           return { success: true, session: validSession };
         },
       },
@@ -120,14 +136,15 @@ describe('session orchestrator', () => {
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
       waitForTabComplete: async () => {},
-      closeTemporaryTabIfSafe: async () => true,
       logDebug: () => {},
       logWarn: () => {},
     });
 
-    const first = orchestrator.recoverTwitchSessionAfterAuthError();
-    const second = orchestrator.recoverTwitchSessionAfterAuthError();
-    expect(await Promise.all([first, second])).toEqual([null, null]);
-    expect(createCalls).toBe(0);
+    const first = orchestrator.recoverTwitchSessionAfterAuthError('background-tab');
+    const second = orchestrator.recoverTwitchSessionAfterAuthError('background-tab');
+    releaseRead();
+    expect(await Promise.all([first, second])).toEqual([validSession, validSession]);
+    expect(queryCalls).toBe(1);
+    expect(readCalls).toBe(1);
   });
 });

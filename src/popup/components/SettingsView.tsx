@@ -31,7 +31,6 @@ export function SettingsView({
   onSaveTelegramCredentials,
   onTestTelegramAlerts,
   onLoadTelegramSettings,
-  onAutoResumeOnStartupToggle,
   onAutoClaimChannelPointsBonusToggle,
   onAutoClaimDropsToggle,
   onStreamerSelectionModeChange,
@@ -95,13 +94,6 @@ export function SettingsView({
             onSaveCredentials={onSaveTelegramCredentials}
             onTestAlerts={onTestTelegramAlerts}
             onLoadSettings={onLoadTelegramSettings}
-          />
-          <SettingRow
-            title="Resume interrupted session"
-            description="Resume a farming session that was already running before the browser stopped."
-            checked={state.autoResumeOnStartup}
-            ariaLabel="Resume interrupted session"
-            onToggle={onAutoResumeOnStartupToggle}
           />
           <SettingRow
             title="Auto-claim channel points"

@@ -25,6 +25,7 @@ export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}):
     previousAllDropsCount: 0,
     cachedCampaignChannelsMap: {},
     lastFullRefreshAt: 0,
+    lastInventoryRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
     queueMissingStreak: new Map(),

@@ -56,9 +56,15 @@ function reward(game: TwitchGame): TwitchDrop {
   };
 }
 
-function fixture(candidateEndsAt: string, deduplicated = false) {
-  const incumbent = campaign('campaign-a', '2030-08-03T16:00:00.000Z');
-  const candidate = campaign('campaign-b', candidateEndsAt);
+function fixture(candidateEndsAt: string, deduplicated = false, separateCategories = false) {
+  const incumbent = {
+    ...campaign('campaign-a', '2030-08-03T16:00:00.000Z'),
+    id: separateCategories ? 'active-game' : 'shared-game',
+  };
+  const candidate = {
+    ...campaign('campaign-b', candidateEndsAt),
+    id: separateCategories ? 'favorite-game' : 'shared-game',
+  };
   const drops = [reward(incumbent), reward(candidate)];
   const snapshot: FarmingAutomationTwitchSnapshot = {
     games: [incumbent, candidate],
@@ -76,7 +82,7 @@ function fixture(candidateEndsAt: string, deduplicated = false) {
   state.appState.campaignPriorityMode = 'priority-list-only';
   state.appState.isRunning = true;
   state.appState.selectedGame = incumbent;
-  state.appState.favoriteGames = [{ gameId: 'shared-game', lastKnownName: 'Shared Game', addedAt: 1 }];
+  state.appState.favoriteGames = [{ gameId: candidate.id, lastKnownName: 'Shared Game', addedAt: 1 }];
   const storage = createInMemoryFarmingAutomationStorage();
   if (deduplicated) {
     storage.seedLocal(FARMING_AUTOMATION_FACTS_STORAGE_KEY, {
@@ -107,6 +113,7 @@ function fixture(candidateEndsAt: string, deduplicated = false) {
     },
   };
   let preparations = 0;
+  let now = 2_000;
   const watch = createWatchTransportTransition({
     currentOwnership: {
       kind: 'managed-tab',
@@ -169,7 +176,7 @@ function fixture(candidateEndsAt: string, deduplicated = false) {
         languageFilterApplied: false,
       }),
     },
-    now: () => 2_000,
+    now: () => now,
     random: () => 0,
   });
   return {
@@ -178,31 +185,38 @@ function fixture(candidateEndsAt: string, deduplicated = false) {
     commits: () => commits,
     incumbent,
     preparations: () => preparations,
+    setNow: (value: number) => {
+      now = value;
+    },
     state,
   };
 }
 
 describe('Farming automation running-session preservation', () => {
-  test('queues a strictly earlier favorite without preempting the active campaign', async () => {
+  test('preempts for a strictly earlier eligible favorite and parks the incumbent next', async () => {
     // Given: A and B share a game ID, while favorite B has a strictly earlier finite expiry.
     const subject = fixture('2030-08-03T12:00:00.000Z');
 
     // When: the public campaign-refresh request evaluates the ranked candidates.
     const outcome = await subject.automation.request('campaign-refresh');
 
-    // Then: A keeps farming while B becomes the first future queue entry.
+    // Then: B takes over atomically and A remains the next queue entry.
     expect({
       outcome,
       queue: subject.state.appState.queue.map(gameKey),
-      selected: subject.state.appState.selectedGame,
+      selected: subject.state.appState.selectedGame ? gameKey(subject.state.appState.selectedGame) : null,
       commits: subject.commits(),
       preparations: subject.preparations(),
     }).toEqual({
-      outcome: { kind: 'unchanged', reason: 'already-farming-best-campaign' },
-      queue: [gameKey(subject.candidate)],
-      selected: subject.incumbent,
-      commits: 0,
-      preparations: 0,
+      outcome: {
+        kind: 'started',
+        campaignKey: gameKey(subject.candidate),
+        transition: 'preemption',
+      },
+      queue: [gameKey(subject.candidate), gameKey(subject.incumbent)],
+      selected: gameKey(subject.candidate),
+      commits: 1,
+      preparations: 1,
     });
   });
 
@@ -229,20 +243,48 @@ describe('Farming automation running-session preservation', () => {
     // Given: durable facts still contain an A to B preemption from an older release.
     const subject = fixture('2030-08-03T12:00:00.000Z', true);
 
-    // When: automation evaluates the same pair under the queue-only policy.
+    // When: automation evaluates the same already-recorded pair.
     const outcome = await subject.automation.request('periodic');
 
-    // Then: the active session stays untouched and B remains a future queue entry.
+    // Then: the preemption is not executed a second time.
     expect({
       outcome,
       queue: subject.state.appState.queue.map(gameKey),
       commits: subject.commits(),
       preparations: subject.preparations(),
     }).toEqual({
-      outcome: { kind: 'unchanged', reason: 'already-farming-best-campaign' },
+      outcome: { kind: 'unchanged', reason: 'preemption-already-applied' },
       queue: [gameKey(subject.candidate)],
       commits: 0,
       preparations: 0,
+    });
+  });
+
+  test('revives a parked favorite after five minutes and applies strict preemption', async () => {
+    // Given: an eligible favorite is parked while another campaign keeps farming.
+    const subject = fixture('2030-08-03T12:00:00.000Z', false, true);
+    await subject.automation.suppressCampaignUntilRefresh(gameKey(subject.candidate));
+
+    // When: automation evaluates once before and once at the five-minute deadline.
+    const beforeDeadline = await subject.automation.request('periodic');
+    subject.setNow(302_000);
+    const atDeadline = await subject.automation.request('periodic');
+
+    // Then: the favorite stays parked first, then re-enters ahead of the incumbent.
+    expect({
+      beforeDeadline,
+      atDeadline,
+      queue: subject.state.appState.queue.map(gameKey),
+      selected: subject.state.appState.selectedGame ? gameKey(subject.state.appState.selectedGame) : null,
+    }).toEqual({
+      beforeDeadline: { kind: 'unchanged', reason: 'no-eligible-campaign' },
+      atDeadline: {
+        kind: 'started',
+        campaignKey: gameKey(subject.candidate),
+        transition: 'preemption',
+      },
+      queue: [gameKey(subject.candidate), gameKey(subject.incumbent)],
+      selected: gameKey(subject.candidate),
     });
   });
 });

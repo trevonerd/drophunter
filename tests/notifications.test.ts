@@ -235,6 +235,20 @@ function createAutomationPayload(event: AutomationNotificationEvent, campaignId 
 }
 
 describe('automation notifications', () => {
+  test('supports the persisted unfarmable warning event', async () => {
+    const state = { appState: { ...createInitialState(), notificationsEnabled: true } };
+    const fakes = createAutomationNotificationFakes(true);
+    const controller = createNotificationController(state, {
+      permissionsApi: fakes.permissionsApi,
+      notificationsApi: fakes.notificationsApi,
+      saveState: async () => {},
+    });
+
+    const result = await controller.notifyAutomation(createAutomationPayload('unfarmable'));
+
+    expect(result.notificationId).toBe(getAutomationNotificationId('unfarmable', 'campaign-1'));
+  });
+
   test('creates a stable actionable notification for a campaign transition', async () => {
     const state = { appState: { ...createInitialState(), notificationsEnabled: true } };
     const fakes = createAutomationNotificationFakes(true);

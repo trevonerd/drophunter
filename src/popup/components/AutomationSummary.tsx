@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AppState } from '../../types';
 
 const AUTOMATION_EVENT_TTL_MS = 6_000;
+const CAMPAIGN_UNFARMABLE_WARNING_TTL_MS = 30 * 60_000;
 
 interface AutomationSummaryProps {
   readonly state: AppState;
@@ -11,10 +12,16 @@ interface AutomationSummaryProps {
 
 export function AutomationSummary({ state, notificationPermissionDenied, onToggle }: AutomationSummaryProps) {
   const latestActivity = state.automationActivity?.[0] ?? null;
-  const canShowActivity = state.autoStartFavoriteGames && state.twitchSessionDetected;
+  const canShowActivity =
+    latestActivity?.kind === 'campaign-unfarmable' ||
+    (state.autoStartFavoriteGames && state.twitchSessionDetected);
+  const activityTtlMs =
+    latestActivity?.kind === 'campaign-unfarmable'
+      ? CAMPAIGN_UNFARMABLE_WARNING_TTL_MS
+      : AUTOMATION_EVENT_TTL_MS;
   const [visibleActivityAt, setVisibleActivityAt] = useState<number | null>(() => {
     if (!canShowActivity || !latestActivity) return null;
-    return Date.now() - latestActivity.at < AUTOMATION_EVENT_TTL_MS ? latestActivity.at : null;
+    return Date.now() - latestActivity.at < activityTtlMs ? latestActivity.at : null;
   });
 
   useEffect(() => {
@@ -22,7 +29,7 @@ export function AutomationSummary({ state, notificationPermissionDenied, onToggl
       setVisibleActivityAt(null);
       return;
     }
-    const remaining = AUTOMATION_EVENT_TTL_MS - (Date.now() - latestActivity.at);
+    const remaining = activityTtlMs - (Date.now() - latestActivity.at);
     if (remaining <= 0) {
       setVisibleActivityAt(null);
       return;
@@ -30,7 +37,7 @@ export function AutomationSummary({ state, notificationPermissionDenied, onToggl
     setVisibleActivityAt(latestActivity.at);
     const timeout = globalThis.setTimeout(() => setVisibleActivityAt(null), remaining);
     return () => globalThis.clearTimeout(timeout);
-  }, [canShowActivity, latestActivity]);
+  }, [activityTtlMs, canShowActivity, latestActivity]);
 
   const visibleActivity =
     latestActivity && latestActivity.at === visibleActivityAt ? latestActivity.message : null;

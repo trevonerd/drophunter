@@ -51,7 +51,7 @@ export type CompletedQueueContext = {
   readonly terminalFarmingCompleteGame: TwitchGame | null;
 };
 
-export type QueueSkipReason = 'stalled-progress' | 'no-streamers' | 'unverifiable-twitch';
+export type QueueSkipReason = 'stalled-progress' | 'no-streamers' | 'unverifiable-twitch' | 'unfarmable';
 
 export type QueueSkipCopy = {
   readonly logMessage: string;
@@ -67,6 +67,7 @@ export type StopFarmingSessionRequest = {
   readonly stopReason: string;
   readonly stopMessage: string;
   readonly notification: { readonly title: string; readonly message: string };
+  readonly suppressNotifications?: boolean;
 };
 
 export type SkipCurrentGameOptions = QueueProgressOptions & {

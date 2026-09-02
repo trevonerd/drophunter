@@ -174,6 +174,7 @@ export async function resetStateForInactivity(
   state.cachedCampaignChannelsMap = {};
   callbacks.onResetStreamTrackingState(state);
   state.lastFullRefreshAt = 0;
+  state.lastInventoryRefreshAt = 0;
   state.lastGamesCacheRefreshAt = 0;
   state.dropClaimRetryAtById.clear();
   state.apiConsecutiveFailures = 0;

@@ -1,4 +1,5 @@
 import { gameKey } from '../shared/game-selection.ts';
+import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import { applyRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS, STALLED_PROGRESS_RETRY_MS } from './stream-rotation.ts';
@@ -15,12 +16,13 @@ export type StalledProgressRecoveryResult =
       readonly retryAt: number;
       readonly started: boolean;
     }
-  | { readonly kind: 'selection-changed' };
+  | { readonly kind: 'selection-changed' }
+  | { readonly kind: 'auth-required' };
 
 export interface StalledProgressRecoveryDependencies {
   readonly now: () => number;
-  readonly onCampaignRefresh: () => Promise<void>;
-  readonly onInventoryRefresh: () => Promise<void>;
+  readonly onCampaignRefresh: () => Promise<RefreshDropsOutcome>;
+  readonly onInventoryRefresh: () => Promise<RefreshDropsOutcome>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
   readonly onAttemptPlaybackSelfHeal: (tabId: number) => Promise<void>;
   readonly onRestartTablessWatcher: () => Promise<void>;
@@ -57,12 +59,14 @@ export async function recoverStalledProgress(
   }
 
   const previousDrop = state.appState.currentDrop;
-  await dependencies.onCampaignRefresh();
+  const campaignRefresh = await dependencies.onCampaignRefresh();
+  if (campaignRefresh === 'auth-required') return { kind: 'auth-required' };
   await dependencies.onAdvanceQueueIfCompleted();
   if (selectionChanged(state, previousKey)) {
     return { kind: 'selection-changed' };
   }
-  await dependencies.onInventoryRefresh();
+  const inventoryRefresh = await dependencies.onInventoryRefresh();
+  if (inventoryRefresh === 'auth-required') return { kind: 'auth-required' };
   await dependencies.onAdvanceQueueIfCompleted();
   if (selectionChanged(state, previousKey)) {
     return { kind: 'selection-changed' };

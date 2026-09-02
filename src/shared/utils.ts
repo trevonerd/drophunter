@@ -63,6 +63,7 @@ export const createInitialState = (): AppState => ({
   tabId: null,
   completionNotified: false,
   twitchSessionDetected: false,
+  twitchSessionSyncState: { status: 'unknown', attempts: 0, nextRetryAt: null },
   wasRunning: false,
   campaignSyncState: {
     status: 'idle',

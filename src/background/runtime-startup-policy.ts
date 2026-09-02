@@ -1,6 +1,6 @@
 import type { AppState } from '../types/index.ts';
 
-export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'paused-on-startup' | 'resume-recovery';
+export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'resume-recovery';
 
 const ACTIVE_NO_TAB_RECOVERY_REASONS = new Set(['no-streamers', 'offline', 'open-failed']);
 
@@ -19,6 +19,9 @@ export function applyStartupResumePolicy(
   staleThresholdMs: number,
   resumeRecoveryGraceMs: number,
 ): StartupResumePolicyResult {
+  if (state.appState.isRunning && !state.appState.selectedGame && state.appState.queue.length > 0) {
+    state.appState.selectedGame = state.appState.queue[0] ?? null;
+  }
   const shouldApply =
     state.appState.isRunning &&
     !state.appState.isPaused &&
@@ -35,21 +38,5 @@ export function applyStartupResumePolicy(
         state.appState.tabId === null &&
         state.appState.watchTransportMode === 'tabless'));
   if (hasActiveNoTabRecovery && heartbeatGap < resumeRecoveryGraceMs) return 'resume-recovery';
-  if (state.appState.autoResumeOnStartup) return 'auto-resume';
-
-  state.appState = {
-    ...state.appState,
-    isPaused: true,
-    tabId: null,
-    activeStreamer: null,
-    recoveryReason: null,
-    recoveryBackoffUntil: null,
-    recoveryAttempts: null,
-    resumedFromCrash: null,
-  };
-  state.recoveryBackoffUntil = 0;
-  state.lastRecoveryAttemptAt = 0;
-  state.stalledRecoveryAttempts = 0;
-  state.recoveryNotificationSent = false;
-  return 'paused-on-startup';
+  return 'auto-resume';
 }

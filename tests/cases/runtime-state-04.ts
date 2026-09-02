@@ -28,6 +28,17 @@ describe('applyStartupResumePolicy', () => {
     };
   }
 
+  test('repairs a running session target from the queue before startup monitoring resumes', () => {
+    const state = makePolicyState();
+    const queued = { id: 'queued', name: 'FragPunk', imageUrl: '', campaignId: 'campaign-fragpunk' };
+    state.appState.selectedGame = null;
+    state.appState.queue = [queued];
+    state.lastHeartbeatAt = 39_000;
+
+    expect(applyStartupResumePolicy(state, 40_000, 30_000, 300_000)).toBe('not-stale');
+    expect(state.appState.selectedGame).toEqual(queued);
+  });
+
   test('preserves unverifiable reward markers across startup policy branches', () => {
     const expectedMarkers = {
       '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
@@ -38,9 +49,9 @@ describe('applyStartupResumePolicy', () => {
     expect(applyStartupResumePolicy(recent, 40_000, 30_000, 300_000)).toBe('not-stale');
     expect(recent.unverifiableRewardsByKey).toEqual(expectedMarkers);
 
-    const paused = makePolicyState();
-    expect(applyStartupResumePolicy(paused, 40_000, 30_000, 300_000)).toBe('paused-on-startup');
-    expect(paused.unverifiableRewardsByKey).toEqual(expectedMarkers);
+    const legacyDisabled = makePolicyState();
+    expect(applyStartupResumePolicy(legacyDisabled, 40_000, 30_000, 300_000)).toBe('auto-resume');
+    expect(legacyDisabled.unverifiableRewardsByKey).toEqual(expectedMarkers);
 
     const autoResume = makePolicyState();
     autoResume.appState.autoResumeOnStartup = true;
@@ -48,21 +59,17 @@ describe('applyStartupResumePolicy', () => {
     expect(autoResume.unverifiableRewardsByKey).toEqual(expectedMarkers);
   });
 
-  test('pauses stale startup sessions when auto-resume is disabled', () => {
+  test('always resumes stale running sessions even when the legacy toggle is disabled', () => {
     const state = makePolicyState();
     const result = applyStartupResumePolicy(state, 40_000, 30_000, 300_000);
 
-    expect(result).toBe('paused-on-startup');
+    expect(result).toBe('auto-resume');
     expect(state.appState.isRunning).toBe(true);
-    expect(state.appState.isPaused).toBe(true);
+    expect(state.appState.isPaused).toBe(false);
     expect(state.appState.selectedGame?.id).toBe('game-1');
     expect(state.appState.queue).toHaveLength(1);
-    expect(state.appState.tabId).toBeNull();
-    expect(state.appState.activeStreamer).toBeNull();
-    expect(state.appState.recoveryReason).toBeNull();
-    expect(state.recoveryBackoffUntil).toBe(0);
-    expect(state.stalledRecoveryAttempts).toBe(0);
-    expect(state.recoveryNotificationSent).toBe(false);
+    expect(state.appState.tabId).toBe(123);
+    expect(state.appState.activeStreamer?.id).toBe('streamer-1');
   });
 
   test('allows crash recovery for stale startup sessions when auto-resume is enabled', () => {
@@ -128,14 +135,13 @@ describe('applyStartupResumePolicy', () => {
       expect(state.recoveryBackoffUntil).toBe(90_000);
     });
 
-    test('falls through to paused-on-startup when gap exceeds grace (auto-resume off)', () => {
+    test('falls through to auto-resume when gap exceeds grace even with the legacy toggle off', () => {
       const state = makeNoStreamersState();
       // Gap 400s > 300s grace
       const result = applyStartupResumePolicy(state, 401_000, 30_000, 300_000);
 
-      expect(result).toBe('paused-on-startup');
-      expect(state.appState.isPaused).toBe(true);
-      expect(state.appState.recoveryReason).toBeNull();
+      expect(result).toBe('auto-resume');
+      expect(state.appState.isPaused).toBe(false);
     });
 
     test('falls through to auto-resume when gap exceeds grace (auto-resume on)', () => {
@@ -162,13 +168,13 @@ describe('applyStartupResumePolicy', () => {
       }
     });
 
-    test('stalled-progress within grace still pauses (has a tab; excluded from no-tab set)', () => {
+    test('stalled-progress with a tab falls back to unconditional auto-resume', () => {
       const state = makeNoStreamersState();
       state.appState.tabId = 7;
       state.appState.recoveryReason = 'stalled-progress';
       const result = applyStartupResumePolicy(state, 40_000, 30_000, 300_000);
 
-      expect(result).toBe('paused-on-startup');
+      expect(result).toBe('auto-resume');
     });
 
     test('tabless stalled-progress within grace resumes with the persisted attempt and backoff', () => {

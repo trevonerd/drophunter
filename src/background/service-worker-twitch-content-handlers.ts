@@ -1,4 +1,3 @@
-import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status.ts';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { logDebug } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -7,14 +6,15 @@ import {
   syncTwitchSessionFromContentScriptExt,
 } from './session-management.ts';
 import { broadcastStateUpdate, saveState } from './state-persistence.ts';
+import { markTwitchSessionReady } from './twitch-session-sync.ts';
 
 export type TwitchSessionRecoveryIntent = 'none' | 'continue' | 'resume';
 
 export function twitchSessionRecoveryIntent(
-  appState: Pick<ServiceWorkerState['appState'], 'lastStopReason' | 'recoveryReason'>,
+  appState: Pick<ServiceWorkerState['appState'], 'lastStopReason' | 'twitchSessionSyncState'>,
 ): TwitchSessionRecoveryIntent {
   if (appState.lastStopReason === 'sign-in-required') return 'resume';
-  if (appState.recoveryReason === 'sign-in-required') return 'continue';
+  if (appState.twitchSessionSyncState.status === 'retrying') return 'continue';
   return 'none';
 }
 
@@ -60,15 +60,11 @@ export function createServiceWorkerTwitchContentHandlers(
         onBroadcastStateUpdate: () => broadcastStateUpdate(state.appState),
       },
     );
-    if (!result.success || recoveryIntent === 'none') return result;
-    state.apiConsecutiveFailures = 0;
-    state.apiBackoffUntil = 0;
-    state.recoveryBackoffUntil = 0;
-    state.lastRecoveryAttemptAt = 0;
-    state.recoveryNotificationSent = false;
-    state.appState = clearRecoveryStatus(clearTerminalStopStatus(state.appState));
+    if (!result.success) return result;
+    markTwitchSessionReady(state);
     if (recoveryIntent === 'resume') await dependencies.resumeAfterAuthRecovery();
     else await saveState(state);
+    broadcastStateUpdate(state.appState);
     return result;
   }
 

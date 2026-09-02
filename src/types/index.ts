@@ -74,6 +74,11 @@ export type FarmCategoryScope = 'all' | 'favorites-only';
 export type GamePreference = 'normal' | 'favorite' | 'hidden';
 export type QueueEntrySource = 'manual' | 'favorite-auto';
 export type WatchTransportMode = 'managed-tab' | 'tabless';
+export type TwitchSessionSyncState =
+  | { readonly status: 'unknown'; readonly attempts: 0; readonly nextRetryAt: null }
+  | { readonly status: 'ready'; readonly attempts: 0; readonly nextRetryAt: null }
+  | { readonly status: 'retrying'; readonly attempts: number; readonly nextRetryAt: number }
+  | { readonly status: 'blocked'; readonly attempts: number; readonly nextRetryAt: null };
 export type WatchHealthStatus =
   | 'healthy'
   | 'degraded'
@@ -131,7 +136,12 @@ export interface QueueEntryMetadata {
 }
 
 export type ManualWatchState = 'inactive' | 'eligible-manual' | 'automation-paused';
-export type AutomationActivityKind = 'favorite-added' | 'auto-started' | 'preempted' | 'auto-start-skipped';
+export type AutomationActivityKind =
+  | 'favorite-added'
+  | 'auto-started'
+  | 'preempted'
+  | 'auto-start-skipped'
+  | 'campaign-unfarmable';
 
 export interface AutomationActivityEntry {
   readonly id: string;
@@ -209,6 +219,7 @@ export interface AppState {
   // source (storage/tab/content-script). Used to tell "never signed in" apart
   // from "signed in but 0 active campaigns" in the popup empty state.
   twitchSessionDetected: boolean;
+  twitchSessionSyncState: TwitchSessionSyncState;
   wasRunning: boolean;
   campaignSyncState: CampaignSyncState;
   dropsPageRefreshInProgress: boolean;

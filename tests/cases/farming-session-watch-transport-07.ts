@@ -241,7 +241,7 @@ describe('farming session watch transport integration', () => {
     expect(starts).toBe(2);
     expect(stops).toBe(1);
     expect(ticks).toBe(0);
-    expect(refreshes).toBeGreaterThan(refreshesDuringManualPlayback);
+    expect(refreshes).toBe(refreshesDuringManualPlayback);
 
     await session.checkDropProgress();
     expect(ticks).toBe(1);

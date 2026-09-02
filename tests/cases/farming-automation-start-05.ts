@@ -52,6 +52,7 @@ function startFixture(
   notificationPermission = true,
   refreshFails: () => boolean = () => false,
 ) {
+  let now = 2_000;
   const later = campaign('campaign-later', '2030-08-03T16:00:00.000Z');
   const best = campaign('campaign-best', '2030-08-03T12:00:00.000Z');
   const drops = [reward(later), reward(best)];
@@ -162,12 +163,23 @@ function startFixture(
         languageFilterApplied: false,
       }),
     },
-    now: () => 2_000,
+    now: () => now,
     random: () => 0,
     onStarted: () => events.push('monitor'),
   });
   const refreshCount = () => events.filter((event) => event === 'refresh').length;
-  return { automation, best, events, persistence, refreshCount, state, storage };
+  return {
+    automation,
+    best,
+    events,
+    persistence,
+    refreshCount,
+    setNow: (value: number) => {
+      now = value;
+    },
+    state,
+    storage,
+  };
 }
 
 describe('Farming automation start', () => {
@@ -189,6 +201,7 @@ describe('Farming automation start', () => {
     expect(subject.state.appState.isRunning).toBe(false);
 
     refreshFails = false;
+    subject.setNow(302_000);
     const confirmed = await subject.automation.request('periodic');
     const factsAfterSuccess = subject.storage.getLocal(
       FARMING_AUTOMATION_FACTS_STORAGE_KEY,

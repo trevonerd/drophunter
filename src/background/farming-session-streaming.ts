@@ -6,6 +6,7 @@ import {
   markDropUnverifiable,
   recomputeSelectedCampaignSummaryAfterLocalMarker,
 } from './drops-projection.ts';
+import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
 import { enterPersistentRecovery } from './recovery-state.ts';
 import {
@@ -29,7 +30,7 @@ import {
 import { normalizePreferredStreamerLanguage, pickStreamerForPreferences } from './streamer-selection.ts';
 
 type FarmingSessionStreamingDependencies = {
-  readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<void>;
+  readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<RefreshDropsOutcome>;
   readonly onStopFarmingSession: (options: StopFarmingSessionRequest) => Promise<void>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
 };
@@ -37,6 +38,9 @@ type FarmingSessionStreamingDependencies = {
 export type FarmingSessionStreaming = {
   readonly acquireStreamerForSelectedGame: () => Promise<boolean>;
   readonly ensureWorkspaceForSelectedGame: () => Promise<void>;
+  readonly handleAuthoritativeCampaignUnavailable: (
+    game: import('../types/index.ts').TwitchGame,
+  ) => Promise<void>;
   readonly handleRecoverySkip: () => Promise<void>;
   readonly recoverStalledProgress: (source: StalledProgressSource) => Promise<StalledProgressRecoveryResult>;
   readonly rotateStreamerIfInvalid: () => Promise<void>;
@@ -77,9 +81,14 @@ export function createFarmingSessionStreaming(
   }
 
   async function skipCurrentGameDueToNoStreamers(): Promise<void> {
+    if (state.appState.selectedGame) {
+      await adapters.suppressCampaignUntilRefresh?.(gameKey(state.appState.selectedGame));
+    }
     await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-      onRefreshDropsData: dependencies.onRefreshDropsData,
+      onRefreshDropsData: async (options) => {
+        await dependencies.onRefreshDropsData(options);
+      },
       onOpenStreamer: acquireStreamerForSelectedGame,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
@@ -122,7 +131,9 @@ export function createFarmingSessionStreaming(
       }
       await skipCurrentGameDueToStall(state, {
         onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-        onRefreshDropsData: dependencies.onRefreshDropsData,
+        onRefreshDropsData: async (options) => {
+          await dependencies.onRefreshDropsData(options);
+        },
         onOpenStreamer: acquireStreamerForSelectedGame,
         onSaveState: () => adapters.saveState(state),
         onSaveTimingState: adapters.saveTimingState,
@@ -155,12 +166,34 @@ export function createFarmingSessionStreaming(
     }
     await skipCurrentGameAndAdvanceQueue(state, 'unverifiable-twitch', {
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-      onRefreshDropsData: dependencies.onRefreshDropsData,
+      onRefreshDropsData: async (options) => {
+        await dependencies.onRefreshDropsData(options);
+      },
       onOpenStreamer: acquireStreamerForSelectedGame,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
       onStopFarmingSession: dependencies.onStopFarmingSession,
       onNotify: adapters.notify,
+    });
+  }
+
+  async function handleAuthoritativeCampaignUnavailable(
+    game: import('../types/index.ts').TwitchGame,
+  ): Promise<void> {
+    if (!state.appState.selectedGame || gameKey(state.appState.selectedGame) !== gameKey(game)) {
+      return;
+    }
+    await adapters.notifyCampaignUnavailable?.(game);
+    await skipCurrentGameAndAdvanceQueue(state, 'unfarmable', {
+      onEnsureWorkspace: ensureWorkspaceForSelectedGame,
+      onRefreshDropsData: async (options) => {
+        await dependencies.onRefreshDropsData(options);
+      },
+      onOpenStreamer: acquireStreamerForSelectedGame,
+      onSaveState: () => adapters.saveState(state),
+      onSaveTimingState: adapters.saveTimingState,
+      onStopFarmingSession: (options) =>
+        dependencies.onStopFarmingSession({ ...options, suppressNotifications: true }),
     });
   }
 
@@ -173,14 +206,14 @@ export function createFarmingSessionStreaming(
         dependencies.onRefreshDropsData({
           includeCampaignFetch: true,
           includeInventoryFetch: false,
-          forceInventoryFetch: true,
+          sessionRecoveryMode: 'background-tab',
           suppressNotifications: true,
         }),
       onInventoryRefresh: () =>
         dependencies.onRefreshDropsData({
           includeCampaignFetch: false,
           includeInventoryFetch: true,
-          forceInventoryFetch: true,
+          sessionRecoveryMode: 'background-tab',
           suppressNotifications: true,
         }),
       onAdvanceQueueIfCompleted: dependencies.onAdvanceQueueIfCompleted,
@@ -233,7 +266,7 @@ export function createFarmingSessionStreaming(
         dependencies.onRefreshDropsData({
           includeCampaignFetch: true,
           includeInventoryFetch: true,
-          forceInventoryFetch: true,
+          sessionRecoveryMode: 'background-tab',
         }),
       onTablessWatchActive: () =>
         context.manualWatchTransportSuspended ||
@@ -244,6 +277,7 @@ export function createFarmingSessionStreaming(
   return {
     acquireStreamerForSelectedGame,
     ensureWorkspaceForSelectedGame,
+    handleAuthoritativeCampaignUnavailable,
     handleRecoverySkip,
     recoverStalledProgress,
     rotateStreamerIfInvalid,

@@ -1,5 +1,5 @@
 // Extracted from src/popup/App.tsx (top-level constants and CampaignSyncStatus type).
-import type { CampaignSyncState, StreamerSelectionMode } from '../types';
+import type { CampaignSyncState, StreamerSelectionMode, TwitchSessionSyncState } from '../types';
 
 export const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: string }> = [
   { value: 'low-view', label: 'Low view' },
@@ -61,6 +61,8 @@ export interface CampaignSyncStatusInput {
   twitchSessionDetected: boolean;
   isStale: boolean;
   campaignSyncState?: CampaignSyncState;
+  twitchSessionSyncState?: TwitchSessionSyncState;
+  isRunning?: boolean;
 }
 
 export function deriveCampaignSyncStatus({
@@ -71,13 +73,23 @@ export function deriveCampaignSyncStatus({
   twitchSessionDetected,
   isStale,
   campaignSyncState,
+  twitchSessionSyncState,
+  isRunning = false,
 }: CampaignSyncStatusInput): CampaignSyncStatus {
-  if (campaignSyncState?.status === 'needs-session') return 'signed-out';
-  if (campaignSyncState?.status === 'syncing') return 'syncing';
-  if (campaignSyncState?.status === 'retry-scheduled') return 'failed';
-  if (!gamesLoading && !twitchSessionDetected) return 'signed-out';
+  const hasUsableCachedState = availableCampaignCount > 0 || isRunning;
+  if (twitchSessionSyncState?.status === 'blocked') return 'signed-out';
+  if (!gamesLoading && !twitchSessionDetected && !hasUsableCachedState) return 'signed-out';
   if (dropsRefreshLoading) return 'syncing';
   if (activeSyncError) return 'failed';
+  if (campaignSyncState?.status === 'needs-session') {
+    return hasUsableCachedState ? 'fresh' : 'signed-out';
+  }
+  if (campaignSyncState?.status === 'syncing') {
+    return hasUsableCachedState ? 'fresh' : 'syncing';
+  }
+  if (campaignSyncState?.status === 'retry-scheduled') {
+    return hasUsableCachedState ? 'fresh' : 'failed';
+  }
   if (!gamesLoading && availableCampaignCount === 0) return 'empty';
   if (isStale) return 'syncing';
   return 'fresh';

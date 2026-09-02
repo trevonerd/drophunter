@@ -1,9 +1,11 @@
 import type { FarmingAutomation } from './farming-automation-contracts.ts';
+import { persistFarmingAutomationFacts } from './farming-automation-effects.ts';
 import {
   createFarmingAutomationEvaluator,
   type FarmingAutomationEvaluatorDependencies,
   type FarmingAutomationRuntime,
 } from './farming-automation-evaluator.ts';
+import { PARKED_CAMPAIGN_RETRY_MS } from './farming-automation-gates.ts';
 import {
   createFarmingAutomationManualWatch,
   type FarmingAutomationManualWatchController,
@@ -109,12 +111,27 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
       try {
         const loaded = await dependencies.persistence.loadFacts();
         if (loaded.kind === 'failed') return 'persistence-failed';
-        if (loaded.value.suppressedCampaignKeys.includes(campaignKey)) return 'suppressed';
-        const persisted = await dependencies.persistence.saveFacts({
-          ...loaded.value,
-          suppressedCampaignKeys: [...loaded.value.suppressedCampaignKeys, campaignKey],
-        });
-        return persisted.kind === 'written' ? 'suppressed' : 'persistence-failed';
+        const now = dependencies.now?.() ?? Date.now();
+        const retryAt = now + PARKED_CAMPAIGN_RETRY_MS;
+        const alreadyParkedUntil = loaded.value.suppressedUntilByCampaignKey[campaignKey];
+        if (alreadyParkedUntil !== undefined && alreadyParkedUntil > now) return 'suppressed';
+        const persisted = await persistFarmingAutomationFacts(
+          dependencies.persistence,
+          dependencies.browser,
+          {
+            ...loaded.value,
+            nextEvaluationAt: retryAt,
+            suppressedCampaignKeys: loaded.value.suppressedCampaignKeys.includes(campaignKey)
+              ? loaded.value.suppressedCampaignKeys
+              : [...loaded.value.suppressedCampaignKeys, campaignKey],
+            suppressedUntilByCampaignKey: {
+              ...loaded.value.suppressedUntilByCampaignKey,
+              [campaignKey]: retryAt,
+            },
+          },
+          now,
+        );
+        return persisted ? 'suppressed' : 'persistence-failed';
       } catch (error) {
         if (!(error instanceof Error)) throw error;
         return 'persistence-failed';

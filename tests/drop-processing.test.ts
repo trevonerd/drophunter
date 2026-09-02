@@ -16,7 +16,6 @@ import {
   projectDropsSnapshot,
   recomputeSelectedCampaignSummaryAfterLocalMarker,
   reconcileUnverifiableRewardMarkers,
-  recordEmptyCampaignObservation,
   resetStateForAuthoritativeEmptyCampaignExt,
   splitDropsForSelectedGame,
 } from '../src/background/drops-projection.ts';
@@ -1912,28 +1911,5 @@ describe('resetStateForAuthoritativeEmptyCampaignExt', () => {
     expect(state.cachedCampaignChannelsMap).toEqual({});
     expect(state.previousAllDropsCount).toBe(0);
     expect(state.unverifiableRewardsByKey).toEqual({});
-  });
-});
-
-describe('recordEmptyCampaignObservation', () => {
-  test('immediate confirm when requireConsecutive=false', () => {
-    const state = makeState({ emptyCampaignRefreshStreak: 0 });
-    const result = recordEmptyCampaignObservation(state, false);
-    expect(result).toEqual({ accept: true, confirmed: true, streak: 0 });
-    expect(state.emptyCampaignRefreshStreak).toBe(0);
-  });
-
-  test('requires 2 consecutive observations before confirming', () => {
-    const state = makeState({ emptyCampaignRefreshStreak: 0 });
-
-    const first = recordEmptyCampaignObservation(state, true);
-    expect(first.confirmed).toBe(false);
-    expect(first.streak).toBe(1);
-    expect(state.emptyCampaignRefreshStreak).toBe(1);
-
-    const second = recordEmptyCampaignObservation(state, true);
-    expect(second.confirmed).toBe(true);
-    expect(second.streak).toBe(0);
-    expect(state.emptyCampaignRefreshStreak).toBe(0);
   });
 });

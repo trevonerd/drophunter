@@ -97,7 +97,8 @@ export async function handleStalledProgress(
     return;
   }
   if (opts?.onForceRefreshDropsData) {
-    await opts.onForceRefreshDropsData();
+    const refreshOutcome = await opts.onForceRefreshDropsData();
+    if (refreshOutcome === 'auth-required') return;
     if (state.stalledRecoveryAttempts === 0 || state.appState.currentDrop == null) return;
   }
   state.stalledRecoveryAttempts = Math.min(

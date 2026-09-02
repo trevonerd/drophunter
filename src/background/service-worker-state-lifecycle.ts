@@ -146,15 +146,6 @@ export function createServiceWorkerStateLifecycle(
       farmingSession.startMonitoring();
       return true;
     }
-    if (policy === 'paused-on-startup') {
-      logInfo('Long browser restart detected; leaving farming paused', {
-        secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
-      });
-      farmingSession.stopMonitoring();
-      await saveState(state);
-      await saveTimingState(state);
-      return true;
-    }
     if (policy !== 'auto-resume') return false;
     const keptExistingTab = await canResumeWithExistingManagedTab();
     logInfo(
@@ -177,9 +168,6 @@ export function createServiceWorkerStateLifecycle(
     }
     await saveState(state);
     await saveTimingState(state);
-    if (!keptExistingTab && state.appState.selectedGame) {
-      await farmingSession.acquireStreamerForSelectedGame();
-    }
     farmingSession.startMonitoring();
     return true;
   }

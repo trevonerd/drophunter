@@ -300,26 +300,3 @@ export function resetStateForAuthoritativeEmptyCampaignExt(state: ServiceWorkerS
   state.previousAllDropsCount = 0;
   state.unverifiableRewardsByKey = {};
 }
-
-// Streak policy for one-shot callers that can't internally retry: bump the
-// streak counter, decide whether the empty campaign is confirmed. Callers that
-// want single-observation acceptance pass `requireConsecutive = false` and
-// every observation is treated as confirmed (streak still tracked for
-// observability but reset when `accept` is true).
-export function recordEmptyCampaignObservation(
-  state: ServiceWorkerState,
-  requireConsecutive: boolean,
-): { accept: boolean; confirmed: boolean; streak: number } {
-  if (!requireConsecutive) {
-    state.emptyCampaignRefreshStreak = 0;
-    return { accept: true, confirmed: true, streak: 0 };
-  }
-
-  const EMPTY_CAMPAIGN_CONFIRMATIONS_REQUIRED = 2;
-  state.emptyCampaignRefreshStreak += 1;
-  const confirmed = state.emptyCampaignRefreshStreak >= EMPTY_CAMPAIGN_CONFIRMATIONS_REQUIRED;
-  if (confirmed) {
-    state.emptyCampaignRefreshStreak = 0;
-  }
-  return { accept: true, confirmed, streak: state.emptyCampaignRefreshStreak };
-}

@@ -18,7 +18,7 @@ import { advanceQueueIfCompleted as advanceQueue } from './session-lifecycle.ts'
 
 type FarmingSessionQueueDependencies = {
   readonly onEnsureWorkspace: () => Promise<void>;
-  readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<void>;
+  readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<unknown>;
   readonly onAcquireStreamer: () => Promise<boolean>;
   readonly onStopMonitoring: () => void;
 };
@@ -79,7 +79,9 @@ export function createFarmingSessionQueue(
         await adapters.notify(title, message);
       },
       onSystemAlert: adapters.telegramSystemAlert,
-      onRefreshDropsData: dependencies.onRefreshDropsData,
+      onRefreshDropsData: async (options) => {
+        await dependencies.onRefreshDropsData(options);
+      },
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
     });

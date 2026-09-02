@@ -28,25 +28,57 @@ test('signed-out popup gates farming controls and preserves a read-only saved qu
   expect(markup).not.toContain('aria-label="Enable notifications"');
 });
 
-test('signed-out sync status outranks cached campaigns and refresh activity', () => {
+test('Twitch gate is reserved for first connection or terminal blockage', () => {
   const base = {
     activeSyncError: null,
     gamesLoading: false,
-    availableCampaignCount: 1,
+    availableCampaignCount: 0,
     twitchSessionDetected: false,
     isStale: false,
   };
 
   expect(deriveCampaignSyncStatus({ ...base, dropsRefreshLoading: false })).toBe('signed-out');
-  expect(deriveCampaignSyncStatus({ ...base, dropsRefreshLoading: true })).toBe('signed-out');
   expect(
     deriveCampaignSyncStatus({
       ...base,
+      availableCampaignCount: 1,
       dropsRefreshLoading: false,
       twitchSessionDetected: true,
-      isStale: true,
+      campaignSyncState: {
+        status: 'needs-session',
+        lastAttemptAt: 1,
+        lastSuccessAt: 1,
+        campaignCount: 1,
+        nextRetryAt: null,
+      },
     }),
-  ).toBe('syncing');
+  ).toBe('fresh');
+  expect(
+    deriveCampaignSyncStatus({
+      ...base,
+      availableCampaignCount: 1,
+      twitchSessionDetected: true,
+      dropsRefreshLoading: false,
+      twitchSessionSyncState: { status: 'blocked', attempts: 2, nextRetryAt: null },
+    }),
+  ).toBe('signed-out');
+});
+
+test('blocked Twitch state renders a single recovery gate even with cached campaigns', () => {
+  const savedCampaign = game({ campaignId: 'saved-campaign' });
+  const state = {
+    ...appState(savedCampaign),
+    twitchSessionDetected: true,
+    twitchSessionSyncState: { status: 'blocked', attempts: 2, nextRetryAt: null },
+    lastStopReason: 'sign-in-required',
+    queue: [savedCampaign],
+  } satisfies AppState;
+
+  const markup = renderMainView(state, [savedCampaign], { campaignSyncStatus: 'signed-out' });
+
+  expect(markup).toContain('data-session-priority="twitch-required"');
+  expect(markup.match(/Open Twitch/g)).toHaveLength(1);
+  expect(markup).not.toContain('data-session-mode="recovering"');
 });
 
 test('the persistent session summary maps runtime states to one operational mode', () => {
@@ -87,6 +119,30 @@ test('the persistent session summary maps runtime states to one operational mode
   expect(completeMarkup).toContain('data-session-mode="complete"');
 });
 
+test('non-blocking Twitch retries keep cached Hidden farming linear and silent', () => {
+  const selectedGame = game({ campaignId: 'fragpunk-campaign' });
+  const state = {
+    ...appState(selectedGame),
+    isRunning: true,
+    watchTransportPreference: 'tabless',
+    watchTransportMode: 'tabless',
+    twitchSessionSyncState: { status: 'retrying', attempts: 3, nextRetryAt: Date.now() + 30_000 },
+    resumedFromCrash: Date.now(),
+    currentDrop: drop({ status: 'active', progress: 42 }),
+  } satisfies AppState;
+
+  const markup = renderMainView(state, [selectedGame], { runtimeMode: 'running' });
+
+  expect(markup).toContain('data-session-mode="running"');
+  expect(markup).toContain('Hidden');
+  expect(markup).toContain('>Pause<');
+  expect(markup).toContain('>Stop<');
+  expect(markup).not.toContain('Recovering');
+  expect(markup).not.toContain('retry in');
+  expect(markup).not.toContain('Resumed after a browser interruption');
+  expect(markup).not.toContain('Open Twitch');
+});
+
 test('popup landmarks keep global header actions and session owns farming controls', () => {
   const selectedGame = game();
   const idleMarkup = renderMainView(appState(selectedGame));
@@ -119,4 +175,3 @@ test('popup landmarks keep global header actions and session owns farming contro
   expect(runningMarkup).toContain('aria-label="Sort games"');
   expect(runningMarkup).toContain('aria-label="Filter games"');
 });
-

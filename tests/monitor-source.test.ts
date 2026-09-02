@@ -1,57 +1,7 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { MonitorView } from '../src/monitor/App.tsx';
-import { createInitialState } from '../src/shared/utils.ts';
-import type { AppState, TwitchDrop, TwitchGame } from '../src/types/index.ts';
-
-function createGame(rewardSummary: TwitchGame['rewardSummary'], name = 'Test Game'): TwitchGame {
-  return {
-    id: 'game-1',
-    name,
-    imageUrl: '',
-    campaignId: 'campaign-1',
-    rewardSummary,
-  };
-}
-
-function createDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
-  return {
-    id: 'reward-1',
-    name: 'Reward',
-    gameId: 'game-1',
-    gameName: 'Test Game',
-    imageUrl: '',
-    progress: 0,
-    currentMinutes: 0,
-    claimed: false,
-    requiredMinutes: 60,
-    remainingMinutes: 60,
-    status: 'active',
-    acquisitionMethod: 'watch-time',
-    rewardKind: 'in-game',
-    verificationState: 'unassessed',
-    ...overrides,
-  };
-}
-
-function automationActivity(id: string, at: number, message: string): AppState['automationActivity'][number] {
-  return { id, kind: 'auto-started', at, message };
-}
-
-function renderMonitor(overrides: Partial<AppState>, contextNow = 1_700_000_000_000): string {
-  const state: AppState = { ...createInitialState(), ...overrides };
-  return renderToStaticMarkup(
-    createElement(MonitorView, {
-      state,
-      lastUpdatedAt: 1_700_000_000_000,
-      recoveryNow: 1_700_000_000_000,
-      contextNow,
-    }),
-  );
-}
+import { automationActivity, createDrop, createGame, renderMonitor } from './fixtures/monitor-source.ts';
 
 test('monitor keeps a fresh zero-percent Twitch-native reward as ordinary progress', () => {
   // Given: a newly discovered badge at 0% with no unverifiable marker.
@@ -258,6 +208,22 @@ test('monitor keeps recovery notices visible without re-announcing their retry c
   expect(html).toContain('Recovering: Recovering offline stream');
   expect(html).toContain('class="monitor-context-notice monitor-context-notice--warning"');
   expect(html).not.toContain('aria-live="polite"');
+});
+
+test('monitor keeps running semantics during a non-blocking Twitch retry', () => {
+  const html = renderMonitor({
+    isRunning: true,
+    selectedGame: createGame({ completion: 'farmable', remainderReasons: [] }, 'FragPunk'),
+    watchTransportMode: 'tabless',
+    twitchSessionSyncState: { status: 'retrying', attempts: 2, nextRetryAt: 1_700_000_030_000 },
+    pendingDrops: [createDrop({ progress: 42 })],
+  });
+
+  expect(html).toContain('RUNNING');
+  expect(html).toContain('FragPunk');
+  expect(html).not.toContain('Recovering:');
+  expect(html).not.toContain('retry in');
+  expect(html).not.toContain('Twitch sign-in required');
 });
 
 test('monitor reward progress exposes native progressbar semantics', () => {

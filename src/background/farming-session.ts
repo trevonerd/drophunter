@@ -1,3 +1,4 @@
+import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionAdapters, RefreshDropsOptions } from './farming-session-context.ts';
 import { createFarmingSessionContext } from './farming-session-context.ts';
 import { createFarmingSessionHandlers, type FarmingSessionStopOptions } from './farming-session-handlers.ts';
@@ -22,6 +23,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   const {
     acquireStreamerForSelectedGame,
     ensureWorkspaceForSelectedGame,
+    handleAuthoritativeCampaignUnavailable,
     handleRecoverySkip,
     recoverStalledProgress,
     rotateStreamerIfInvalid,
@@ -64,7 +66,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     resumeAfterAuthRecovery,
   } = handlers;
 
-  function refreshDropsData(options: RefreshDropsOptions = {}): Promise<void> {
+  function refreshDropsData(options: RefreshDropsOptions = {}): Promise<RefreshDropsOutcome> {
     return monitoring.refreshDropsData(options);
   }
 
@@ -79,6 +81,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   return {
     acquireStreamerForSelectedGame,
     checkDropProgress,
+    handleAuthoritativeCampaignUnavailable,
     handleAddToQueue,
     handleClearQueue,
     handlePauseFarming,

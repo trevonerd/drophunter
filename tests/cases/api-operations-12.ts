@@ -50,7 +50,7 @@ describe('fetchDropsSnapshotFromApi', () => {
 
     const result = await fetchDropsSnapshotFromApiWrapper(
       state,
-      false,
+      { sessionRecoveryMode: 'background-tab' },
       {
         onEnsureTwitchSession: async () => invalidSession,
         onEnsureSessionIntegrity: async (_state, session) => session,
@@ -82,7 +82,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(stopCalled).toBe(false);
   });
 
-  test('still stops farming when auto-detect completes but finds no userId', async () => {
+  test('keeps a missing userId transient when Twitch did not reject OAuth', async () => {
     const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
     const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
 
@@ -105,7 +105,7 @@ describe('fetchDropsSnapshotFromApi', () => {
 
     const result = await fetchDropsSnapshotFromApiWrapper(
       state,
-      false,
+      { sessionRecoveryMode: 'background-tab' },
       {
         onEnsureTwitchSession: async () => session,
         onEnsureSessionIntegrity: async () => session,
@@ -129,7 +129,53 @@ describe('fetchDropsSnapshotFromApi', () => {
     );
 
     expect(result).toBeNull();
-    expect(stopReason).toBe('sign-in-required');
+    expect(stopReason).toBeUndefined();
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.twitchSessionSyncState.status).toBe('retrying');
+  });
+
+  test('keeps a missing cached session transient after checking existing Twitch tabs', async () => {
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
+    const state = createMinimalState({
+      appState: { ...createInitialState(), isRunning: true },
+      twitchSessionCache: null,
+    });
+    let stopReason: string | undefined;
+    let recoveryCalls = 0;
+
+    const result = await fetchDropsSnapshotFromApiWrapper(
+      state,
+      { sessionRecoveryMode: 'background-tab' },
+      {
+        onEnsureTwitchSession: async () => null,
+        onRecoverTwitchSessionAfterAuthError: async () => {
+          recoveryCalls += 1;
+          return null;
+        },
+        onEnsureSessionIntegrity: async (session) => session,
+        onPersistTwitchSession: async () => undefined,
+        onStopFarmingSession: async (options) => {
+          stopReason = options.stopReason;
+        },
+        onIsLikelyAuthError: () => false,
+        onClearTwitchSessionCache: () => undefined,
+      },
+      {
+        TwitchApiClient,
+        sessionDebugSummary: () => ({ available: false }),
+        PROGRESS_POLL_MS: 60_000,
+        logDebug: () => undefined,
+        logWarn: () => undefined,
+        logInfo: () => undefined,
+      },
+    );
+
+    expect(result).toBeNull();
+    expect(recoveryCalls).toBe(1);
+    expect(stopReason).toBeUndefined();
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.twitchSessionSyncState.status).toBe('retrying');
   });
 
   test('clears a stale sign-in-required stop once a drops snapshot fetch succeeds', async () => {
@@ -159,7 +205,7 @@ describe('fetchDropsSnapshotFromApi', () => {
 
     const result = await fetchDropsSnapshotFromApiWrapper(
       state,
-      false,
+      {},
       {
         onEnsureTwitchSession: async () => session,
         onEnsureSessionIntegrity: async () => session,

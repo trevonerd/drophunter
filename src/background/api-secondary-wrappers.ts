@@ -3,13 +3,19 @@ import {
   type FetchDropsSnapshotFromApiCallbacks,
   stopForSignInRequiredIfRunning,
 } from './api-drops-wrapper.ts';
-import { fetchDirectoryStreamersFromApi, fetchInventorySnapshotFromApi } from './api-operations.ts';
+import {
+  applyApiBackoff,
+  fetchDirectoryStreamersFromApi,
+  fetchInventorySnapshotFromApi,
+} from './api-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import type { SessionRecoveryMode, TwitchApiRequestOptions } from './session-orchestrator.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
+import { markTwitchSessionRetrying } from './twitch-session-sync.ts';
 
 export interface FetchInventorySnapshotFromApiCallbacks {
-  onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<TwitchSession | null>;
-  onRecoverTwitchSessionAfterAuthError?: () => Promise<TwitchSession | null>;
+  onEnsureTwitchSession: () => Promise<TwitchSession | null>;
+  onRecoverTwitchSessionAfterAuthError?: (mode: SessionRecoveryMode) => Promise<TwitchSession | null>;
   onIsLikelyAuthError: (error: unknown) => boolean;
   onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
   onStopFarmingSession?: FetchDropsSnapshotFromApiCallbacks['onStopFarmingSession'];
@@ -18,16 +24,34 @@ export interface FetchInventorySnapshotFromApiCallbacks {
 export async function fetchInventorySnapshotFromApiWrapper(
   state: ServiceWorkerState,
   baseDrops: DropsSnapshot['drops'],
-  forceSessionRefresh: boolean,
+  options: TwitchApiRequestOptions,
   callbacks: FetchInventorySnapshotFromApiCallbacks,
   deps: { logWarn: (msg: string, ctx?: unknown) => void },
   authRecoveryAttempted = false,
   recoveredSession: TwitchSession | null = null,
 ): Promise<DropsSnapshot | null> {
-  const session = recoveredSession ?? (await callbacks.onEnsureTwitchSession(forceSessionRefresh));
+  const recoveryMode = options.sessionRecoveryMode ?? 'passive';
+  const session = recoveredSession ?? (await callbacks.onEnsureTwitchSession());
   if (!session) {
     deps.logWarn('Inventory snapshot API skipped: Twitch session missing');
-    if (forceSessionRefresh) await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
+    if (recoveryMode === 'background-tab' && !authRecoveryAttempted) {
+      const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError?.(recoveryMode);
+      if (recovered) {
+        return fetchInventorySnapshotFromApiWrapper(
+          state,
+          baseDrops,
+          options,
+          callbacks,
+          deps,
+          true,
+          recovered,
+        );
+      }
+    }
+    if (state.appState.isRunning) {
+      applyApiBackoff(state);
+      markTwitchSessionRetrying(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
+    }
     return null;
   }
   try {
@@ -36,12 +60,12 @@ export async function fetchInventorySnapshotFromApiWrapper(
     if (callbacks.onIsLikelyAuthError(error)) {
       callbacks.onClearTwitchSessionCache(state);
       if (!authRecoveryAttempted && callbacks.onRecoverTwitchSessionAfterAuthError) {
-        const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError();
+        const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError(recoveryMode);
         if (recovered) {
           return fetchInventorySnapshotFromApiWrapper(
             state,
             baseDrops,
-            false,
+            options,
             callbacks,
             deps,
             true,

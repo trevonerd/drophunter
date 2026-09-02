@@ -30,6 +30,7 @@ import {
   MAX_PERSISTENT_RECOVERY_CYCLES,
   StreamRotationReason,
 } from './stream-rotation';
+import { markTwitchSessionRetrying } from './twitch-session-sync.ts';
 
 export function clearRecoveryState(state: ServiceWorkerState) {
   state.recoveryBackoffUntil = 0;
@@ -74,18 +75,8 @@ export function applyNoStreamersRecoveryState(state: ServiceWorkerState, retryAt
   });
 }
 
-export function applyTwitchSessionRecoveryState(
-  state: ServiceWorkerState,
-  retryAt: number,
-  attempts: number,
-) {
-  state.recoveryBackoffUntil = retryAt;
-  state.lastRecoveryAttemptAt = Date.now();
-  state.appState = applyRecoveryStatus(state.appState, {
-    reason: 'sign-in-required',
-    retryAt,
-    attempts,
-  });
+export function applyTwitchSessionRetryState(state: ServiceWorkerState, retryAt: number, attempts: number) {
+  markTwitchSessionRetrying(state, retryAt, attempts);
 }
 
 export function applyStopState(state: ServiceWorkerState, reason: string, message: string | null) {
