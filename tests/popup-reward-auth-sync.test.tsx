@@ -3,13 +3,14 @@ import { deriveCampaignSyncStatus } from '../src/popup/constants';
 import type { AppState } from '../src/types';
 import { appState, drop, game, renderMainView } from './fixtures/popup-reward';
 
-test('signed-out popup gates farming controls and preserves a read-only saved queue summary', () => {
+test('confirmed invalid OAuth gates farming controls and preserves a read-only saved queue summary', () => {
   const savedCampaign = game({ campaignId: 'saved-campaign' });
   const state = {
     ...appState(null),
     twitchSessionDetected: false,
+    twitchSessionSyncState: { status: 'blocked', attempts: 1, nextRetryAt: null },
     queue: [savedCampaign],
-    lastStopReason: 'queue-complete',
+    lastStopReason: 'sign-in-required',
   } satisfies AppState;
 
   const markup = renderMainView(state, [savedCampaign], { campaignSyncStatus: 'signed-out' });
@@ -28,7 +29,7 @@ test('signed-out popup gates farming controls and preserves a read-only saved qu
   expect(markup).not.toContain('aria-label="Enable notifications"');
 });
 
-test('Twitch gate is reserved for first connection or terminal blockage', () => {
+test('Twitch gate is reserved for confirmed terminal authentication blockage', () => {
   const base = {
     activeSyncError: null,
     gamesLoading: false,
@@ -37,7 +38,7 @@ test('Twitch gate is reserved for first connection or terminal blockage', () => 
     isStale: false,
   };
 
-  expect(deriveCampaignSyncStatus({ ...base, dropsRefreshLoading: false })).toBe('signed-out');
+  expect(deriveCampaignSyncStatus({ ...base, dropsRefreshLoading: false })).toBe('syncing');
   expect(
     deriveCampaignSyncStatus({
       ...base,
@@ -56,12 +57,51 @@ test('Twitch gate is reserved for first connection or terminal blockage', () => 
   expect(
     deriveCampaignSyncStatus({
       ...base,
+      dropsRefreshLoading: false,
+      campaignSyncState: {
+        status: 'retry-scheduled',
+        lastAttemptAt: 1,
+        lastSuccessAt: null,
+        campaignCount: 0,
+        nextRetryAt: Date.now() + 60_000,
+        error: 'offline',
+      },
+    }),
+  ).toBe('syncing');
+  expect(
+    deriveCampaignSyncStatus({
+      ...base,
       availableCampaignCount: 1,
       twitchSessionDetected: true,
       dropsRefreshLoading: false,
       twitchSessionSyncState: { status: 'blocked', attempts: 2, nextRetryAt: null },
     }),
   ).toBe('signed-out');
+});
+
+test('a missing cached session stays neutral and never exposes Open Twitch', () => {
+  const savedCampaign = game({ campaignId: 'saved-campaign' });
+  const state = {
+    ...appState(null),
+    twitchSessionDetected: false,
+    twitchSessionSyncState: { status: 'retrying', attempts: 1, nextRetryAt: Date.now() + 60_000 },
+    campaignSyncState: {
+      status: 'retry-scheduled',
+      lastAttemptAt: Date.now(),
+      lastSuccessAt: null,
+      campaignCount: 0,
+      nextRetryAt: Date.now() + 60_000,
+      error: 'offline',
+    },
+    queue: [savedCampaign],
+  } satisfies AppState;
+
+  const markup = renderMainView(state, [savedCampaign], { campaignSyncStatus: 'syncing' });
+
+  expect(markup).toContain('Updating campaigns…');
+  expect(markup).not.toContain('data-session-priority="twitch-required"');
+  expect(markup).not.toContain('Open Twitch');
+  expect(markup).not.toContain('offline');
 });
 
 test('blocked Twitch state renders a single recovery gate even with cached campaigns', () => {

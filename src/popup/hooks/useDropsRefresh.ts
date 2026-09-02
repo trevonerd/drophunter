@@ -20,11 +20,7 @@ export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRe
   const hasUsableCachedState = state.availableGames.length > 0 || state.isRunning;
   const dropsRefreshLoading =
     manualDropsRefreshLoading || (state.dropsPageRefreshInProgress && !hasUsableCachedState);
-  const persistedSyncError =
-    !hasUsableCachedState && state.campaignSyncState.status === 'retry-scheduled'
-      ? state.campaignSyncState.error
-      : null;
-  const activeSyncError = dropsRefreshLoading ? null : (syncError ?? persistedSyncError);
+  const activeSyncError = dropsRefreshLoading ? null : syncError;
 
   useEffect(() => {
     if (dropsRefreshLoading) {
