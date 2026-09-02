@@ -16,6 +16,30 @@ _Avoid_: Monitor loop, queue runner, farming service
 The DropHunter orchestration that selects eligible Twitch Drops campaigns and automatically starts or preempts farming sessions in response to browser lifecycle and campaign changes.
 _Avoid_: Auto-start coordinator, automatic farming session, favorite-game automation
 
+**Favorite campaign preemption**:
+The replacement of the active campaign by a newly discovered favorite campaign with a known, strictly earlier expiry and a proven eligible streamer; the interrupted campaign remains next in the queue.
+_Avoid_: Streamer rotation, queue reset, equal-expiry preemption
+
+**Authoritative campaign refresh**:
+A successful, complete Twitch campaign refresh that can prove whether a specific campaign and its farmable rewards still exist. Timeouts, failed requests, partial snapshots, and cached data are not authoritative.
+_Avoid_: Any refresh, cached refresh, empty response
+
+**Unfarmable campaign**:
+An active campaign whose exact identity is absent from an authoritative campaign refresh, or which no longer contains an obtainable watch-time reward.
+_Avoid_: Stalled campaign, temporarily missing campaign, offline streamer
+
+**Parked campaign**:
+A still-valid campaign temporarily moved behind other queued work because no eligible streamer is currently available; it remains eligible for future refreshes and retries.
+_Avoid_: Skipped campaign, removed campaign, unfarmable campaign
+
+**Confirmed progress stall**:
+The absence of authoritative watch-time progress for the configured stall window. Stream metadata such as offline status, category mismatch, or missing Drops labels is diagnostic evidence only after this condition is established.
+_Avoid_: Stream metadata mismatch, single missed poll, transport repair
+
+**Real authentication failure**:
+An explicit invalid-OAuth response that remains unresolved after one silent session resynchronization attempt from the user's Twitch browser context.
+_Avoid_: Network failure, Twitch service failure, expired integrity token, missing cached session
+
 **Farming-complete campaign**:
 A Twitch Drops campaign with no remaining reward that DropHunter can obtain automatically. It may still contain subscription-gated rewards or Twitch-native rewards whose acquisition is unverifiable.
 _Avoid_: Completed campaign, all rewards claimed
@@ -23,6 +47,14 @@ _Avoid_: Completed campaign, all rewards claimed
 **Managed farming tab**:
 The browser tab DropHunter owns for watching the current farming session stream.
 _Avoid_: Stream tab, player tab
+
+**Hidden farming transport**:
+The user-selected farming mode that runs without a DropHunter-managed Twitch tab and never falls back to creating one automatically.
+_Avoid_: Background tab, automatic managed-tab fallback
+
+**Manual Twitch viewing**:
+An eligible Twitch stream opened and controlled by the user, which DropHunter observes without claiming ownership of the tab.
+_Avoid_: Managed farming tab, Hidden farming transport
 
 **Drops snapshot projection**:
 The state projection that turns Twitch campaign, inventory, hidden refresh, or cached Drops snapshots into DropHunter's campaign-aware app state.
