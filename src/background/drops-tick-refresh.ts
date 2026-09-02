@@ -3,12 +3,15 @@ import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
 import { detectNewlyClaimedDrops, recordClaimedDrops } from './claim-log.ts';
 import { completedDropKeys, type DropsSnapshotProvenance } from './drops-projection.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import type { SessionRecoveryMode, TwitchApiRequestOptions } from './session-orchestrator.ts';
+
+export type RefreshDropsOutcome = 'refreshed' | 'transient-failure' | 'auth-required';
 
 export interface RefreshDropsDataCallbacks {
-  onFetchDropsSnapshotFromApi: (force?: boolean) => Promise<DropsSnapshot | null>;
+  onFetchDropsSnapshotFromApi: (options?: TwitchApiRequestOptions) => Promise<DropsSnapshot | null>;
   onFetchInventorySnapshotFromApi?: (
     baseDrops: TwitchDrop[],
-    force?: boolean,
+    options?: TwitchApiRequestOptions,
   ) => Promise<DropsSnapshot | null>;
   onEvaluateDropTransitions: (previousCompletedKeys: Set<string>) => Promise<void>;
   onSaveState: (state: ServiceWorkerState) => Promise<void>;
@@ -30,12 +33,12 @@ export async function refreshDropsData(
   options: {
     includeCampaignFetch?: boolean;
     includeInventoryFetch?: boolean;
-    forceInventoryFetch?: boolean;
+    sessionRecoveryMode?: SessionRecoveryMode;
     suppressNotifications?: boolean;
   },
   callbacks: RefreshDropsDataCallbacks,
   deps: RefreshDropsDataDeps,
-): Promise<void> {
+): Promise<RefreshDropsOutcome> {
   const includeCampaignFetch = options.includeCampaignFetch ?? false;
   const includeInventoryFetch = options.includeInventoryFetch ?? state.appState.isRunning;
   const previousCompletedKeys = completedDropKeys(state.appState.completedDrops);
@@ -44,11 +47,17 @@ export async function refreshDropsData(
   let games = state.appState.availableGames;
   let drops = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : state.appState.allDrops;
   let apiSnapshotUsed = false;
+  let refreshAttempted = false;
+  let refreshSucceeded = false;
   let provenance: DropsSnapshotProvenance = 'cached';
 
   if (includeCampaignFetch) {
-    const apiSnapshot = await callbacks.onFetchDropsSnapshotFromApi();
+    refreshAttempted = true;
+    const apiSnapshot = await callbacks.onFetchDropsSnapshotFromApi({
+      sessionRecoveryMode: options.sessionRecoveryMode,
+    });
     if (apiSnapshot) {
+      refreshSucceeded = true;
       state.lastFullRefreshAt = Date.now();
       const hasAuthoritativeEmptyRewardSet =
         apiSnapshot.drops.length === 0 &&
@@ -79,10 +88,12 @@ export async function refreshDropsData(
   } else if (includeInventoryFetch && callbacks.onFetchInventorySnapshotFromApi) {
     const baseDrops = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : drops;
     if (baseDrops.length > 0) {
-      const inventorySnapshot = await callbacks.onFetchInventorySnapshotFromApi(
-        baseDrops,
-        options.forceInventoryFetch,
-      );
+      refreshAttempted = true;
+      state.lastInventoryRefreshAt = Date.now();
+      const inventorySnapshot = await callbacks.onFetchInventorySnapshotFromApi(baseDrops, {
+        sessionRecoveryMode: options.sessionRecoveryMode,
+      });
+      refreshSucceeded = inventorySnapshot !== null;
       if (inventorySnapshot?.drops.length) {
         drops = inventorySnapshot.drops;
         state.cachedDropsSnapshot = inventorySnapshot.drops;
@@ -135,4 +146,13 @@ export async function refreshDropsData(
     await callbacks.onEvaluateDropTransitions(previousCompletedKeys);
   }
   await callbacks.onSaveState(state);
+  if (!refreshAttempted || refreshSucceeded) return 'refreshed';
+  if (
+    options.sessionRecoveryMode === 'background-tab' &&
+    (state.appState.twitchSessionSyncState.status === 'retrying' ||
+      state.appState.twitchSessionSyncState.status === 'blocked')
+  ) {
+    return 'auth-required';
+  }
+  return 'transient-failure';
 }

@@ -1,7 +1,13 @@
 // Owns one monitoring tick, including transport, refresh, claim, and queue sequencing.
 import { browser } from '../shared/browser-api.ts';
 import { gameKey } from '../shared/game-selection';
-import { CRASH_RECOVERY_GRACE_MS, STREAM_VALIDATION_GRACE_MS, TICK_WATCHDOG_TIMEOUT_MS } from './constants';
+import {
+  CRASH_RECOVERY_GRACE_MS,
+  INVENTORY_REFRESH_INTERVAL_MS,
+  STREAM_VALIDATION_GRACE_MS,
+  TICK_WATCHDOG_TIMEOUT_MS,
+} from './constants';
+import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import { logDebug, logWarn } from './logging';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
@@ -13,8 +19,7 @@ export interface CheckDropProgressCallbacks {
   onRefreshDropsData: (opts?: {
     includeCampaignFetch?: boolean;
     includeInventoryFetch?: boolean;
-    forceInventoryFetch?: boolean;
-  }) => Promise<void>;
+  }) => Promise<RefreshDropsOutcome>;
   onAutoClaimClaimableDrops: () => Promise<boolean>;
   onAdvanceQueueIfCompleted: () => Promise<boolean>;
   onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
@@ -62,6 +67,10 @@ export async function checkDropProgress(
   }, TICK_WATCHDOG_TIMEOUT_MS);
 
   try {
+    const transportAdvancedQueue = await callbacks.onWatchTransportTick?.();
+    if (isStaleTick()) return;
+    if (transportAdvancedQueue) return;
+
     if (state.apiBackoffUntil > 0 && Date.now() < state.apiBackoffUntil) {
       logDebug('API backoff active, skipping network refresh work', {
         remainingMs: state.apiBackoffUntil - Date.now(),
@@ -70,10 +79,6 @@ export async function checkDropProgress(
       if (isStaleTick()) return;
       return;
     }
-
-    const transportAdvancedQueue = await callbacks.onWatchTransportTick?.();
-    if (isStaleTick()) return;
-    if (transportAdvancedQueue) return;
 
     const noStreamersRecoveryActive = state.appState.recoveryReason === 'no-streamers';
     if (noStreamersRecoveryActive) {
@@ -94,20 +99,22 @@ export async function checkDropProgress(
     await callbacks.onEnforcePlaybackPolicy();
     if (isStaleTick()) return;
 
-    // The 60-second farming tick owns transport, inventory progress and claims
-    // only. Campaign discovery is coordinated independently every 30 minutes.
-    await callbacks.onRefreshDropsData({ includeCampaignFetch: false, includeInventoryFetch: true });
-    if (isStaleTick()) return;
+    // Transport stays on the minute heartbeat; inventory is deliberately slower.
+    if (Date.now() - state.lastInventoryRefreshAt >= INVENTORY_REFRESH_INTERVAL_MS) {
+      state.lastInventoryRefreshAt = Date.now();
+      await callbacks.onRefreshDropsData({ includeCampaignFetch: false, includeInventoryFetch: true });
+      if (isStaleTick()) return;
+    }
 
     const claimedAny = await callbacks.onAutoClaimClaimableDrops();
     if (isStaleTick()) return;
     // Confirm a successful claim from inventory before queue mutation without
     // coupling claim handling back to a full campaign refresh.
     if (claimedAny) {
+      state.lastInventoryRefreshAt = Date.now();
       await callbacks.onRefreshDropsData({
         includeCampaignFetch: false,
         includeInventoryFetch: true,
-        forceInventoryFetch: true,
       });
       if (isStaleTick()) return;
     }

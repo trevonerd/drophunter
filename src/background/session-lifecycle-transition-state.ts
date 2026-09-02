@@ -68,6 +68,7 @@ export function candidateWorkingState(
   now: number,
 ): { readonly state: ServiceWorkerState; readonly candidate: TwitchGame } | null {
   const candidateKey = gameKey(request.candidate);
+  const incumbent = state.appState.selectedGame ? structuredClone(state.appState.selectedGame) : null;
   const games = request.snapshot.games.map(cloneGame);
   const candidate = games.find((game) => gameKey(game) === candidateKey);
   if (!candidate) return null;
@@ -108,6 +109,28 @@ export function candidateWorkingState(
   working.dropClaimRetryAtById.clear();
   working.dropClaimInFlight = false;
   working.monitorTickInFlight = false;
+  if (request.transition === 'preemption' && incumbent) {
+    const incumbentKey = gameKey(incumbent);
+    const refreshedIncumbent = games.find((game) => gameKey(game) === incumbentKey) ?? incumbent;
+    const remainingQueue = working.appState.queue.filter((game) => {
+      const key = gameKey(game);
+      return key !== candidateKey && key !== incumbentKey;
+    });
+    working.appState.queue = [candidate, refreshedIncumbent, ...remainingQueue];
+    working.appState.queueEntryMetadataByKey = Object.fromEntries(
+      working.appState.queue.map((game) => {
+        const key = gameKey(game);
+        return [
+          key,
+          working.appState.queueEntryMetadataByKey[key] ?? {
+            source: 'manual' as const,
+            addedAt: now,
+            reason: 'user-added' as const,
+          },
+        ];
+      }),
+    );
+  }
   working.tickGeneration += 1;
   return { state: working, candidate: selected };
 }

@@ -27,9 +27,7 @@ export async function handleEnsureGamesCache(
   const shouldRefresh = deps.shouldRefreshGamesCache(state, force);
   let refreshResult: GamesCacheRefreshResult | null = null;
   if (shouldRefresh) {
-    const rawRefreshResult = await deps.refreshGamesCacheFromHiddenFetch({
-      requireConsecutiveEmptyConfirmation: true,
-    });
+    const rawRefreshResult = await deps.refreshGamesCacheFromHiddenFetch({});
     refreshResult = Array.isArray(rawRefreshResult)
       ? { kind: 'cached', games: rawRefreshResult }
       : rawRefreshResult;

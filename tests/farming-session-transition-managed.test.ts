@@ -81,7 +81,6 @@ describe('automatic farming session managed transition', () => {
     state.appState.activeStreamer = { ...streamer, id: 'streamer-a', name: 'channel-a' };
     state.appState.tabId = 11;
     state.appState.queue = [incumbent];
-    const queueBefore = JSON.stringify(state.appState.queue);
     const events: string[] = [];
     const writes: FarmingSessionTransitionCommit[] = [];
     let ownership: WatchOwnershipV1 | null = fromWatch;
@@ -157,7 +156,7 @@ describe('automatic farming session managed transition', () => {
       dependencies,
     );
 
-    // Then: one atomic write publishes B before promotion, without releasing A or changing queue bytes.
+    // Then: one atomic write publishes B before promotion and keeps A immediately after B.
     expect({
       events,
       queue: JSON.stringify(state.appState.queue),
@@ -169,7 +168,7 @@ describe('automatic farming session managed transition', () => {
       receipt: writes[0]?.receipt,
     }).toEqual({
       events: ['prepare:managed-tab', 'probe:campaign-b', 'commit', 'publish', 'promote'],
-      queue: queueBefore,
+      queue: JSON.stringify([candidate, incumbent]),
       selectedCampaign: 'campaign-b',
       tabId: 22,
       resultKind: 'committed',

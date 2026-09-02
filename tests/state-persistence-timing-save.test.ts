@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { INVENTORY_REFRESH_INTERVAL_MS } from '../src/background/constants.ts';
+import { checkDropProgress } from '../src/background/drops-tick-monitoring.ts';
 import {
   clearPendingTimingStateSaveForTests,
   loadTimingState,
@@ -29,6 +31,7 @@ describe('loadTimingState / saveTimingState', () => {
       invalidStreamChecks: 3,
       noProgressRotationAttempts: 5,
       twitchSessionLastAttemptAt: 3000,
+      lastInventoryRefreshAt: 3500,
       lastProgressAdvanceAt: 4000,
       lastTrackedProgress: 42,
       lastTrackedMinutes: 10,
@@ -57,6 +60,7 @@ describe('loadTimingState / saveTimingState', () => {
       invalidStreamChecks: 3,
       noProgressRotationAttempts: 5,
       twitchSessionLastAttemptAt: 3000,
+      lastInventoryRefreshAt: 3500,
       lastProgressAdvanceAt: 4000,
       lastTrackedProgress: 42,
       lastTrackedMinutes: 10,
@@ -85,6 +89,7 @@ describe('loadTimingState / saveTimingState', () => {
       invalidStreamChecks: 6,
       noProgressRotationAttempts: 12,
       twitchSessionLastAttemptAt: 34567,
+      lastInventoryRefreshAt: 40000,
       lastProgressAdvanceAt: 45678,
       lastTrackedProgress: 77,
       lastTrackedMinutes: 55,
@@ -115,6 +120,7 @@ describe('loadTimingState / saveTimingState', () => {
       invalidStreamChecks: original.invalidStreamChecks,
       noProgressRotationAttempts: original.noProgressRotationAttempts,
       twitchSessionLastAttemptAt: original.twitchSessionLastAttemptAt,
+      lastInventoryRefreshAt: original.lastInventoryRefreshAt,
       lastProgressAdvanceAt: original.lastProgressAdvanceAt,
       lastTrackedProgress: original.lastTrackedProgress,
       lastTrackedMinutes: original.lastTrackedMinutes,
@@ -132,5 +138,35 @@ describe('loadTimingState / saveTimingState', () => {
       unverifiableRewardsByKey: original.unverifiableRewardsByKey,
     });
     expect(restored.dropClaimRetryAtById).toEqual(new Map([['dropX', 98765]]));
+  });
+
+  test('a service-worker restart preserves the five-minute inventory cadence', async () => {
+    const original = createMinimalState({ lastInventoryRefreshAt: Date.now() });
+    original.appState.isRunning = true;
+    await saveTimingState(original);
+    const restored = createMinimalState();
+    restored.appState.isRunning = true;
+    await loadTimingState(restored);
+    let inventoryRefreshes = 0;
+    const callbacks = {
+      onEnforcePlaybackPolicy: async () => {},
+      onRotateStreamerIfInvalid: async () => {},
+      onAcquireStreamerForSelectedGame: async () => false,
+      onAttemptAutoClaimChannelPointsBonus: async () => false,
+      onRefreshDropsData: async () => {
+        inventoryRefreshes += 1;
+        return 'refreshed' as const;
+      },
+      onAutoClaimClaimableDrops: async () => false,
+      onAdvanceQueueIfCompleted: async () => false,
+      onSaveTimingState: async () => {},
+      onWatchTransportTick: async () => false,
+    };
+
+    await checkDropProgress(restored, callbacks);
+    restored.lastInventoryRefreshAt = Date.now() - INVENTORY_REFRESH_INTERVAL_MS;
+    await checkDropProgress(restored, callbacks);
+
+    expect(inventoryRefreshes).toBe(1);
   });
 });

@@ -4,12 +4,10 @@ import type { DropsSnapshot, TwitchGame, TwitchStreamer } from '../types';
 import { INTEGRITY_FALLBACK_TTL_MS, PROGRESS_POLL_MS } from './constants.ts';
 import { logDebug } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import {
-  clearTwitchSessionCache as clearTwitchSessionCacheExt,
-  ensureSessionIntegrity as ensureSessionIntegrityExt,
-} from './session-management.ts';
+import { ensureSessionIntegrity as ensureSessionIntegrityExt } from './session-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import { isLikelyAuthError, type TwitchSession } from './twitch-api/types.ts';
+import { markTwitchSessionReady } from './twitch-session-sync.ts';
 
 export type { FetchDropsSnapshotFromApiCallbacks } from './api-drops-wrapper.ts';
 export { fetchDropsSnapshotFromApiWrapper } from './api-drops-wrapper.ts';
@@ -29,6 +27,7 @@ export function applyApiBackoff(state: ServiceWorkerState) {
 }
 
 export function clearSignInRequiredStop(state: ServiceWorkerState) {
+  markTwitchSessionReady(state);
   if (state.appState.lastStopReason === 'sign-in-required') {
     state.appState = clearTerminalStopStatus(state.appState);
   }
@@ -121,8 +120,8 @@ export async function fetchDirectoryStreamersFromApi(
   );
   try {
     return await client.fetchDirectoryStreamers(game.name, game.categorySlug ?? toSlug(game.name), language);
-  } catch (error) {
-    if (session && isLikelyAuthError(error)) clearTwitchSessionCacheExt(state);
+  } catch {
+    applyApiBackoff(state);
     return Object.assign([], { languageFilterApplied: false });
   }
 }

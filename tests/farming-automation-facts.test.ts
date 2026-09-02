@@ -94,6 +94,9 @@ describe('Farming automation fact normalization', () => {
       },
       nextEvaluationAt: 1_750_000_031_000,
       suppressedCampaignKeys: ['campaign:campaign-stalled'],
+      suppressedUntilByCampaignKey: {
+        'campaign:campaign-stalled': 1_750_000_300_000,
+      },
     } as const;
 
     // When
@@ -155,6 +158,7 @@ describe('Farming automation fact normalization', () => {
         },
         nextEvaluationAt: null,
         suppressedCampaignKeys: [],
+        suppressedUntilByCampaignKey: {},
       },
     });
   });

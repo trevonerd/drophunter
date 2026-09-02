@@ -175,8 +175,6 @@ export function formatRecoveryReason(reason: string | null | undefined): string 
       return 'Recovering wrong channel';
     case 'offline':
       return 'Recovering offline stream';
-    case 'sign-in-required':
-      return 'Refreshing Twitch session';
     default:
       return reason ?? null;
   }

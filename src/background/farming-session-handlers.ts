@@ -3,7 +3,7 @@ import type { FarmingSessionContext, RefreshDropsOptions } from './farming-sessi
 import { runFarmingSessionMutation } from './farming-session-revision.ts';
 import {
   applyStopState,
-  applyTwitchSessionRecoveryState,
+  applyTwitchSessionRetryState,
   clearRecoveryState,
   clearStopState,
 } from './recovery-state.ts';
@@ -11,9 +11,11 @@ import { clearRotationMetadata } from './runtime-state.ts';
 import { handleStartFarming as startFarming, stopFarmingSession } from './session-lifecycle.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StartFarmingPayload, StartFarmingResult } from './session-lifecycle-types.ts';
+import { markTwitchSessionBlocked, markTwitchSessionReady } from './twitch-session-sync.ts';
 
 export type FarmingSessionStopOptions = {
   readonly skipTimingStateSave?: boolean;
+  readonly suppressNotifications?: boolean;
   readonly notification?: { readonly title: string; readonly message: string };
   readonly stopReason?: string;
   readonly stopMessage?: string | null;
@@ -25,7 +27,7 @@ export type FarmingSessionAuthRecoveryOptions = {
 
 type FarmingSessionHandlerDependencies = {
   readonly onEnsureWorkspace: () => Promise<void>;
-  readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<void>;
+  readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<unknown>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
   readonly onAcquireStreamer: () => Promise<boolean>;
   readonly onStartMonitoring: () => void;
@@ -51,6 +53,9 @@ export function createFarmingSessionHandlers(
   const { state, adapters } = context;
 
   async function stop(options?: FarmingSessionStopOptions): Promise<void> {
+    if (options?.stopReason === 'sign-in-required') {
+      markTwitchSessionBlocked(state, state.apiConsecutiveFailures);
+    }
     await adapters.watchTransport?.stop();
     context.manualWatchTransportSuspended = false;
     await stopFarmingSession(state, {
@@ -61,10 +66,12 @@ export function createFarmingSessionHandlers(
       },
       onClearRotationMetadata: clearRotationMetadata,
       onApplyStopState: applyStopState,
-      onNotify: async (title, message) => {
-        await adapters.notify(title, message);
-      },
-      onSystemAlert: adapters.telegramSystemAlert,
+      onNotify: options?.suppressNotifications
+        ? undefined
+        : async (title, message) => {
+            await adapters.notify(title, message);
+          },
+      onSystemAlert: options?.suppressNotifications ? undefined : adapters.telegramSystemAlert,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: options?.skipTimingStateSave ? undefined : adapters.saveTimingState,
     });
@@ -73,7 +80,9 @@ export function createFarmingSessionHandlers(
   async function start(payload: StartFarmingPayload): Promise<StartFarmingResult> {
     const result = await startFarming(state, payload, {
       onEnsureWorkspace: dependencies.onEnsureWorkspace,
-      onRefreshDropsData: dependencies.onRefreshDropsData,
+      onRefreshDropsData: async (options) => {
+        await dependencies.onRefreshDropsData(options);
+      },
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
       onBroadcastStateUpdate: () => adapters.broadcastStateUpdate(state.appState),
@@ -117,7 +126,7 @@ export function createFarmingSessionHandlers(
     return runFarmingSessionMutation(state, stopManually);
   }
 
-  async function recoverTwitchSession(options?: FarmingSessionAuthRecoveryOptions): Promise<void> {
+  async function recoverTwitchSession(_options?: FarmingSessionAuthRecoveryOptions): Promise<void> {
     if (!state.appState.isRunning) return;
 
     state.apiConsecutiveFailures += 1;
@@ -126,14 +135,8 @@ export function createFarmingSessionHandlers(
       10 * 60_000,
     );
     state.apiBackoffUntil = Date.now() + retryDelayMs;
-    applyTwitchSessionRecoveryState(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
+    applyTwitchSessionRetryState(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
 
-    if (options?.notification && !state.recoveryNotificationSent) {
-      state.recoveryNotificationSent = true;
-      const fullMessage = `${options.notification.message} Viewing continues and farming will resume automatically.`;
-      await adapters.notify(options.notification.title, fullMessage);
-      await adapters.telegramSystemAlert?.('sign-in-recovery', fullMessage);
-    }
     await adapters.saveState(state);
     await adapters.saveTimingState(state);
   }
@@ -149,6 +152,7 @@ export function createFarmingSessionHandlers(
     state.appState.completionNotified = false;
     clearStopState(state);
     clearRecoveryState(state);
+    markTwitchSessionReady(state);
     resetStreamTrackingState(state);
     state.tickGeneration += 1;
     await dependencies.onEnsureWorkspace();

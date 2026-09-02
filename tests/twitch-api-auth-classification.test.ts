@@ -8,5 +8,11 @@ describe('Twitch API authentication error classification', () => {
 
   test('continues to identify a rejected OAuth token as an authentication error', () => {
     expect(isLikelyAuthError(new Error('invalid oauth token'))).toBe(true);
+    expect(isLikelyAuthError(new Error('401 Unauthorized'))).toBe(true);
+  });
+
+  test('treats forbidden responses as transient operational failures', () => {
+    expect(isLikelyAuthError(new Error('403 Forbidden'))).toBe(false);
+    expect(isLikelyAuthError(new Error('forbidden'))).toBe(false);
   });
 });

@@ -236,7 +236,7 @@ describe('Farming automation queue policy', () => {
     ['between', '2030-08-02T12:00:00.000Z'],
     ['after equal expiry', '2030-08-03T12:00:00.000Z'],
   ] as const)('inserts a favorite %s without duplicates while farming', async (_label, firstEndsAt) => {
-    const running = campaign('running', '2030-08-06T12:00:00.000Z');
+    const running = campaign('running', '2030-08-01T12:00:00.000Z');
     const first = campaign('first', firstEndsAt);
     const last = campaign('last', '2030-08-04T12:00:00.000Z');
     const subject = fixture('priority-list-only', { queue: [first, last], running });

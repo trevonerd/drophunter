@@ -126,7 +126,7 @@ describe('session orchestrator', () => {
     expect(persisted).toEqual([validSession]);
   });
 
-  test('does not open a hidden Drops tab when no reusable Twitch tab exists', async () => {
+  test('lets passive auth recovery inspect existing Twitch tabs without opening one', async () => {
     const state = createState();
     const events: string[] = [];
     const orchestrator = createSessionOrchestrator(state, {
@@ -167,7 +167,7 @@ describe('session orchestrator', () => {
       logWarn: () => {},
     });
 
-    const session = await orchestrator.recoverTwitchSessionAfterAuthError();
+    const session = await orchestrator.recoverTwitchSessionAfterAuthError('passive');
 
     expect(session).toBeNull();
     expect(state.twitchSessionCache).toBeNull();

@@ -151,6 +151,18 @@ export async function finalizeCompletedQueue(
 
 export function queueSkipCopy(reason: QueueSkipReason, gameName: string): QueueSkipCopy {
   switch (reason) {
+    case 'unfarmable': {
+      const message = `The ${gameName} campaign is no longer farmable. DropHunter is moving to the next campaign.`;
+      return {
+        logMessage: 'Removing campaign after an authoritative refresh proved it unfarmable',
+        skipNotificationTitle: 'Campaign no longer farmable',
+        skipMessage: message,
+        terminalNotificationTitle: 'Campaign no longer farmable',
+        terminalMessage: message,
+        terminalNotificationMessage: message,
+        stopReason: 'queue-complete',
+      };
+    }
     case 'no-streamers':
       return {
         logMessage: 'Skipping game because no live streamers were found',

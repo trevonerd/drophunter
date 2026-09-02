@@ -30,6 +30,7 @@ describe('loadTimingState / saveTimingState', () => {
       invalidStreamChecks: 7,
       noProgressRotationAttempts: 9,
       twitchSessionLastAttemptAt: 3333,
+      lastInventoryRefreshAt: 3500,
       dropClaimRetryAtById: { dropA: 4444, dropB: 5555 },
       lastProgressAdvanceAt: 6666,
       lastTrackedProgress: 88,
@@ -58,6 +59,7 @@ describe('loadTimingState / saveTimingState', () => {
       invalidStreamChecks: 7,
       noProgressRotationAttempts: 9,
       twitchSessionLastAttemptAt: 3333,
+      lastInventoryRefreshAt: 3500,
       lastProgressAdvanceAt: 6666,
       lastTrackedProgress: 88,
       lastTrackedMinutes: 44,
@@ -141,6 +143,7 @@ describe('loadTimingState / saveTimingState', () => {
 
     expect(state.offlineChecks).toBe(0);
     expect(state.avoidStreamerName).toBeNull();
+    expect(state.lastInventoryRefreshAt).toBe(0);
   });
 
   test('loadTimingState clears and repopulates dropClaimRetryAtById', async () => {

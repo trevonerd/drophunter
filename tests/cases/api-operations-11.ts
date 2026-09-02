@@ -56,7 +56,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       appState: { ...createInitialState(), isRunning: true },
       twitchSessionCache: session,
     });
-    const ensureCalls: boolean[] = [];
+    let ensureCalls = 0;
     let recoveryCalls = 0;
     let stopReason: string | undefined;
 
@@ -78,10 +78,10 @@ describe('fetchDropsSnapshotFromApi', () => {
 
     const result = await fetchDropsSnapshotFromApiWrapper(
       state,
-      false,
+      { sessionRecoveryMode: 'background-tab' },
       {
-        onEnsureTwitchSession: async (forceRefresh = false) => {
-          ensureCalls.push(forceRefresh);
+        onEnsureTwitchSession: async () => {
+          ensureCalls += 1;
           return session;
         },
         onEnsureSessionIntegrity: async () => session,
@@ -109,7 +109,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     );
 
     expect(result).toBeNull();
-    expect(ensureCalls).toEqual([false]);
+    expect(ensureCalls).toBe(1);
     expect(recoveryCalls).toBe(1);
     expect(stopReason).toBe('sign-in-required');
     expect(state.apiConsecutiveFailures).toBe(0);
@@ -134,7 +134,7 @@ describe('fetchDropsSnapshotFromApi', () => {
 
     const result = await fetchDropsSnapshotFromApiWrapper(
       state,
-      false,
+      {},
       {
         onEnsureTwitchSession: async () => session,
         onEnsureSessionIntegrity: async () => session,

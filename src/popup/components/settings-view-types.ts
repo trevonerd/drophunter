@@ -20,7 +20,6 @@ export interface SettingsViewProps {
   onLoadTelegramSettings: () => Promise<
     { success: boolean; configured?: boolean; chatId?: string | null; error?: string } | undefined
   >;
-  onAutoResumeOnStartupToggle: () => void;
   onAutoClaimChannelPointsBonusToggle: () => void;
   onAutoClaimDropsToggle: () => void;
   onStreamerSelectionModeChange: (mode: StreamerSelectionMode) => void;

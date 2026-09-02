@@ -27,6 +27,7 @@ import {
   factsWithFarmingAutomationManualWatch,
   farmingAutomationFingerprint,
   farmingAutomationStateFingerprint,
+  PARKED_CAMPAIGN_RETRY_MS,
 } from './farming-automation-gates.ts';
 import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
 import type { FarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
@@ -81,7 +82,11 @@ export function createFarmingAutomationEvaluator(
       facts = expiredFacts;
       if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
     }
-    const cheapGate = cheapFarmingAutomationGate(dependencies.state, dependencies.runtime.snoozed);
+    const cheapGate = cheapFarmingAutomationGate(
+      dependencies.state,
+      dependencies.runtime.snoozed,
+      facts.suppressedCampaignKeys.length > 0,
+    );
     const refreshAvailabilityOnly =
       cheapGate?.kind === 'unchanged' &&
       cheapGate.reason === 'disabled' &&
@@ -98,10 +103,6 @@ export function createFarmingAutomationEvaluator(
     if (currentStateFingerprint() !== beforeRefresh) {
       return { kind: 'unchanged', reason: 'superseded-by-state-change' };
     }
-    if (facts.suppressedCampaignKeys.length > 0) {
-      facts = { ...facts, suppressedCampaignKeys: [] };
-      if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
-    }
     if (refreshAvailabilityOnly) {
       const persisted = await persistFarmingAutomationPlan({
         state: dependencies.state,
@@ -115,8 +116,44 @@ export function createFarmingAutomationEvaluator(
         : { kind: 'failed', reason: 'persistence-failed' };
     }
 
+    const parkedKeys = new Set<string>();
+    const suppressedUntilByCampaignKey: Record<string, number> = {};
+    for (const campaignKey of facts.suppressedCampaignKeys) {
+      const retryAt = facts.suppressedUntilByCampaignKey[campaignKey] ?? 0;
+      const availability = discovery.availability[campaignKey]?.eligibleStreamerCount ?? 0;
+      if (retryAt > now || availability <= 0) {
+        parkedKeys.add(campaignKey);
+        suppressedUntilByCampaignKey[campaignKey] = retryAt > now ? retryAt : now + PARKED_CAMPAIGN_RETRY_MS;
+      }
+    }
+    const nextParkedRetryAt = Math.min(
+      ...Object.values(suppressedUntilByCampaignKey),
+      Number.POSITIVE_INFINITY,
+    );
+    const nextSuppressedCampaignKeys = [...parkedKeys];
+    if (
+      JSON.stringify(nextSuppressedCampaignKeys) !== JSON.stringify(facts.suppressedCampaignKeys) ||
+      JSON.stringify(suppressedUntilByCampaignKey) !== JSON.stringify(facts.suppressedUntilByCampaignKey)
+    ) {
+      facts = {
+        ...facts,
+        suppressedCampaignKeys: nextSuppressedCampaignKeys,
+        suppressedUntilByCampaignKey,
+        nextEvaluationAt: Number.isFinite(nextParkedRetryAt) ? nextParkedRetryAt : facts.nextEvaluationAt,
+      };
+      if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
+    }
+    const policySnapshot = createFarmingAutomationPolicySnapshot(
+      dependencies.state,
+      discovery.snapshot,
+      discovery.availability,
+    );
     const plan = planFarmingAutomationPolicy(
-      createFarmingAutomationPolicySnapshot(dependencies.state, discovery.snapshot, discovery.availability),
+      {
+        ...policySnapshot,
+        availableGames: policySnapshot.availableGames.filter((game) => !parkedKeys.has(gameKey(game))),
+        queue: policySnapshot.queue.filter((game) => !parkedKeys.has(gameKey(game))),
+      },
       now,
     );
     if (
@@ -158,13 +195,20 @@ export function createFarmingAutomationEvaluator(
 
     const decision = decideFarmingAutomationTransition({
       isRunning: dependencies.state.appState.isRunning,
+      selectedGame: dependencies.state.appState.selectedGame,
+      lastPreemption: facts.lastPreemption,
       rankedCandidates: plan.rankedCandidates,
     });
     if (decision.kind === 'unchanged') {
       if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
       return {
         kind: 'unchanged',
-        reason: decision.reason === 'no-campaign' ? 'no-eligible-campaign' : 'already-farming-best-campaign',
+        reason:
+          decision.reason === 'no-campaign'
+            ? 'no-eligible-campaign'
+            : decision.reason === 'preemption-already-applied'
+              ? 'preemption-already-applied'
+              : 'already-farming-best-campaign',
       };
     }
     const expectedFingerprint = farmingAutomationFingerprint(

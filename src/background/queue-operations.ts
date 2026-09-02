@@ -176,6 +176,9 @@ export function normalizeQueueSelection(
 
   state.appState.queue = normalized;
   reconcileQueueMetadata(state);
+  if (state.appState.isRunning && !state.appState.selectedGame && normalized.length > 0) {
+    state.appState.selectedGame = normalized[0] ?? null;
+  }
 }
 
 export function removeGameFromQueue(state: ServiceWorkerState, game: TwitchGame) {

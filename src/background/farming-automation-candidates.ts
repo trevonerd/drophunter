@@ -10,6 +10,7 @@ import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { CampaignAvailability, FarmCategoryScope, TwitchDrop, TwitchGame } from '../types/index.ts';
 import { type CampaignPriorityCandidate, orderCampaignCandidates } from './campaign-priority.ts';
+import type { FarmingAutomationLastPreemptionV1 } from './farming-automation-contracts.ts';
 import {
   type FavoriteCampaignQueuePlan,
   type FavoriteCampaignQueuePlanInput,
@@ -44,14 +45,21 @@ export interface FarmingAutomationPolicyPlan {
 
 export interface FarmingAutomationTransitionInput {
   readonly isRunning: boolean;
+  readonly selectedGame: TwitchGame | null;
+  readonly lastPreemption: FarmingAutomationLastPreemptionV1 | null;
   readonly rankedCandidates: readonly FarmingAutomationCandidate[];
 }
 
 export type FarmingAutomationTransitionDecision =
   | { readonly kind: 'start'; readonly campaign: TwitchGame }
   | {
+      readonly kind: 'preemption';
+      readonly campaign: TwitchGame;
+      readonly fromCampaignKey: string;
+    }
+  | {
       readonly kind: 'unchanged';
-      readonly reason: 'no-campaign' | 'already-running';
+      readonly reason: 'no-campaign' | 'already-running' | 'preemption-already-applied';
       readonly campaign?: TwitchGame;
     };
 
@@ -166,5 +174,30 @@ export function decideFarmingAutomationTransition(
     return { kind: 'start', campaign: candidate.game };
   }
 
-  return { kind: 'unchanged', reason: 'already-running', campaign: candidate.game };
+  const incumbent = input.selectedGame;
+  if (!incumbent || gameKey(incumbent) === gameKey(candidate.game)) {
+    return { kind: 'unchanged', reason: 'already-running', campaign: candidate.game };
+  }
+
+  const incumbentExpiry = incumbent.endsAt ? Date.parse(incumbent.endsAt) : Number.NaN;
+  const candidateExpiry = candidate.game.endsAt ? Date.parse(candidate.game.endsAt) : Number.NaN;
+  const fromCampaignKey = gameKey(incumbent);
+  const toCampaignKey = gameKey(candidate.game);
+  const canPreempt =
+    candidate.isFavorite &&
+    candidate.eligibleStreamerCount > 0 &&
+    Number.isFinite(incumbentExpiry) &&
+    Number.isFinite(candidateExpiry) &&
+    candidateExpiry < incumbentExpiry;
+  if (!canPreempt) {
+    return { kind: 'unchanged', reason: 'already-running', campaign: candidate.game };
+  }
+  if (
+    input.lastPreemption?.fromCampaignKey === fromCampaignKey &&
+    input.lastPreemption.toCampaignKey === toCampaignKey
+  ) {
+    return { kind: 'unchanged', reason: 'preemption-already-applied', campaign: candidate.game };
+  }
+
+  return { kind: 'preemption', campaign: candidate.game, fromCampaignKey };
 }

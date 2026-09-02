@@ -123,4 +123,49 @@ describe('loadState', () => {
       dropsPageRefreshInProgress: false,
     });
   });
+
+  test('loads and migrates legacy running auth recovery without losing its queue', async () => {
+    const queued = { id: 'game-1', name: 'FragPunk', imageUrl: '', campaignId: 'campaign-1' };
+    await mocks.storage.local.set({
+      appState: {
+        ...createAppState(),
+        isRunning: true,
+        selectedGame: null,
+        queue: [queued],
+        recoveryReason: 'sign-in-required',
+        recoveryAttempts: 2,
+        recoveryBackoffUntil: 123_456,
+        twitchSessionSyncState: undefined,
+      },
+    });
+    const state = createMinimalState();
+
+    await loadState(
+      state,
+      {
+        onLoadTimingState: async () => undefined,
+        onEnforceInactivityReset: async () => false,
+      },
+      {
+        sanitizeTwitchSession: () => null,
+        sessionDebugSummary,
+        createInitialState,
+        clearRotationMetadata: (appState) => appState,
+        TWITCH_SESSION_STORAGE_KEY: 'twitchSession',
+        DROPS_SNAPSHOT_CACHE_KEY: 'dropsSnapshotCache',
+        LAST_ACTIVITY_AT_KEY: 'lastActivityAt',
+        TIMING_STATE_KEY: 'timingState',
+        STREAM_VALIDATION_GRACE_MS: 0,
+      },
+    );
+
+    expect(state.appState.selectedGame).toEqual(queued);
+    expect(state.appState.queue).toEqual([queued]);
+    expect(state.appState.recoveryReason).toBeNull();
+    expect(state.appState.twitchSessionSyncState).toEqual({
+      status: 'retrying',
+      attempts: 2,
+      nextRetryAt: 123_456,
+    });
+  });
 });

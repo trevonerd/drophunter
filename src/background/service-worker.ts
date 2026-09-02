@@ -1,4 +1,6 @@
+import { gameKey } from '../shared/game-selection.ts';
 import { automationNotificationPersistence } from './automation-notification-persistence.ts';
+import { publishCampaignUnfarmableWarning } from './campaign-unfarmable-warning.ts';
 import { setClaimRecordedHandler } from './claim-log.ts';
 import { CAMPAIGN_SYNC_ALARM_NAME } from './constants.ts';
 import { createFarmingSession } from './farming-session.ts';
@@ -63,7 +65,8 @@ setClaimRecordedHandler((entries) => telegramNotifier.notifyClaimedDrops(entries
 
 const twitchGateway = createServiceWorkerTwitchGateway(state, {
   recoverTwitchSession: (options) =>
-    farmingSession.recoverTwitchSession({ notification: options.notification }),
+    options.stopReason ? farmingSession.stop(options) : farmingSession.recoverTwitchSession(),
+  resumeAfterAuthRecovery: () => farmingSession.resumeAfterAuthRecovery(),
 });
 
 const notify = (title: string, message: string, priority = 2) =>
@@ -108,6 +111,22 @@ farmingSession = createFarmingSession(state, {
   openMonitorDashboardWindow: browserEvents.openMonitorDashboardWindow,
   sendAlert: browserEvents.sendAlert,
   notify,
+  notifyCampaignUnavailable: async (game) => {
+    await publishCampaignUnfarmableWarning(state, game, {
+      now: Date.now,
+      saveState,
+      broadcastStateUpdate,
+      notifyBrowser: (message) =>
+        notificationController.notifyAutomation({
+          event: 'unfarmable',
+          campaignId: gameKey(game),
+          title: 'Campaign no longer farmable',
+          message,
+          priority: 2,
+        }),
+      notifyTelegram: (message) => telegramNotifier.notifySystemEvent('campaign-unfarmable', message),
+    });
+  },
   telegramSystemAlert: telegramNotifier.notifySystemEvent,
   suppressCampaignUntilRefresh: (campaignKey) =>
     farmingAutomationRuntime.automation.suppressCampaignUntilRefresh(campaignKey),
@@ -174,4 +193,8 @@ const startServiceWorkerOnce = createServiceWorkerStarter({
 
 export function startServiceWorker(): void {
   startServiceWorkerOnce();
+}
+
+export function setLastInventoryRefreshAtForTests(value: number): void {
+  state.lastInventoryRefreshAt = value;
 }

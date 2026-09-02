@@ -7,7 +7,11 @@ import {
   normalizeHiddenGames,
   normalizeQueueMetadata,
 } from './app-state-collection-normalizers.ts';
-import { normalizeCampaignSyncState, normalizeWatchHealth } from './app-state-runtime-normalizers.ts';
+import {
+  normalizeCampaignSyncState,
+  normalizeTwitchSessionSyncState,
+  normalizeWatchHealth,
+} from './app-state-runtime-normalizers.ts';
 import { browser } from './browser-api.ts';
 import { isRuntimeRequest } from './messages.ts';
 import { createInitialState } from './utils.ts';
@@ -21,6 +25,7 @@ export function normalizeStoredAppState(value: unknown): AppState {
     return createInitialState();
   }
   const defaults = createInitialState();
+  const migratesLegacyAuthRecovery = value.isRunning === true && value.recoveryReason === 'sign-in-required';
   const hiddenGames = normalizeHiddenGames(value.hiddenGames);
   const hiddenIdentityKeys = new Set(
     hiddenGames.flatMap((entry) => [entry.gameId, ...(entry.identityKeys ?? [])]),
@@ -28,6 +33,7 @@ export function normalizeStoredAppState(value: unknown): AppState {
   const storedState: AppState = {
     ...createInitialState(),
     ...value,
+    queue: Array.isArray(value.queue) ? (value.queue as AppState['queue']) : defaults.queue,
     favoriteGames: normalizeFavoriteGames(value.favoriteGames).filter(
       (entry) => ![entry.gameId, ...(entry.identityKeys ?? [])].some((key) => hiddenIdentityKeys.has(key)),
     ),
@@ -71,7 +77,25 @@ export function normalizeStoredAppState(value: unknown): AppState {
     watchHealth: normalizeWatchHealth(value.watchHealth),
     watchFallbackReason: typeof value.watchFallbackReason === 'string' ? value.watchFallbackReason : null,
     campaignSyncState: normalizeCampaignSyncState(value),
+    twitchSessionSyncState: normalizeTwitchSessionSyncState(value),
+    recoveryReason:
+      migratesLegacyAuthRecovery || typeof value.recoveryReason !== 'string' ? null : value.recoveryReason,
+    recoveryBackoffUntil:
+      migratesLegacyAuthRecovery ||
+      typeof value.recoveryBackoffUntil !== 'number' ||
+      !Number.isFinite(value.recoveryBackoffUntil)
+        ? null
+        : value.recoveryBackoffUntil,
+    recoveryAttempts:
+      migratesLegacyAuthRecovery ||
+      typeof value.recoveryAttempts !== 'number' ||
+      !Number.isFinite(value.recoveryAttempts)
+        ? null
+        : value.recoveryAttempts,
   };
+  if (storedState.isRunning && !storedState.selectedGame && storedState.queue.length > 0) {
+    storedState.selectedGame = storedState.queue[0] ?? null;
+  }
   return storedState;
 }
 

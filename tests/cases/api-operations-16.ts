@@ -24,7 +24,7 @@ describe('fetchInventorySnapshotFromApi', () => {
     chromeMocks.teardown();
   });
 
-  test('rethrows inventory auth errors so wrappers can refresh the Twitch session', async () => {
+  test('treats inventory 403 as transient and schedules backoff', async () => {
     const { fetchInventorySnapshotFromApi } = await import('../../src/background/api-operations.ts');
 
     const state = createMinimalState();
@@ -53,9 +53,9 @@ describe('fetchInventorySnapshotFromApi', () => {
       },
     ]);
 
-    await expect(fetchInventorySnapshotFromApi(state, session, cachedDrops)).rejects.toThrow('403 forbidden');
-    expect(state.apiConsecutiveFailures).toBe(0);
-    expect(state.apiBackoffUntil).toBe(0);
+    expect(await fetchInventorySnapshotFromApi(state, session, cachedDrops)).toBeNull();
+    expect(state.apiConsecutiveFailures).toBe(1);
+    expect(state.apiBackoffUntil).toBeGreaterThan(Date.now());
   });
 
   test('wrapper stops running farming when inventory auth still fails after explicit session recovery', async () => {
@@ -66,7 +66,7 @@ describe('fetchInventorySnapshotFromApi', () => {
       appState: { ...createInitialState(), isRunning: true },
       twitchSessionCache: session,
     });
-    const ensureCalls: boolean[] = [];
+    let ensureCalls = 0;
     let recoveryCalls = 0;
     let stopReason: string | undefined;
     const cachedDrops: TwitchDrop[] = [
@@ -89,7 +89,7 @@ describe('fetchInventorySnapshotFromApi', () => {
 
     originalFetch = installFetchMock([
       async () => {
-        throw new Error('403 forbidden');
+        throw new Error('401 unauthorized');
       },
       async () => {
         throw new Error('invalid oauth token');
@@ -99,10 +99,10 @@ describe('fetchInventorySnapshotFromApi', () => {
     const result = await fetchInventorySnapshotFromApiWrapper(
       state,
       cachedDrops,
-      false,
+      { sessionRecoveryMode: 'background-tab' },
       {
-        onEnsureTwitchSession: async (forceRefresh = false) => {
-          ensureCalls.push(forceRefresh);
+        onEnsureTwitchSession: async () => {
+          ensureCalls += 1;
           return session;
         },
         onRecoverTwitchSessionAfterAuthError: async () => {
@@ -112,7 +112,7 @@ describe('fetchInventorySnapshotFromApi', () => {
         onStopFarmingSession: async (options) => {
           stopReason = options.stopReason;
         },
-        onIsLikelyAuthError: (error) => /403|invalid oauth token/i.test(String(error)),
+        onIsLikelyAuthError: (error) => /401|invalid oauth token/i.test(String(error)),
         onClearTwitchSessionCache: (nextState) => {
           nextState.twitchSessionCache = null;
         },
@@ -121,8 +121,43 @@ describe('fetchInventorySnapshotFromApi', () => {
     );
 
     expect(result).toBeNull();
-    expect(ensureCalls).toEqual([false]);
+    expect(ensureCalls).toBe(1);
     expect(recoveryCalls).toBe(1);
     expect(stopReason).toBe('sign-in-required');
+  });
+
+  test('keeps a missing inventory session transient after checking existing Twitch tabs', async () => {
+    const { fetchInventorySnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const state = createMinimalState({
+      appState: { ...createInitialState(), isRunning: true },
+      twitchSessionCache: null,
+    });
+    let recoveryCalls = 0;
+    let stopReason: string | undefined;
+
+    const result = await fetchInventorySnapshotFromApiWrapper(
+      state,
+      [],
+      { sessionRecoveryMode: 'background-tab' },
+      {
+        onEnsureTwitchSession: async () => null,
+        onRecoverTwitchSessionAfterAuthError: async () => {
+          recoveryCalls += 1;
+          return null;
+        },
+        onStopFarmingSession: async (options) => {
+          stopReason = options.stopReason;
+        },
+        onIsLikelyAuthError: () => false,
+        onClearTwitchSessionCache: () => undefined,
+      },
+      { logWarn: () => undefined },
+    );
+
+    expect(result).toBeNull();
+    expect(recoveryCalls).toBe(1);
+    expect(stopReason).toBeUndefined();
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.twitchSessionSyncState.status).toBe('retrying');
   });
 });

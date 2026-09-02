@@ -5,7 +5,12 @@ export const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = {
   permissions: ['notifications'],
 };
 
-export const AUTOMATION_NOTIFICATION_EVENTS = ['start', 'favorite-added', 'preemption'] as const;
+export const AUTOMATION_NOTIFICATION_EVENTS = [
+  'start',
+  'favorite-added',
+  'preemption',
+  'unfarmable',
+] as const;
 export type AutomationNotificationEvent = (typeof AUTOMATION_NOTIFICATION_EVENTS)[number];
 
 const AUTOMATION_NOTIFICATION_ID_PREFIX = 'drophunter-automation';
@@ -68,14 +73,57 @@ export function createNotificationController(
   options: NotificationControllerOptions,
 ) {
   const permissionsApi = options.permissionsApi ?? browser.permissions;
-  const notificationsApi: NotificationApi | undefined = options.notificationsApi ?? browser.notifications;
   const seenAutomationNotifications = new Set<string>();
   const pendingAutomationNotifications = new Map<string, Promise<AutomationNotificationResult>>();
+  const boundNotificationApis = new WeakSet<NotificationApi>();
+
+  const isAutomationNotificationId = (notificationId: string): boolean =>
+    notificationId.startsWith(`${AUTOMATION_NOTIFICATION_ID_PREFIX}-`);
+
+  const invokeAction = (action: (() => Promise<unknown> | unknown) | undefined): void => {
+    if (!action) {
+      return;
+    }
+    void Promise.resolve()
+      .then(action)
+      .catch(() => undefined);
+  };
+
+  const bindNotificationActions = (notificationsApi: NotificationApi): void => {
+    if (boundNotificationApis.has(notificationsApi)) {
+      return;
+    }
+    boundNotificationApis.add(notificationsApi);
+    if (notificationsApi.onClicked && options.openDropHunter) {
+      notificationsApi.onClicked.addListener((notificationId) => {
+        if (isAutomationNotificationId(notificationId)) {
+          invokeAction(options.openDropHunter);
+        }
+      });
+    }
+    if (notificationsApi.onButtonClicked) {
+      notificationsApi.onButtonClicked.addListener((notificationId, buttonIndex) => {
+        if (!isAutomationNotificationId(notificationId)) {
+          return;
+        }
+        if (buttonIndex === 0) {
+          invokeAction(options.openDropHunter);
+        } else if (buttonIndex === 1) {
+          invokeAction(options.pauseFarming);
+        }
+      });
+    }
+  };
+
+  const resolveNotificationsApi = (): NotificationApi | undefined => {
+    const notificationsApi: NotificationApi | undefined = options.notificationsApi ?? browser.notifications;
+    if (notificationsApi) {
+      bindNotificationActions(notificationsApi);
+    }
+    return notificationsApi;
+  };
 
   const hasNotificationPermission = async (): Promise<boolean> => {
-    if (!notificationsApi) {
-      return false;
-    }
     try {
       return await permissionsApi.contains(NOTIFICATION_PERMISSION);
     } catch {
@@ -99,10 +147,14 @@ export function createNotificationController(
     if (!state.appState.notificationsEnabled) {
       return;
     }
-    if (!notificationsApi || !(await hasNotificationPermission())) {
+    if (!(await hasNotificationPermission())) {
       state.appState.notificationsEnabled = false;
       state.appState.autoStartFavoriteGames = false;
       await options.saveState();
+      return;
+    }
+    const notificationsApi = resolveNotificationsApi();
+    if (!notificationsApi) {
       return;
     }
     await notificationsApi.create({
@@ -134,43 +186,11 @@ export function createNotificationController(
         error: 'Notification permission was not granted',
       };
     }
+    resolveNotificationsApi();
     state.appState.notificationsEnabled = true;
     await options.saveState();
     return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
   };
-
-  const isAutomationNotificationId = (notificationId: string): boolean =>
-    notificationId.startsWith(`${AUTOMATION_NOTIFICATION_ID_PREFIX}-`);
-
-  const invokeAction = (action: (() => Promise<unknown> | unknown) | undefined): void => {
-    if (!action) {
-      return;
-    }
-    void Promise.resolve()
-      .then(action)
-      .catch(() => undefined);
-  };
-
-  if (notificationsApi?.onClicked && options.openDropHunter) {
-    notificationsApi.onClicked.addListener((notificationId) => {
-      if (isAutomationNotificationId(notificationId)) {
-        invokeAction(options.openDropHunter);
-      }
-    });
-  }
-
-  if (notificationsApi?.onButtonClicked) {
-    notificationsApi.onButtonClicked.addListener((notificationId, buttonIndex) => {
-      if (!isAutomationNotificationId(notificationId)) {
-        return;
-      }
-      if (buttonIndex === 0) {
-        invokeAction(options.openDropHunter);
-      } else if (buttonIndex === 1) {
-        invokeAction(options.pauseFarming);
-      }
-    });
-  }
 
   const notifyAutomation = async (
     payload: AutomationNotificationPayload,
@@ -192,10 +212,14 @@ export function createNotificationController(
         seenAutomationNotifications.add(key);
         return { shown: false, deduplicated: true };
       }
-      if (!notificationsApi || !(await hasNotificationPermission())) {
+      if (!(await hasNotificationPermission())) {
         state.appState.notificationsEnabled = false;
         state.appState.autoStartFavoriteGames = false;
         await options.saveState();
+        return { shown: false, deduplicated: false };
+      }
+      const notificationsApi = resolveNotificationsApi();
+      if (!notificationsApi) {
         return { shown: false, deduplicated: false };
       }
 

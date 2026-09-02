@@ -172,6 +172,29 @@ export function registerStartAndSettingsCases() {
     expect(getAppStateFromStorage().notificationsEnabled).toBe(true);
   });
 
+  test('SET_AUTO_START_FAVORITES enables and persists notifications after permission is granted', async () => {
+    chromeMocks.permissions.setContainsResult(true);
+
+    try {
+      const enabled = await dispatchMessage({
+        type: 'SET_AUTO_START_FAVORITES',
+        payload: { enabled: true },
+      });
+
+      expect(enabled).toEqual({
+        success: true,
+        autoStartFavoriteGames: true,
+        error: undefined,
+      });
+      const state = getAppStateFromStorage();
+      expect(state.notificationsEnabled).toBe(true);
+      expect(state.autoStartFavoriteGames).toBe(true);
+    } finally {
+      await dispatchMessage({ type: 'SET_AUTO_START_FAVORITES', payload: { enabled: false } });
+      await dispatchMessage({ type: 'SET_NOTIFICATIONS_ENABLED', payload: { enabled: false } });
+    }
+  });
+
   test('notification alerts are skipped when optional permission is missing', async () => {
     const chrome = chromeMocks.chrome;
     const notifications: unknown[] = [];

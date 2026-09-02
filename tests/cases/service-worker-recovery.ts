@@ -7,19 +7,22 @@ import {
   dispatchMessage,
   sleepTick,
   syncTestSession,
+  syncTestSessionWithoutCampaignRefresh,
+  triggerInventoryRefreshAlarm,
   triggerMonitorAlarm,
   waitForAppState,
 } from '../helpers/service-worker-harness.ts';
 
 export function registerRecoveryCases() {
-  test('advances queued game when the current campaign vanished mid-farming', async () => {
+  test('advances queued game when the current campaign becomes terminal mid-farming', async () => {
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
     enqueueDirectoryResult('streamer-current');
     enqueueDropsSnapshot([
       {
         game: demoGame,
         dropId: 'drop-current',
-        currentMinutes: 10,
+        currentMinutes: 60,
+        requiredMinutes: 60,
         endsAt: new Date(Date.now() - 60_000).toISOString(),
       },
     ]);
@@ -27,7 +30,7 @@ export function registerRecoveryCases() {
     enqueueDirectoryResult('streamer-next');
 
     await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame] });
-    await syncTestSession();
+    await syncTestSessionWithoutCampaignRefresh();
     await addGameToQueue(nextGame);
 
     const startResponse = await dispatchMessage({
@@ -41,7 +44,7 @@ export function registerRecoveryCases() {
       'start farming did not stabilize on the current game',
     );
 
-    await triggerMonitorAlarm();
+    await triggerInventoryRefreshAlarm();
 
     const advanced = await waitForAppState(
       (state) => state.selectedGame?.campaignId === nextGame.campaignId,
@@ -80,7 +83,7 @@ export function registerRecoveryCases() {
       'start farming did not stabilize on the current game',
     );
 
-    await triggerMonitorAlarm();
+    await triggerInventoryRefreshAlarm();
 
     const advanced = await waitForAppState(
       (state) =>
@@ -116,7 +119,7 @@ export function registerRecoveryCases() {
       'start farming did not stabilize on the current game',
     );
 
-    await triggerMonitorAlarm();
+    await triggerInventoryRefreshAlarm();
 
     const state = await waitForAppState(
       (next) => next.selectedGame?.campaignId === demoGame.campaignId,
@@ -163,7 +166,7 @@ export function registerRecoveryCases() {
       'start farming did not stabilize on the current game',
     );
 
-    await triggerMonitorAlarm();
+    await triggerInventoryRefreshAlarm();
 
     const state = await waitForAppState(
       (next) => next.selectedGame?.campaignId !== demoGame.campaignId,

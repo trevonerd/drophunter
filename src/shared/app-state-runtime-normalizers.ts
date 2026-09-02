@@ -83,3 +83,43 @@ export function normalizeCampaignSyncState(value: Record<string, unknown>): AppS
   }
   return { status: 'idle', ...common, nextRetryAt: null };
 }
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+}
+
+export function normalizeTwitchSessionSyncState(
+  value: Record<string, unknown>,
+): AppState['twitchSessionSyncState'] {
+  const candidate = isRecord(value.twitchSessionSyncState) ? value.twitchSessionSyncState : null;
+  if (candidate?.status === 'ready') {
+    return { status: 'ready', attempts: 0, nextRetryAt: null };
+  }
+  if (candidate?.status === 'unknown') {
+    return { status: 'unknown', attempts: 0, nextRetryAt: null };
+  }
+  const attempts = nonNegativeInteger(candidate?.attempts);
+  if (candidate?.status === 'retrying') {
+    const nextRetryAt = nullableFiniteNumber(candidate.nextRetryAt);
+    if (attempts !== null && attempts > 0 && nextRetryAt !== null) {
+      return { status: 'retrying', attempts, nextRetryAt };
+    }
+    return { status: 'unknown', attempts: 0, nextRetryAt: null };
+  }
+  if (candidate?.status === 'blocked' && attempts !== null) {
+    return { status: 'blocked', attempts, nextRetryAt: null };
+  }
+
+  const legacyAttempts = nonNegativeInteger(value.recoveryAttempts) ?? 0;
+  if (value.isRunning === true && value.recoveryReason === 'sign-in-required') {
+    return {
+      status: 'retrying',
+      attempts: Math.max(1, legacyAttempts),
+      nextRetryAt: nullableFiniteNumber(value.recoveryBackoffUntil) ?? 0,
+    };
+  }
+  if (value.lastStopReason === 'sign-in-required') {
+    return { status: 'blocked', attempts: legacyAttempts, nextRetryAt: null };
+  }
+  return { status: 'unknown', attempts: 0, nextRetryAt: null };
+}

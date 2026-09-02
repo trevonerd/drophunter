@@ -88,7 +88,8 @@ export function normalizeAutomationActivity(value: unknown): AppState['automatio
       (entry.kind === 'favorite-added' ||
         entry.kind === 'auto-started' ||
         entry.kind === 'preempted' ||
-        entry.kind === 'auto-start-skipped') &&
+        entry.kind === 'auto-start-skipped' ||
+        entry.kind === 'campaign-unfarmable') &&
       Number.isFinite(entry.at) &&
       typeof entry.message === 'string' &&
       (entry.campaignId === undefined || typeof entry.campaignId === 'string'),

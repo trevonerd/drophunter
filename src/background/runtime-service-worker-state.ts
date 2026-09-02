@@ -26,6 +26,7 @@ export function createServiceWorkerState(): ServiceWorkerState {
     previousAllDropsCount: 0,
     cachedCampaignChannelsMap: {},
     lastFullRefreshAt: 0,
+    lastInventoryRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
     queueMissingStreak: new Map(),
@@ -41,7 +42,6 @@ export function createServiceWorkerState(): ServiceWorkerState {
     lastHeartbeatAt: 0,
     lastLifecycleCheckAt: 0,
     lastGamesCacheRefreshAt: 0,
-    emptyCampaignRefreshStreak: 0,
     unverifiableRewardsByKey: {},
   };
 }

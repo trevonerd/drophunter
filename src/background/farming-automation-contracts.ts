@@ -28,6 +28,7 @@ export type FarmingAutomationFactsV1 = {
   readonly manualWatch: FarmingAutomationManualWatchV1 | null;
   readonly nextEvaluationAt: number | null;
   readonly suppressedCampaignKeys: readonly string[];
+  readonly suppressedUntilByCampaignKey: Readonly<Record<string, number>>;
 };
 
 export type WatchOwnershipV1 =

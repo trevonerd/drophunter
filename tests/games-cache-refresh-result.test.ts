@@ -17,7 +17,6 @@ test('a required fresh campaign snapshot distinguishes temporary unavailability 
       normalizeGameSelection: () => {},
       normalizeQueueSelection: () => {},
       splitDropsForSelectedGame: () => {},
-      recordEmptyCampaignObservation: () => ({ confirmed: true, streak: 1 }),
       resetStateForAuthoritativeEmptyCampaign: () => {},
       clearSelectedCompletedIdleCampaign: () => {},
       resetStreamTrackingState: () => {},

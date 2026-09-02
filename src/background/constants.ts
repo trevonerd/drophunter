@@ -13,6 +13,7 @@ export const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
 // Timing constants
 export const GAMES_CACHE_TTL_MS = 5 * 60_000;
 export const PROGRESS_POLL_MS = 60_000;
+export const INVENTORY_REFRESH_INTERVAL_MS = 5 * 60_000;
 export const DROP_CLAIM_RETRY_COOLDOWN_MS = 45_000;
 export const TIMING_SAVE_DEBOUNCE_MS = 5_000;
 export const CRASH_DETECTION_THRESHOLD_MS = 30_000;

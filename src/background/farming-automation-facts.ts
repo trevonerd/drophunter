@@ -24,6 +24,21 @@ function normalizeSuppressedCampaignKeys(input: unknown): readonly string[] {
   return [...new Set(input.filter(isNonEmptyString))];
 }
 
+function normalizeSuppressedUntilByCampaignKey(
+  input: unknown,
+  campaignKeys: readonly string[],
+): Readonly<Record<string, number>> {
+  if (!isRecord(input)) {
+    return Object.fromEntries(campaignKeys.map((campaignKey) => [campaignKey, 0]));
+  }
+  const allowedKeys = new Set(campaignKeys);
+  return Object.fromEntries(
+    Object.entries(input).filter(
+      (entry): entry is [string, number] => allowedKeys.has(entry[0]) && isFiniteNumber(entry[1]),
+    ),
+  );
+}
+
 function hasOnlyKeys(input: object, keys: readonly string[]): boolean {
   return Object.keys(input).length === keys.length && keys.every((key) => key in input);
 }
@@ -56,6 +71,7 @@ export function createInitialFarmingAutomationFacts(): FarmingAutomationFactsV1 
     manualWatch: null,
     nextEvaluationAt: null,
     suppressedCampaignKeys: [],
+    suppressedUntilByCampaignKey: {},
   };
 }
 
@@ -87,12 +103,17 @@ export function normalizeFarmingAutomationFacts(
     : null;
   const nextEvaluationAt = isFiniteNumber(input.nextEvaluationAt) ? input.nextEvaluationAt : null;
   const suppressedCampaignKeys = normalizeSuppressedCampaignKeys(input.suppressedCampaignKeys);
+  const suppressedUntilByCampaignKey = normalizeSuppressedUntilByCampaignKey(
+    input.suppressedUntilByCampaignKey,
+    suppressedCampaignKeys,
+  );
   const value: FarmingAutomationFactsV1 = {
     version: 1,
     lastPreemption,
     manualWatch,
     nextEvaluationAt,
     suppressedCampaignKeys,
+    suppressedUntilByCampaignKey,
   };
   const isCanonical =
     hasOnlyKeys(input, [
@@ -101,6 +122,7 @@ export function normalizeFarmingAutomationFacts(
       'manualWatch',
       'nextEvaluationAt',
       'suppressedCampaignKeys',
+      'suppressedUntilByCampaignKey',
     ]) &&
     (input.lastPreemption === null ||
       (isLastPreemption(input.lastPreemption) &&
@@ -118,5 +140,14 @@ export function normalizeFarmingAutomationFacts(
     Array.isArray(input.suppressedCampaignKeys) &&
     input.suppressedCampaignKeys.length === suppressedCampaignKeys.length &&
     input.suppressedCampaignKeys.every((campaignKey, index) => campaignKey === suppressedCampaignKeys[index]);
-  return isCanonical ? { kind: 'valid', value } : { kind: 'repairable', value };
+  const canonicalSuppressionDeadlines =
+    isRecord(input.suppressedUntilByCampaignKey) &&
+    Object.keys(input.suppressedUntilByCampaignKey).length ===
+      Object.keys(suppressedUntilByCampaignKey).length &&
+    Object.entries(input.suppressedUntilByCampaignKey).every(
+      ([campaignKey, retryAt]) => suppressedUntilByCampaignKey[campaignKey] === retryAt,
+    );
+  return isCanonical && canonicalSuppressionDeadlines
+    ? { kind: 'valid', value }
+    : { kind: 'repairable', value };
 }

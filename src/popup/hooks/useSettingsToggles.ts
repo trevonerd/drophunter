@@ -60,12 +60,6 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     (response, next) => ({ monitorAutoOpen: response.monitorAutoOpen ?? next }),
   );
 
-  const handleAutoResumeOnStartupToggle = makeToggleHandler(
-    'autoResumeOnStartup',
-    (enabled) => sendRuntimeMessage({ type: 'SET_AUTO_RESUME_ON_STARTUP', payload: { enabled } }),
-    (response, next) => ({ autoResumeOnStartup: response.autoResumeOnStartup ?? next }),
-  );
-
   const handleAutoClaimChannelPointsBonusToggle = makeToggleHandler(
     'autoClaimChannelPointsBonus',
     (enabled) => sendRuntimeMessage({ type: 'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS', payload: { enabled } }),
@@ -192,7 +186,6 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
 
   return {
     handleMonitorAutoOpenToggle,
-    handleAutoResumeOnStartupToggle,
     handleAutoClaimChannelPointsBonusToggle,
     handleAutoClaimDropsToggle,
     handleMuteFarmingTabToggle,

@@ -24,6 +24,11 @@ describe('normalizeStoredAppState', () => {
     expect(state.preferredStreamerLanguage).toBeNull();
     expect(state.recoveryReason).toBeNull();
     expect(state.lastStopReason).toBeNull();
+    expect(state.twitchSessionSyncState).toEqual({
+      status: 'unknown',
+      attempts: 0,
+      nextRetryAt: null,
+    });
     expect(state.favoriteGames).toEqual([]);
     expect(state.hiddenGames).toEqual([]);
     expect(state.campaignPriorityMode).toBe('ending-soonest');
@@ -91,5 +96,71 @@ describe('normalizeStoredAppState', () => {
 
     // Then: retained ownership survives normalization.
     expect(state.queueEntryMetadataByKey).toEqual(stored.queueEntryMetadataByKey);
+  });
+
+  test('normalizes persisted Twitch session sync states fail-closed', () => {
+    expect(
+      normalizeStoredAppState({
+        twitchSessionSyncState: { status: 'retrying', attempts: 3, nextRetryAt: 12_345 },
+      }).twitchSessionSyncState,
+    ).toEqual({ status: 'retrying', attempts: 3, nextRetryAt: 12_345 });
+
+    expect(
+      normalizeStoredAppState({
+        twitchSessionSyncState: { status: 'blocked', attempts: 2, nextRetryAt: 99 },
+      }).twitchSessionSyncState,
+    ).toEqual({ status: 'blocked', attempts: 2, nextRetryAt: null });
+
+    expect(
+      normalizeStoredAppState({
+        twitchSessionSyncState: { status: 'retrying', attempts: -1, nextRetryAt: 'later' },
+      }).twitchSessionSyncState,
+    ).toEqual({ status: 'unknown', attempts: 0, nextRetryAt: null });
+  });
+
+  test('migrates legacy running auth recovery into silent Twitch retry state', () => {
+    const state = normalizeStoredAppState({
+      isRunning: true,
+      recoveryReason: 'sign-in-required',
+      recoveryAttempts: 4,
+      recoveryBackoffUntil: 98_765,
+      queue: [{ id: 'game-1', name: 'Game', imageUrl: '', campaignId: 'campaign-1' }],
+    });
+
+    expect(state.twitchSessionSyncState).toEqual({
+      status: 'retrying',
+      attempts: 4,
+      nextRetryAt: 98_765,
+    });
+    expect(state.recoveryReason).toBeNull();
+    expect(state.recoveryAttempts).toBeNull();
+    expect(state.recoveryBackoffUntil).toBeNull();
+    expect(state.queue).toHaveLength(1);
+  });
+
+  test('migrates a legacy terminal auth stop into blocked Twitch state', () => {
+    const state = normalizeStoredAppState({
+      isRunning: false,
+      lastStopReason: 'sign-in-required',
+      recoveryAttempts: 2,
+    });
+
+    expect(state.twitchSessionSyncState).toEqual({
+      status: 'blocked',
+      attempts: 2,
+      nextRetryAt: null,
+    });
+    expect(state.lastStopReason).toBe('sign-in-required');
+  });
+
+  test('repairs a persisted running session target from its queue head', () => {
+    const queued = { id: 'fragpunk', name: 'FragPunk', imageUrl: '', campaignId: 'campaign-fragpunk' };
+    const state = normalizeStoredAppState({
+      isRunning: true,
+      selectedGame: null,
+      queue: [queued],
+    });
+
+    expect(state.selectedGame).toEqual(queued);
   });
 });

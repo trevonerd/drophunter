@@ -42,6 +42,7 @@ describe('farming session facade', () => {
       'acquireStreamerForSelectedGame',
       'checkDropProgress',
       'handleAddToQueue',
+      'handleAuthoritativeCampaignUnavailable',
       'handleClearQueue',
       'handlePauseFarming',
       'handleRemoveFromQueue',

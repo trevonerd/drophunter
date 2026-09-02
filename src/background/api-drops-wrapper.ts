@@ -1,12 +1,14 @@
 import type { DropsSnapshot } from '../types';
 import { applyApiBackoff, clearSignInRequiredStop, fetchDropsSnapshotFromApi } from './api-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import type { SessionRecoveryMode, TwitchApiRequestOptions } from './session-orchestrator.ts';
 import type { FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
+import { markTwitchSessionBlocked, markTwitchSessionRetrying } from './twitch-session-sync.ts';
 
 export interface FetchDropsSnapshotFromApiCallbacks {
-  onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<TwitchSession | null>;
-  onRecoverTwitchSessionAfterAuthError?: () => Promise<TwitchSession | null>;
+  onEnsureTwitchSession: () => Promise<TwitchSession | null>;
+  onRecoverTwitchSessionAfterAuthError?: (mode: SessionRecoveryMode) => Promise<TwitchSession | null>;
   onEnsureSessionIntegrity: (
     state: ServiceWorkerState,
     session: TwitchSession,
@@ -29,6 +31,7 @@ export async function stopForSignInRequiredIfRunning(
   state: ServiceWorkerState,
   callback?: FetchDropsSnapshotFromApiCallbacks['onStopFarmingSession'],
 ) {
+  markTwitchSessionBlocked(state, state.apiConsecutiveFailures);
   if (!state.appState.isRunning || !callback) return;
   await callback({
     notification: { title: 'Sign-in required', message: SIGN_IN_REQUIRED_MESSAGE },
@@ -39,7 +42,7 @@ export async function stopForSignInRequiredIfRunning(
 
 export async function fetchDropsSnapshotFromApiWrapper(
   state: ServiceWorkerState,
-  forceSessionRefresh: boolean,
+  requestOptions: TwitchApiRequestOptions,
   callbacks: FetchDropsSnapshotFromApiCallbacks,
   deps: {
     TwitchApiClient: typeof TwitchApiClient;
@@ -53,15 +56,34 @@ export async function fetchDropsSnapshotFromApiWrapper(
   authRecoveryAttempted = false,
   recoveredSession: TwitchSession | null = null,
 ): Promise<DropsSnapshot | null> {
-  let session = recoveredSession ?? (await callbacks.onEnsureTwitchSession(forceSessionRefresh));
+  const recoveryMode = requestOptions.sessionRecoveryMode ?? 'passive';
+  let session = recoveredSession ?? (await callbacks.onEnsureTwitchSession());
   if (!session) {
     deps.logWarn('Drops snapshot API skipped: Twitch session missing');
-    if (forceSessionRefresh) await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
+    if (recoveryMode === 'background-tab' && !authRecoveryAttempted) {
+      const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError?.(recoveryMode);
+      if (recovered) {
+        return fetchDropsSnapshotFromApiWrapper(
+          state,
+          requestOptions,
+          callbacks,
+          deps,
+          options,
+          true,
+          recovered,
+        );
+      }
+    }
+    if (state.appState.isRunning) {
+      applyApiBackoff(state);
+      markTwitchSessionRetrying(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
+    }
     return null;
   }
   if (!session.userId) {
     deps.logWarn('Twitch session has no userId — attempting auto-detect', deps.sessionDebugSummary(session));
     let transientFailure = false;
+    let explicitAuthFailure = false;
     try {
       const sessionForDetect = await callbacks.onEnsureSessionIntegrity(state, session);
       const detectedId = await new deps.TwitchApiClient(sessionForDetect).fetchCurrentUserId();
@@ -74,12 +96,21 @@ export async function fetchDropsSnapshotFromApiWrapper(
       } else deps.logWarn('Could not auto-detect userId — user may not be logged in');
     } catch (error) {
       if (callbacks.onIsLikelyAuthError(error)) {
+        explicitAuthFailure = true;
         deps.logWarn('Failed to auto-detect userId: auth error', String(error));
         callbacks.onClearTwitchSessionCache(state);
         if (!authRecoveryAttempted && callbacks.onRecoverTwitchSessionAfterAuthError) {
-          const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError();
+          const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError(recoveryMode);
           if (recovered)
-            return fetchDropsSnapshotFromApiWrapper(state, false, callbacks, deps, options, true, recovered);
+            return fetchDropsSnapshotFromApiWrapper(
+              state,
+              requestOptions,
+              callbacks,
+              deps,
+              options,
+              true,
+              recovered,
+            );
         }
       } else {
         deps.logWarn('Failed to auto-detect userId: transient error, will retry', String(error));
@@ -88,21 +119,28 @@ export async function fetchDropsSnapshotFromApiWrapper(
       }
     }
     if (!session.userId && transientFailure) return null;
-    if (!session.userId && state.appState.isRunning) {
-      await callbacks.onStopFarmingSession?.({
-        notification: {
-          title: 'Sign-in required',
-          message: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
-        },
-        stopReason: 'sign-in-required',
-        stopMessage: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
-      });
+    if (!session.userId) {
+      if (state.appState.isRunning && explicitAuthFailure) {
+        await callbacks.onStopFarmingSession?.({
+          notification: {
+            title: 'Sign-in required',
+            message: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
+          },
+          stopReason: 'sign-in-required',
+          stopMessage: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
+        });
+      } else {
+        applyApiBackoff(state);
+        if (state.appState.isRunning) {
+          markTwitchSessionRetrying(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
+        }
+      }
       return null;
     }
   }
 
   deps.logDebug('Fetching drops snapshot via API', {
-    forceSessionRefresh,
+    recoveryMode,
     ...deps.sessionDebugSummary(session),
   });
   try {
@@ -111,9 +149,17 @@ export async function fetchDropsSnapshotFromApiWrapper(
     if (callbacks.onIsLikelyAuthError(error)) {
       callbacks.onClearTwitchSessionCache(state);
       if (!authRecoveryAttempted && callbacks.onRecoverTwitchSessionAfterAuthError) {
-        const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError();
+        const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError(recoveryMode);
         if (recovered)
-          return fetchDropsSnapshotFromApiWrapper(state, false, callbacks, deps, options, true, recovered);
+          return fetchDropsSnapshotFromApiWrapper(
+            state,
+            requestOptions,
+            callbacks,
+            deps,
+            options,
+            true,
+            recovered,
+          );
       }
       deps.logWarn('Twitch API auth failed after explicit session recovery:', String(error));
       await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
