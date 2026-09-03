@@ -180,17 +180,17 @@ describe('Farming automation queue policy', () => {
     },
     {
       favoriteEndsAt: '2030-08-05T12:00:00.000Z',
-      selected: 'campaign:campaign-manual',
+      selected: 'campaign:campaign-favorite',
       queue: ['campaign:campaign-manual', 'campaign:campaign-favorite'],
     },
-  ])('starts the correct campaign immediately according to expiry when idle', async (scenario) => {
+  ])('starts only the favorite campaign automatically while idle', async (scenario) => {
     // Given: an idle extension with one manual campaign and one discovered favorite.
     const subject = fixture('priority-list-only', { favoriteEndsAt: scenario.favoriteEndsAt });
 
     // When: the public automation request reconciles the queue.
     const outcome = await subject.automation.request('campaign-refresh');
 
-    // Then: farming starts immediately from the earlier campaign and leaves the other queued.
+    // Then: farming starts from the favorite and leaves the manual campaign queued for explicit start.
     expect({
       outcome,
       selected: subject.state.appState.selectedGame ? gameKey(subject.state.appState.selectedGame) : null,
