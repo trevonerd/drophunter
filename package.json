@@ -1,7 +1,7 @@
 {
   "name": "drophunter",
   "private": true,
-  "version": "4.0.13",
+  "version": "4.0.0-beta.13",
   "type": "module",
   "packageManager": "bun@1.3.9",
   "engines": {
@@ -27,7 +27,7 @@
     "zip:all": "bun run zip:chrome && bun run zip:edge",
     "check": "bun run test:ts && bun run lint && bun run test && bun run build:all",
     "release:check": "bun scripts/release-check.mjs",
-    "release:zip": "bun run release:check && bun run zip:all",
+    "release:zip": "bun run release:check",
     "video:install": "cd video && bun install",
     "video:preview": "cd video && bun run preview",
     "video:render:cta": "cd video && bun run render:cta",

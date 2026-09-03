@@ -1,7 +1,10 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EXTENSION_MANIFEST, TWITCH_MATCHES } from '../src/shared/extension-manifest.ts';
+import { resolveReleaseVersion } from '../src/shared/release-version.ts';
 import { runSteps } from './release-check-ui.mjs';
+
+const RELEASE_ARCHIVE_PATTERN = /^drophunter-.*-(chrome|edge)\.zip$/;
 
 async function readJson(path) {
   try {
@@ -41,16 +44,29 @@ async function assertClassicScript(path) {
   }
 }
 
-async function checkReleaseManifestForTarget(target) {
+async function readPackageRelease() {
   const packageJson = await readJson('package.json');
+  if (typeof packageJson.version !== 'string') {
+    throw new Error('package.json version must be a string');
+  }
+  return {
+    packageVersion: packageJson.version,
+    releaseVersion: resolveReleaseVersion(packageJson.version),
+  };
+}
+
+async function checkReleaseManifestForTarget(target, packageRelease) {
   const manifestPath = join('.output', target, 'manifest.json');
   const manifest = await readJson(manifestPath);
 
-  if (packageJson.version !== manifest.version) {
+  if (packageRelease.releaseVersion.manifestVersion !== manifest.version) {
     throw new Error(
-      `${target}: package.json version ${packageJson.version} does not match generated manifest ${manifest.version}`,
+      `${target}: expected manifest version ${packageRelease.releaseVersion.manifestVersion}, got ${manifest.version}`,
     );
   }
+  const expectedVersionName =
+    packageRelease.releaseVersion.channel === 'beta' ? packageRelease.releaseVersion.versionName : undefined;
+  assertEqual(`${target} version_name`, manifest.version_name, expectedVersionName);
 
   assertEqual(`${target} manifest_version`, manifest.manifest_version, 3);
   assertEqual(`${target} permissions`, manifest.permissions, EXTENSION_MANIFEST.permissions);
@@ -102,10 +118,28 @@ async function checkReleaseManifestForTarget(target) {
 }
 
 async function checkReleaseManifests() {
-  await checkReleaseManifestForTarget('chrome-mv3');
-  await checkReleaseManifestForTarget('edge-mv3');
+  const packageRelease = await readPackageRelease();
+  await checkReleaseManifestForTarget('chrome-mv3', packageRelease);
+  await checkReleaseManifestForTarget('edge-mv3', packageRelease);
 
-  return { stdout: 'Chrome and Edge manifests are release-ready\n' };
+  return {
+    stdout: `Chrome and Edge manifests are release-ready for ${packageRelease.packageVersion}\n`,
+  };
+}
+
+async function cleanReleaseArchives() {
+  await mkdir('.output', { recursive: true });
+  const archiveNames = (await readdir('.output')).filter((name) => RELEASE_ARCHIVE_PATTERN.test(name));
+  await Promise.all(archiveNames.map((name) => unlink(join('.output', name))));
+  return { stdout: 'Old DropHunter release archives removed\n' };
+}
+
+async function checkReleaseArchives() {
+  const { packageVersion } = await readPackageRelease();
+  const expected = [`drophunter-${packageVersion}-chrome.zip`, `drophunter-${packageVersion}-edge.zip`];
+  const actual = (await readdir('.output')).filter((name) => RELEASE_ARCHIVE_PATTERN.test(name)).sort();
+  assertEqual('release archives', actual, expected);
+  return { stdout: `Chrome and Edge archives are release-ready for ${packageVersion}\n` };
 }
 
 const result = await runSteps([
@@ -113,8 +147,10 @@ const result = await runSteps([
   { name: 'TypeScript', command: ['bun', 'run', 'test:ts'] },
   { name: 'Biome', command: ['bun', 'run', 'lint'] },
   { name: 'Tests', command: ['bun', 'run', 'test'] },
-  { name: 'Build Chrome + Edge', command: ['bun', 'run', 'build:all'] },
+  { name: 'Clean release archives', run: cleanReleaseArchives },
+  { name: 'Build + package Chrome + Edge', command: ['bun', 'run', 'zip:all'] },
   { name: 'Release manifests', run: checkReleaseManifests },
+  { name: 'Release archives', run: checkReleaseArchives },
 ]);
 
 process.exit(result.exitCode);

@@ -104,6 +104,8 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - Run smallest relevant tests during dev; full release gate before release/store handoff.
 
 ## Release And Store Handoff
+- Treat `4.0.0-beta.N` as GitHub/local-only builds. The manifest uses technical version `3.99.0.N` plus visible `version_name`; never upload these betas to browser stores.
+- Reserve manifest/tag/release version `4.0.0` for the first stable 4.x store submission.
 - Before release/store handoff run:
   - `bun run test:ts`
   - `bun run lint`

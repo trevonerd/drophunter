@@ -2,13 +2,20 @@
 
 Use this before submitting a new DropHunter build to the Chrome Web Store.
 
+## Release channel
+
+- Publish `4.0.0-beta.N` builds only through GitHub prereleases or local unpacked installs.
+- For the 4.0.0 beta train, confirm the manifest uses technical version `3.99.0.N` and visible `version_name` `4.0.0-beta.N`.
+- Do not upload a beta package to Chrome Web Store or Microsoft Edge Add-ons.
+- Upload to the stores only after the package, manifest, tag, and GitHub release all identify the stable `4.0.0` build.
+
 ## Automated checks
 
 - Run `bun run check`.
 - Run `bun run release:check`.
 - Run `bun audit`.
 - Run `bun audit` from the `video/` directory.
-- Confirm the production `.output/chrome-mv3/` and `.output/edge-mv3/` folders were rebuilt by the final check.
+- Confirm `release:check` rebuilt both production targets and produced exactly one current Chrome ZIP and one current Edge ZIP.
 
 ## Listing accuracy
 
@@ -51,4 +58,5 @@ Use this before submitting a new DropHunter build to the Chrome Web Store.
 - Verify no stale rotation reason is shown when a new farming session starts.
 - Verify the extension still recovers cleanly after a service-worker restart.
 - Verify at least one real active Twitch Drops campaign accrues progress.
-- Verify the icon, title, and manifest version are correct.
+- Verify the icon and title are correct, and Settings shows the public version rather than the technical beta version.
+- For stable 4.0.0, verify `version` is `4.0.0`, `version_name` is absent, and neither archive name contains `beta`.
