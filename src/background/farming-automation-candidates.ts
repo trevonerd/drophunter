@@ -129,9 +129,13 @@ export function rankFarmingAutomationCandidates(
   snapshot: FarmingAutomationPolicySnapshot,
   candidates: readonly FarmingAutomationCandidate[],
 ): readonly FarmingAutomationCandidate[] {
-  const eligible = filterEligibleFarmingAutomationCandidates(candidates).filter(
-    (candidate) => !isHiddenGame(candidate.game, hiddenGameIdentityKeys(snapshot.hiddenGames ?? [])),
-  );
+  const eligible = filterEligibleFarmingAutomationCandidates(candidates)
+    .filter((candidate) => !isHiddenGame(candidate.game, hiddenGameIdentityKeys(snapshot.hiddenGames ?? [])))
+    .filter(
+      (candidate) =>
+        candidate.isFavorite ||
+        snapshot.queueEntryMetadataByKey[gameKey(candidate.game)]?.source !== 'manual',
+    );
   const favoriteIds = favoriteGameIdentityKeys(snapshot.favoriteGames);
   const candidateByKey = new Map(eligible.map((candidate) => [gameKey(candidate.game), candidate]));
   return orderCampaignCandidates(eligible, {
