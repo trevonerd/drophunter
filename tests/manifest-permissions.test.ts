@@ -1,11 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import packageJson from '../package.json' with { type: 'json' };
 import { EXTENSION_MANIFEST, TWITCH_MATCHES } from '../src/shared/extension-manifest.ts';
-
-const packageJson = JSON.parse(readFileSync(resolve(import.meta.dir, '../package.json'), 'utf-8')) as {
-  version?: string;
-};
+import { resolveReleaseVersion } from '../src/shared/release-version.ts';
 
 function runtimeSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -55,8 +53,14 @@ describe('manifest permissions', () => {
     expect(TWITCH_MATCHES).toEqual(expected);
   });
 
-  test('keeps package version ready for WXT generated manifests', () => {
-    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
+  test('maps the package version to Chrome-compatible WXT manifest metadata', () => {
+    const releaseVersion = resolveReleaseVersion(packageJson.version);
+
+    expect(releaseVersion).toEqual({
+      channel: 'beta',
+      manifestVersion: '3.99.0.13',
+      versionName: '4.0.0-beta.13',
+    });
   });
 
   test('declares WXT entrypoints for both Twitch content scripts', () => {

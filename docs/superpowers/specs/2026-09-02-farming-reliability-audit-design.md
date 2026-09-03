@@ -79,6 +79,6 @@ Keep the existing module boundaries. Represent refresh and recovery outcomes exp
 
 - Audit all existing uncommitted changes against this design and repository standards.
 - Group changes into atomic commits by behavior and revertability.
-- Bump the extension from `4.0.11` to `4.0.12` after the behavior is verified.
-- Regenerate the Chrome and Edge `4.0.12` release archives.
+- Advance the 4.0.0 beta train after the behavior is verified; this work shipped in `4.0.0-beta.12`.
+- Regenerate the Chrome and Edge beta release archives with the public beta version in their filenames.
 - Push the completed history, including the existing local commit, to `origin/main` without rewriting history.

@@ -1,5 +1,6 @@
 // Extracted from src/popup/App.tsx (settings view markup).
 import { browser } from '../../shared/browser-api.ts';
+import { displayManifestVersion } from '../../shared/release-version.ts';
 import { STREAMER_LANGUAGE_OPTIONS, STREAMER_SELECTION_OPTIONS } from '../constants';
 import { FarmingAutomationSettings } from './FarmingAutomationSettings';
 import { BackIcon, CoffeeIcon, GitHubIcon } from './icons';
@@ -12,7 +13,7 @@ export type { SettingsViewProps } from './settings-view-types';
 
 function extensionVersion(): string {
   try {
-    return browser.runtime.getManifest().version;
+    return displayManifestVersion(browser.runtime.getManifest());
   } catch {
     return 'dev';
   }
