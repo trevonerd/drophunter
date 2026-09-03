@@ -8,7 +8,7 @@ import {
 describe('release version contract', () => {
   test('maps the current public beta to a lower technical manifest version', () => {
     // Given
-    const packageVersion = '4.0.0-beta.13';
+    const packageVersion = '4.0.0-beta.14';
 
     // When
     const result = resolveReleaseVersion(packageVersion);
@@ -16,8 +16,8 @@ describe('release version contract', () => {
     // Then
     expect(result).toEqual({
       channel: 'beta',
-      manifestVersion: '3.99.0.13',
-      versionName: '4.0.0-beta.13',
+      manifestVersion: '3.99.0.14',
+      versionName: '4.0.0-beta.14',
     });
   });
 
@@ -72,7 +72,7 @@ describe('release version contract', () => {
 
   test('prefers the descriptive manifest version in the UI', () => {
     // Given
-    const betaManifest = { version: '3.99.0.13', version_name: '4.0.0-beta.13' };
+    const betaManifest = { version: '3.99.0.14', version_name: '4.0.0-beta.14' };
     const stableManifest = { version: '4.0.0' };
 
     // When
@@ -80,7 +80,7 @@ describe('release version contract', () => {
     const stableLabel = displayManifestVersion(stableManifest);
 
     // Then
-    expect(betaLabel).toBe('4.0.0-beta.13');
+    expect(betaLabel).toBe('4.0.0-beta.14');
     expect(stableLabel).toBe('4.0.0');
   });
 });
