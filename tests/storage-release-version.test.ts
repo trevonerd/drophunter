@@ -33,12 +33,12 @@ describe('release version storage transition', () => {
     });
 
     // When
-    await migrateExtensionStorage('3.99.0.13');
+    await migrateExtensionStorage('3.99.0.14');
     await mocks.storage.local.set({ twitchIntegrity: { token: 'current-integrity' } });
-    await migrateExtensionStorage('3.99.0.13');
+    await migrateExtensionStorage('3.99.0.14');
 
     // Then
-    expect(mocks.storage.local._store.get(EXTENSION_VERSION_STORAGE_KEY)).toBe('3.99.0.13');
+    expect(mocks.storage.local._store.get(EXTENSION_VERSION_STORAGE_KEY)).toBe('3.99.0.14');
     expect(mocks.storage.local._store.get('appState')).toMatchObject({
       totalDropsClaimed: 7,
       isRunning: false,
