@@ -64,7 +64,8 @@ test('selected subscription status aligns its cost icon beside wrapped copy', ()
   const markup = renderMainView(appState(selectedGame));
 
   // Then
-  expect(markup).toContain('class="flex min-w-0 items-start gap-1.5 text-[11px]"');
+  expect(markup).toContain('data-session-campaign-notice="true"');
+  expect(markup).toContain('class="mt-1 flex min-w-0 items-start gap-1.5 text-[10px] leading-snug"');
   expect(markup).toContain('class="inline-flex min-h-[1lh] shrink-0 items-center gap-1"');
   expect(markup).toContain('class="min-w-0 flex-1 space-y-1"');
   expect(markup.indexOf('data-campaign-indicator="subscription-required"')).toBeLessThan(
@@ -180,4 +181,3 @@ test('running future queue rows retain drag handles and remove actions', () => {
   expect(markup).toContain('Remove Later Game · Later Campaign from queue');
   expect(markup).not.toContain('Remove Current Game · Current Campaign from queue');
 });
-

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe } from 'bun:test';
 import { registerCacheSessionCases } from './cases/service-worker-cache-session.ts';
 import { registerInitializationCases } from './cases/service-worker-initialization.ts';
+import { registerPopupActivationRecoveryCase } from './cases/service-worker-popup-recovery.ts';
 import { registerQueueCases } from './cases/service-worker-queue.ts';
 import { registerRecoveryCases } from './cases/service-worker-recovery.ts';
 import { registerRefreshLaunchCases } from './cases/service-worker-refresh-launch.ts';
@@ -28,4 +29,5 @@ describe('service worker message handlers', () => {
   registerRecoveryCases();
   registerQueueCases();
   registerUpdateLifecycleCase();
+  registerPopupActivationRecoveryCase();
 });

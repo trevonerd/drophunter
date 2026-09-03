@@ -3,6 +3,7 @@ import type { RuntimeMode } from '../../shared/runtime-status';
 import type { AppState, TwitchDrop } from '../../types';
 import { CompactDropCard } from './DropCard';
 import { EyeOffIcon, MonitorIcon } from './icons';
+import { SelectedCampaignStatus } from './SelectedCampaignStatus';
 import {
   createSessionSummaryModel,
   effectiveTransport,
@@ -19,6 +20,7 @@ export interface SessionSummaryProps {
   recoveryNow: number;
   actionLoading: boolean;
   startDisabled: boolean;
+  showSelectedCampaignStatus: boolean;
   queueCount: number;
   startHighlighted: boolean;
   onStart: () => void;
@@ -90,6 +92,9 @@ export function SessionSummary(props: SessionSummaryProps) {
             </span>
           )}
         </div>
+        {props.showSelectedCampaignStatus && (
+          <SelectedCampaignStatus selectedGame={props.state.selectedGame} />
+        )}
         {!isRunning && model.detail && (
           <p className="mt-1 text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{model.detail}</p>
         )}

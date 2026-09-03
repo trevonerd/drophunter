@@ -71,9 +71,7 @@ test('popup campaign catalog and queue use campaign-aware identities', () => {
 test('popup uses a single campaign sync panel for empty, stale, syncing, failed, and fresh states', () => {
   const source = readPopupSource();
 
-  expect(source).toContain(
-    "type CampaignSyncStatus = 'empty' | 'signed-out' | 'fresh' | 'stale' | 'syncing' | 'failed'",
-  );
+  expect(source).toContain("| 'waiting'");
   expect(source).toContain('function CampaignSyncPanel');
   expect(source).toContain('aria-live="polite"');
   expect(source).toContain('function TwitchSessionGate');

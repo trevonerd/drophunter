@@ -10,7 +10,7 @@ import { isCampaignFarmable } from '../format';
 import { getGameToStartFromQueue, isSameQueuedGame } from '../queue-start';
 import { AutomationSummary } from './AutomationSummary';
 import { CampaignList } from './CampaignList';
-import { CampaignQueueControls, SelectedCampaignStatus } from './CampaignQueueControls';
+import { CampaignQueueControls } from './CampaignQueueControls';
 import { CampaignSyncPanel } from './CampaignSyncPanel';
 import { CheckIcon } from './icons';
 import type { MainViewProps } from './main-view-types';
@@ -102,6 +102,8 @@ export function MainView({
   const hasVisibleQueue = queueGames.some(
     (game) => !state.isRunning || !selectedGame || !isSameQueuedGame(game, selectedGame),
   );
+  const showSelectedCampaignStatus =
+    selectedGame !== null && sortedGames.some((game) => gameKey(game) === gameKey(selectedGame));
 
   return (
     <div className="flex flex-col">
@@ -136,6 +138,7 @@ export function MainView({
               recoveryNow={recoveryNow}
               actionLoading={actionLoading}
               startDisabled={startDisabled}
+              showSelectedCampaignStatus={showSelectedCampaignStatus}
               queueCount={queueGames.length}
               startHighlighted={onboardingStep === 'start'}
               onStart={onStart}
@@ -193,7 +196,6 @@ export function MainView({
                         <span>{firstSyncCampaignCount} campaigns loaded.</span>
                       </div>
                     )}
-                    <SelectedCampaignStatus selectedGame={state.selectedGame} />
                   </>
                 }
                 onOpenTwitchDrops={onOpenDropsPage}

@@ -102,7 +102,9 @@ export function createServiceWorkerStateLifecycle(
     };
     await dependencies.getFarmingSession().stop({ skipTimingStateSave: true });
     applyExtensionUpdateStateTransition(state, updateIntent);
+    state.lastLifecycleCheckAt = Date.now();
     await clearExtensionRuntimeStorage();
+    await saveTimingState(state);
     await persistExtensionResetState(state);
   }
 
@@ -114,6 +116,7 @@ export function createServiceWorkerStateLifecycle(
       await dependencies.getFarmingSession().stop({ skipTimingStateSave: true });
       applyExtensionDataClearStateTransition(state);
       await clearExtensionRuntimeStorage();
+      await saveTimingState(state);
       await persistExtensionResetState(state);
     })().finally(() => {
       extensionStorageResetInFlight = null;
