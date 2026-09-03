@@ -38,7 +38,7 @@ test('Twitch gate is reserved for confirmed terminal authentication blockage', (
     isStale: false,
   };
 
-  expect(deriveCampaignSyncStatus({ ...base, dropsRefreshLoading: false })).toBe('syncing');
+  expect(deriveCampaignSyncStatus({ ...base, dropsRefreshLoading: false })).toBe('waiting');
   expect(
     deriveCampaignSyncStatus({
       ...base,
@@ -67,7 +67,7 @@ test('Twitch gate is reserved for confirmed terminal authentication blockage', (
         error: 'offline',
       },
     }),
-  ).toBe('syncing');
+  ).toBe('waiting');
   expect(
     deriveCampaignSyncStatus({
       ...base,
@@ -79,10 +79,11 @@ test('Twitch gate is reserved for confirmed terminal authentication blockage', (
   ).toBe('signed-out');
 });
 
-test('a missing cached session stays neutral and never exposes Open Twitch', () => {
-  const savedCampaign = game({ campaignId: 'saved-campaign' });
+test('a closed Twitch tab settles into passive retry without stale campaign warnings', () => {
+  const savedCampaign = game({ campaignId: 'saved-campaign', isConnected: false });
   const state = {
-    ...appState(null),
+    ...appState(savedCampaign),
+    availableGames: [],
     twitchSessionDetected: false,
     twitchSessionSyncState: { status: 'retrying', attempts: 1, nextRetryAt: Date.now() + 60_000 },
     campaignSyncState: {
@@ -96,9 +97,22 @@ test('a missing cached session stays neutral and never exposes Open Twitch', () 
     queue: [savedCampaign],
   } satisfies AppState;
 
-  const markup = renderMainView(state, [savedCampaign], { campaignSyncStatus: 'syncing' });
+  const campaignSyncStatus = deriveCampaignSyncStatus({
+    dropsRefreshLoading: false,
+    activeSyncError: null,
+    gamesLoading: false,
+    availableCampaignCount: 0,
+    twitchSessionDetected: false,
+    isStale: false,
+    campaignSyncState: state.campaignSyncState,
+    twitchSessionSyncState: state.twitchSessionSyncState,
+  });
+  const markup = renderMainView(state, [savedCampaign], { campaignSyncStatus });
 
-  expect(markup).toContain('Updating campaigns…');
+  expect(campaignSyncStatus).toBe('waiting');
+  expect(markup).toContain('Campaign update will retry automatically.');
+  expect(markup).not.toContain('Updating campaigns…');
+  expect(markup).not.toContain('data-session-campaign-notice="true"');
   expect(markup).not.toContain('data-session-priority="twitch-required"');
   expect(markup).not.toContain('Open Twitch');
   expect(markup).not.toContain('offline');

@@ -60,7 +60,7 @@ export function getCampaignStatusLines(game: TwitchGame): readonly CampaignStatu
   if (game.isConnected === false) {
     statusLines.push({
       reason: 'disconnected',
-      text: 'Connect your game account on Twitch to unlock this campaign.',
+      text: `${game.name} account not linked. Link it in campaign details.`,
     });
   }
   return statusLines;

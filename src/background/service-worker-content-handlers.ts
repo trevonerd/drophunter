@@ -1,11 +1,12 @@
 import { browser } from '../shared/browser-api.ts';
 import { replaceAvailableGames } from '../shared/game-selection.ts';
 import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status.ts';
-import type { ActivationTrigger, CampaignSyncState } from '../types/index.ts';
+import type { ActivationTrigger } from '../types/index.ts';
 import {
   type ActivationSyncAttempt,
   createActivationSyncCoordinator,
 } from './activation-sync-coordinator.ts';
+import { persistCampaignSyncState } from './campaign-sync-state.ts';
 import { CAMPAIGN_SYNC_RETRY_ALARM_NAME } from './constants.ts';
 import { createDropsPageRefresher } from './drops-page-refresh.ts';
 import {
@@ -94,25 +95,11 @@ export function createServiceWorkerContentHandlers(
     broadcastStateUpdate,
   });
 
-  const publishCampaignSyncState = async (campaignSyncState: CampaignSyncState): Promise<void> => {
-    state.appState.campaignSyncState = campaignSyncState;
-    state.appState.dropsPageRefreshInProgress = campaignSyncState.status === 'syncing';
-    state.appState.lastDropsPageRefreshAttemptAt = campaignSyncState.lastAttemptAt;
-    state.appState.lastDropsPageRefreshCampaignCount = campaignSyncState.campaignCount;
-    if (campaignSyncState.status === 'idle' && campaignSyncState.lastSuccessAt !== null) {
-      state.appState.lastSuccessfulRefreshAt = campaignSyncState.lastSuccessAt;
-      state.appState.lastDropsPageRefreshCompletedAt = campaignSyncState.lastSuccessAt;
-      state.appState.lastDropsPageRefreshError = null;
-    } else if (campaignSyncState.status === 'needs-session') {
-      state.appState.lastDropsPageRefreshError = 'Open Twitch Drops so DropHunter can detect your session.';
-    } else if (campaignSyncState.status === 'retry-scheduled') {
-      state.appState.lastDropsPageRefreshError = campaignSyncState.error;
-    } else {
-      state.appState.lastDropsPageRefreshError = null;
-    }
-    await saveState(state);
-    broadcastStateUpdate(state.appState);
-  };
+  const publishCampaignSyncState = (campaignSyncState: Parameters<typeof persistCampaignSyncState>[1]) =>
+    persistCampaignSyncState(state, campaignSyncState, {
+      save: saveState,
+      broadcast: broadcastStateUpdate,
+    });
 
   const activationSyncCoordinator = createActivationSyncCoordinator({
     getCampaignSyncState: () => state.appState.campaignSyncState,
@@ -156,9 +143,10 @@ export function createServiceWorkerContentHandlers(
         }
       }
       const waitForRestoredTab = trigger === 'browser-start' || trigger === 'wake';
+      const canOpenMissingSessionTab = trigger === 'popup-open' || trigger === 'extension-update';
       const result = await dropsPageRefresher.openDropsPageAndRefresh({
         active: manual,
-        openIfMissing: manual,
+        openIfMissing: manual || (!state.twitchSessionCache && canOpenMissingSessionTab),
         waitForExistingTabMs: waitForRestoredTab ? 10_000 : 0,
       });
       if (!result.success) {

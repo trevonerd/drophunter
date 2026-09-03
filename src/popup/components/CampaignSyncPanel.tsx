@@ -30,7 +30,9 @@ export function CampaignSyncPanel({ status, error, hasCachedCampaigns, onRefresh
         ? 'Updating campaigns…'
         : status === 'syncing'
           ? 'Updating campaigns…'
-          : 'No active campaigns found.';
+          : status === 'waiting'
+            ? 'Campaign update will retry automatically.'
+            : 'No active campaigns found.';
 
   return (
     <section
@@ -50,7 +52,7 @@ export function CampaignSyncPanel({ status, error, hasCachedCampaigns, onRefresh
         </div>
         {isSyncing || status === 'stale' ? (
           <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent shrink-0 mt-0.5" />
-        ) : (
+        ) : status !== 'waiting' ? (
           <button
             type="button"
             onClick={onRefresh}
@@ -59,7 +61,7 @@ export function CampaignSyncPanel({ status, error, hasCachedCampaigns, onRefresh
             <DropsIcon size={14} />
             Open Twitch Drops
           </button>
-        )}
+        ) : null}
       </div>
     </section>
   );

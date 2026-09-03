@@ -21,7 +21,7 @@ test('all-acquired stays exclusive while disconnected account status remains ind
   expect(markup).not.toContain('data-campaign-indicator="unverifiable-twitch"');
 });
 
-test('selected disconnected campaign explains why it is locked', () => {
+test('selected disconnected campaign keeps its account-link notice inside the session summary', () => {
   // Given
   const selectedGame = game({ isConnected: false });
 
@@ -30,8 +30,12 @@ test('selected disconnected campaign explains why it is locked', () => {
 
   // Then
   expect(markup).toContain('data-campaign-indicator="disconnected"');
+  expect(markup).toContain('data-session-campaign-notice="true"');
   expect(markup).toContain('data-campaign-status-reason="disconnected"');
-  expect(markup).toContain('Connect your game account on Twitch to unlock this campaign.');
+  expect(markup).toContain('Example Game account not linked. Link it in campaign details.');
+  expect(markup.indexOf('data-session-campaign-notice="true"')).toBeLessThan(
+    markup.indexOf('Games and campaigns'),
+  );
 });
 
 test('subscription-required renders the payment-card indicator independently', () => {
@@ -110,4 +114,3 @@ test('campaign list keeps campaign identity while selected status indicators rem
   expect(disconnectedIndex).toBeGreaterThan(questionIndex);
   expect(markup).not.toContain('data-campaign-indicator="all-acquired"');
 });
-

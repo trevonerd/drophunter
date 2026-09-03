@@ -51,7 +51,14 @@ export const STREAMER_LANGUAGE_OPTIONS = [
   { value: 'zh_hk', label: 'ZH-HK' },
 ];
 
-export type CampaignSyncStatus = 'empty' | 'signed-out' | 'fresh' | 'stale' | 'syncing' | 'failed';
+export type CampaignSyncStatus =
+  | 'empty'
+  | 'signed-out'
+  | 'fresh'
+  | 'stale'
+  | 'syncing'
+  | 'waiting'
+  | 'failed';
 
 export interface CampaignSyncStatusInput {
   dropsRefreshLoading: boolean;
@@ -80,11 +87,11 @@ export function deriveCampaignSyncStatus({
   if (twitchSessionSyncState?.status === 'blocked') return 'signed-out';
   if (dropsRefreshLoading) return 'syncing';
   if (campaignSyncState?.status === 'retry-scheduled') {
-    return hasUsableCachedState ? 'fresh' : 'syncing';
+    return hasUsableCachedState ? 'fresh' : 'waiting';
   }
-  if (!gamesLoading && !twitchSessionDetected && !hasUsableCachedState) return 'syncing';
+  if (!gamesLoading && !twitchSessionDetected && !hasUsableCachedState) return 'waiting';
   if (campaignSyncState?.status === 'needs-session') {
-    return hasUsableCachedState ? 'fresh' : 'syncing';
+    return hasUsableCachedState ? 'fresh' : 'waiting';
   }
   if (campaignSyncState?.status === 'syncing') {
     return hasUsableCachedState ? 'fresh' : 'syncing';

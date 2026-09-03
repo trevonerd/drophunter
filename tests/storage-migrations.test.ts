@@ -154,7 +154,7 @@ describe('extension storage migration', () => {
     expect(mocks.storage.local._store.get(STORAGE_SCHEMA_VERSION_KEY)).toBe(STORAGE_SCHEMA_VERSION);
   });
 
-  test('resets volatile extension state before hydrating a different extension version', async () => {
+  test('resets volatile extension state while preserving the cached Twitch session across versions', async () => {
     const releasedTabs: number[] = [];
     mocks.chrome.tabs.setTabsGetResult({
       id: 91,
@@ -185,7 +185,7 @@ describe('extension storage migration', () => {
         watchFallbackReason: 'legacy fallback',
         tabId: 91,
       },
-      twitchSession: { oauthToken: 'stale-token', deviceId: 'stale-device' },
+      twitchSession: { oauthToken: 'cached-token', deviceId: 'cached-device' },
       twitchIntegrity: { token: 'stale-integrity' },
       dropsSnapshotCache: [{ id: 'stale-drop' }],
       timingState: { apiBackoffUntil: Date.now() + 60_000 },
@@ -239,8 +239,11 @@ describe('extension storage migration', () => {
       tabId: null,
     });
     expect(mocks.storage.local._store.get(EXTENSION_VERSION_STORAGE_KEY)).toBe('4.0.1');
+    expect(mocks.storage.local._store.get('twitchSession')).toEqual({
+      oauthToken: 'cached-token',
+      deviceId: 'cached-device',
+    });
     for (const key of [
-      'twitchSession',
       'twitchIntegrity',
       'dropsSnapshotCache',
       'timingState',
