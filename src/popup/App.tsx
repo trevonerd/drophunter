@@ -40,14 +40,18 @@ function App() {
     onboardingStep: onboarding.onboardingStep,
     setOnboardingStep: onboarding.setOnboardingStep,
   });
-  const { dropsRefreshLoading, activeSyncError, manualRefreshCampaignCount, openDropsPage } = useDropsRefresh(
-    {
-      state,
-      setState,
-      setQueueMessage: actions.setQueueMessage,
-      isStale,
-    },
-  );
+  const {
+    dropsRefreshLoading,
+    activeSyncError,
+    manualRefreshCampaignCount,
+    openDropsPage,
+    retryCampaignSync,
+  } = useDropsRefresh({
+    state,
+    setState,
+    setQueueMessage: actions.setQueueMessage,
+    isStale,
+  });
   const settings = useSettingsToggles({ state, setState });
   const telegram = useTelegramSettings({ state, setState });
   const runtimeMode = deriveRuntimeMode(state);
@@ -94,6 +98,7 @@ function App() {
         onPause: actions.handlePause,
         onResume: actions.handleResume,
         onStop: actions.handleStop,
+        onRetryCampaignSync: retryCampaignSync,
         onAddToQueue: (game) => void actions.handleAddToQueue(game ?? state.selectedGame),
         onAddAllToQueue: (games) => void actions.handleAddAllToQueue(games),
         onLinkAccount: actions.handleLinkAccount,

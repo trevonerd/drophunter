@@ -1,6 +1,10 @@
 import { getGameDisplayLabel } from '../shared/game-selection.ts';
 import { logWarn } from './logging.ts';
-import { applyNoStreamersRecoveryState, clearNoStreamersRecoveryState } from './recovery-state.ts';
+import {
+  applyDirectoryUnavailableRecoveryState,
+  applyNoStreamersRecoveryState,
+  clearStreamerAcquisitionRecoveryState,
+} from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   MAX_NO_STREAMERS_RETRIES,
@@ -9,6 +13,7 @@ import {
   type StreamRotationReason,
 } from './stream-rotation.ts';
 import type { RotateStreamerOptions } from './streamer-acquisition-contracts.ts';
+import { TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
 
 export type {
   OpenBestStreamerCallbacks,
@@ -25,20 +30,39 @@ export async function acquireStreamerForSelectedGame(
     onSkipCurrentGame?: () => Promise<void>;
     onSaveState?: () => Promise<void>;
     onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
+    isCurrent?: () => boolean;
   },
 ): Promise<boolean> {
+  if (opts?.isCurrent?.() === false) return false;
   if (!state.appState.selectedGame) return false;
   const now = Date.now();
-  const isRecovery = state.appState.recoveryReason === 'no-streamers';
-  if (isRecovery && state.recoveryBackoffUntil > now) return false;
-  const opened = opts?.onOpenStreamer ? await opts.onOpenStreamer() : false;
+  const isNoStreamersRecovery = state.appState.recoveryReason === 'no-streamers';
+  const isStreamerAcquisitionRecovery =
+    isNoStreamersRecovery || state.appState.recoveryReason === 'directory-unavailable';
+  if (isStreamerAcquisitionRecovery && state.recoveryBackoffUntil > now) return false;
+  let opened = false;
+  try {
+    opened = opts?.onOpenStreamer ? await opts.onOpenStreamer() : false;
+  } catch (error) {
+    if (!(error instanceof TwitchDirectoryUnavailableError)) throw error;
+    const retryAt = Math.max(state.apiBackoffUntil, now + NO_STREAMERS_RETRY_MS);
+    applyDirectoryUnavailableRecoveryState(state, retryAt, Math.max(1, state.apiConsecutiveFailures));
+    logWarn('Twitch streamer search unavailable; scheduling retry', {
+      game: getGameDisplayLabel(state.appState.selectedGame),
+      retryAt,
+    });
+    await opts?.onSaveState?.();
+    await opts?.onSaveTimingState?.(state);
+    return false;
+  }
+  if (opts?.isCurrent?.() === false) return false;
   if (opened) {
-    clearNoStreamersRecoveryState(state);
+    clearStreamerAcquisitionRecoveryState(state);
     await opts?.onSaveState?.();
     await opts?.onSaveTimingState?.(state);
     return true;
   }
-  const previousAttempts = isRecovery ? Math.max(0, state.appState.recoveryAttempts ?? 0) : 0;
+  const previousAttempts = isNoStreamersRecovery ? Math.max(0, state.appState.recoveryAttempts ?? 0) : 0;
   if (previousAttempts >= MAX_NO_STREAMERS_RETRIES) {
     await opts?.onSkipCurrentGame?.();
     await opts?.onSaveState?.();
@@ -47,7 +71,7 @@ export async function acquireStreamerForSelectedGame(
   }
   const retryAt = now + NO_STREAMERS_RETRY_MS;
   applyNoStreamersRecoveryState(state, retryAt, previousAttempts + 1);
-  logWarn('No live streamers found; scheduling one retry', {
+  logWarn('No eligible streamer found for current Drops; scheduling one retry', {
     game: getGameDisplayLabel(state.appState.selectedGame),
     retryAt,
     attempts: previousAttempts + 1,

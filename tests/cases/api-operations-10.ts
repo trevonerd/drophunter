@@ -83,6 +83,23 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(state.apiBackoffUntil).toBe(0);
   });
 
+  test('rethrows HTTP 200 GraphQL OAuth errors so wrappers can recover the session', async () => {
+    const { fetchDropsSnapshotFromApi, getLastTwitchApiFailure } = await import(
+      '../../src/background/api-operations.ts'
+    );
+
+    const state = createMinimalState({ apiConsecutiveFailures: 0 });
+    const session = createSession();
+    originalFetch = installFetchMock([
+      async () => ({ data: null, errors: [{ message: 'Unauthorized' }] }),
+      async () => buildInventoryResponse(),
+    ]);
+
+    await expect(fetchDropsSnapshotFromApi(state, session)).rejects.toThrow('Unauthorized');
+    expect(getLastTwitchApiFailure(state)).toMatchObject({ kind: 'auth' });
+    expect(state.apiConsecutiveFailures).toBe(0);
+  });
+
   test('backoff is capped at 10 minutes with high failure count', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../../src/background/api-operations.ts');
 
@@ -98,6 +115,23 @@ describe('fetchDropsSnapshotFromApi', () => {
     await fetchDropsSnapshotFromApi(state, session);
 
     expect(state.apiBackoffUntil).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000 + 1000);
+  });
+
+  test('retains Twitch Retry-After when a snapshot request is rate limited', async () => {
+    const { fetchDropsSnapshotFromApi, getLastTwitchApiFailure } = await import(
+      '../../src/background/api-operations.ts'
+    );
+
+    const state = createMinimalState();
+    const session = createSession();
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response('{}', { status: 429, headers: { 'Retry-After': '120' } })) as FetchMock;
+
+    const before = Date.now();
+    expect(await fetchDropsSnapshotFromApi(state, session)).toBeNull();
+    expect(getLastTwitchApiFailure(state)).toMatchObject({ kind: 'rate-limit', retryAfterMs: 120_000 });
+    expect(state.apiBackoffUntil).toBeGreaterThanOrEqual(before + 120_000);
   });
 
   test('uses existing integrity token when integrityFallbackActive and not expired', async () => {

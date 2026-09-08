@@ -19,6 +19,7 @@ export function createDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     id: 'reward-1',
     name: 'Reward',
     gameId: 'game-1',
+    campaignId: 'campaign-1',
     gameName: 'Test Game',
     imageUrl: '',
     progress: 0,

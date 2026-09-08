@@ -149,6 +149,8 @@ export function registerQueue17Part01() {
       expect(result.success).toBe(false);
       expect(result.error).toBe('No farmable drops for this game.');
       expect(state.appState.isRunning).toBe(false);
+      expect(state.appState.manualQueueAuthorized).toBe(false);
+      expect(state.appState.farmingSessionOrigin).toBeNull();
     });
 
     test('rejects Start when refresh makes the selected campaign farming-complete', async () => {

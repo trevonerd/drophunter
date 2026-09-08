@@ -59,6 +59,7 @@ function isManualWatch(input: unknown): input is FarmingAutomationManualWatchV1 
     isRecord(input) &&
     (input.kind === 'eligible-manual' || input.kind === 'automation-paused') &&
     isFiniteNumber(input.observedAt) &&
+    (input.stoppedAt === undefined || input.stoppedAt === null || isFiniteNumber(input.stoppedAt)) &&
     isFiniteNumber(input.expiresAt) &&
     isFiniteNumber(input.recheckAt)
   );
@@ -97,6 +98,7 @@ export function normalizeFarmingAutomationFacts(
     ? {
         kind: input.manualWatch.kind,
         observedAt: input.manualWatch.observedAt,
+        stoppedAt: isFiniteNumber(input.manualWatch.stoppedAt) ? input.manualWatch.stoppedAt : null,
         expiresAt: input.manualWatch.expiresAt,
         recheckAt: input.manualWatch.recheckAt,
       }
@@ -135,7 +137,7 @@ export function normalizeFarmingAutomationFacts(
         ]))) &&
     (input.manualWatch === null ||
       (isManualWatch(input.manualWatch) &&
-        hasOnlyKeys(input.manualWatch, ['kind', 'observedAt', 'expiresAt', 'recheckAt']))) &&
+        hasOnlyKeys(input.manualWatch, ['kind', 'observedAt', 'stoppedAt', 'expiresAt', 'recheckAt']))) &&
     (input.nextEvaluationAt === null || isFiniteNumber(input.nextEvaluationAt)) &&
     Array.isArray(input.suppressedCampaignKeys) &&
     input.suppressedCampaignKeys.length === suppressedCampaignKeys.length &&

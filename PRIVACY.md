@@ -12,7 +12,7 @@ DropHunter accesses the following data from **twitch.tv**:
 
 If you configure and enable **Telegram alerts**, DropHunter also accesses:
 
-- **Telegram bot token and chat ID** — supplied by you to authenticate with the Telegram Bot API and select the chat that receives claim alerts.
+- **Telegram bot token and chat ID** — supplied by you to authenticate with the Telegram Bot API and select the chat that receives enabled reward and farming-event alerts.
 
 ## How data is used
 
@@ -22,7 +22,12 @@ All data is used **solely** to operate the extension's core functionality:
 2. Opening and managing stream tabs for watch-time accrual
 3. Tracking drop progress and claiming rewards automatically
 4. Displaying status information in the extension popup and live monitor
-5. Sending an optional claim notification through Telegram only after you configure the feature, grant its optional host permission, and enable alerts
+5. Sending optional reward and farming-event notifications through Telegram only after you configure the feature, grant its optional host permission, and enable the corresponding alerts
+
+To recover after a browser restart or a session failure, DropHunter checks existing
+Twitch pages and may open one temporary Twitch Drops tab in the background. It
+does not move focus to that tab. It closes the temporary tab only while it remains
+owned by the extension and has not been used by you.
 
 ## Data storage
 
@@ -36,11 +41,11 @@ No data is written to external servers, databases, analytics tools, or cloud ser
 
 ## Data sharing
 
-DropHunter does not sell user data, use it for advertising or analytics, or send it to developer-owned servers. It does not store or log your Twitch credentials outside your browser's existing Twitch session.
+DropHunter does not sell user data, use it for advertising or analytics, or send it to developer-owned servers. Twitch credentials are stored only in your browser, including the extension's local recovery snapshot, and are never included in notifications or diagnostic logs.
 
 Core network requests are directed to **twitch.tv** domains, using your existing Twitch session to perform the same actions you would perform manually: checking campaigns, watching eligible streams, and claiming Drops.
 
-If you explicitly configure and enable **Telegram alerts**, DropHunter sends a claim notification to **api.telegram.org** through the bot and chat ID you provide. Telegram receives the bot token and chat ID needed to deliver the alert, plus the claimed Drop name, benefit name when available, campaign or game label, claim time, selected farming campaign, active streamer name, and reward image URL when available. This data is sent only to the Telegram chat you specify. Telegram alerts are disabled by default and require optional host permission.
+If you explicitly configure and enable **Telegram alerts**, DropHunter sends notifications to **api.telegram.org** through the bot and chat ID you provide. Reward alerts may include the claimed Drop name, benefit name when available, campaign or game label, claim time, selected farming campaign, active streamer name, and reward image URL. Enabled farming-event alerts may include campaign discovery, automatic starts and campaign changes, suspension or recovery status, completion, and a reason when your attention is needed. Twitch session credentials are never included. This data is sent only to the Telegram chat you specify. Telegram alerts are disabled by default and require optional host permission.
 
 DropHunter does **not** include:
 
@@ -58,7 +63,7 @@ DropHunter does **not** include:
 | `storage` | Persist extension state (queue, progress) across browser sessions |
 | `scripting` | Inject content scripts into Twitch pages to control video playback |
 | `notifications` (optional) | Notify you when drops are claimed or issues arise, only after you enable notifications |
-| `optional host access` to `api.telegram.org` (optional) | Send Telegram claim alerts only after you enable Telegram alerts and grant the permission |
+| `optional host access` to `api.telegram.org` (optional) | Send the Telegram reward and farming-event alerts you enable, after you grant the permission |
 | `alarms` | Keep the background farming loop running reliably |
 | `host_permissions` (twitch.tv) | Access Twitch pages and API endpoints |
 

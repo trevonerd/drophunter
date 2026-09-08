@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { projectDropsSnapshot } from '../src/background/drops-projection.ts';
 import {
   markDropUnverifiable,
   reconcileUnverifiableRewardMarkers,
 } from '../src/background/drops-projection-semantics.ts';
+import { snapshotProvenance } from '../src/background/drops-snapshot-provenance.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
@@ -132,4 +134,32 @@ describe('authoritative reward-set completeness', () => {
     // Then
     expect(markers).toEqual({});
   });
+});
+
+test('an omitted campaign-verification flag cannot clear a stall block or terminal summary', () => {
+  const state = createServiceWorkerState();
+  const terminalCampaign = {
+    ...authoritativeCampaign,
+    rewardSummary: { completion: 'farming-complete' as const, remainderReasons: [] },
+  };
+  state.appState.selectedGame = terminalCampaign;
+  state.appState.availableGames = [terminalCampaign];
+  state.appState.stalledCampaignBlocksByKey = {
+    'campaign:campaign-1': {
+      blockedAt: 1,
+      rotationAttempts: 3,
+      eligibleStreamerNames: ['old-channel'],
+    },
+  };
+  const snapshot = {
+    games: [authoritativeCampaign],
+    drops: [{ ...staleObservation, progress: 100, currentMinutes: 60 }],
+    inventoryVerified: true,
+    updatedAt: 2,
+  };
+
+  projectDropsSnapshot(state, snapshot, snapshotProvenance(snapshot));
+
+  expect(state.appState.selectedGame?.rewardSummary).toEqual(terminalCampaign.rewardSummary);
+  expect(state.appState.stalledCampaignBlocksByKey['campaign:campaign-1']).toBeDefined();
 });

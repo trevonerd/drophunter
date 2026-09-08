@@ -1,4 +1,5 @@
 // Owns selection changes and their campaign-aware refresh/rebinding sequence.
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import type { TwitchDrop, TwitchGame } from '../types';
 import { rememberInspectedCampaignSummary } from './drops-projection-semantics.ts';
 import { markQueueEntryManual } from './queue-operations';
@@ -38,6 +39,9 @@ export async function handleSetSelectedGame(
   const selectedGame = deps.resolveGameFromState(state, payload.game);
   if (!selectedGame) {
     return { success: false, error: 'Campaign is no longer available.' };
+  }
+  if (state.appState.isRunning && !state.appState.isPaused && campaignRejectionReason(selectedGame)) {
+    return { success: false, error: 'Campaign has no remaining farmable rewards or has expired.' };
   }
   deps.logDebug('Selected game changed', {
     payloadGameId: payload.game.id,
@@ -102,7 +106,17 @@ export async function handleSetSelectedGame(
       cachedDrops: state.cachedDropsSnapshot.length,
     });
   }
-  if (state.appState.isRunning && !state.appState.isPaused) {
+  const refreshedGame = state.appState.selectedGame
+    ? deps.resolveGameFromState(state, state.appState.selectedGame)
+    : null;
+  if (
+    state.appState.isRunning &&
+    !state.appState.isPaused &&
+    state.appState.selectedGame &&
+    !campaignRejectionReason(state.appState.selectedGame) &&
+    refreshedGame &&
+    !campaignRejectionReason(refreshedGame)
+  ) {
     state.appState.activeStreamer = null;
     await callbacks.onOpenBestStreamer();
   }

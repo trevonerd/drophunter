@@ -10,6 +10,7 @@ import {
 } from './api-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { SessionRecoveryMode, TwitchApiRequestOptions } from './session-orchestrator.ts';
+import { TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
 import { markTwitchSessionRetrying } from './twitch-session-sync.ts';
 
@@ -17,7 +18,7 @@ export interface FetchInventorySnapshotFromApiCallbacks {
   onEnsureTwitchSession: () => Promise<TwitchSession | null>;
   onRecoverTwitchSessionAfterAuthError?: (mode: SessionRecoveryMode) => Promise<TwitchSession | null>;
   onIsLikelyAuthError: (error: unknown) => boolean;
-  onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
+  onClearTwitchSessionCache: (state: ServiceWorkerState) => Promise<void> | void;
   onStopFarmingSession?: FetchDropsSnapshotFromApiCallbacks['onStopFarmingSession'];
 }
 
@@ -58,7 +59,7 @@ export async function fetchInventorySnapshotFromApiWrapper(
     return await fetchInventorySnapshotFromApi(state, session, baseDrops);
   } catch (error) {
     if (callbacks.onIsLikelyAuthError(error)) {
-      callbacks.onClearTwitchSessionCache(state);
+      await callbacks.onClearTwitchSessionCache(state);
       if (!authRecoveryAttempted && callbacks.onRecoverTwitchSessionAfterAuthError) {
         const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError(recoveryMode);
         if (recovered) {
@@ -85,7 +86,7 @@ export async function fetchInventorySnapshotFromApiWrapper(
 export interface FetchDirectoryStreamersFromApiCallbacks {
   onEnsureTwitchSession: (forceRefresh?: boolean) => Promise<TwitchSession | null>;
   onIsLikelyAuthError: (error: unknown) => boolean;
-  onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
+  onClearTwitchSessionCache: (state: ServiceWorkerState) => Promise<void> | void;
 }
 
 export async function fetchDirectoryStreamersFromApiWrapper(
@@ -102,12 +103,12 @@ export async function fetchDirectoryStreamersFromApiWrapper(
     return await fetchDirectoryStreamersFromApi(state, game, session, language);
   } catch (error) {
     if (session && callbacks.onIsLikelyAuthError(error)) {
-      callbacks.onClearTwitchSessionCache(state);
+      await callbacks.onClearTwitchSessionCache(state);
       if (!forceSessionRefresh) {
         return fetchDirectoryStreamersFromApiWrapper(state, game, true, language, callbacks, deps);
       }
     }
     deps.logWarn('Twitch API directory fetch failed:', String(error));
-    return Object.assign([], { languageFilterApplied: false });
+    throw new TwitchDirectoryUnavailableError(error);
   }
 }

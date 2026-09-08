@@ -1,3 +1,4 @@
+import { createTwitchHttpError, TwitchInvalidResponseError } from './errors';
 import { DEFAULT_TWITCH_CLIENT_ID, TwitchGraphQLResponse, TwitchSession } from './types';
 
 const GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
@@ -25,12 +26,12 @@ async function fetchWithTimeout(
   }
 }
 
-function createErrorFromResponse(payload: unknown): Error {
+function createErrorFromResponse(payload: unknown): TwitchInvalidResponseError {
   if (Array.isArray(payload)) {
-    return new Error('Unexpected batched response from Twitch GQL.');
+    return new TwitchInvalidResponseError('Unexpected batched response from Twitch GQL.');
   }
   if (!payload || typeof payload !== 'object') {
-    return new Error('Invalid Twitch GQL response.');
+    return new TwitchInvalidResponseError('Invalid Twitch GQL response.');
   }
 
   const response = payload as TwitchGraphQLResponse<unknown>;
@@ -39,11 +40,11 @@ function createErrorFromResponse(payload: unknown): Error {
       .map((entry) => entry.message)
       .find((message) => typeof message === 'string' && message.trim().length > 0);
     if (firstMessage) {
-      return new Error(firstMessage);
+      return new TwitchInvalidResponseError(firstMessage);
     }
   }
 
-  return new Error('Twitch GQL request failed.');
+  return new TwitchInvalidResponseError('Twitch GQL request failed.');
 }
 
 export class TwitchGqlTransport {
@@ -84,7 +85,7 @@ export class TwitchGqlTransport {
 
     const json = await response.json().catch(() => null);
     if (!response.ok) {
-      throw new Error(`Twitch GQL HTTP ${response.status}`);
+      throw createTwitchHttpError('gql', response);
     }
 
     if (!json || Array.isArray(json) || typeof json !== 'object') {
@@ -97,7 +98,7 @@ export class TwitchGqlTransport {
     }
 
     if (!typed.data) {
-      throw new Error('Missing data in Twitch GQL response.');
+      throw new TwitchInvalidResponseError('Missing data in Twitch GQL response.');
     }
 
     return typed.data;
@@ -112,7 +113,7 @@ export class TwitchGqlTransport {
 
     const json = await response.json().catch(() => null);
     if (!response.ok) {
-      throw new Error(`Twitch GQL HTTP ${response.status}`);
+      throw createTwitchHttpError('gql', response);
     }
 
     if (!json || Array.isArray(json) || typeof json !== 'object') {
@@ -125,7 +126,7 @@ export class TwitchGqlTransport {
     }
 
     if (!typed.data) {
-      throw new Error('Missing data in Twitch GQL response.');
+      throw new TwitchInvalidResponseError('Missing data in Twitch GQL response.');
     }
 
     return typed.data;
@@ -140,7 +141,7 @@ export class TwitchGqlTransport {
 
     const json = await response.json().catch(() => null);
     if (!response.ok) {
-      throw new Error(`Twitch GQL HTTP ${response.status}`);
+      throw createTwitchHttpError('gql', response);
     }
 
     if (!Array.isArray(json)) {
@@ -168,7 +169,7 @@ export async function fetchTwitchIntegrityToken(session: TwitchSession): Promise
   });
 
   if (!response.ok) {
-    throw new Error(`Twitch integrity HTTP ${response.status}`);
+    throw createTwitchHttpError('integrity', response);
   }
 
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;

@@ -62,6 +62,7 @@ export interface OpenBestStreamerCallbacks {
   ) => Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>;
   onOpenForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;
   onOpenWatchTransport?: (streamer: TwitchStreamer) => Promise<boolean>;
+  isCurrent?: () => boolean;
 }
 
 export function rotateStreamerOptsFrom(

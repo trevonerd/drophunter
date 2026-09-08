@@ -16,7 +16,10 @@ describe('campaign sync state migration', () => {
       lastAttemptAt: 100,
       lastSuccessAt: 90,
       campaignCount: 12,
+      retryAttemptCount: 0,
+      lastErrorKind: null,
       nextRetryAt: null,
+      attemptDeadlineAt: null,
     });
   });
 
@@ -33,5 +36,50 @@ describe('campaign sync state migration', () => {
 
     expect(state.campaignSyncState.status).toBe('idle');
     expect(state.campaignSyncState.lastAttemptAt).toBe(200);
+  });
+
+  test('preserves a bounded in-flight attempt for coordinator recovery', () => {
+    const state = normalizeStoredAppState({
+      campaignSyncState: {
+        status: 'syncing',
+        lastAttemptAt: 200,
+        lastSuccessAt: 150,
+        campaignCount: 4,
+        retryAttemptCount: 2,
+        lastErrorKind: 'network',
+        nextRetryAt: null,
+        attemptDeadlineAt: 290,
+      },
+    });
+
+    expect(state.campaignSyncState).toMatchObject({
+      status: 'syncing',
+      retryAttemptCount: 2,
+      lastErrorKind: 'network',
+      attemptDeadlineAt: 290,
+    });
+  });
+
+  test('preserves an actionable retry failure without inventing a retry time', () => {
+    const state = normalizeStoredAppState({
+      campaignSyncState: {
+        status: 'retry-failed',
+        lastAttemptAt: 300,
+        lastSuccessAt: null,
+        campaignCount: 4,
+        retryAttemptCount: 3,
+        lastErrorKind: 'rate-limit',
+        nextRetryAt: null,
+        attemptDeadlineAt: null,
+        error: 'Retry scheduling failed; retry manually.',
+      },
+    });
+
+    expect(state.campaignSyncState).toMatchObject({
+      status: 'retry-failed',
+      retryAttemptCount: 3,
+      lastErrorKind: 'rate-limit',
+      nextRetryAt: null,
+    });
   });
 });

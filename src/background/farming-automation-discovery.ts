@@ -1,3 +1,4 @@
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { gameKey } from '../shared/game-selection.ts';
 import type { CampaignAvailability } from '../types/index.ts';
 import type { FarmingAutomationFailureReason } from './farming-automation-contracts.ts';
@@ -6,10 +7,13 @@ import {
   eligibleFarmingAutomationStreamers,
   type FarmingAutomationDirectoryCacheEntry,
 } from './farming-automation-gates.ts';
+import { reconcileFarmingAutomationSnapshot } from './farming-automation-reconciliation.ts';
 import type {
   FarmingAutomationTwitchAdapter,
   FarmingAutomationTwitchSnapshot,
 } from './farming-automation-twitch.ts';
+import { logDebug } from './logging.ts';
+import type { ServiceWorkerState } from './runtime-state.ts';
 
 export type FarmingAutomationDiscoveryResult =
   | {
@@ -30,6 +34,7 @@ export async function discoverFarmingAutomationCandidates(
   twitch: FarmingAutomationTwitchAdapter,
   language: string,
   now: number,
+  state?: ServiceWorkerState,
 ): Promise<FarmingAutomationDiscoveryResult> {
   let refreshed: Awaited<ReturnType<FarmingAutomationTwitchAdapter['refresh']>>;
   try {
@@ -42,11 +47,21 @@ export async function discoverFarmingAutomationCandidates(
     return { kind: 'failed', reason: 'twitch-session-missing' };
   }
 
+  const snapshot = state ? reconcileFarmingAutomationSnapshot(refreshed.snapshot, state) : refreshed.snapshot;
   const directories = new Map<string, FarmingAutomationDirectoryCacheEntry>();
   const availability: Record<string, CampaignAvailability> = {};
-  const farmableGames = refreshed.snapshot.games.filter(
-    (game) => game.rewardSummary?.completion === 'farmable',
-  );
+  const farmableGames = snapshot.games.filter((game) => {
+    const rejectionReason =
+      campaignRejectionReason(cloneFarmingAutomationGame(game), now) ??
+      (game.rewardSummary?.completion === 'farmable' ? null : 'unclassified');
+    if (rejectionReason === null) return true;
+    logDebug('Campaign rejected before automatic queue planning', {
+      campaignId: game.campaignId,
+      completion: game.rewardSummary?.completion,
+      rejectionReason,
+    });
+    return false;
+  });
   let directoryResponses: readonly {
     readonly game: ReturnType<typeof cloneFarmingAutomationGame>;
     readonly directory: Awaited<ReturnType<typeof twitch.fetchDirectory>>;
@@ -73,5 +88,5 @@ export async function discoverFarmingAutomationCandidates(
     });
     availability[gameKey(game)] = { eligibleStreamerCount: streamers.length, updatedAt: now };
   }
-  return { kind: 'ready', snapshot: refreshed.snapshot, directories, availability };
+  return { kind: 'ready', snapshot, directories, availability };
 }

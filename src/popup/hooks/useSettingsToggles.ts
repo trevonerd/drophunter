@@ -105,13 +105,9 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
 
   const handleAutoStartFavoriteGamesToggle = async () => {
     const next = !stateRef.current.autoStartFavoriteGames;
-    setNotificationPermissionDenied(false);
-    const result = await transactions.run({
+    await transactions.run({
       key: 'autoStartFavoriteGames',
       next,
-      authorize: next
-        ? () => browser.permissions.request(NOTIFICATION_PERMISSION).catch(() => false)
-        : undefined,
       send: () =>
         sendRuntimeMessage({
           type: 'SET_AUTO_START_FAVORITES',
@@ -119,12 +115,8 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
         }),
       successPatch: (response) => ({
         autoStartFavoriteGames: response.autoStartFavoriteGames ?? next,
-        notificationsEnabled: next ? true : stateRef.current.notificationsEnabled,
       }),
     });
-    if (result.kind === 'rejected') {
-      setNotificationPermissionDenied(next);
-    }
   };
 
   const handleFarmCategoryScopeChange = async (scope: FarmCategoryScope) => {

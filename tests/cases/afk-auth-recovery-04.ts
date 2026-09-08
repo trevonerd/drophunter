@@ -94,4 +94,42 @@ describe('AFK Twitch authentication recovery', () => {
     expect(stopOptions?.stopReason).toBe('sign-in-required');
     expect(state.appState.twitchSessionSyncState.status).toBe('blocked');
   });
+
+  test('delivers sign-in-required once through the common notifier', async () => {
+    const state = createState();
+    const automaticEvents: Array<{ event: string; transitionId: string; message: string }> = [];
+    let legacyNotifications = 0;
+    const farmingSession = createFarmingSession(
+      state,
+      createAdapters({
+        notify: async () => {
+          legacyNotifications += 1;
+        },
+        telegramSystemAlert: async () => {
+          legacyNotifications += 1;
+        },
+        automationNotify: async (notification) => {
+          automaticEvents.push(notification);
+        },
+      }),
+    );
+
+    await farmingSession.stop({
+      notification: { title: 'Sign-in required', message: 'Please sign in to Twitch.' },
+      stopReason: 'sign-in-required',
+      stopMessage: 'Please sign in to Twitch.',
+    });
+
+    expect(legacyNotifications).toBe(0);
+    expect(automaticEvents).toEqual([
+      {
+        event: 'sign-in-required',
+        transitionId: 'sign-in-required:campaign-1:0',
+        message: 'Please sign in to Twitch.',
+        campaignId: 'campaign-1',
+        title: 'Sign-in required',
+        telegramReason: 'sign-in-required',
+      },
+    ]);
+  });
 });

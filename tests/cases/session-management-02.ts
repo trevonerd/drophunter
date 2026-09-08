@@ -80,15 +80,15 @@ describe('clearTwitchSessionCache', () => {
     mocks.teardown();
   });
 
-  test('nulls twitchSessionCache on state', () => {
+  test('nulls twitchSessionCache on state', async () => {
     const state = createMinimalState({ twitchSessionCache: validSession() });
-    clearTwitchSessionCache(state);
+    await clearTwitchSessionCache(state);
     expect(state.twitchSessionCache).toBeNull();
   });
 
   test('clears session from storage', async () => {
     const state = createMinimalState();
-    clearTwitchSessionCache(state);
+    await clearTwitchSessionCache(state);
     expect(mocks.storage.local._store.has(TWITCH_SESSION_STORAGE_KEY)).toBe(false);
   });
 });

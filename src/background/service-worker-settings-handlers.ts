@@ -1,6 +1,7 @@
 import { applyAutoClaimDropsSetting } from './auto-claim.ts';
 import { applyAutoClaimChannelPointsBonusSetting } from './channel-points.ts';
 import { clearClaimLog, loadClaimLog } from './claim-log.ts';
+import type { createNotificationController } from './notifications.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   createServiceWorkerAutomationSettingsHandlers,
@@ -23,10 +24,15 @@ type TelegramNotifier = Pick<
   ReturnType<typeof createTelegramNotifier>,
   'sendTestAlert' | 'setTelegramAlertsEnabled' | 'setTelegramCredentials'
 >;
+type NotificationController = Pick<
+  ReturnType<typeof createNotificationController>,
+  'setNotificationsEnabled'
+>;
 
 interface ServiceWorkerSettingsDependencies extends ServiceWorkerAutomationSettingsDependencies {
   readonly stateLifecycle: StateLifecycle;
   readonly telegramNotifier: TelegramNotifier;
+  readonly notificationController: NotificationController;
 }
 
 export function createServiceWorkerSettingsHandlers(
@@ -63,10 +69,6 @@ export function createServiceWorkerSettingsHandlers(
     const result = await dependencies.notificationController.setNotificationsEnabled(
       payload?.enabled !== false,
     );
-    if (!result.notificationsEnabled && state.appState.autoStartFavoriteGames) {
-      state.appState.autoStartFavoriteGames = false;
-      await saveState(state);
-    }
     return result;
   }
 

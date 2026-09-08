@@ -1,4 +1,3 @@
-import { browser } from '../shared/browser-api.ts';
 import { DROPS_SNAPSHOT_CACHE_KEY } from './constants.ts';
 import type {
   FarmingAutomationFactsV1,
@@ -21,68 +20,12 @@ import {
   normalizeFarmingSessionTransitionReceipt,
 } from './farming-automation-facts.ts';
 
-export class InMemoryFarmingAutomationStorage {
-  readonly local: FarmingAutomationStorageArea;
-  readonly session: FarmingAutomationStorageArea;
-  private readonly localValues = new Map<string, unknown>();
-  private readonly sessionValues = new Map<string, unknown>();
-  private readonly localSetPayloads: Readonly<Record<string, unknown>>[] = [];
-  private localWriteFailuresRemaining = 0;
+import { chromeStorageArea, type InMemoryFarmingAutomationStorage } from './farming-automation-storage.ts';
 
-  constructor() {
-    this.local = this.createArea(this.localValues, 'local');
-    this.session = this.createArea(this.sessionValues, 'session');
-  }
-
-  seedLocal(key: string, value: unknown): void {
-    this.localValues.set(key, structuredClone(value));
-  }
-
-  getLocal(key: string): unknown {
-    return structuredClone(this.localValues.get(key));
-  }
-
-  getLocalSetPayloads(): readonly Readonly<Record<string, unknown>>[] {
-    return structuredClone(this.localSetPayloads);
-  }
-
-  failNextLocalSet(): void {
-    this.localWriteFailuresRemaining += 1;
-  }
-
-  restartBrowser(): void {
-    this.sessionValues.clear();
-  }
-
-  private createArea(values: Map<string, unknown>, scope: 'local' | 'session'): FarmingAutomationStorageArea {
-    return {
-      get: async (keys) => {
-        const result: Record<string, unknown> = {};
-        for (const key of keys) {
-          if (values.has(key)) result[key] = structuredClone(values.get(key));
-        }
-        return result;
-      },
-      set: async (items) => {
-        if (scope === 'local' && this.localWriteFailuresRemaining > 0) {
-          this.localWriteFailuresRemaining -= 1;
-          throw new DOMException('Injected local storage failure', 'InMemoryStorageWriteError');
-        }
-        if (scope === 'local') this.localSetPayloads.push(structuredClone(items));
-        for (const [key, value] of Object.entries(items)) {
-          values.set(key, structuredClone(value));
-        }
-      },
-      remove: async (keys) => {
-        for (const key of keys) values.delete(key);
-      },
-    };
-  }
-}
-
-export function createInMemoryFarmingAutomationStorage(): InMemoryFarmingAutomationStorage {
-  return new InMemoryFarmingAutomationStorage();
-}
+export {
+  createInMemoryFarmingAutomationStorage,
+  InMemoryFarmingAutomationStorage,
+} from './farming-automation-storage.ts';
 
 async function tryStorageWrite(operation: () => Promise<void>): Promise<boolean> {
   try {
@@ -135,15 +78,67 @@ function createPersistence(
   local: FarmingAutomationStorageArea,
   session: FarmingAutomationStorageArea,
 ): FarmingAutomationPersistence {
+  const stateSignature = () =>
+    JSON.stringify([context.getSessionRevision(), context.state.appState, context.state.cachedDropsSnapshot]);
+  const writeCurrentState = async (): Promise<void> => {
+    let signature: string;
+    do {
+      signature = stateSignature();
+      await local.set({
+        appState: structuredClone(context.state.appState),
+        [DROPS_SNAPSHOT_CACHE_KEY]: structuredClone(context.state.cachedDropsSnapshot),
+      });
+    } while (signature !== stateSignature());
+  };
+  const guardedWrite = async (
+    values: Readonly<Record<string, unknown>>,
+    publish: () => void,
+  ): Promise<'written' | 'stale' | 'failed'> => {
+    const signature = stateSignature();
+    const metadataKeys = Object.keys(values).filter(
+      (key) => key !== 'appState' && key !== DROPS_SNAPSHOT_CACHE_KEY,
+    );
+    let stale = false;
+    const written = await tryStorageWrite(async () => {
+      const previousMetadata = metadataKeys.length > 0 ? await local.get(metadataKeys) : {};
+      if (signature !== stateSignature()) {
+        stale = true;
+        return;
+      }
+      await local.set(values);
+      if (signature === stateSignature()) {
+        publish();
+        return;
+      }
+      stale = true;
+      if (metadataKeys.length > 0) {
+        const currentMetadata = await local.get(metadataKeys);
+        const ownedKeys = metadataKeys.filter(
+          (key) => JSON.stringify(currentMetadata[key]) === JSON.stringify(values[key]),
+        );
+        await local.set(
+          Object.fromEntries(
+            ownedKeys.filter((key) => key in previousMetadata).map((key) => [key, previousMetadata[key]]),
+          ),
+        );
+        await local.remove(ownedKeys.filter((key) => !(key in previousMetadata)));
+      }
+      await writeCurrentState();
+    });
+    return !written ? 'failed' : stale ? 'stale' : 'written';
+  };
   const persistAppState = async (
     nextAppState: FarmingAutomationPersistenceContext['state']['appState'],
     values: Readonly<Record<string, unknown>>,
   ): Promise<FarmingAutomationPersistenceWrite> => {
-    if (!(await tryStorageWrite(() => local.set({ ...values, appState: nextAppState })))) {
+    if (
+      (await guardedWrite({ ...values, appState: nextAppState }, () => {
+        context.state.appState = nextAppState;
+        context.broadcast(nextAppState);
+      })) !== 'written'
+    ) {
       return { kind: 'failed', reason: 'storage-unavailable' };
     }
-    context.state.appState = nextAppState;
-    context.broadcast(nextAppState);
     return { kind: 'written' };
   };
   return {
@@ -182,6 +177,7 @@ function createPersistence(
     },
     savePolicyPatch(patch: FarmingAutomationPolicyPatch) {
       const nextAppState = structuredClone(context.state.appState);
+      if (patch.activity) Object.assign(nextAppState, structuredClone(patch.activity));
       nextAppState.queue = patch.queue.map((entry) => structuredClone(entry));
       nextAppState.queueEntryMetadataByKey = structuredClone(patch.queueEntryMetadataByKey);
       nextAppState.campaignAvailabilityByKey = structuredClone(patch.campaignAvailabilityByKey);
@@ -199,16 +195,19 @@ function createPersistence(
       if (commit.expectedSessionRevision !== context.getSessionRevision()) {
         return { kind: 'stale' };
       }
-      const written = await tryStorageWrite(() =>
-        local.set({
+      const written = await guardedWrite(
+        {
           appState: nextAppState,
           [DROPS_SNAPSHOT_CACHE_KEY]: nextSnapshot,
           [FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY]: structuredClone(commit.receipt),
-        }),
+        },
+        () => {
+          context.state.appState = nextAppState;
+          context.state.cachedDropsSnapshot = nextSnapshot;
+        },
       );
-      if (!written) return { kind: 'failed', reason: 'transition-commit-failed' };
-      context.state.appState = nextAppState;
-      context.state.cachedDropsSnapshot = nextSnapshot;
+      if (written === 'failed') return { kind: 'failed', reason: 'transition-commit-failed' };
+      if (written === 'stale') return { kind: 'stale' };
       return { kind: 'committed' };
     },
     async updateReceiptCleanup(update) {
@@ -245,14 +244,6 @@ export function createInMemoryFarmingAutomationPersistence(
   },
 ): FarmingAutomationPersistence {
   return createPersistence(context, context.storage.local, context.storage.session);
-}
-
-function chromeStorageArea(scope: 'local' | 'session'): FarmingAutomationStorageArea {
-  return {
-    get: (keys) => browser.storage[scope].get([...keys]),
-    set: (values) => browser.storage[scope].set(values),
-    remove: (keys) => browser.storage[scope].remove([...keys]),
-  };
 }
 
 export function createChromeFarmingAutomationPersistence(

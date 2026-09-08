@@ -8,6 +8,11 @@ describe('popup automation settings hook', () => {
     expect(source).not.toContain("type: 'SET_CAMPAIGN_PRIORITY_MODE'");
     expect(source).toContain("type: 'SET_FARM_CATEGORY_SCOPE'");
     expect(source).toContain("type: 'SET_WATCH_TRANSPORT_MODE'");
-    expect(source).toContain('browser.permissions.request(NOTIFICATION_PERMISSION)');
+    const autoStartHandler = source.slice(
+      source.indexOf('const handleAutoStartFavoriteGamesToggle'),
+      source.indexOf('const handleFarmCategoryScopeChange'),
+    );
+    expect(autoStartHandler).not.toContain('authorize:');
+    expect(autoStartHandler).not.toContain('notificationsEnabled:');
   });
 });

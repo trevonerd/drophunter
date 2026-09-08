@@ -1,4 +1,4 @@
-export const MANUAL_WATCH_TTL_MS = 20_000 as const;
+export const MANUAL_WATCH_TTL_MS = 30_000 as const;
 
 export type PassiveViewingTelemetry = {
   readonly observedAt: number;

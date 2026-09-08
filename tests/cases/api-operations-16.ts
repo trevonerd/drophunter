@@ -24,8 +24,10 @@ describe('fetchInventorySnapshotFromApi', () => {
     chromeMocks.teardown();
   });
 
-  test('treats inventory 403 as transient and schedules backoff', async () => {
-    const { fetchInventorySnapshotFromApi } = await import('../../src/background/api-operations.ts');
+  test('classifies a generic inventory 403 as an operational failure instead of session expiry', async () => {
+    const { fetchInventorySnapshotFromApi, getLastTwitchApiFailure } = await import(
+      '../../src/background/api-operations.ts'
+    );
 
     const state = createMinimalState();
     const session = createSession();
@@ -54,6 +56,7 @@ describe('fetchInventorySnapshotFromApi', () => {
     ]);
 
     expect(await fetchInventorySnapshotFromApi(state, session, cachedDrops)).toBeNull();
+    expect(getLastTwitchApiFailure(state)).toMatchObject({ kind: 'network' });
     expect(state.apiConsecutiveFailures).toBe(1);
     expect(state.apiBackoffUntil).toBeGreaterThan(Date.now());
   });

@@ -51,6 +51,7 @@ export async function stopFarmingSession(
       ...options.onClearRotationMetadata(state.appState),
       isRunning: false,
       isPaused: false,
+      farmingSessionOrigin: null,
       activeStreamer: null,
       tabId: null,
       completionNotified: false,
@@ -60,6 +61,7 @@ export async function stopFarmingSession(
       ...state.appState,
       isRunning: false,
       isPaused: false,
+      farmingSessionOrigin: null,
       activeStreamer: null,
       tabId: null,
       completionNotified: false,
@@ -108,15 +110,17 @@ export async function finalizeCompletedQueue(
   }
   state.appState.isRunning = false;
   state.appState.isPaused = false;
+  state.appState.manualQueueAuthorized = false;
+  state.appState.farmingSessionOrigin = null;
   state.appState.selectedGame = context.terminalFarmingCompleteGame;
   state.appState.completionNotified = false;
   state.appState.lastRotationReason = null;
   state.appState.lastRotationAt = null;
   const queueCompleteMessage = context.completedWhileNoStreamers
-    ? `Queue completed. No live streamers found for ${context.completedGameName}.`
+    ? `Queue completed. No eligible streamer was found for ${context.completedGameName}.`
     : 'Queue completed. No pending rewards left.';
   const queueCompleteNotificationMessage = context.completedWhileNoStreamers
-    ? `No live streamers found for ${context.completedGameName}. DropHunter has stopped.`
+    ? `No eligible streamer was found for the Drops in ${context.completedGameName}. DropHunter has stopped.`
     : queueCompleteMessage;
   const farmingCompleteReasons = context.terminalFarmingCompleteGame?.rewardSummary?.remainderReasons ?? [];
   const farmingCompleteLines = formatFarmingCompleteStatusLines(farmingCompleteReasons);
@@ -165,12 +169,12 @@ export function queueSkipCopy(reason: QueueSkipReason, gameName: string): QueueS
     }
     case 'no-streamers':
       return {
-        logMessage: 'Skipping game because no live streamers were found',
-        skipNotificationTitle: 'Game skipped: no live streamers',
-        skipMessage: `Skipped ${gameName} — no live streamers were found.`,
+        logMessage: 'Skipping game because no eligible Drops streamer was found',
+        skipNotificationTitle: 'Game skipped: no eligible streamer',
+        skipMessage: `Skipped ${gameName} — no eligible streamer was found for its Drops.`,
         terminalNotificationTitle: 'Queue completed',
-        terminalMessage: `Queue completed. No live streamers found for ${gameName}.`,
-        terminalNotificationMessage: `No live streamers found for ${gameName}. DropHunter has stopped.`,
+        terminalMessage: `Queue completed. No eligible streamer was found for ${gameName}.`,
+        terminalNotificationMessage: `No eligible streamer was found for the Drops in ${gameName}. DropHunter has stopped.`,
         stopReason: 'queue-complete',
       };
     case 'unverifiable-twitch':

@@ -12,6 +12,7 @@ import type { ServiceWorkerState } from '../../src/background/runtime-state.ts';
 export function createFarmingSessionManualWatchFixture(
   state: ServiceWorkerState,
   observeManualTabs: () => Promise<FarmingAutomationManualTabsResult>,
+  now?: () => number,
 ): FarmingAutomationManualWatchController {
   return createFarmingAutomationManualWatch({
     persistence: createInMemoryFarmingAutomationPersistence({
@@ -22,5 +23,6 @@ export function createFarmingSessionManualWatchFixture(
     }),
     observeManualTabs,
     replaceDeadline: async (at) => (at === null ? 'cleared' : 'scheduled'),
+    now,
   });
 }

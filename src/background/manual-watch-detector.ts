@@ -1,3 +1,4 @@
+import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import type { TwitchGame } from '../types/index.ts';
 import {
   classifyManualWatch,
@@ -30,16 +31,16 @@ export interface ManualViewingDetectionOptions {
   readonly getStreamContext: (tabId: number) => Promise<ManualStreamContext | null>;
 }
 
+export type ManualViewingDetectionResult =
+  | ManualWatchClassification
+  | { readonly kind: 'failed'; readonly reason: 'observation-unavailable' };
+
 function normalized(value: string | null | undefined): string {
   return (value ?? '')
     .trim()
     .toLocaleLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
-}
-
-function isTwitchUrl(url: string | undefined): boolean {
-  return Boolean(url && /^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(url));
 }
 
 function toTelemetry(
@@ -70,35 +71,49 @@ function toTelemetry(
 
 export async function detectManualViewing(
   options: ManualViewingDetectionOptions,
-): Promise<ManualWatchClassification> {
+): Promise<ManualViewingDetectionResult> {
   let tabs: readonly ManualWatchTab[];
   try {
     tabs = await options.queryTabs();
   } catch {
-    return classifyManualWatch(null, options.now);
+    return { kind: 'failed', reason: 'observation-unavailable' };
   }
-  let ineligibleTelemetry: PassiveViewingTelemetry | null = null;
+  let activeClassification: ManualWatchClassification | null = null;
 
   for (const tab of tabs) {
     if (
       typeof tab.id !== 'number' ||
       tab.id === options.managedTabId ||
-      tab.active !== true ||
-      !isTwitchUrl(tab.url)
+      getFarmableTwitchChannelNameFromUrl(tab.url) === null
     ) {
       continue;
     }
-    const context = await options.getStreamContext(tab.id).catch(() => null);
-    if (!context) {
-      continue;
+    let context: ManualStreamContext | null;
+    try {
+      context = await options.getStreamContext(tab.id);
+    } catch {
+      return { kind: 'failed', reason: 'observation-unavailable' };
     }
+    if (context === null) return { kind: 'failed', reason: 'observation-unavailable' };
     const telemetry = toTelemetry(options.target, context, options.automationActive, options.now);
     const classification = classifyManualWatch(telemetry, options.now);
-    if (classification.kind === 'eligible-manual') {
-      return classification;
+    switch (classification.kind) {
+      case 'eligible-manual':
+        return classification;
+      case 'automation-paused':
+        activeClassification ??= classification;
+        break;
+      case 'inactive':
+        break;
+      default: {
+        const unreachable: never = classification;
+        throw new DOMException(
+          `Unexpected manual-watch classification: ${String(unreachable)}`,
+          'InvariantError',
+        );
+      }
     }
-    ineligibleTelemetry = telemetry;
   }
 
-  return classifyManualWatch(ineligibleTelemetry, options.now);
+  return activeClassification ?? classifyManualWatch(null, options.now);
 }

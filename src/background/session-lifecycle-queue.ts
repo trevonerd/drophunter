@@ -1,6 +1,7 @@
 import { haveAllDropsExpiredOrVanished } from '../shared/drops.ts';
-import { dropMatchesGame, findMatchingGame, getGameDisplayLabel } from '../shared/game-selection.ts';
+import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
 import {
@@ -10,6 +11,18 @@ import {
 } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
+  isKnownCompletedSelection,
+  isWaitingForScheduledRewards,
+  selectedFarmingCompleteGame,
+  selectedGameMarkedCompleted,
+} from './session-lifecycle-completion.ts';
+import { refreshQueueHead } from './session-lifecycle-queue-refresh.ts';
+import {
+  isAutomaticFavoriteSession,
+  parkBlockedCampaignAtQueueTail,
+  rotateBlockedQueueHead,
+} from './session-lifecycle-queue-selection.ts';
+import {
   finalizeCompletedQueue,
   queueSkipCopy,
   resetNoProgressRotationAttempts,
@@ -17,50 +30,10 @@ import {
 } from './session-lifecycle-stop.ts';
 import type {
   AdvanceQueueOptions,
-  QueueProgressOptions,
   QueueSkipReason,
   SkipCurrentGameOptions,
 } from './session-lifecycle-types.ts';
-import { saveTimingState as saveTimingStateExt } from './state-persistence.ts';
-
-function selectedGameMarkedCompleted(state: ServiceWorkerState): boolean {
-  const selectedGame = state.appState.selectedGame;
-  if (!selectedGame) {
-    return false;
-  }
-  if (selectedGame.allDropsCompleted === true) {
-    return true;
-  }
-  return findMatchingGame(selectedGame, state.appState.availableGames)?.allDropsCompleted === true;
-}
-
-function selectedFarmingCompleteGame(state: ServiceWorkerState): TwitchGame | null {
-  const selectedGame = state.appState.selectedGame;
-  if (!selectedGame) {
-    return null;
-  }
-  const hasCurrentAutomatableReward = state.appState.pendingDrops.some(
-    (drop) => dropMatchesGame(drop, selectedGame) && isRewardFarmableNow(drop),
-  );
-  if (hasCurrentAutomatableReward) {
-    return null;
-  }
-  const currentGame = findMatchingGame(selectedGame, state.appState.availableGames) ?? selectedGame;
-  return currentGame.rewardSummary?.completion === 'farming-complete' ? currentGame : null;
-}
-
-function isKnownCompletedSelection(
-  state: ServiceWorkerState,
-  farmingCompleteGame: TwitchGame | null,
-): boolean {
-  const hasFarmablePending = state.appState.pendingDrops.some(isRewardFarmableNow);
-  return (
-    farmingCompleteGame !== null ||
-    ((state.appState.allDrops.length > 0 || selectedGameMarkedCompleted(state)) &&
-      !hasFarmablePending &&
-      state.appState.currentDrop === null)
-  );
-}
+import { isCampaignStallBlocked } from './stalled-campaign-block.ts';
 
 function prepareQueueHead(state: ServiceWorkerState, clearPreviousDropsCount: boolean): TwitchGame | null {
   const nextGame = promoteQueueHead(state);
@@ -80,22 +53,35 @@ function prepareQueueHead(state: ServiceWorkerState, clearPreviousDropsCount: bo
   return nextGame;
 }
 
-async function refreshQueueHead(state: ServiceWorkerState, options?: QueueProgressOptions): Promise<void> {
-  if (options?.onSaveTimingState) {
-    await options.onSaveTimingState(state);
-  } else {
-    saveTimingStateExt(state).catch(() => undefined);
+/**
+ * A stall block is durable evidence that a campaign must not be selected again.
+ * Keep it in the queue for later evidence-based recovery, while scanning the
+ * remaining entries exactly once for a campaign that can be farmed now.
+ */
+function prepareNextEligibleQueueHead(
+  state: ServiceWorkerState,
+  clearPreviousDropsCount: boolean,
+  restrictUnauthorizedManualContinuation: boolean,
+): TwitchGame | null {
+  let remainingCandidates = state.appState.queue.length;
+  while (remainingCandidates > 0) {
+    const queuedHead = state.appState.queue[0];
+    if (
+      queuedHead &&
+      restrictUnauthorizedManualContinuation &&
+      state.appState.queueEntryMetadataByKey[gameKey(queuedHead)]?.source !== 'favorite-auto'
+    ) {
+      return null;
+    }
+    const nextGame = prepareQueueHead(state, clearPreviousDropsCount);
+    if (!nextGame) return null;
+    if (!isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, nextGame)) {
+      return nextGame;
+    }
+    rotateBlockedQueueHead(state);
+    remainingCandidates -= 1;
   }
-  if (options?.onEnsureWorkspace) {
-    await options.onEnsureWorkspace();
-  }
-  if (options?.onRefreshDropsData) {
-    await options.onRefreshDropsData({
-      includeCampaignFetch: true,
-      includeInventoryFetch: true,
-      suppressNotifications: true,
-    });
-  }
+  return null;
 }
 
 export async function advanceQueueIfCompleted(
@@ -105,8 +91,9 @@ export async function advanceQueueIfCompleted(
   if (!state.appState.isRunning || state.appState.isPaused) {
     return false;
   }
+  if (isWaitingForScheduledRewards(state)) return true;
 
-  const hasFarmablePending = state.appState.pendingDrops.some(isRewardFarmableNow);
+  const hasFarmablePending = state.appState.pendingDrops.some((drop) => isRewardFarmableNow(drop));
   const hasKnownNonFarmableRemainder =
     state.appState.pendingDrops.length > 0 && !hasFarmablePending && state.appState.currentDrop === null;
   const selectedMarkedCompleted = selectedGameMarkedCompleted(state);
@@ -117,10 +104,9 @@ export async function advanceQueueIfCompleted(
     ((state.appState.allDrops.length > 0 || selectedMarkedCompleted) &&
       !hasFarmablePending &&
       state.appState.currentDrop === null);
-  const campaignExpiredOrVanished = haveAllDropsExpiredOrVanished(
-    state.appState.allDrops,
-    state.previousAllDropsCount,
-  );
+  const campaignExpiredOrVanished =
+    Boolean(state.appState.selectedGame && isExpiredGame(state.appState.selectedGame)) ||
+    haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
   logDebug('advanceQueueIfCompleted result', {
     knownCompletedCurrent,
     selectedMarkedCompleted,
@@ -143,21 +129,28 @@ export async function advanceQueueIfCompleted(
   const completedGameName = state.appState.selectedGame
     ? getGameDisplayLabel(state.appState.selectedGame)
     : 'current game';
+  const restrictUnauthorizedManualContinuation = isAutomaticFavoriteSession(
+    state,
+    state.appState.selectedGame,
+  );
   if (state.appState.selectedGame) {
     removeQueueEntriesForGame(state, state.appState.selectedGame);
   }
 
   while (state.appState.queue.length > 0) {
-    const nextGame = prepareQueueHead(state, true);
+    const nextGame = prepareNextEligibleQueueHead(state, true, restrictUnauthorizedManualContinuation);
     if (!nextGame) {
       break;
     }
     await refreshQueueHead(state, options);
+    if (isWaitingForScheduledRewards(state)) {
+      await options?.onSaveState?.();
+      return true;
+    }
     const nextFarmingCompleteGame = selectedFarmingCompleteGame(state);
-    const campaignExpiredNext = haveAllDropsExpiredOrVanished(
-      state.appState.allDrops,
-      state.previousAllDropsCount,
-    );
+    const campaignExpiredNext =
+      isExpiredGame(nextGame) ||
+      haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
     if (isKnownCompletedSelection(state, nextFarmingCompleteGame) || campaignExpiredNext) {
       if (nextFarmingCompleteGame) {
         terminalFarmingCompleteGame = nextFarmingCompleteGame;
@@ -191,23 +184,35 @@ export async function skipCurrentGameAndAdvanceQueue(
   const skippedGame = state.appState.selectedGame;
   const gameName = skippedGame ? getGameDisplayLabel(skippedGame) : 'current game';
   const copy = queueSkipCopy(reason, gameName);
+  const restrictUnauthorizedManualContinuation = isAutomaticFavoriteSession(state, skippedGame);
   logWarn(copy.logMessage, {
     game: gameName,
     reason,
     stalledRecoveryAttempts: state.stalledRecoveryAttempts,
   });
   if (skippedGame) {
-    removeQueueEntriesForGame(state, skippedGame);
+    if (
+      reason === 'stalled-progress' &&
+      isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, skippedGame)
+    ) {
+      parkBlockedCampaignAtQueueTail(state, skippedGame);
+    } else {
+      removeQueueEntriesForGame(state, skippedGame);
+    }
   }
   resetStreamTrackingState(state);
 
   while (state.appState.queue.length > 0) {
-    const nextGame = prepareQueueHead(state, false);
+    const nextGame = prepareNextEligibleQueueHead(state, false, restrictUnauthorizedManualContinuation);
     if (!nextGame) {
       break;
     }
     await refreshQueueHead(state, options);
-    if (isKnownCompletedSelection(state, selectedFarmingCompleteGame(state))) {
+    if (isWaitingForScheduledRewards(state)) {
+      await options?.onSaveState?.();
+      return;
+    }
+    if (isExpiredGame(nextGame) || isKnownCompletedSelection(state, selectedFarmingCompleteGame(state))) {
       removeQueueEntriesForHeadGame(state, nextGame);
       continue;
     }
@@ -227,6 +232,7 @@ export async function skipCurrentGameAndAdvanceQueue(
   if (reason !== 'unverifiable-twitch') {
     state.appState.selectedGame = null;
   }
+  state.appState.manualQueueAuthorized = false;
   if (options?.onStopFarmingSession) {
     await options.onStopFarmingSession({
       stopReason: copy.stopReason,

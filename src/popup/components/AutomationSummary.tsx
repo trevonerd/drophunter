@@ -10,7 +10,7 @@ interface AutomationSummaryProps {
   readonly onToggle: () => void | Promise<void>;
 }
 
-export function AutomationSummary({ state, notificationPermissionDenied, onToggle }: AutomationSummaryProps) {
+export function AutomationSummary({ state, onToggle }: AutomationSummaryProps) {
   const latestActivity = state.automationActivity?.[0] ?? null;
   const canShowActivity =
     latestActivity?.kind === 'campaign-unfarmable' ||
@@ -41,9 +41,6 @@ export function AutomationSummary({ state, notificationPermissionDenied, onToggl
 
   const visibleActivity =
     latestActivity && latestActivity.at === visibleActivityAt ? latestActivity.message : null;
-  const warning = notificationPermissionDenied
-    ? 'Notifications are required to turn on favorite auto-start.'
-    : null;
 
   return (
     <section className="dh-subpanel dh-contain px-2.5 py-2" aria-labelledby="automation-summary-heading">
@@ -64,11 +61,6 @@ export function AutomationSummary({ state, notificationPermissionDenied, onToggl
           <span className="dh-switch__thumb" />
         </button>
       </div>
-      {warning && (
-        <p className="mt-1.5 text-[10px] text-[color:var(--dh-danger)]" role="status" aria-live="polite">
-          {warning}
-        </p>
-      )}
       {visibleActivity && (
         <p
           className="mt-1.5 text-[10px] leading-snug text-[color:var(--dh-text-soft)]"

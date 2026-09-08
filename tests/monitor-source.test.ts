@@ -3,6 +3,31 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { automationActivity, createDrop, createGame, renderMonitor } from './fixtures/monitor-source.ts';
 
+test('monitor keeps the selected campaign reward when another campaign is closer to completion', () => {
+  const html = renderMonitor({
+    isRunning: true,
+    selectedGame: createGame({ completion: 'farmable', remainderReasons: [] }),
+    currentDrop: createDrop({ name: 'Current reward', progress: 20 }),
+    pendingDrops: [
+      createDrop({ campaignId: 'other-campaign', name: 'Other reward', progress: 90, remainingMinutes: 1 }),
+      createDrop({ name: 'Current reward', progress: 20 }),
+    ],
+  });
+  expect(html).toContain('Current reward');
+  expect(html).toContain('aria-valuenow="20"');
+  expect(html).not.toContain('Other reward');
+});
+
+test('monitor ignores a stale current reward from another campaign', () => {
+  const html = renderMonitor({
+    selectedGame: createGame({ completion: 'farmable', remainderReasons: [] }),
+    currentDrop: createDrop({ campaignId: 'other-campaign', name: 'Stale reward' }),
+    pendingDrops: [createDrop({ name: 'Selected reward' })],
+  });
+  expect(html).toContain('Selected reward');
+  expect(html).not.toContain('Stale reward');
+});
+
 test('monitor keeps a fresh zero-percent Twitch-native reward as ordinary progress', () => {
   // Given: a newly discovered badge at 0% with no unverifiable marker.
   const html = renderMonitor({

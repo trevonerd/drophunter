@@ -12,7 +12,7 @@ interface PopupViewProps {
   readonly activeView: PopupViewName;
   readonly setActiveView: Dispatch<SetStateAction<PopupViewName>>;
   readonly viewContainerRef: RefObject<HTMLDivElement | null>;
-  readonly mainViewProps: Omit<MainViewProps, 'onOpenDropsPage' | 'onOpenSettings' | 'onRefreshCampaigns'>;
+  readonly mainViewProps: Omit<MainViewProps, 'onOpenDropsPage' | 'onOpenSettings'>;
   readonly openDropsPage: () => Promise<void>;
   readonly settingsViewProps: Omit<SettingsViewProps, 'onBack' | 'onOpenClaimLog'>;
 }
@@ -62,7 +62,6 @@ export function PopupView({
           {...mainViewProps}
           onOpenDropsPage={() => void openDropsPage()}
           onOpenSettings={() => setActiveView('settings')}
-          onRefreshCampaigns={() => void openDropsPage()}
         />
       )}
     </div>

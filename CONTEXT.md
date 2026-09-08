@@ -16,6 +16,10 @@ _Avoid_: Monitor loop, queue runner, farming service
 The DropHunter orchestration that selects eligible Twitch Drops campaigns and automatically starts or preempts farming sessions in response to browser lifecycle and campaign changes.
 _Avoid_: Auto-start coordinator, automatic farming session, favorite-game automation
 
+**Authorized manual queue**:
+A queue the user has explicitly started, whose manual campaigns may continue after an intervening favorite campaign. Adding campaigns alone does not authorize their playback.
+_Avoid_: Any non-empty queue, automatic queue
+
 **Favorite campaign preemption**:
 The replacement of the active campaign by a newly discovered favorite campaign with a known, strictly earlier expiry and a proven eligible streamer; the interrupted campaign remains next in the queue.
 _Avoid_: Streamer rotation, queue reset, equal-expiry preemption
@@ -49,12 +53,16 @@ The browser tab DropHunter owns for watching the current farming session stream.
 _Avoid_: Stream tab, player tab
 
 **Hidden farming transport**:
-The user-selected farming mode that runs without a DropHunter-managed Twitch tab and never falls back to creating one automatically.
-_Avoid_: Background tab, automatic managed-tab fallback
+The preferred farming mode that runs without a DropHunter-managed Twitch tab. When it cannot work, DropHunter can recover through a muted managed tab while preserving the hidden preference.
+_Avoid_: Background tab, guaranteed tabless playback
 
 **Manual Twitch viewing**:
-An eligible Twitch stream opened and controlled by the user, which DropHunter observes without claiming ownership of the tab.
+A Twitch stream playing in a user-controlled tab, including a background tab, which takes precedence over automated playback whether or not it earns Drops.
 _Avoid_: Managed farming tab, Hidden farming transport
+
+**Stalled campaign exclusion**:
+A campaign-specific block after recovery attempts are exhausted, lifted by positive progress, a newly eligible streamer, or explicit Start. A refresh or service-worker restart alone is not new evidence.
+_Avoid_: Expired campaign, unfarmable campaign, timed retry
 
 **Drops snapshot projection**:
 The state projection that turns Twitch campaign, inventory, hidden refresh, or cached Drops snapshots into DropHunter's campaign-aware app state.

@@ -72,7 +72,7 @@ function renderRunningPopup(currentDrop: TwitchDrop, pendingDrops: TwitchDrop[])
       onPause={() => {}}
       onResume={() => {}}
       onStop={() => {}}
-      onRefreshCampaigns={() => {}}
+      onRetryCampaignSync={() => {}}
       onAddToQueue={() => {}}
       onRemoveFromQueue={() => {}}
       onClearQueue={() => {}}

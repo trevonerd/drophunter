@@ -118,6 +118,26 @@ describe('classifyManualWatch', () => {
     });
   });
 
+  test('keeps a stopped or closed manual view protected for the 30-second resume tolerance', () => {
+    // Given: the last confirmed personal playback was 25 seconds ago.
+    const telemetry: PassiveViewingTelemetry = {
+      observedAt: 10_000,
+      isVisible: true,
+      isTwitch: true,
+      isPlaybackReady: true,
+      channelEligible: true,
+      categoryEligible: true,
+      campaignEligible: true,
+      automationActive: true,
+    };
+
+    // When: the next observation has not yet exceeded the agreed resume tolerance.
+    const result = classifyManualWatch(telemetry, 35_000);
+
+    // Then: managed farming remains suspended.
+    expect(result).toEqual({ kind: 'eligible-manual', reason: 'eligible-channel' });
+  });
+
   test('does not pause automation after telemetry expires', () => {
     expect(
       classifyManualWatch(

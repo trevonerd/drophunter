@@ -1,21 +1,20 @@
 import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
+import type { AutomationNotificationEvent } from './automation-notification-events.ts';
+
+export {
+  AUTOMATION_NOTIFICATION_EVENTS,
+  type AutomationNotificationEvent,
+} from './automation-notification-events.ts';
 
 export const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = {
   permissions: ['notifications'],
 };
 
-export const AUTOMATION_NOTIFICATION_EVENTS = [
-  'start',
-  'favorite-added',
-  'preemption',
-  'unfarmable',
-] as const;
-export type AutomationNotificationEvent = (typeof AUTOMATION_NOTIFICATION_EVENTS)[number];
-
 const AUTOMATION_NOTIFICATION_ID_PREFIX = 'drophunter-automation';
 
 export interface AutomationNotificationPayload {
+  readonly transitionId: string;
   readonly event: AutomationNotificationEvent;
   readonly campaignId: string;
   readonly title: string;
@@ -47,16 +46,24 @@ export interface AutomationNotificationResult {
   readonly notificationId?: string;
 }
 
-export function getAutomationNotificationKey(event: AutomationNotificationEvent, campaignId: string): string {
-  return `${event}:${campaignId}`;
+export function getAutomationNotificationKey(
+  event: AutomationNotificationEvent,
+  campaignId: string,
+  transitionId: string,
+): string {
+  return `${event}:${campaignId}:${transitionId}`;
 }
 
-export function getAutomationNotificationId(event: AutomationNotificationEvent, campaignId: string): string {
-  return `${AUTOMATION_NOTIFICATION_ID_PREFIX}-${event}-${encodeURIComponent(campaignId)}`;
+export function getAutomationNotificationId(
+  event: AutomationNotificationEvent,
+  campaignId: string,
+  transitionId: string,
+): string {
+  return `${AUTOMATION_NOTIFICATION_ID_PREFIX}-${event}-${encodeURIComponent(campaignId)}-${encodeURIComponent(transitionId)}`;
 }
 
 interface NotificationState {
-  appState: Pick<AppState, 'notificationsEnabled' | 'autoStartFavoriteGames'>;
+  appState: Pick<AppState, 'notificationsEnabled'>;
 }
 
 interface NotificationControllerOptions {
@@ -132,14 +139,13 @@ export function createNotificationController(
   };
 
   const syncPermissionState = async () => {
-    if (!state.appState.notificationsEnabled && !state.appState.autoStartFavoriteGames) {
+    if (!state.appState.notificationsEnabled) {
       return;
     }
     if (await hasNotificationPermission()) {
       return;
     }
     state.appState.notificationsEnabled = false;
-    state.appState.autoStartFavoriteGames = false;
     await options.saveState();
   };
 
@@ -149,7 +155,6 @@ export function createNotificationController(
     }
     if (!(await hasNotificationPermission())) {
       state.appState.notificationsEnabled = false;
-      state.appState.autoStartFavoriteGames = false;
       await options.saveState();
       return;
     }
@@ -195,7 +200,7 @@ export function createNotificationController(
   const notifyAutomation = async (
     payload: AutomationNotificationPayload,
   ): Promise<AutomationNotificationResult> => {
-    const key = getAutomationNotificationKey(payload.event, payload.campaignId);
+    const key = getAutomationNotificationKey(payload.event, payload.campaignId, payload.transitionId);
     const pending = pendingAutomationNotifications.get(key);
     if (pending) {
       return pending;
@@ -214,7 +219,6 @@ export function createNotificationController(
       }
       if (!(await hasNotificationPermission())) {
         state.appState.notificationsEnabled = false;
-        state.appState.autoStartFavoriteGames = false;
         await options.saveState();
         return { shown: false, deduplicated: false };
       }
@@ -223,7 +227,11 @@ export function createNotificationController(
         return { shown: false, deduplicated: false };
       }
 
-      const notificationId = getAutomationNotificationId(payload.event, payload.campaignId);
+      const notificationId = getAutomationNotificationId(
+        payload.event,
+        payload.campaignId,
+        payload.transitionId,
+      );
       await notificationsApi.create(notificationId, {
         type: 'basic',
         iconUrl: 'icons/icon128.png',

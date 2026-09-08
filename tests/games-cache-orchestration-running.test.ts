@@ -32,7 +32,14 @@ describe('refreshGamesCacheFromHiddenFetch running state', () => {
     state.appState.pendingDrops = [freshFarmableReward];
     state.appState.allDrops = [freshFarmableReward];
     state.cachedDropsSnapshot = [freshFarmableReward];
-    const snapshot = { games: [nextCampaign], drops: [], updatedAt: 1 };
+    const snapshot = {
+      games: [nextCampaign],
+      drops: [],
+      campaignsVerified: true,
+      authoritativeCampaignIds: ['next-campaign'],
+      inventoryVerified: true,
+      updatedAt: 1,
+    };
     const deps = makeDeps(snapshot, { count: 0 });
     deps.normalizeQueueSelection = normalizeQueueSelection;
     const unavailableCampaigns: TwitchGame[] = [];
@@ -67,7 +74,14 @@ describe('refreshGamesCacheFromHiddenFetch running state', () => {
     state.appState.allDrops = [freshFarmableReward];
     state.cachedDropsSnapshot = [freshFarmableReward];
     const deps = makeDeps(
-      { games: [activeCampaign], drops: [subscriptionReward], updatedAt: 1 },
+      {
+        games: [activeCampaign],
+        drops: [subscriptionReward],
+        campaignsVerified: true,
+        authoritativeCampaignIds: ['terminal-campaign'],
+        inventoryVerified: true,
+        updatedAt: 1,
+      },
       { count: 0 },
     );
     const unavailableCampaigns: TwitchGame[] = [];
@@ -86,7 +100,17 @@ describe('refreshGamesCacheFromHiddenFetch running state', () => {
     state.appState.selectedGame = selectedCampaign;
     state.appState.availableGames = [selectedCampaign];
     state.appState.queue = [selectedCampaign];
-    const deps = makeDeps({ games: [], drops: [], updatedAt: 1 }, { count: 0 });
+    const deps = makeDeps(
+      {
+        games: [],
+        drops: [],
+        campaignsVerified: true,
+        authoritativeCampaignIds: [],
+        inventoryVerified: true,
+        updatedAt: 1,
+      },
+      { count: 0 },
+    );
     const unavailableCampaigns: TwitchGame[] = [];
     deps.onAuthoritativeCampaignUnavailable = async (game) => {
       unavailableCampaigns.push(game);
@@ -94,7 +118,12 @@ describe('refreshGamesCacheFromHiddenFetch running state', () => {
 
     const result = await refreshGamesCacheFromHiddenFetch(state, {}, deps);
 
-    expect(result).toEqual({ kind: 'refreshed', games: [], authoritativeEmpty: true });
+    expect(result).toEqual({
+      kind: 'refreshed',
+      games: [],
+      authoritativeEmpty: true,
+      inventoryVerified: true,
+    });
     expect(unavailableCampaigns.map((game) => game.campaignId)).toEqual(['terminal-campaign']);
     expect(state.appState.availableGames).toEqual([]);
   });

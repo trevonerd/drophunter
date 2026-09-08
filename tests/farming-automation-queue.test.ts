@@ -1,175 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { createFarmingAutomation } from '../src/background/farming-automation.ts';
-import type { FarmingAutomationBrowser } from '../src/background/farming-automation-browser.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
-import {
-  deriveSafeRefreshPatch,
-  type FarmingAutomationTwitchSnapshot,
-} from '../src/background/farming-automation-twitch.ts';
-import { currentFarmingSessionEpoch } from '../src/background/farming-session-revision.ts';
-import { createServiceWorkerState } from '../src/background/runtime-state.ts';
-import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
-import type { CampaignPriorityMode, TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
-
-function campaign(id: string, endsAt: string): TwitchGame {
-  return {
-    id,
-    name: id,
-    imageUrl: '',
-    campaignId: `campaign-${id}`,
-    categorySlug: id,
-    endsAt,
-    rewardSummary: { completion: 'farmable', remainderReasons: [] },
-  };
-}
-
-function reward(game: TwitchGame): TwitchDrop {
-  return {
-    id: `drop-${game.id}`,
-    name: 'Reward',
-    gameId: game.id,
-    gameName: game.name,
-    imageUrl: '',
-    progress: 0,
-    currentMinutes: 0,
-    claimed: false,
-    campaignId: game.campaignId,
-    acquisitionMethod: 'watch-time',
-    rewardKind: 'in-game',
-    verificationState: 'unassessed',
-  };
-}
-
-function fixture(
-  mode: CampaignPriorityMode,
-  options: {
-    readonly favoriteEndsAt?: string;
-    readonly manual?: boolean;
-    readonly queue?: readonly TwitchGame[];
-    readonly running?: TwitchGame;
-  } = {},
-) {
-  const manual = campaign('manual', '2030-08-04T12:00:00.000Z');
-  const favorite = campaign('favorite', options.favoriteEndsAt ?? '2030-08-03T12:00:00.000Z');
-  const manualDrop = reward(manual);
-  const favoriteDrop = reward(favorite);
-  const snapshot: FarmingAutomationTwitchSnapshot = {
-    games: [manual, favorite],
-    drops: [manualDrop, favoriteDrop],
-    campaignDropsByKey: {
-      [gameKey(manual)]: [manualDrop],
-      [gameKey(favorite)]: [favoriteDrop],
-    },
-    campaignChannelsMap: {},
-    updatedAt: 1_000,
-  };
-  const state = createServiceWorkerState();
-  state.appState.autoStartFavoriteGames = true;
-  state.appState.notificationsEnabled = true;
-  state.appState.campaignPriorityMode = mode;
-  state.appState.favoriteGames = [{ gameId: favorite.id, lastKnownName: favorite.name, addedAt: 1 }];
-  state.appState.isRunning = options.running !== undefined;
-  state.appState.selectedGame = options.running ?? null;
-  state.appState.queue = [...(options.queue ?? [manual])];
-  state.appState.queueEntryMetadataByKey = Object.fromEntries(
-    state.appState.queue.map((game) => [
-      gameKey(game),
-      { source: 'manual' as const, addedAt: 1, reason: 'user-added' as const },
-    ]),
-  );
-  const storage = createInMemoryFarmingAutomationStorage();
-  const persistence = createInMemoryFarmingAutomationPersistence({
-    state,
-    storage,
-    getSessionRevision: () => String(currentFarmingSessionEpoch(state)),
-    broadcast: () => undefined,
-  });
-  const watch = createWatchTransportTransition({
-    currentOwnership: null,
-    prepareManaged: async (target) => ({
-      target,
-      ownership: {
-        kind: 'managed-tab',
-        tabId: 2,
-        ownershipToken: 'owned',
-        expectedChannel: target.channelName,
-      },
-      health: {
-        mode: 'managed-tab',
-        isHealthy: true,
-        status: 'healthy',
-        reason: 'heartbeat',
-        consecutiveFailures: 0,
-        consecutiveStalls: 0,
-        progress: 0,
-        shouldFallback: false,
-        checkedAt: 1,
-      },
-      dispose: async () => undefined,
-    }),
-    prepareTabless: async () => null,
-    release: async () => ({ kind: 'not-required' }),
-  });
-  const browser: FarmingAutomationBrowser = {
-    watch,
-    hasNotificationPermission: async () => true,
-    deliverNotification: async ({ id }) => ({ kind: 'delivered', notificationId: id }),
-    observeManualTabs: async () => ({
-      kind: 'observed',
-      tabs: options.manual
-        ? [
-            {
-              tab: { id: 91, active: true, url: 'https://www.twitch.tv/manual-channel' },
-              context: {
-                channelName: 'manual-channel',
-                categorySlug: favorite.categorySlug,
-                isLive: true,
-                isPlaybackReady: true,
-                hasDropsSignal: true,
-              },
-            },
-          ]
-        : [],
-    }),
-    replaceDeadlineAlarm: async () => 'scheduled',
-    schedulePeriodicAlarm: async () => 'scheduled',
-  };
-  const streamer: TwitchStreamer = {
-    id: 'streamer',
-    name: 'channel',
-    displayName: 'Channel',
-    isLive: true,
-    viewerCount: 1,
-  };
-  const automation = createFarmingAutomation({
-    state,
-    persistence,
-    browser,
-    twitch: {
-      refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-      fetchDirectory: async (game) => ({
-        kind: 'ready',
-        target: {
-          campaignKey: gameKey(game),
-          campaignId: game.campaignId ?? null,
-          gameId: game.id,
-          gameName: game.name,
-          categoryId: null,
-          categorySlug: game.name,
-        },
-        streamers: [streamer],
-        languageFilterApplied: false,
-      }),
-    },
-    now: () => 2_000,
-    random: () => 0,
-  });
-  return { automation, favorite, manual, state, storage };
-}
+import { campaign, fixture } from './support/farming-automation-queue-fixture.ts';
 
 describe('Farming automation queue policy', () => {
   test.each([
@@ -198,8 +29,52 @@ describe('Farming automation queue policy', () => {
     }).toEqual({
       outcome: { kind: 'started', campaignKey: scenario.selected, transition: 'start' },
       selected: scenario.selected,
-      queue: scenario.queue,
+      queue: [scenario.selected, 'campaign:campaign-manual'],
     });
+  });
+
+  test('keeps manual campaigns idle until explicit start authorizes their queue', async () => {
+    // Given: an idle extension with only a manually added campaign.
+    const subject = fixture('priority-list-only', { favorite: false });
+
+    // When: automation evaluates before and after the explicit-start authorization.
+    const beforeStart = await subject.automation.request('campaign-refresh');
+    subject.state.appState.manualQueueAuthorized = true;
+    const afterStart = await subject.automation.request('user-request');
+
+    // Then: the manual campaign cannot be selected before authorization and resumes afterward.
+    expect({ beforeStart, afterStart }).toEqual({
+      beforeStart: { kind: 'unchanged', reason: 'no-eligible-campaign' },
+      afterStart: { kind: 'started', campaignKey: gameKey(subject.manual), transition: 'start' },
+    });
+  });
+
+  test('starts a manually added campaign after it becomes a favorite', async () => {
+    // Given: a campaign added manually before the user marks that same game as a favorite.
+    const subject = fixture('priority-list-only', { favoriteGame: 'manual' });
+
+    // When: automatic farming evaluates the favorite.
+    const outcome = await subject.automation.request('campaign-refresh');
+
+    // Then: favorite status authorizes automatic selection independently of the original queue provenance.
+    expect(outcome).toEqual({
+      kind: 'started',
+      campaignKey: gameKey(subject.manual),
+      transition: 'start',
+    });
+  });
+
+  test('starts a favorite while the initial Twitch Drops page remains open', async () => {
+    const subject = fixture('priority-list-only', { dropsPageOpen: true });
+
+    const outcome = await subject.automation.request('periodic');
+
+    expect(outcome).toEqual({
+      kind: 'started',
+      campaignKey: gameKey(subject.favorite),
+      transition: 'start',
+    });
+    expect(subject.state.appState.farmingSessionOrigin).toBe('automatic');
   });
 
   test('adds favorite-auto queue entries during manual watch without starting', async () => {
@@ -228,7 +103,7 @@ describe('Farming automation queue policy', () => {
         },
       },
       activity: ['favorite-added'],
-      deadline: 22_000,
+      deadline: 32_000,
     });
   });
 
@@ -255,7 +130,7 @@ describe('Farming automation queue policy', () => {
         { kind: 'unchanged', reason: 'already-farming-best-campaign' },
         { kind: 'unchanged', reason: 'already-farming-best-campaign' },
       ],
-      queue: [gameKey(first), gameKey(subject.favorite), gameKey(last)],
+      queue: [gameKey(running), gameKey(subject.favorite), gameKey(first), gameKey(last)],
       selected: running,
     });
   });

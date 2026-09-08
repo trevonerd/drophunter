@@ -1,4 +1,5 @@
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
+import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { TwitchApiRequestOptions } from './session-orchestrator.ts';
@@ -22,6 +23,7 @@ export interface StreamContext {
 export interface RefreshDropsOptions {
   readonly includeCampaignFetch?: boolean;
   readonly includeInventoryFetch?: boolean;
+  readonly isCurrent?: () => boolean;
   readonly sessionRecoveryMode?: TwitchApiRequestOptions['sessionRecoveryMode'];
   readonly suppressNotifications?: boolean;
 }
@@ -51,6 +53,7 @@ export interface FarmingSessionAdapters {
   readonly openMonitorDashboardWindow: (options: { readonly toggle: boolean }) => Promise<unknown>;
   readonly sendAlert: (kind: 'drop-complete' | 'all-complete', message: string) => Promise<void>;
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
+  readonly automationNotify?: AutomationEventNotifier['notify'];
   readonly notifyCampaignUnavailable?: (game: TwitchGame) => Promise<void>;
   // Non-claim Telegram system alert (auto-start, preemption, terminal
   // skip/stop, recovery). Optional so tests/harnesses that don't care about
@@ -83,7 +86,10 @@ export function createFarmingSessionContext(
   const now = adapters.now ?? Date.now;
   const manualWatchController: FarmingAutomationManualWatchController = adapters.manualWatchController ?? {
     evaluate: async () => ({ kind: 'inactive' }),
-    reconcileTransport: async ({ transportSuspended }) => (transportSuspended ? 'resume' : 'unchanged'),
+    reconcileTransport: async ({ transportSuspended }) =>
+      transportSuspended
+        ? { kind: 'resume', transitionId: 'manual-resumed:manual-watch:unknown' }
+        : { kind: 'unchanged' },
   };
   return {
     state,

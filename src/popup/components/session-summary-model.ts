@@ -5,6 +5,7 @@ import { formatEtaMinutes, recoveryAttemptLabel, retryLabel, statusReasonLabel }
 
 export type SessionSummaryMode =
   | 'ready'
+  | 'pending-validation'
   | 'running'
   | 'paused'
   | 'recovering'
@@ -24,8 +25,8 @@ export type SessionSummaryModel = {
 };
 
 export type EffectiveTransport = {
-  readonly mode: 'hidden' | 'tab' | 'fallback-tab' | 'manual-tab';
-  readonly label: 'Hidden' | 'Tab' | 'Fallback tab' | 'Manual tab';
+  readonly mode: 'hidden' | 'tab' | 'manual-tab';
+  readonly label: 'Hidden' | 'Tab' | 'Manual tab';
   readonly icon: 'eye-off' | 'monitor';
 };
 
@@ -46,16 +47,18 @@ export function trackedProgress(drop: TwitchDrop): number {
 
 export function effectiveTransport(state: AppState): EffectiveTransport | null {
   if (!state.isRunning) return null;
+  if (state.recoveryReason === 'no-streamers' || state.recoveryReason === 'directory-unavailable') {
+    return null;
+  }
   if ((state.manualWatchState ?? 'inactive') !== 'inactive') {
     return { mode: 'manual-tab', label: 'Manual tab', icon: 'monitor' };
   }
+  if (!state.activeStreamer && state.tabId === null) return null;
   switch (state.watchTransportMode) {
     case 'tabless':
       return { mode: 'hidden', label: 'Hidden', icon: 'eye-off' };
     case 'managed-tab':
-      return state.watchTransportPreference === 'tabless'
-        ? { mode: 'fallback-tab', label: 'Fallback tab', icon: 'monitor' }
-        : { mode: 'tab', label: 'Tab', icon: 'monitor' };
+      return { mode: 'tab', label: 'Tab', icon: 'monitor' };
   }
 }
 
@@ -67,6 +70,7 @@ export function createSessionSummaryModel({
 }: SessionSummaryModelInput): SessionSummaryModel {
   const subject = campaignSubject(state);
   const manualWatchState = state.manualWatchState ?? 'inactive';
+  const campaignSyncStatus = state.campaignSyncState?.status;
 
   if (manualWatchState !== 'inactive' && runtimeMode === 'idle') {
     return {
@@ -93,7 +97,10 @@ export function createSessionSummaryModel({
       progressState: 'recovering',
       label: 'Recovering',
       subject,
-      detail: `${recoveryParts.join(' · ') || 'Restoring the farming session'}. Progress is paused; retry is automatic.`,
+      detail:
+        state.recoveryReason === 'no-streamers'
+          ? `${recoveryParts.join(' · ') || 'No eligible streamer found yet'}. DropHunter will search again automatically.`
+          : `${recoveryParts.join(' · ') || 'Restoring the farming session'}. Farming is paused while DropHunter retries automatically.`,
       tone: 'warning',
     };
   }
@@ -168,6 +175,23 @@ export function createSessionSummaryModel({
       subject,
       detail: stopReason,
       tone: 'success',
+    };
+  }
+
+  if (
+    !state.twitchSessionDetected ||
+    campaignSyncStatus === 'syncing' ||
+    campaignSyncStatus === 'needs-session' ||
+    campaignSyncStatus === 'retry-scheduled' ||
+    campaignSyncStatus === 'retry-failed'
+  ) {
+    return {
+      mode: 'pending-validation',
+      progressState: 'waiting',
+      label: 'Campaigns pending validation',
+      subject,
+      detail: 'Saved campaign data will be confirmed when Twitch is available.',
+      tone: 'warning',
     };
   }
 

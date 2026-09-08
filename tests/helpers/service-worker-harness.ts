@@ -86,6 +86,7 @@ export async function dispatchMessageFromMocks<T extends RuntimeRequest>(
 export async function resetWorkerState() {
   await dispatchMessage({ type: 'STOP_FARMING' });
   await dispatchMessage({ type: 'CLEAR_QUEUE' });
+  serviceWorkerModule.resetCampaignEvidenceForTests();
   await dispatchMessage({ type: 'SET_MONITOR_AUTO_OPEN', payload: { enabled: false } });
   await dispatchMessage({ type: 'SET_AUTO_RESUME_ON_STARTUP', payload: { enabled: false } });
 }

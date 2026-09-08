@@ -1,4 +1,6 @@
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { gameKey } from '../shared/game-selection.ts';
+import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { toSlug } from '../shared/utils.ts';
 import type { TwitchGame, TwitchStreamer, WatchTransportMode } from '../types/index.ts';
 import type {
@@ -80,6 +82,7 @@ export async function transitionAutomaticFarmingSession(
   if (replay) return replay;
   const now = dependencies.now?.() ?? Date.now();
   const isCurrent = () =>
+    campaignRejectionReason(request.candidate, dependencies.now?.() ?? Date.now()) === null &&
     isFarmingSessionEpochCurrent(state, epoch) &&
     dependencies.currentFingerprint() === request.expectedFingerprint &&
     pairMatchesState(state, request) &&
@@ -119,7 +122,12 @@ export async function transitionAutomaticFarmingSession(
     });
   }
   return runInFarmingSessionCriticalSection(state, async () => {
-    if (!isCurrent()) {
+    if (
+      !isCurrent() ||
+      !workingCandidate.state.appState.pendingDrops.some((drop) =>
+        isRewardFarmableNow(drop, dependencies.now?.() ?? Date.now()),
+      )
+    ) {
       return disposeForResult(preparation.watch, {
         kind: 'unchanged',
         reason: 'superseded-by-state-change',
@@ -129,7 +137,7 @@ export async function transitionAutomaticFarmingSession(
     working.appState.activeStreamer = structuredClone(streamer);
     working.appState.watchTransportMode = preparation.watch.health.mode;
     working.appState.watchHealth = structuredClone(preparation.watch.health);
-    working.appState.watchFallbackReason = null;
+    working.appState.watchFallbackReason = preparation.watch.fallbackReason;
     working.appState.tabId =
       preparation.watch.ownership.kind === 'managed-tab' ? preparation.watch.ownership.tabId : null;
     const receipt: FarmingSessionTransitionReceiptV1 = {

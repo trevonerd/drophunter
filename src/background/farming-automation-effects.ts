@@ -1,6 +1,7 @@
 import { gameKey } from '../shared/game-selection.ts';
-import type { TwitchGame } from '../types/index.ts';
+import type { AppState, TwitchGame } from '../types/index.ts';
 import { recordAutomationActivity } from './automation-activity.ts';
+import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import type { FarmingAutomationBrowser } from './farming-automation-browser.ts';
 import type {
   FarmingAutomationFactsV1,
@@ -21,6 +22,7 @@ interface PersistFarmingAutomationPlanInput {
   readonly queuePlan: FavoriteCampaignQueuePlan | null;
   readonly availability: ServiceWorkerState['appState']['campaignAvailabilityByKey'];
   readonly now: number;
+  readonly automationNotify?: AutomationEventNotifier;
 }
 
 function queueActivityId(game: TwitchGame, addedAt: number): string {
@@ -31,17 +33,13 @@ function transitionActivityId(receipt: FarmingSessionTransitionReceiptV1): strin
   return `farming-transition:${receipt.attemptId}`;
 }
 
-function recordQueueActivities(
-  state: ServiceWorkerState,
-  plan: FavoriteCampaignQueuePlan,
-  now: number,
-): void {
-  const existing = new Set(state.appState.automationActivity.map(({ id }) => id));
+function recordQueueActivities(state: AppState, plan: FavoriteCampaignQueuePlan, now: number): void {
+  const existing = new Set(state.automationActivity.map(({ id }) => id));
   for (const addition of plan.added) {
     const addedAt = plan.queueEntryMetadataByKey[gameKey(addition.game)]?.addedAt ?? now;
     const id = queueActivityId(addition.game, addedAt);
     if (existing.has(id)) continue;
-    recordAutomationActivity(state.appState, {
+    recordAutomationActivity(state, {
       id,
       kind: 'favorite-added',
       at: addedAt,
@@ -56,12 +54,15 @@ export async function persistFarmingAutomationPlan(
   input: PersistFarmingAutomationPlanInput,
 ): Promise<boolean> {
   const { state, persistence, queuePlan, availability, now } = input;
-  const previousActivity = structuredClone(state.appState.automationActivity);
-  const previousMessage = state.appState.lastAutomationMessage;
-  if (queuePlan) recordQueueActivities(state, queuePlan, now);
+  const stagedActivityState = structuredClone(state.appState);
+  if (queuePlan) recordQueueActivities(stagedActivityState, queuePlan, now);
   let result: Awaited<ReturnType<FarmingAutomationPersistence['savePolicyPatch']>>;
   try {
     result = await persistence.savePolicyPatch({
+      activity: {
+        automationActivity: stagedActivityState.automationActivity,
+        lastAutomationMessage: stagedActivityState.lastAutomationMessage,
+      },
       queue: queuePlan?.queue ?? state.appState.queue,
       queueEntryMetadataByKey: queuePlan?.queueEntryMetadataByKey ?? state.appState.queueEntryMetadataByKey,
       campaignAvailabilityByKey: availability,
@@ -70,9 +71,20 @@ export async function persistFarmingAutomationPlan(
     if (!(error instanceof Error)) throw error;
     result = { kind: 'failed', reason: 'storage-unavailable' };
   }
-  if (result.kind === 'written') return true;
-  state.appState.automationActivity = previousActivity;
-  state.appState.lastAutomationMessage = previousMessage;
+  if (result.kind === 'written') {
+    for (const addition of queuePlan?.added ?? []) {
+      const addedAt = queuePlan?.queueEntryMetadataByKey[gameKey(addition.game)]?.addedAt ?? now;
+      await input.automationNotify?.notify({
+        event: 'discovery',
+        transitionId: queueActivityId(addition.game, addedAt),
+        campaignId: addition.game.campaignId ?? gameKey(addition.game),
+        telegramReason: 'favorite-discovered',
+        title: 'Favorite campaign available',
+        message: `${addition.game.name} was added because a favorite campaign is available.`,
+      });
+    }
+    return true;
+  }
   return false;
 }
 
@@ -193,7 +205,7 @@ type StartedEffectsInput = {
   readonly receipt: FarmingSessionTransitionReceiptV1;
   readonly obsolete: WatchOwnershipV1 | null;
   readonly now: number;
-  readonly telegramNotify?: (reason: string, message: string) => Promise<void>;
+  readonly automationNotify?: AutomationEventNotifier;
 };
 
 export async function runFarmingAutomationStartedEffects(input: StartedEffectsInput): Promise<void> {
@@ -203,24 +215,15 @@ export async function runFarmingAutomationStartedEffects(input: StartedEffectsIn
 
   if (activityAdded) {
     const automationMessage = input.state.appState.lastAutomationMessage ?? 'Farming started automatically.';
-    if (input.state.appState.notificationsEnabled) {
-      try {
-        const delivered = await input.browser.deliverNotification({
-          id: transitionActivityId(input.receipt),
-          title: input.receipt.transition === 'preemption' ? 'Campaign priority changed' : 'Farming started',
-          message: automationMessage,
-          priority: 2,
-        });
-        if (delivered.kind === 'unavailable') logWarn('Farming automation notification unavailable');
-      } catch (error) {
-        if (!(error instanceof Error)) throw error;
-        logWarn('Farming automation notification failed', { message: error.message });
-      }
-    }
-    await input.telegramNotify?.(
-      input.receipt.transition === 'preemption' ? 'preempted' : 'auto-started',
-      automationMessage,
-    );
+    await input.automationNotify?.notify({
+      event: input.receipt.transition === 'preemption' ? 'preemption' : 'start',
+      transitionId: transitionActivityId(input.receipt),
+      campaignId: input.state.appState.selectedGame?.campaignId ?? input.receipt.toCampaignKey,
+      telegramReason: input.receipt.transition === 'preemption' ? 'preempted' : 'auto-started',
+      title: input.receipt.transition === 'preemption' ? 'Campaign priority changed' : 'Farming started',
+      message: automationMessage,
+      priority: 2,
+    });
   }
 
   if (input.obsolete !== null && input.receipt.cleanup.kind === 'pending') {

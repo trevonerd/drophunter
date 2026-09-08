@@ -1,128 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  createFarmingAutomationBrowser,
-  type FarmingAutomationChromeHost,
-} from '../src/background/farming-automation-browser.ts';
-import type { WatchOwnershipV1 } from '../src/background/farming-automation-contracts.ts';
-import type { ManualStreamContext } from '../src/background/manual-watch-detector.ts';
-import type { FarmingTarget } from '../src/background/watch-transport.ts';
-import type { PlaybackPrepResult } from '../src/types/index.ts';
-
-const incumbent: WatchOwnershipV1 = {
-  kind: 'managed-tab',
-  tabId: 11,
-  ownershipToken: 'incumbent-token',
-  expectedChannel: 'channel-a',
-};
-
-const target: FarmingTarget = {
-  gameId: 'game-b',
-  campaignId: 'campaign-b',
-  channelName: 'channel-b',
-};
-
-type HostFixtureOptions = {
-  readonly tabUrl?: string;
-  readonly windowTabCount?: number;
-};
-
-function createHost(
-  operationLog: string[],
-  fixtureOptions: HostFixtureOptions = {},
-): FarmingAutomationChromeHost {
-  const sessionValues = new Map<string, unknown>();
-  const tabUrl = fixtureOptions.tabUrl ?? 'https://www.twitch.tv/channel-b';
-  const windowTabCount = fixtureOptions.windowTabCount ?? 2;
-  return {
-    tabs: {
-      create: async (properties) => {
-        operationLog.push(`open:${properties.active}:${properties.muted}`);
-        return { id: 22, windowId: 4, url: properties.url, active: properties.active };
-      },
-      get: async () => ({
-        id: 22,
-        windowId: 4,
-        url: tabUrl,
-        active: false,
-      }),
-      query: async (query) =>
-        query.active
-          ? [{ id: 31, windowId: 5, url: 'https://www.twitch.tv/manual-channel', active: true }]
-          : Array.from({ length: windowTabCount }, (_, index) => ({
-              id: 22 + index,
-              windowId: 4,
-              url: index === 0 ? tabUrl : 'about:blank',
-              active: index !== 0,
-            })),
-      update: async (tabId, properties) => {
-        operationLog.push(`update:${tabId}:${properties.url ?? ''}`);
-      },
-      remove: async (tabId) => {
-        operationLog.push(`remove:${tabId}`);
-      },
-    },
-    sessionStorage: {
-      get: async (key) => ({ [key]: sessionValues.get(key) }),
-      set: async (values) => {
-        for (const [key, value] of Object.entries(values)) sessionValues.set(key, value);
-      },
-      remove: async (key) => {
-        sessionValues.delete(key);
-      },
-    },
-    permissions: { hasNotifications: async () => true },
-    notifications: {
-      create: async (id) => {
-        operationLog.push(`notification:${id}`);
-        return 'notification-id';
-      },
-    },
-    alarms: {
-      clear: async (name) => {
-        operationLog.push(`clear:${name}`);
-        return true;
-      },
-      create: (name, info) => {
-        operationLog.push(`alarm:${name}:${info.when ?? info.periodInMinutes}`);
-      },
-    },
-    runtime: { getUrl: (path) => `chrome-extension://test/${path}` },
-  };
-}
-
-type AdapterFixtureOptions = {
-  readonly currentOwnership?: WatchOwnershipV1 | null;
-  readonly getManualStreamContext?: (tabId: number) => Promise<ManualStreamContext | null>;
-  readonly playbackPreparation?: PlaybackPrepResult;
-};
-
-function createAdapter(
-  host: FarmingAutomationChromeHost,
-  operations: string[],
-  fixtureOptions: AdapterFixtureOptions = {},
-) {
-  return createFarmingAutomationBrowser({
-    host,
-    watch: {
-      tablessEnabled: true,
-      heartbeat: async () => ({ accepted: true }),
-      waitForTabComplete: async (_tabId, timeoutMs) => {
-        operations.push(`wait:${timeoutMs}`);
-      },
-      preparePlayback: async (_tabId, options) => {
-        operations.push(`prep:${options.activateTab}:${options.unmuteTab}:${options.muteAfterPrep}`);
-        return fixtureOptions.playbackPreparation ?? { isPlaybackReady: true };
-      },
-      probeManaged: async (_ownership, explicitTarget) => {
-        operations.push(`probe:${explicitTarget.campaignId}`);
-        return { accepted: true, isLive: true, sameChannel: true, sameGame: true };
-      },
-    },
-    getManualStreamContext: fixtureOptions.getManualStreamContext ?? (async () => null),
-    currentOwnership: fixtureOptions.currentOwnership ?? incumbent,
-    createOwnershipToken: () => 'candidate-token',
-  });
-}
+  createAdapter,
+  createHost,
+  incumbent,
+  target,
+} from './support/farming-automation-browser-fixture.ts';
 
 describe('farming automation browser', () => {
   test('keeps A active until forced-muted B is promoted', async () => {
@@ -207,8 +89,8 @@ describe('farming automation browser', () => {
     });
   });
 
-  test('observes active Twitch tabs with typed stream context', async () => {
-    // Given: one active manual Twitch tab with an observed live stream context.
+  test('observes background Twitch tabs with typed stream context', async () => {
+    // Given: one inactive manual Twitch tab with an observed live stream context.
     const operations: string[] = [];
     const adapter = createAdapter(createHost(operations), operations, {
       getManualStreamContext: async (tabId) => ({
@@ -221,7 +103,7 @@ describe('farming automation browser', () => {
     // When: Farming automation observes manual browser viewing.
     const observation = await adapter.observeManualTabs();
 
-    // Then: the adapter returns a deterministic typed observation.
+    // Then: the adapter returns a deterministic typed observation without filtering by focus.
     expect(observation).toEqual({
       kind: 'observed',
       tabs: [
@@ -230,12 +112,39 @@ describe('farming automation browser', () => {
             id: 31,
             windowId: 5,
             url: 'https://www.twitch.tv/manual-channel',
-            active: true,
+            active: false,
           },
           context: { channelName: 'manual-31', isLive: true, isPlaybackReady: true },
         },
       ],
     });
+  });
+
+  test('excludes the owned managed tab before manual context probing', async () => {
+    // Given: the current managed tab and a personal background channel are both open.
+    const operations: string[] = [];
+    const observedTabIds: number[] = [];
+    const adapter = createAdapter(
+      createHost(operations, {
+        manualTabs: [
+          { id: 11, windowId: 4, url: 'https://www.twitch.tv/channel-b', active: false },
+          { id: 31, windowId: 5, url: 'https://www.twitch.tv/manual-channel', active: false },
+        ],
+      }),
+      operations,
+      {
+        getManualStreamContext: async (tabId) => {
+          observedTabIds.push(tabId);
+          return { channelName: `manual-${tabId}`, isLive: true, isPlaybackReady: true };
+        },
+      },
+    );
+
+    // When: the automation observes user-controlled playback.
+    await adapter.observeManualTabs();
+
+    // Then: the extension never probes or protects its own managed tab as manual viewing.
+    expect(observedTabIds).toEqual([31]);
   });
 
   test.each([

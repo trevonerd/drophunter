@@ -102,6 +102,12 @@ describe('AFK Twitch authentication recovery', () => {
     globalThis.fetch = async () => {
       fetchCalls += 1;
       if (fetchCalls === 1) throw new Error('401 invalid oauth token');
+      if (fetchCalls === 2) {
+        return new Response(JSON.stringify({ data: { currentUser: { id: refreshedSession.userId } } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return new Response(
         JSON.stringify({
           data: {
@@ -124,13 +130,13 @@ describe('AFK Twitch authentication recovery', () => {
 
     expect(createdTabs).toEqual([]);
     expect(removedTabs).toEqual([]);
-    expect(fetchCalls).toBe(2);
+    expect(fetchCalls).toBe(3);
     expect(recoveryRequests).toBe(0);
     expect(state.twitchSessionCache).toMatchObject(refreshedSession);
     expect(state.appState.isRunning).toBe(true);
   });
 
-  test('blocks after invalid OAuth remains unresolved by existing Twitch tabs', async () => {
+  test('blocks after invalid OAuth exhausts one temporary background-tab recovery budget', async () => {
     const state = createState();
     state.twitchSessionCache = { ...twitchSession, clientIntegrity: 'existing-integrity-token' };
     let createdTabs = 0;
@@ -180,7 +186,7 @@ describe('AFK Twitch authentication recovery', () => {
     await gateway.fetchInventorySnapshot([drop], { sessionRecoveryMode: 'background-tab' });
     await gateway.fetchInventorySnapshot([drop], { sessionRecoveryMode: 'background-tab' });
 
-    expect(createdTabs).toBe(0);
+    expect(createdTabs).toBe(1);
     expect(removedTabs).toBe(0);
     expect(notifications).toBe(1);
     expect(systemAlerts).toBe(1);

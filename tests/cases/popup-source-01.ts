@@ -39,10 +39,11 @@ test('popup delegates manual Drops opening and sync to the coordinator', () => {
   expect(source).not.toContain("type: 'OPEN_DROPS_PAGE_AND_REFRESH'");
 });
 
-test('popup does not silently refresh campaigns on mount', () => {
+test('popup reserves force cache refresh for an explicit recovery action', () => {
   const source = readPopupSource();
 
-  expect(source).not.toContain('ENSURE_GAMES_CACHE');
+  expect(source).toContain("type: 'ENSURE_GAMES_CACHE'");
+  expect(source).toContain('const retryCampaignSync = useCallback');
   expect(source).not.toContain('fetchAvailableGames');
 });
 
@@ -68,15 +69,17 @@ test('popup campaign catalog and queue use campaign-aware identities', () => {
   expect(source).not.toContain('value={selectedGame?.id ??');
 });
 
-test('popup uses a single campaign sync panel for empty, stale, syncing, failed, and fresh states', () => {
+test('popup uses a single campaign sync panel for cache validation and confirmed auth states', () => {
   const source = readPopupSource();
 
   expect(source).toContain("| 'waiting'");
+  expect(source).toContain("| 'pending-validation'");
   expect(source).toContain('function CampaignSyncPanel');
   expect(source).toContain('aria-live="polite"');
   expect(source).toContain('function TwitchSessionGate');
   expect(source).toContain('Updating campaigns…');
-  expect(source).toContain('Waiting for first sync');
+  expect(source).toContain('Saved campaigns are pending validation.');
+  expect(source).toContain('onRetry={onRetryCampaignSync}');
   expect(source).toContain('Campaign update failed. Showing saved data.');
   expect(source).toContain('Campaign update failed. No campaigns are available yet.');
   expect(source).toContain('hasCachedCampaigns={state.availableGames.length > 0}');
@@ -131,9 +134,7 @@ test('popup campaign catalog replaces the old selector with search and explicit 
 test('popup renders first-sync confirmation banner with campaign count', () => {
   const source = readPopupSource();
 
-  expect(source).toContain(
-    '{!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null &&',
-  );
+  expect(source).toContain("campaignSyncStatus === 'fresh' &&");
   expect(source).toContain('campaigns loaded.');
   expect(source).toContain('firstSyncCampaignCount');
   expect(source).toContain('hasUnseenRefreshSuccess');

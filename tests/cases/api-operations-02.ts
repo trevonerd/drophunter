@@ -144,13 +144,14 @@ describe('fetchDropsSnapshotFromApi', () => {
     });
   });
 
-  test('ViewerDropsDashboard does not request reward campaigns', async () => {
+  test('drops queries request no reward campaigns', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../../src/background/api-operations.ts');
 
     const state = createMinimalState();
     const session = createSession();
     const game = createGame({ name: 'Test Game', campaignId: 'campaign-123', categorySlug: 'test-game' });
     const dashboardPayloads: Array<Record<string, unknown>> = [];
+    const inventoryPayloads: Array<Record<string, unknown>> = [];
 
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -163,6 +164,7 @@ describe('fetchDropsSnapshotFromApi', () => {
         dashboardPayloads.push(body);
         payload = buildDropsDashboardResponse([game]);
       } else if (body?.operationName === 'Inventory') {
+        inventoryPayloads.push(body);
         payload = buildInventoryResponse();
       } else {
         throw new Error(`Unexpected request: ${JSON.stringify(body)}`);
@@ -179,5 +181,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(result?.games).toHaveLength(1);
     expect(dashboardPayloads).toHaveLength(1);
     expect(dashboardPayloads[0]?.variables).toEqual({ fetchRewardCampaigns: false });
+    expect(inventoryPayloads).toHaveLength(1);
+    expect(inventoryPayloads[0]?.variables).toEqual({ fetchRewardCampaigns: false });
   });
 });

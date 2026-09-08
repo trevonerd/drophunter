@@ -122,6 +122,7 @@ describe('watch transport handoff', () => {
     };
     state.appState.activeStreamer = { id: 'b', name: 'b', displayName: 'B', isLive: true };
     state.appState.watchTransportMode = 'managed-tab';
+    state.appState.watchTransportPreference = 'managed-tab';
     state.appState.watchHealth = healthyManaged(3);
     const ownershipB = {
       kind: 'managed-tab' as const,

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { createPlaybackAttentionPolicy } from '../src/background/playback-attention-policy.ts';
-import { createPlaybackOrchestrator } from '../src/background/playback-orchestrator.ts';
+import {
+  createPlaybackOrchestrator,
+  observeManualPlayback,
+} from '../src/background/playback-orchestrator.ts';
 import { createPlaybackTransport } from '../src/background/playback-transport.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { PlaybackPrepResult, TwitchStreamer } from '../src/types';
@@ -40,6 +43,56 @@ const streamer: TwitchStreamer = {
 };
 
 describe('playback orchestrator', () => {
+  test('treats an unavailable stream context as an observation failure', async () => {
+    // Given: Twitch has a tab, but its content telemetry is unavailable.
+    const result = await observeManualPlayback(
+      {
+        query: async () => [{ id: 4, active: false, url: 'https://www.twitch.tv/manual-channel' }],
+      },
+      async () => null,
+    );
+
+    // When: manual viewing is observed.
+    // Then: automation retains its existing transport state instead of inferring a stopped stream.
+    expect(result).toEqual({ kind: 'failed' });
+  });
+
+  test('ignores Drops and managed Twitch tabs before requesting manual stream telemetry', async () => {
+    // Given: first-run Drops and managed farming tabs coexist with a personal channel.
+    const observedTabIds: number[] = [];
+    const result = await observeManualPlayback(
+      {
+        query: async () => [
+          { id: 2, active: true, url: 'https://www.twitch.tv/drops/campaigns' },
+          { id: 7, active: false, url: 'https://www.twitch.tv/farming-channel' },
+          { id: 8, active: false, url: 'https://www.twitch.tv/personal-channel' },
+        ],
+      },
+      async (tabId) => {
+        observedTabIds.push(tabId);
+        return {
+          channelName: 'personal-channel',
+          isLive: true,
+          isPlaybackReady: true,
+        };
+      },
+      7,
+    );
+
+    // When: manual playback is observed.
+    // Then: only the plausible unmanaged channel is probed and retained.
+    expect(observedTabIds).toEqual([8]);
+    expect(result).toEqual({
+      kind: 'observed',
+      tabs: [
+        {
+          tab: { id: 8, active: false, url: 'https://www.twitch.tv/personal-channel' },
+          context: { channelName: 'personal-channel', isLive: true, isPlaybackReady: true },
+        },
+      ],
+    });
+  });
+
   test('coordinates recovery through the transport and attention seams', async () => {
     const events: string[] = [];
     const orchestrator = createPlaybackOrchestrator(createState(), {

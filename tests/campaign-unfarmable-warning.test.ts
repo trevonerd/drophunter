@@ -28,13 +28,9 @@ describe('campaign unfarmable warning', () => {
       broadcastStateUpdate: () => {
         events.push('popup');
       },
-      notifyBrowser: async (message: string) => {
-        events.push('browser');
-        messages.push(message);
-      },
-      notifyTelegram: async (message: string) => {
-        events.push('telegram');
-        messages.push(message);
+      notifyAutomation: async (notification: { readonly message: string }) => {
+        events.push('event');
+        messages.push(notification.message);
       },
     };
 
@@ -46,8 +42,8 @@ describe('campaign unfarmable warning', () => {
     const expected = campaignUnfarmableWarningMessage(campaign);
     expect(first).toBe(true);
     expect(duplicate).toBe(false);
-    expect(events).toEqual(['saved', 'popup', 'browser', 'telegram']);
-    expect(messages).toEqual([expected, expected]);
+    expect(events).toEqual(['saved', 'popup', 'event']);
+    expect(messages).toEqual([expected]);
     expect(state.appState.automationActivity).toEqual([
       {
         id: 'campaign-unfarmable:campaign:campaign-1',

@@ -33,13 +33,25 @@ export async function prepareTablessProvisionalWatch(
   target: FarmingTarget,
   options: TablessProvisionalWatchOptions,
 ): Promise<ProvisionalWatchCandidate | null> {
-  if (!options.enabled) return null;
+  const ownership: WatchOwnershipV1 = { kind: 'tabless', targetKey: tablessTargetKey(target) };
+  if (!options.enabled) {
+    return {
+      target,
+      ownership,
+      health: createWatchHealth('tabless', 'disabled', 'transport-disabled', options.now),
+      dispose: () => Promise.resolve(),
+    };
+  }
   let heartbeat: TablessHeartbeat;
   try {
     heartbeat = await options.heartbeat(target);
-  } catch (error) {
-    if (error instanceof Error) return null;
-    throw error;
+  } catch {
+    return {
+      target,
+      ownership,
+      health: createWatchHealth('tabless', 'failed', 'error', options.now),
+      dispose: () => Promise.resolve(),
+    };
   }
   const healthy = isHealthyWatchProbe(heartbeat);
   const health = createWatchHealth(
@@ -48,7 +60,6 @@ export async function prepareTablessProvisionalWatch(
     reasonForWatchProbe(heartbeat),
     options.now,
   );
-  const ownership: WatchOwnershipV1 = { kind: 'tabless', targetKey: tablessTargetKey(target) };
   return { target, ownership, health, dispose: () => Promise.resolve() };
 }
 

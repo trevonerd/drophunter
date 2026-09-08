@@ -1,3 +1,4 @@
+import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import { mergeDropProgressMonotonic } from '../shared/drops.ts';
 import { dedupeGamesByIdentity, gameKey } from '../shared/game-selection.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types/index.ts';
@@ -134,6 +135,13 @@ function normalizeCampaignDrops(
 }
 
 function withoutPriorCompletion(game: TwitchGame): TwitchGame {
+  if (game.campaignId && isCampaignAcquired(game)) {
+    return {
+      ...game,
+      allDropsCompleted: true,
+      rewardSummary: { completion: 'all-acquired', remainderReasons: [] },
+    };
+  }
   const fresh = { ...game };
   delete fresh.rewardSummary;
   delete fresh.allDropsCompleted;

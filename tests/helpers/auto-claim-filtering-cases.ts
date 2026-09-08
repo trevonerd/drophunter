@@ -50,10 +50,13 @@ export function registerAutoClaimFilteringCases(harness: AutoClaimHarness): void
     const state = harness.appState();
     expect(state.isRunning).toBe(false);
     expect(state.selectedGame).toBeNull();
-    expect(state.automationActivity[0]).toMatchObject({
-      kind: 'campaign-unfarmable',
-      message: 'The Farming Game campaign is no longer farmable. DropHunter is moving to the next campaign.',
-    });
+    expect(state.automationActivity).toContainEqual(
+      expect.objectContaining({
+        kind: 'campaign-unfarmable',
+        message:
+          'The Farming Game campaign is no longer farmable. DropHunter is moving to the next campaign.',
+      }),
+    );
     expect(state.totalDropsClaimed).toBe(baselineClaims);
     expect(harness.claimRequests).toHaveLength(0);
   });

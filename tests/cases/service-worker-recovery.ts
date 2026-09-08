@@ -250,7 +250,7 @@ export function registerRecoveryCases() {
       expect(finalState.recoveryBackoffUntil).toBeNull();
       expect(finalState.recoveryAttempts).toBeNull();
       expect(finalState.lastStopMessage).toContain('Queue completed');
-      expect(finalState.lastStopMessage).toContain('No live streamers found');
+      expect(finalState.lastStopMessage).toContain('No eligible streamer was found');
       expect(notifications.some((notification) => notification.title === 'Queue completed')).toBe(true);
     } finally {
       Date.now = realDateNow;

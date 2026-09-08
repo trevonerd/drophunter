@@ -93,6 +93,38 @@ export function registerWatchTransportCoordinatorStartCases() {
     expect(fixture.counters.opens).toBe(0);
   });
 
+  test('falls back to an inactive muted managed tab when hidden watching fails initially', async () => {
+    const fixture = createWatchTransportCoordinatorFixture();
+    const coordinator = createWatchTransportCoordinator({
+      state: fixture.state,
+      enabled: true,
+      heartbeat: async () => ({ accepted: false, reason: 'heartbeat-failed' }),
+      managedTab: {
+        open: async (_target, options) => {
+          expect(options).toEqual({ active: false, focus: false });
+          fixture.counters.opens += 1;
+          return { owner: 'drophunter', tabId: 18 };
+        },
+        probe: async () => ({ accepted: true, progress: 1 }),
+        close: async () => {},
+      },
+      persist: async () => {},
+      broadcast: () => {},
+    });
+
+    const health = await coordinator.start({
+      id: 'channel-1',
+      name: 'channel-1',
+      displayName: 'Channel 1',
+      isLive: true,
+    });
+
+    expect(fixture.counters.opens).toBe(1);
+    expect(fixture.state.appState.watchTransportPreference).toBe('tabless');
+    expect(health).toMatchObject({ mode: 'managed-tab', status: 'healthy' });
+    expect(fixture.state.appState.watchFallbackReason).toBe('heartbeat-failed');
+  });
+
   test('keeps explicit managed-tab preference unchanged', async () => {
     const state = createServiceWorkerState();
     state.appState.selectedGame = {

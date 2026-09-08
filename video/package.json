@@ -28,10 +28,12 @@
     "@remotion/eslint-config": "4.0.513",
     "@remotion/webcodecs": "4.0.513",
     "brace-expansion": "5.0.9",
-    "fast-uri": "4.1.2",
+    "browserslist": "4.28.7",
+    "fast-uri": "4.1.3",
     "js-yaml": "4.3.1",
     "nanoid": "3.3.18",
     "postcss": "8.5.25",
+    "postcss-selector-parser": "7.1.3",
     "ws": "8.21.0"
   }
 }

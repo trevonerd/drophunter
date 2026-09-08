@@ -50,12 +50,14 @@ test('enables notifications when the optional API appears after controller creat
     notificationsApi = availableApi;
     const enabled = await controller.setNotificationsEnabled(true);
     await controller.notifyAutomation({
+      transitionId: 'start:campaign-1:1',
       event: 'start',
       campaignId: 'campaign-1',
       title: 'Campaign started',
       message: 'Farming is active.',
     });
     await controller.notifyAutomation({
+      transitionId: 'start:campaign-1:2',
       event: 'preemption',
       campaignId: 'campaign-2',
       title: 'Campaign changed',

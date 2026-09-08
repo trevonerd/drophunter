@@ -89,6 +89,7 @@ describe('Farming automation fact normalization', () => {
       manualWatch: {
         kind: 'eligible-manual',
         observedAt: 1_750_000_001_000,
+        stoppedAt: null,
         expiresAt: 1_750_000_061_000,
         recheckAt: 1_750_000_031_000,
       },
@@ -133,6 +134,7 @@ describe('Farming automation fact normalization', () => {
       manualWatch: {
         kind: 'eligible-manual',
         observedAt: 10,
+        stoppedAt: null,
         expiresAt: 20,
         recheckAt: 15,
         workflowPhase: 'must-not-persist',
@@ -153,6 +155,7 @@ describe('Farming automation fact normalization', () => {
         manualWatch: {
           kind: 'eligible-manual',
           observedAt: 10,
+          stoppedAt: null,
           expiresAt: 20,
           recheckAt: 15,
         },

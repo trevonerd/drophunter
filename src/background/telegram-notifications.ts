@@ -106,14 +106,16 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       }
     }
   };
-  const notifySystemEvent = async (reason: string, message: string): Promise<void> => {
-    if (!state.appState.telegramSystemAlertsEnabled) return;
+  const notifySystemEvent = async (reason: string, message: string): Promise<boolean> => {
+    if (!state.appState.telegramSystemAlertsEnabled) return false;
     const credentials = await ensureReadyToSend();
-    if (!credentials) return;
+    if (!credentials) return false;
     try {
       await sendMessage(credentials, formatSystemEventMessage(reason, message));
+      return true;
     } catch (error) {
       logWarn('Telegram system alert failed:', String(error));
+      return false;
     }
   };
   const validateSetup = async (credentials: TelegramCredentials) => {

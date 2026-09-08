@@ -58,6 +58,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onStopMonitoring: stopMonitoring,
   });
   const {
+    automaticFavoritesEnabled,
     handlePauseFarming,
     handleResumeFarming,
     handleStartFarming,
@@ -80,6 +81,8 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
 
   return {
     acquireStreamerForSelectedGame,
+    advanceQueueIfCompleted,
+    automaticFavoritesEnabled,
     checkDropProgress,
     handleAuthoritativeCampaignUnavailable,
     handleAddToQueue,

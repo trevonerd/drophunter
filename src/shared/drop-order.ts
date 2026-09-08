@@ -39,6 +39,6 @@ export function pickNearestDrop(pendingDrops: TwitchDrop[]): TwitchDrop | null {
   if (!Array.isArray(pendingDrops) || pendingDrops.length === 0) {
     return null;
   }
-  const farmable = pendingDrops.filter(isRewardFarmableNow);
+  const farmable = pendingDrops.filter((drop) => isRewardFarmableNow(drop));
   return farmable.length > 0 ? (sortPendingDrops(farmable)[0] ?? null) : null;
 }

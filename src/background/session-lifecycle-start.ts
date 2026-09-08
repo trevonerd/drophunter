@@ -1,7 +1,11 @@
 import { dropMatchesGame, findMatchingGame } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { formatFarmingCompleteStatusLines } from '../shared/runtime-status.ts';
+import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
+import { splitDropsForSelectedGame } from './drops-projection.ts';
+import { cleanUnavailableQueueCampaigns } from './queue-availability-cleanup.ts';
+import { notifyQueueCleanup, recordQueueCleanupActivity } from './queue-availability-cleanup-activity.ts';
 import {
   markQueueEntryManual,
   normalizeQueueSelection,
@@ -17,6 +21,7 @@ import type {
   StartFarmingPayload,
   StartFarmingResult,
 } from './session-lifecycle-types.ts';
+import { clearCampaignStallBlock } from './stalled-campaign-block.ts';
 
 function startRejectionMessage(game: TwitchGame): string | null {
   const summary = game.rewardSummary;
@@ -35,32 +40,78 @@ export async function handleStartFarming(
   payload: StartFarmingPayload,
   options?: StartFarmingOptions,
 ): Promise<StartFarmingResult> {
+  const isCurrent = options?.isCurrent ?? (() => true);
+  const cancelled = (): StartFarmingResult => ({ success: false, error: 'Farming start was superseded.' });
+  if (!isCurrent()) return cancelled();
   if (options?.onTrackActivity) {
     await options.onTrackActivity('start-farming');
+    if (!isCurrent()) return cancelled();
   }
+  const queueCleanup = cleanUnavailableQueueCampaigns(state);
+  recordQueueCleanupActivity(state, queueCleanup);
   if (!payload?.game) {
     return { success: false, error: 'No game selected.' };
   }
 
-  const requestedGame = resolveGameFromState(state, payload.game);
+  let requestedGame = resolveGameFromState(state, payload.game);
   if (!requestedGame) {
     return { success: false, error: 'Campaign is no longer available.' };
   }
+  const initialRequestedGame = requestedGame;
+  if (isExpiredGame(initialRequestedGame)) {
+    if (options?.onSaveState) await options.onSaveState();
+    await notifyQueueCleanup(queueCleanup, options ?? {});
+    return { success: false, error: 'Campaign has expired.' };
+  }
   const hasRequestedAutomatableReward = state.appState.pendingDrops.some(
-    (drop) => dropMatchesGame(drop, requestedGame) && isRewardFarmableNow(drop),
+    (drop) => dropMatchesGame(drop, initialRequestedGame) && isRewardFarmableNow(drop),
   );
-  const requestedStartRejection = startRejectionMessage(requestedGame);
+  const requestedStartRejection = startRejectionMessage(initialRequestedGame);
   if (requestedStartRejection && !hasRequestedAutomatableReward) {
     return { success: false, error: requestedStartRejection };
   }
 
-  removeQueueEntriesForGame(state, requestedGame);
-  state.appState.queue = [requestedGame, ...state.appState.queue];
-  markQueueEntryManual(state, requestedGame);
+  if (options?.isCurrent) {
+    if (options.onEnsureWorkspace) {
+      await options.onEnsureWorkspace(isCurrent);
+      if (!isCurrent()) return cancelled();
+    }
+    if (options.onRefreshDropsData) {
+      await options.onRefreshDropsData({
+        includeCampaignFetch: true,
+        includeInventoryFetch: true,
+        isCurrent,
+        suppressNotifications: true,
+      });
+      if (!isCurrent()) return cancelled();
+    }
+  }
+
+  if (!isCurrent()) return cancelled();
+  requestedGame = resolveGameFromState(state, payload.game);
+  if (!requestedGame) return { success: false, error: 'Campaign is no longer available.' };
+  const refreshedRequestedGame = requestedGame;
+  if (isExpiredGame(refreshedRequestedGame)) return { success: false, error: 'Campaign has expired.' };
+  const refreshedRequestedStartRejection = startRejectionMessage(refreshedRequestedGame);
+  const hasRefreshedRequestedReward = state.appState.pendingDrops.some(
+    (drop) => dropMatchesGame(drop, refreshedRequestedGame) && isRewardFarmableNow(drop),
+  );
+  if (refreshedRequestedStartRejection && !hasRefreshedRequestedReward) {
+    return { success: false, error: refreshedRequestedStartRejection };
+  }
+  removeQueueEntriesForGame(state, refreshedRequestedGame);
+  state.appState.queue = [refreshedRequestedGame, ...state.appState.queue];
+  markQueueEntryManual(state, refreshedRequestedGame);
   normalizeQueueSelection(state, state.appState.availableGames);
-  state.appState.selectedGame = state.appState.queue[0] ?? requestedGame;
+  state.appState.selectedGame = state.appState.queue[0] ?? refreshedRequestedGame;
   state.appState.isRunning = true;
   state.appState.isPaused = false;
+  state.appState.manualQueueAuthorized = true;
+  state.appState.farmingSessionOrigin = 'manual';
+  state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
+    state.appState.stalledCampaignBlocksByKey,
+    refreshedRequestedGame,
+  );
   state.appState.completionNotified = false;
   clearStopState(state);
   clearRecoveryState(state);
@@ -72,10 +123,15 @@ export async function handleStartFarming(
   state.monitorTickInFlight = false;
   state.tickGeneration += 1;
 
-  if (options?.onEnsureWorkspace) {
+  if (options?.isCurrent) {
+    if (!isCurrent()) return cancelled();
+    splitDropsForSelectedGame(state, state.cachedDropsSnapshot);
+  }
+
+  if (!options?.isCurrent && options?.onEnsureWorkspace) {
     await options.onEnsureWorkspace();
   }
-  if (options?.onRefreshDropsData) {
+  if (!options?.isCurrent && options?.onRefreshDropsData) {
     await options.onRefreshDropsData({
       includeCampaignFetch: true,
       includeInventoryFetch: true,
@@ -95,12 +151,16 @@ export async function handleStartFarming(
     state.appState.isRunning = false;
     state.appState.isPaused = false;
     state.appState.selectedGame = null;
+    state.appState.manualQueueAuthorized = false;
+    state.appState.farmingSessionOrigin = null;
     if (options?.onStopMonitoring) {
       options.onStopMonitoring();
     }
     if (options?.onSaveState) {
+      if (!isCurrent()) return cancelled();
       await options.onSaveState();
     }
+    await notifyQueueCleanup(queueCleanup, options ?? {});
     if (options?.onBroadcastStateUpdate) {
       options.onBroadcastStateUpdate();
     }
@@ -111,7 +171,10 @@ export async function handleStartFarming(
   }
 
   if (options?.onSaveState) {
+    if (!isCurrent()) return cancelled();
     await options.onSaveState();
   }
+  if (!isCurrent()) return cancelled();
+  await notifyQueueCleanup(queueCleanup, options ?? {});
   return { success: true };
 }

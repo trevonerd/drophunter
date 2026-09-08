@@ -15,7 +15,7 @@ export function TwitchSessionGate({
         Twitch session required
       </h2>
       <p className="mt-1 text-[11px] leading-snug text-[color:var(--dh-text-soft)]">
-        Sign in to sync campaigns and farm Drops.
+        Open Twitch Drops to connect your session, then DropHunter will sync campaigns automatically.
       </p>
       {queueCount > 0 && (
         <p className="mt-1 text-[10px] text-[color:var(--dh-muted)]" data-saved-queue-count={queueCount}>
@@ -27,7 +27,7 @@ export function TwitchSessionGate({
         onClick={onOpenTwitch}
         className="dh-focus mt-2 inline-flex min-h-8 w-full items-center justify-center rounded-lg bg-twitch-purple/70 px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-twitch-purple/75"
       >
-        Open Twitch
+        Open Twitch Drops
       </button>
     </section>
   );

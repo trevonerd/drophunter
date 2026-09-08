@@ -172,10 +172,11 @@ describe('runtime status formatting', () => {
   test('formats rotation and recovery reasons for the UI', () => {
     expect(formatRotationReason('drops-inactive')).toBe('Drops signal missing');
     expect(formatRotationReason('open-failed')).toBe('Could not open stream');
-    expect(formatRotationReason('no-streamers')).toBe('No live streamers found');
+    expect(formatRotationReason('no-streamers')).toBe('No eligible streamer found yet');
     expect(formatRecoveryReason('drops-inactive')).toBe('Recovering missing drops signal');
     expect(formatRecoveryReason('open-failed')).toBe('Could not open stream');
-    expect(formatRecoveryReason('no-streamers')).toBe('No live streamers found');
+    expect(formatRecoveryReason('no-streamers')).toBe('No eligible streamer found yet');
+    expect(formatRecoveryReason('directory-unavailable')).toBe('Twitch streamer search unavailable');
     expect(formatRecoveryReason('stalled-progress')).toBe('Checking stalled drop progress');
   });
 

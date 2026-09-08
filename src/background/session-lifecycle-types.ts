@@ -1,15 +1,17 @@
 import type { TwitchGame } from '../types/index.ts';
+import type { QueueAvailabilityCleanupResult } from './queue-availability-cleanup.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 export type LifecycleRefreshOptions = {
   readonly includeCampaignFetch: boolean;
   readonly includeInventoryFetch: boolean;
+  readonly isCurrent?: () => boolean;
   readonly suppressNotifications: boolean;
 };
 
 export type QueueProgressOptions = {
   readonly onOpenStreamer?: () => Promise<boolean>;
-  readonly onEnsureWorkspace?: () => Promise<void>;
+  readonly onEnsureWorkspace?: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRefreshDropsData?: (options: LifecycleRefreshOptions) => Promise<void>;
   readonly onSaveState?: () => Promise<void>;
   readonly onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
@@ -78,12 +80,14 @@ export type SkipCurrentGameOptions = QueueProgressOptions & {
 export type StartFarmingPayload = { readonly game?: TwitchGame };
 
 export type StartFarmingOptions = QueueProgressOptions & {
+  readonly isCurrent?: () => boolean;
   readonly onBroadcastStateUpdate?: () => void;
   readonly onStartMonitoring?: () => void;
   readonly onOpenMonitorDashboard?: (options: { readonly toggle: boolean }) => Promise<void>;
   readonly onStopMonitoring?: () => void;
   readonly onTrackActivity?: (reason: string) => Promise<void>;
   readonly onApplyStopState?: (state: ServiceWorkerState, reason: string, message: string | null) => void;
+  readonly onQueueCampaignsRemoved?: (result: QueueAvailabilityCleanupResult) => Promise<void>;
 };
 
 export type StartFarmingResult = {

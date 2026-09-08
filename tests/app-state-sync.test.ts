@@ -33,7 +33,9 @@ describe('normalizeStoredAppState', () => {
     expect(state.hiddenGames).toEqual([]);
     expect(state.campaignPriorityMode).toBe('ending-soonest');
     expect(state.farmCategoryScope).toBe('all');
-    expect(state.autoStartFavoriteGames).toBe(false);
+    expect(state.autoStartFavoriteGames).toBe(true);
+    expect(state.farmingSessionOrigin).toBe('automatic');
+    expect(state.watchTransportPreference).toBe('tabless');
     expect(state.queueEntryMetadataByKey).toEqual({});
     expect(state.automationActivity).toEqual([]);
     expect(state.lastAutomationMessage).toBeNull();
@@ -41,6 +43,38 @@ describe('normalizeStoredAppState', () => {
     expect(state.manualWatchState).toBe('inactive');
     expect(state.campaignAvailabilityByKey).toEqual({});
     expect(state.campaignDropsByKey).toEqual({});
+  });
+
+  test('preserves an explicit manual session origin during normalization', () => {
+    expect(
+      normalizeStoredAppState({
+        isRunning: true,
+        manualQueueAuthorized: true,
+        farmingSessionOrigin: 'manual',
+      }).farmingSessionOrigin,
+    ).toBe('manual');
+  });
+
+  test('normalizes retired campaign priority modes to deadline ordering while preserving explicit preferences', () => {
+    // Given: an installed extension that selected a retired priority mode and opted out of auto-start.
+    const state = normalizeStoredAppState({
+      campaignPriorityMode: 'lowest-availability',
+      autoStartFavoriteGames: false,
+      watchTransportPreference: 'managed-tab',
+    });
+
+    // When: its persisted state crosses the v4 boundary.
+
+    // Then: the single deadline policy applies without overwriting explicit user preferences.
+    expect({
+      campaignPriorityMode: state.campaignPriorityMode,
+      autoStartFavoriteGames: state.autoStartFavoriteGames,
+      watchTransportPreference: state.watchTransportPreference,
+    }).toEqual({
+      campaignPriorityMode: 'ending-soonest',
+      autoStartFavoriteGames: false,
+      watchTransportPreference: 'managed-tab',
+    });
   });
 
   test('normalizes invalid automation preferences fail-closed', () => {
@@ -55,7 +89,7 @@ describe('normalizeStoredAppState', () => {
     expect(state.favoriteGames).toEqual([{ gameId: 'valorant', lastKnownName: 'Valorant', addedAt: 123 }]);
     expect(state.campaignPriorityMode).toBe('ending-soonest');
     expect(state.farmCategoryScope).toBe('all');
-    expect(state.autoStartFavoriteGames).toBe(false);
+    expect(state.autoStartFavoriteGames).toBe(true);
     expect(state.queueEntryMetadataByKey).toEqual({});
   });
 

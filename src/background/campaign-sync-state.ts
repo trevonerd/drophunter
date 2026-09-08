@@ -21,7 +21,7 @@ export async function persistCampaignSyncState(
     state.appState.lastDropsPageRefreshError = null;
   } else if (campaignSyncState.status === 'needs-session') {
     state.appState.lastDropsPageRefreshError = 'Open Twitch Drops so DropHunter can detect your session.';
-  } else if (campaignSyncState.status === 'retry-scheduled') {
+  } else if (campaignSyncState.status === 'retry-scheduled' || campaignSyncState.status === 'retry-failed') {
     state.appState.lastDropsPageRefreshError = campaignSyncState.error;
   } else {
     state.appState.lastDropsPageRefreshError = null;

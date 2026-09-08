@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AutomationSummary } from '../src/popup/components/AutomationSummary';
 import { SettingsView } from '../src/popup/components/SettingsView';
+import { TwitchSessionGate } from '../src/popup/components/TwitchSessionGate';
 import { createInitialState } from '../src/shared/utils';
 
 test('automation shows one recent event only while enabled without duplicating the switch state', () => {
@@ -29,11 +30,7 @@ test('automation shows one recent event only while enabled without duplicating t
     />,
   );
   const permissionDeniedMarkup = renderToStaticMarkup(
-    <AutomationSummary
-      state={{ ...enabledState, autoStartFavoriteGames: false }}
-      notificationPermissionDenied
-      onToggle={() => {}}
-    />,
+    <AutomationSummary state={enabledState} notificationPermissionDenied onToggle={() => {}} />,
   );
 
   expect(enabledMarkup).toContain('Favorite auto-start');
@@ -46,8 +43,15 @@ test('automation shows one recent event only while enabled without duplicating t
   expect(disabledMarkup).not.toContain('Cyberpunk 2077 started automatically.');
   expect(enabledMarkup).not.toContain('>On<');
   expect(disabledMarkup).not.toContain('>Off<');
-  expect(permissionDeniedMarkup).toContain('Notifications are required to turn on favorite auto-start.');
-  expect(permissionDeniedMarkup).toContain('role="status"');
+  expect(permissionDeniedMarkup).not.toContain('Notifications are required to turn on favorite auto-start.');
+  expect(permissionDeniedMarkup).not.toContain('Browser permission was denied');
+});
+
+test('first-session gate directs the user to Twitch Drops', () => {
+  const markup = renderToStaticMarkup(<TwitchSessionGate queueCount={0} onOpenTwitch={() => {}} />);
+
+  expect(markup).toContain('Open Twitch Drops');
+  expect(markup).toContain('sync campaigns automatically');
 });
 
 test('popup keeps an unfarmable warning visible long enough to be seen after the transition', () => {

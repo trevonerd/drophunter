@@ -57,6 +57,7 @@ export type CampaignSyncStatus =
   | 'fresh'
   | 'stale'
   | 'syncing'
+  | 'pending-validation'
   | 'waiting'
   | 'failed';
 
@@ -86,18 +87,15 @@ export function deriveCampaignSyncStatus({
   const hasUsableCachedState = availableCampaignCount > 0 || isRunning;
   if (twitchSessionSyncState?.status === 'blocked') return 'signed-out';
   if (dropsRefreshLoading) return 'syncing';
-  if (campaignSyncState?.status === 'retry-scheduled') {
-    return hasUsableCachedState ? 'fresh' : 'waiting';
+  if (campaignSyncState?.status === 'retry-failed') return 'failed';
+  if (campaignSyncState?.status === 'retry-scheduled' || campaignSyncState?.status === 'needs-session') {
+    return 'pending-validation';
   }
+  if (campaignSyncState?.status === 'syncing') return 'syncing';
+  if (hasUsableCachedState && !twitchSessionDetected) return 'pending-validation';
   if (!gamesLoading && !twitchSessionDetected && !hasUsableCachedState) return 'waiting';
-  if (campaignSyncState?.status === 'needs-session') {
-    return hasUsableCachedState ? 'fresh' : 'waiting';
-  }
-  if (campaignSyncState?.status === 'syncing') {
-    return hasUsableCachedState ? 'fresh' : 'syncing';
-  }
   if (activeSyncError) return 'failed';
   if (!gamesLoading && availableCampaignCount === 0) return 'empty';
-  if (isStale) return 'syncing';
+  if (isStale) return 'pending-validation';
   return 'fresh';
 }

@@ -1,20 +1,12 @@
 import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
-import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
-import {
-  dropMatchesSelectedGame,
-  markDropUnverifiable,
-  recomputeSelectedCampaignSummaryAfterLocalMarker,
-} from './drops-projection.ts';
+import { dropMatchesSelectedGame } from './drops-projection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
-import { enterPersistentRecovery } from './recovery-state.ts';
-import {
-  resetStreamTrackingState,
-  skipCurrentGameAndAdvanceQueue,
-  skipCurrentGameDueToStall,
-} from './session-lifecycle.ts';
+import { createPersistentRecoveryHandler } from './persistent-recovery-notification.ts';
+import { skipCurrentGameAndAdvanceQueue, skipCurrentGameDueToStall } from './session-lifecycle.ts';
 import type { StopFarmingSessionRequest } from './session-lifecycle-types.ts';
+import { blockSelectedCampaignForStall } from './stalled-campaign-blocking.ts';
 import {
   recoverStalledProgress as recoverStalledProgressOperation,
   type StalledProgressRecoveryResult,
@@ -36,8 +28,8 @@ type FarmingSessionStreamingDependencies = {
 };
 
 export type FarmingSessionStreaming = {
-  readonly acquireStreamerForSelectedGame: () => Promise<boolean>;
-  readonly ensureWorkspaceForSelectedGame: () => Promise<void>;
+  readonly acquireStreamerForSelectedGame: (isCurrent?: () => boolean) => Promise<boolean>;
+  readonly ensureWorkspaceForSelectedGame: (isCurrent?: () => boolean) => Promise<void>;
   readonly handleAuthoritativeCampaignUnavailable: (
     game: import('../types/index.ts').TwitchGame,
   ) => Promise<void>;
@@ -51,23 +43,34 @@ export function createFarmingSessionStreaming(
   dependencies: FarmingSessionStreamingDependencies,
 ): FarmingSessionStreaming {
   const { state, adapters } = context;
+  const enterPersistentRecovery = createPersistentRecoveryHandler({
+    automationNotify: adapters.automationNotify,
+    notify: adapters.notify,
+    telegramSystemAlert: adapters.telegramSystemAlert,
+  });
 
-  async function openBestStreamerForSelectedGame(): Promise<boolean> {
+  async function openBestStreamerForSelectedGame(isCurrent: () => boolean = () => true): Promise<boolean> {
     return openBestStreamer(
       state,
       {
         onFetchDirectoryStreamersFromApi: adapters.fetchDirectoryStreamersFromApi,
         onOpenForegroundChannel: adapters.openForegroundChannel,
         onOpenWatchTransport: async (streamer) => {
+          if (!isCurrent()) return false;
           if (!adapters.watchTransport) {
+            if (!isCurrent()) return false;
             await adapters.openForegroundChannel(streamer);
-            return true;
+            return isCurrent();
           }
-          const health = await adapters.watchTransport.start(streamer);
+          const health = await adapters.watchTransport.start(streamer, isCurrent);
+          if (!isCurrent()) {
+            return false;
+          }
           state.appState.watchTransportMode = health.mode;
           state.appState.watchHealth = health;
           return health.mode === 'tabless' || health.status !== 'failed';
         },
+        isCurrent,
       },
       {
         dropMatchesSelectedGame,
@@ -97,74 +100,43 @@ export function createFarmingSessionStreaming(
     });
   }
 
-  async function acquireStreamerForSelectedGame(): Promise<boolean> {
+  async function acquireStreamerForSelectedGame(isCurrent: () => boolean = () => true): Promise<boolean> {
     return acquireStreamer(state, {
-      onOpenStreamer: openBestStreamerForSelectedGame,
+      onOpenStreamer: () => openBestStreamerForSelectedGame(isCurrent),
       onSkipCurrentGame: skipCurrentGameDueToNoStreamers,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
+      isCurrent,
     });
   }
 
-  async function ensureWorkspaceForSelectedGame(): Promise<void> {
-    if (!state.appState.selectedGame) {
+  async function ensureWorkspaceForSelectedGame(isCurrent: () => boolean = () => true): Promise<void> {
+    const selectedGame = state.appState.selectedGame;
+    if (!selectedGame || !isCurrent()) {
       return;
     }
-    const resolvedSlug = await adapters.resolveCategorySlug(state.appState.selectedGame);
+    const resolvedSlug = await adapters.resolveCategorySlug(selectedGame);
+    if (!isCurrent() || state.appState.selectedGame !== selectedGame) return;
     state.appState.selectedGame = {
-      ...state.appState.selectedGame,
+      ...selectedGame,
       categorySlug: resolvedSlug,
     };
   }
 
   async function handleRecoverySkip(): Promise<void> {
-    const currentDrop = state.appState.currentDrop;
     const exhaustedStalledRecovery =
       state.appState.recoveryReason === 'stalled-progress' &&
       state.stalledRecoveryAttempts >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
-    const markedUnverifiable =
-      exhaustedStalledRecovery && currentDrop ? markDropUnverifiable(state, currentDrop) : false;
-
-    if (!markedUnverifiable) {
-      if (state.appState.selectedGame) {
-        await adapters.suppressCampaignUntilRefresh?.(gameKey(state.appState.selectedGame));
-      }
-      await skipCurrentGameDueToStall(state, {
-        onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-        onRefreshDropsData: async (options) => {
-          await dependencies.onRefreshDropsData(options);
-        },
-        onOpenStreamer: acquireStreamerForSelectedGame,
-        onSaveState: () => adapters.saveState(state),
-        onSaveTimingState: adapters.saveTimingState,
-        onStopFarmingSession: dependencies.onStopFarmingSession,
-        onNotify: adapters.notify,
+    if (exhaustedStalledRecovery) {
+      await blockSelectedCampaignForStall({
+        state,
+        now: context.now,
+        fetchDirectoryStreamers: adapters.fetchDirectoryStreamersFromApi,
+        notify: adapters.automationNotify,
       });
-      return;
     }
 
-    await adapters.saveTimingState(state);
-    await dependencies.onRefreshDropsData({
-      includeCampaignFetch: false,
-      includeInventoryFetch: false,
-      suppressNotifications: true,
-    });
-
-    const selectedFarmingComplete = recomputeSelectedCampaignSummaryAfterLocalMarker(state);
-    if (
-      !selectedFarmingComplete ||
-      state.appState.currentDrop !== null ||
-      state.appState.pendingDrops.some(isRewardFarmableNow)
-    ) {
-      resetStreamTrackingState(state);
-      await acquireStreamerForSelectedGame();
-      return;
-    }
-
-    if (state.appState.selectedGame) {
-      await adapters.suppressCampaignUntilRefresh?.(gameKey(state.appState.selectedGame));
-    }
-    await skipCurrentGameAndAdvanceQueue(state, 'unverifiable-twitch', {
+    await skipCurrentGameDueToStall(state, {
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
       onRefreshDropsData: async (options) => {
         await dependencies.onRefreshDropsData(options);
@@ -200,7 +172,7 @@ export function createFarmingSessionStreaming(
   async function recoverStalledProgress(
     source: StalledProgressSource,
   ): Promise<StalledProgressRecoveryResult> {
-    return recoverStalledProgressOperation(state, source, {
+    const result = await recoverStalledProgressOperation(state, source, {
       now: context.now,
       onCampaignRefresh: () =>
         dependencies.onRefreshDropsData({
@@ -231,18 +203,26 @@ export function createFarmingSessionStreaming(
           onOpenStreamer: acquireStreamerForSelectedGame,
           onSaveState: () => adapters.saveState(state),
           onSaveTimingState: adapters.saveTimingState,
-          onEnterPersistentRecovery: async (nextState, reason, message, recoveryOptions) =>
-            enterPersistentRecovery(nextState, reason, message, {
-              ...recoveryOptions,
-              onNotify: adapters.notify,
-              onSystemAlert: adapters.telegramSystemAlert,
-            }),
+          onEnterPersistentRecovery: enterPersistentRecovery,
         });
       },
       onSkipCurrentGame: handleRecoverySkip,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
     });
+    if (result.kind === 'retry-scheduled' && result.started && state.appState.selectedGame) {
+      const selectedGame = state.appState.selectedGame;
+      await adapters.automationNotify?.({
+        transitionId: `stall-recovery:${gameKey(selectedGame)}:${result.attempt}:${result.retryAt}`,
+        event: 'recovery',
+        campaignId: selectedGame.campaignId ?? selectedGame.id,
+        title: 'Checking stalled Drop progress',
+        message: `DropHunter is verifying progress for ${getGameDisplayLabel(selectedGame)} before changing streamer.`,
+        priority: 1,
+        telegramReason: 'recovery',
+      });
+    }
+    return result;
   }
 
   async function rotateStreamerIfInvalid(): Promise<void> {
@@ -254,12 +234,7 @@ export function createFarmingSessionStreaming(
       onSaveTimingState: adapters.saveTimingState,
       onRotateStreamer: rotateStreamer,
       onOpenStreamer: acquireStreamerForSelectedGame,
-      onEnterPersistentRecovery: async (nextState, reason, message, recoveryOptions) =>
-        enterPersistentRecovery(nextState, reason, message, {
-          ...recoveryOptions,
-          onNotify: adapters.notify,
-          onSystemAlert: adapters.telegramSystemAlert,
-        }),
+      onEnterPersistentRecovery: enterPersistentRecovery,
       onSkipCurrentGame: handleRecoverySkip,
       onRecoverStalledProgress: recoverStalledProgress,
       onForceRefreshDropsData: () =>

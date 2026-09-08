@@ -1,9 +1,20 @@
 import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
+import { readAndMaybePersistSessionFromDropsPage } from './session-page-recovery.ts';
+import {
+  closeUntouchedRecoveryTab,
+  publishValidatedRecoveredSession,
+  withRecoveryTimeout,
+} from './session-recovery-lifecycle.ts';
+import { findSessionInTwitchTabs, type TwitchTabDiscoveryApi } from './session-tab-discovery.ts';
 import type { TwitchSession } from './twitch-api/types';
 
 const DEFAULT_SESSION_READ_ATTEMPTS = 3;
 const DEFAULT_SESSION_READ_RETRY_DELAY_MS = 350;
+const DEFAULT_OPEN_TAB_RECOVERY_TIMEOUT_MS = 10_000;
+const DEFAULT_AUTH_RECOVERY_TIMEOUT_MS = 90_000;
+const DEFAULT_TEMPORARY_RECOVERY_RETRY_MS = 60_000;
+const DROPS_RECOVERY_URL = 'https://www.twitch.tv/drops/inventory';
 
 export type SessionRecoveryMode = 'passive' | 'background-tab';
 
@@ -15,12 +26,14 @@ interface TwitchTab {
   id?: number;
   url?: string;
   active?: boolean;
+  windowId?: number;
 }
 
-interface TabsApi {
-  query(queryInfo: { url?: string | string[] }): Promise<TwitchTab[]>;
+interface TabsApi extends TwitchTabDiscoveryApi {
+  query(queryInfo: { url?: string | string[]; windowId?: number }): Promise<TwitchTab[]>;
   create(createProperties: { url: string; active: boolean }): Promise<TwitchTab | null>;
   remove?(tabId: number): Promise<void>;
+  get?(tabId: number): Promise<TwitchTab | null>;
   sendMessage(tabId: number, message: unknown): Promise<unknown>;
 }
 
@@ -41,10 +54,15 @@ interface SessionOrchestratorOptions {
   sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
   readTwitchSessionViaExecuteScript: (tabId: number) => Promise<TwitchSession | null>;
   persistTwitchSession: (session: TwitchSession) => Promise<unknown> | unknown;
+  discardPersistedTwitchSessionIfMatches: (session: TwitchSession) => Promise<void>;
+  validateRecoveredTwitchSession: (session: TwitchSession) => Promise<boolean>;
+  getSessionRevision: () => number;
   waitForTabComplete?: (tabId: number) => Promise<unknown> | unknown;
-  closeTemporaryTabIfSafe?: (tabId: number) => Promise<boolean>;
   sessionReadAttempts?: number;
   sessionReadRetryDelayMs?: number;
+  openTabRecoveryTimeoutMs?: number;
+  authRecoveryTimeoutMs?: number;
+  now?: () => number;
   logDebug: (...args: unknown[]) => void;
   logWarn: (...args: unknown[]) => void;
 }
@@ -61,8 +79,9 @@ export function createSessionOrchestrator(
   const getTabsApi = () => options.tabsApi ?? browser.tabs;
   const getScriptingApi = () => options.scriptingApi ?? browser.scripting;
   let authRecoveryInFlight: Promise<TwitchSession | null> | null = null;
-  const wait = (delayMs: number) =>
-    delayMs <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, delayMs));
+  let activeAuthRecovery = 0;
+  let failedTemporaryRecovery: { readonly revision: number; readonly retryAt: number } | null = null;
+  const now = options.now ?? Date.now;
 
   const ensureContentScriptOnTab = async (tabId: number) => {
     try {
@@ -114,88 +133,149 @@ export function createSessionOrchestrator(
     return session;
   };
 
-  const findTwitchSessionInOpenTabs = async (): Promise<TwitchSession | null> => {
-    const tabs = await getTabsApi().query({
-      url: ['https://www.twitch.tv/*', 'https://twitch.tv/*', 'https://player.twitch.tv/*'],
-    });
+  const findTwitchSessionInOpenTabs = (timeoutMs?: number) =>
+    findSessionInTwitchTabs(
+      getTabsApi(),
+      readTwitchSessionFromTab,
+      options.waitForTabComplete,
+      options.logDebug,
+      timeoutMs,
+    );
 
-    const sortedTabs = tabs.slice().sort((left, right) => {
-      const leftUrl = left.url ?? '';
-      const rightUrl = right.url ?? '';
-      const leftIsMain = leftUrl.includes('://www.twitch.tv/') || leftUrl.includes('://twitch.tv/');
-      const rightIsMain = rightUrl.includes('://www.twitch.tv/') || rightUrl.includes('://twitch.tv/');
-      if (leftIsMain !== rightIsMain) {
-        return leftIsMain ? -1 : 1;
-      }
-      if (Boolean(left.active) !== Boolean(right.active)) {
-        return left.active ? -1 : 1;
-      }
-      return 0;
-    });
-
-    for (const tab of sortedTabs) {
-      if (!tab.id) {
-        continue;
-      }
-      options.logDebug('Trying Twitch session extraction from tab', {
-        tabId: tab.id,
-        url: tab.url ?? null,
-        active: Boolean(tab.active),
-      });
-      const session = await readTwitchSessionFromTab(tab.id).catch(() => null);
-      if (session) {
-        return session;
-      }
-    }
-    return null;
-  };
-
-  const persistSessionFromDropsPage = async (tabId: number): Promise<TwitchSession | null> => {
-    await ensureContentScriptOnTab(tabId);
+  const persistSessionFromDropsPage = (tabId: number, publish = true): Promise<TwitchSession | null> => {
     const attempts = Math.max(1, Math.floor(options.sessionReadAttempts ?? DEFAULT_SESSION_READ_ATTEMPTS));
     const retryDelayMs = Math.max(0, options.sessionReadRetryDelayMs ?? DEFAULT_SESSION_READ_RETRY_DELAY_MS);
-    let session: TwitchSession | null = null;
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      session = await readTwitchSessionFromTab(tabId).catch(() => null);
-      if (session || attempt === attempts) {
-        break;
-      }
-      options.logDebug('Retrying Twitch session extraction from Drops tab', {
-        tabId,
-        attempt,
+    return readAndMaybePersistSessionFromDropsPage(
+      tabId,
+      {
+        ensureContentScriptOnTab,
+        readTwitchSessionFromTab,
         attempts,
-      });
-      await wait(retryDelayMs);
-    }
-    if (!session) {
-      return null;
-    }
-    state.twitchSessionCache = session;
-    state.twitchSessionLastAttemptAt = 0;
-    await options.persistTwitchSession(session);
-    return session;
+        retryDelayMs,
+        logDebug: options.logDebug,
+      },
+      state,
+      options.persistTwitchSession,
+      publish,
+    );
   };
 
   const recoverTwitchSessionAfterAuthError = async (
-    _mode: SessionRecoveryMode,
+    mode: SessionRecoveryMode,
   ): Promise<TwitchSession | null> => {
     if (authRecoveryInFlight) {
       return authRecoveryInFlight;
     }
+    const attempt = activeAuthRecovery + 1;
+    activeAuthRecovery = attempt;
+    const isCurrentAttempt = () => activeAuthRecovery === attempt;
+    const timeoutMs = options.authRecoveryTimeoutMs ?? DEFAULT_AUTH_RECOVERY_TIMEOUT_MS;
+    const recoveryDeadline = Date.now() + timeoutMs;
 
-    authRecoveryInFlight = (async () => {
-      const fromOpenTabs = await findTwitchSessionInOpenTabs().catch(() => null);
-      if (fromOpenTabs) {
-        state.twitchSessionCache = fromOpenTabs;
-        state.twitchSessionLastAttemptAt = 0;
-        await options.persistTwitchSession(fromOpenTabs);
-        return fromOpenTabs;
-      }
-
-      return null;
-    })().finally(() => {
-      authRecoveryInFlight = null;
-    });
+    authRecoveryInFlight = withRecoveryTimeout(
+      (async () => {
+        if (mode !== 'background-tab') {
+          await getTabsApi().query({
+            url: ['https://www.twitch.tv/*', 'https://twitch.tv/*', 'https://player.twitch.tv/*'],
+          });
+          return null;
+        }
+        const revision = options.getSessionRevision();
+        const openTabTimeout = options.openTabRecoveryTimeoutMs ?? DEFAULT_OPEN_TAB_RECOVERY_TIMEOUT_MS;
+        const fromOpenTabs = await findTwitchSessionInOpenTabs(openTabTimeout).catch(() => null);
+        if (!isCurrentAttempt()) return null;
+        if (fromOpenTabs) {
+          return publishValidatedRecoveredSession(state, fromOpenTabs, revision, {
+            validate: options.validateRecoveredTwitchSession,
+            revision: options.getSessionRevision,
+            isCurrentAttempt,
+            persist: options.persistTwitchSession,
+            discardPersistedIfMatches: options.discardPersistedTwitchSessionIfMatches,
+            onStale: () => options.logDebug('Discarded stale recovered Twitch session'),
+          });
+        }
+        if (failedTemporaryRecovery?.revision === revision && now() < failedTemporaryRecovery.retryAt)
+          return null;
+        if (Date.now() >= recoveryDeadline) return null;
+        const temporaryTab = await getTabsApi()
+          .create({ url: DROPS_RECOVERY_URL, active: false })
+          .catch(() => null);
+        if (!temporaryTab?.id) {
+          failedTemporaryRecovery = {
+            revision,
+            retryAt: now() + DEFAULT_TEMPORARY_RECOVERY_RETRY_MS,
+          };
+          return null;
+        }
+        if (!isCurrentAttempt()) {
+          const tabsApi = getTabsApi();
+          await closeUntouchedRecoveryTab(
+            temporaryTab,
+            tabsApi.get && tabsApi.remove
+              ? { get: tabsApi.get, remove: tabsApi.remove, query: tabsApi.query }
+              : null,
+          );
+          return null;
+        }
+        let session: TwitchSession | null = null;
+        try {
+          const remainingAfterCreate = Math.max(0, recoveryDeadline - Date.now());
+          if (remainingAfterCreate === 0) return null;
+          if (options.waitForTabComplete) {
+            await withRecoveryTimeout(
+              Promise.resolve(options.waitForTabComplete(temporaryTab.id)),
+              remainingAfterCreate,
+            );
+          }
+          if (!isCurrentAttempt()) return null;
+          const remainingBeforeRead = Math.max(0, recoveryDeadline - Date.now());
+          if (remainingBeforeRead === 0) return null;
+          session = await withRecoveryTimeout(
+            persistSessionFromDropsPage(temporaryTab.id, false),
+            remainingBeforeRead,
+          );
+        } finally {
+          const tabsApi = getTabsApi();
+          await closeUntouchedRecoveryTab(
+            temporaryTab,
+            tabsApi.get && tabsApi.remove
+              ? { get: tabsApi.get, remove: tabsApi.remove, query: tabsApi.query }
+              : null,
+          );
+        }
+        if (!session) {
+          failedTemporaryRecovery = {
+            revision,
+            retryAt: now() + DEFAULT_TEMPORARY_RECOVERY_RETRY_MS,
+          };
+          return null;
+        }
+        if (!isCurrentAttempt()) return null;
+        const published = await publishValidatedRecoveredSession(state, session, revision, {
+          validate: options.validateRecoveredTwitchSession,
+          revision: options.getSessionRevision,
+          isCurrentAttempt,
+          persist: options.persistTwitchSession,
+          discardPersistedIfMatches: options.discardPersistedTwitchSessionIfMatches,
+          onStale: () => options.logDebug('Discarded stale recovered Twitch session'),
+        });
+        if (!published && isCurrentAttempt() && options.getSessionRevision() === revision) {
+          failedTemporaryRecovery = {
+            revision,
+            retryAt: now() + DEFAULT_TEMPORARY_RECOVERY_RETRY_MS,
+          };
+        }
+        return published;
+      })(),
+      timeoutMs,
+      () => {
+        if (isCurrentAttempt()) activeAuthRecovery += 1;
+      },
+    )
+      .then((session) => session)
+      .finally(() => {
+        authRecoveryInFlight = null;
+      });
 
     return authRecoveryInFlight;
   };

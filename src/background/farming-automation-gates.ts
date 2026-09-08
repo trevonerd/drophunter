@@ -5,6 +5,7 @@ import type {
   FarmingAutomationTransitionDecision,
 } from './farming-automation-candidates.ts';
 import type { FarmingAutomationFactsV1, FarmingAutomationOutcome } from './farming-automation-contracts.ts';
+import { farmingAutomationCompletionFingerprint } from './farming-automation-reconciliation.ts';
 import type {
   FarmingAutomationDirectoryResult,
   FarmingAutomationNormalizedDrop,
@@ -124,6 +125,10 @@ export function createFarmingAutomationPolicySnapshot(
     hiddenGames: structuredClone(state.appState.hiddenGames),
     queue: structuredClone(state.appState.queue),
     queueEntryMetadataByKey: structuredClone(state.appState.queueEntryMetadataByKey),
+    isRunning: state.appState.isRunning,
+    selectedGame: state.appState.selectedGame ? cloneGame(state.appState.selectedGame) : null,
+    manualQueueAuthorized: state.appState.manualQueueAuthorized,
+    stalledCampaignBlocksByKey: structuredClone(state.appState.stalledCampaignBlocksByKey),
     campaignPriorityMode: state.appState.campaignPriorityMode,
     farmCategoryScope: state.appState.farmCategoryScope,
     campaignAvailabilityByKey: availability,
@@ -140,12 +145,17 @@ export function farmingAutomationStateFingerprint(state: ServiceWorkerState, gen
     generation,
     sessionEpoch: currentFarmingSessionEpoch(state),
     enabled: app.autoStartFavoriteGames,
+    manualQueueAuthorized: app.manualQueueAuthorized,
     notifications: app.notificationsEnabled,
     sessionPresent: state.twitchSessionCache !== null,
+    completionEvidence: farmingAutomationCompletionFingerprint(state),
     running: app.isRunning,
     paused: app.isPaused,
     selected: app.selectedGame ? gameKey(app.selectedGame) : null,
     queue: app.queue.map((game) => [gameKey(game), app.queueEntryMetadataByKey[gameKey(game)] ?? null]),
+    stalledCampaignBlocks: Object.entries(app.stalledCampaignBlocksByKey).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
     favorites: [...favoriteGameIdentityKeys(app.favoriteGames)].sort(),
     hiddenGames: [...hiddenGameIdentityKeys(app.hiddenGames)].sort(),
     priorityMode: app.campaignPriorityMode,
@@ -153,7 +163,13 @@ export function farmingAutomationStateFingerprint(state: ServiceWorkerState, gen
     preferredLanguage: app.preferredStreamerLanguage,
     watchPreference: app.watchTransportPreference,
     campaigns: app.availableGames
-      .map((game) => [gameKey(game), game.endsAt ?? null, game.rewardSummary?.completion ?? null])
+      .map((game) => [
+        gameKey(game),
+        game.endsAt ?? null,
+        game.rewardSummary?.completion ?? null,
+        game.allDropsCompleted ?? false,
+        game.dropCount ?? null,
+      ])
       .sort(([left], [right]) => String(left).localeCompare(String(right))),
   });
 }
@@ -192,7 +208,9 @@ export function cheapFarmingAutomationGate(
   if (!state.appState.autoStartFavoriteGames && !hasParkedCampaigns) {
     return { kind: 'unchanged', reason: 'disabled' };
   }
-  if (state.appState.isPaused) return { kind: 'unchanged', reason: 'paused' };
+  if (state.appState.isPaused && !state.appState.autoStartFavoriteGames) {
+    return { kind: 'unchanged', reason: 'paused' };
+  }
   return null;
 }
 

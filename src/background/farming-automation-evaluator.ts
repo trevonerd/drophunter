@@ -1,5 +1,5 @@
 import { gameKey } from '../shared/game-selection.ts';
-import type { FarmingAutomationBrowser } from './farming-automation-browser.ts';
+import { rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
 import {
   decideFarmingAutomationTransition,
   planFarmingAutomationPolicy,
@@ -7,7 +7,6 @@ import {
 import type {
   FarmingAutomationFailureReason,
   FarmingAutomationOutcome,
-  FarmingAutomationPersistence,
   FarmingAutomationTrigger,
 } from './farming-automation-contracts.ts';
 import { discoverFarmingAutomationCandidates } from './farming-automation-discovery.ts';
@@ -18,8 +17,10 @@ import {
   persistFarmingAutomationRetry,
   runFarmingAutomationStartedEffects,
 } from './farming-automation-effects.ts';
+import { shouldRefreshAvailabilityOnly } from './farming-automation-evaluator-gates.ts';
 import {
   cheapFarmingAutomationGate,
+  cloneFarmingAutomationGame,
   createFarmingAutomationPolicySnapshot,
   createFarmingAutomationTransitionRequest,
   deriveFarmingAutomationDeadline,
@@ -27,29 +28,18 @@ import {
   factsWithFarmingAutomationManualWatch,
   farmingAutomationFingerprint,
   farmingAutomationStateFingerprint,
-  PARKED_CAMPAIGN_RETRY_MS,
 } from './farming-automation-gates.ts';
-import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
-import type { FarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
-import type { ServiceWorkerState } from './runtime-state.ts';
+import { reconcileParkedCampaigns } from './farming-automation-parked-campaigns.ts';
+import { rehabilitateCampaignsWithNewStreamers } from './farming-automation-stall-rehabilitation.ts';
 import { transitionAutomaticFarmingSession } from './session-lifecycle-transition.ts';
 import { pickStreamerForPreferences } from './streamer-selection.ts';
 
-export type FarmingAutomationRuntime = { generation: number; snoozed: boolean };
+export type {
+  FarmingAutomationEvaluatorDependencies,
+  FarmingAutomationRuntime,
+} from './farming-automation-evaluator-types.ts';
 
-export type FarmingAutomationEvaluatorDependencies = {
-  readonly state: ServiceWorkerState;
-  readonly persistence: FarmingAutomationPersistence;
-  readonly browser: FarmingAutomationBrowser;
-  readonly manualWatch: FarmingAutomationManualWatchController;
-  readonly twitch: FarmingAutomationTwitchAdapter;
-  readonly runtime: FarmingAutomationRuntime;
-  readonly recover?: () => Promise<FarmingAutomationOutcome | null>;
-  readonly now: () => number;
-  readonly random: () => number;
-  readonly onStarted?: () => void;
-  readonly telegramNotify?: (reason: string, message: string) => Promise<void>;
-};
+import type { FarmingAutomationEvaluatorDependencies } from './farming-automation-evaluator-types.ts';
 
 export function createFarmingAutomationEvaluator(
   dependencies: FarmingAutomationEvaluatorDependencies,
@@ -87,22 +77,27 @@ export function createFarmingAutomationEvaluator(
       dependencies.runtime.snoozed,
       facts.suppressedCampaignKeys.length > 0,
     );
-    const refreshAvailabilityOnly =
-      cheapGate?.kind === 'unchanged' &&
-      cheapGate.reason === 'disabled' &&
-      triggers.has('campaign-refresh') &&
-      dependencies.state.appState.campaignPriorityMode === 'lowest-availability';
+    const refreshAvailabilityOnly = shouldRefreshAvailabilityOnly(
+      cheapGate,
+      triggers,
+      dependencies.state.appState.campaignPriorityMode,
+    );
     if (cheapGate && !refreshAvailabilityOnly) return cheapGate;
     const beforeRefresh = currentStateFingerprint();
     const discovery = await discoverFarmingAutomationCandidates(
       dependencies.twitch,
       dependencies.state.appState.preferredStreamerLanguage ?? '',
       now,
+      dependencies.state,
     );
     if (discovery.kind === 'failed') return retry(discovery.reason);
     if (currentStateFingerprint() !== beforeRefresh) {
       return { kind: 'unchanged', reason: 'superseded-by-state-change' };
     }
+    rememberAcquiredCampaigns(
+      dependencies.state.appState,
+      discovery.snapshot.games.map(cloneFarmingAutomationGame),
+    );
     if (refreshAvailabilityOnly) {
       const persisted = await persistFarmingAutomationPlan({
         state: dependencies.state,
@@ -110,39 +105,25 @@ export function createFarmingAutomationEvaluator(
         queuePlan: null,
         availability: discovery.availability,
         now,
+        automationNotify: dependencies.automationNotify,
       });
       return persisted
         ? { kind: 'unchanged', reason: 'disabled' }
         : { kind: 'failed', reason: 'persistence-failed' };
     }
 
-    const parkedKeys = new Set<string>();
-    const suppressedUntilByCampaignKey: Record<string, number> = {};
-    for (const campaignKey of facts.suppressedCampaignKeys) {
-      const retryAt = facts.suppressedUntilByCampaignKey[campaignKey] ?? 0;
-      const availability = discovery.availability[campaignKey]?.eligibleStreamerCount ?? 0;
-      if (retryAt > now || availability <= 0) {
-        parkedKeys.add(campaignKey);
-        suppressedUntilByCampaignKey[campaignKey] = retryAt > now ? retryAt : now + PARKED_CAMPAIGN_RETRY_MS;
-      }
-    }
-    const nextParkedRetryAt = Math.min(
-      ...Object.values(suppressedUntilByCampaignKey),
-      Number.POSITIVE_INFINITY,
+    rehabilitateCampaignsWithNewStreamers(
+      dependencies.state,
+      discovery.snapshot.games.map(cloneFarmingAutomationGame),
+      discovery.directories,
     );
-    const nextSuppressedCampaignKeys = [...parkedKeys];
-    if (
-      JSON.stringify(nextSuppressedCampaignKeys) !== JSON.stringify(facts.suppressedCampaignKeys) ||
-      JSON.stringify(suppressedUntilByCampaignKey) !== JSON.stringify(facts.suppressedUntilByCampaignKey)
-    ) {
-      facts = {
-        ...facts,
-        suppressedCampaignKeys: nextSuppressedCampaignKeys,
-        suppressedUntilByCampaignKey,
-        nextEvaluationAt: Number.isFinite(nextParkedRetryAt) ? nextParkedRetryAt : facts.nextEvaluationAt,
-      };
+
+    const parked = reconcileParkedCampaigns(facts, discovery.availability, now);
+    if (parked.changed) {
+      facts = parked.facts;
       if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
     }
+    const parkedKeys = parked.parkedKeys;
     const policySnapshot = createFarmingAutomationPolicySnapshot(
       dependencies.state,
       discovery.snapshot,
@@ -163,6 +144,7 @@ export function createFarmingAutomationEvaluator(
         queuePlan: plan.queue,
         availability: discovery.availability,
         now,
+        automationNotify: dependencies.automationNotify,
       }))
     ) {
       return { kind: 'failed', reason: 'persistence-failed' };
@@ -194,7 +176,7 @@ export function createFarmingAutomationEvaluator(
     }
 
     const decision = decideFarmingAutomationTransition({
-      isRunning: dependencies.state.appState.isRunning,
+      isRunning: dependencies.state.appState.isRunning && !dependencies.state.appState.isPaused,
       selectedGame: dependencies.state.appState.selectedGame,
       lastPreemption: facts.lastPreemption,
       rankedCandidates: plan.rankedCandidates,
@@ -259,7 +241,7 @@ export function createFarmingAutomationEvaluator(
       receipt,
       obsolete: result.kind === 'committed' ? result.obsolete : null,
       now,
-      telegramNotify: dependencies.telegramNotify,
+      automationNotify: dependencies.automationNotify,
     });
     if (receipt.transition === 'start') dependencies.onStarted?.();
     return { kind: 'started', campaignKey: receipt.toCampaignKey, transition: receipt.transition };

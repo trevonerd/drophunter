@@ -1,5 +1,5 @@
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
-import type { FarmingTarget, WatchHealth } from './watch-transport.ts';
+import type { FarmingTarget, WatchHealth, WatchHealthReason } from './watch-transport.ts';
 
 export type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 
@@ -27,6 +27,7 @@ export interface PreparedWatch {
   readonly target: FarmingTarget;
   readonly ownership: WatchOwnershipV1;
   readonly health: WatchHealth;
+  readonly fallbackReason: WatchHealthReason | null;
   promote(): WatchPromotion;
   dispose(): Promise<void>;
 }
@@ -81,24 +82,37 @@ export function createWatchTransportTransition(
   let ownership = options.currentOwnership;
   const currentOwnership = () => (options.runtime ? options.runtime.currentOwnership() : ownership);
 
-  const prepareHealthyCandidate = async (
+  const prepareCandidate = async (
     target: FarmingTarget,
-    prepareCandidate: WatchTransportTransitionOptions['prepareManaged'],
-  ): Promise<ProvisionalWatchCandidate | null> => {
-    const candidate = await prepareCandidate(target);
-    if (!candidate) return null;
-    if (candidate.health.isHealthy) return candidate;
+    prepare: WatchTransportTransitionOptions['prepareManaged'],
+  ): Promise<{
+    readonly candidate: ProvisionalWatchCandidate | null;
+    readonly rejectedReason: WatchHealthReason | null;
+  }> => {
+    let candidate: ProvisionalWatchCandidate | null;
+    try {
+      candidate = await prepare(target);
+    } catch {
+      return { candidate: null, rejectedReason: 'error' };
+    }
+    if (!candidate) return { candidate: null, rejectedReason: 'error' };
+    if (candidate.health.isHealthy) return { candidate, rejectedReason: null };
     await candidate.dispose();
-    return null;
+    return { candidate: null, rejectedReason: candidate.health.reason };
   };
 
   const prepare = async (target: FarmingTarget, mode: WatchHealth['mode']): Promise<WatchPreparation> => {
-    const preferred =
-      mode === 'tabless'
-        ? await prepareHealthyCandidate(target, options.prepareTabless)
-        : await prepareHealthyCandidate(target, options.prepareManaged);
-    if (!preferred) return { kind: 'failed', reason: 'candidate-unavailable' };
-    const candidate = preferred;
+    const preferred = await prepareCandidate(
+      target,
+      mode === 'tabless' ? options.prepareTabless : options.prepareManaged,
+    );
+    const fallback =
+      mode === 'tabless' && !preferred.candidate
+        ? await prepareCandidate(target, options.prepareManaged)
+        : null;
+    const candidate = preferred.candidate ?? fallback?.candidate ?? null;
+    if (!candidate) return { kind: 'failed', reason: 'candidate-unavailable' };
+    const fallbackReason = fallback?.candidate ? preferred.rejectedReason : null;
 
     let promotion: WatchPromotion | null = null;
     let disposal: Promise<void> | null = null;
@@ -107,6 +121,7 @@ export function createWatchTransportTransition(
       target: candidate.target,
       ownership: candidate.ownership,
       health: candidate.health,
+      fallbackReason,
       promote: () => {
         if (promotion) return promotion;
         if (discarded) return { kind: 'discarded', ownership: candidate.ownership };

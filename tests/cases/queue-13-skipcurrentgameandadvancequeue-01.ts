@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { skipCurrentGameAndAdvanceQueue } from '../../src/background/session-lifecycle.ts';
+import { gameKey } from '../../src/shared/game-selection.ts';
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
+import './queue-13-skipcurrentgameandadvancequeue-02.ts';
 
 export function registerQueue13Part01() {
   describe('skipCurrentGameAndAdvanceQueue', () => {
@@ -50,9 +52,9 @@ export function registerQueue13Part01() {
         });
 
         const notification = notifications[0];
-        expect(notification?.title).toBe('Game skipped: no live streamers');
+        expect(notification?.title).toBe('Game skipped: no eligible streamer');
         expect(notification?.message).toContain('Skipped No Live Game');
-        expect(notification?.message).toContain('no live streamers were found');
+        expect(notification?.message).toContain('no eligible streamer was found for its Drops');
         expect(notification?.message).not.toContain('drop progress');
         expect(mocks.notifications._notifications).toEqual([]);
       } finally {
@@ -82,11 +84,61 @@ export function registerQueue13Part01() {
         expect(notification?.title).toBe('Game skipped: no drop progress');
         expect(notification?.message).toContain('Skipped Stalled Game');
         expect(notification?.message).toContain('stream opened but drop progress did not resume');
-        expect(notification?.message).not.toContain('no live streamers');
+        expect(notification?.message).not.toContain('no eligible streamer');
         expect(mocks.notifications._notifications).toEqual([]);
       } finally {
         mocks.teardown();
       }
+    });
+
+    test('parks a stall-blocked campaign at the queue tail and advances to an unblocked campaign', async () => {
+      // Given: the stalled campaign has exhausted recovery and another campaign remains eligible.
+      const current = createGame({ id: 'game-1', campaignId: 'campaign-1', name: 'Blocked Game' });
+      const next = createGame({ id: 'game-2', campaignId: 'campaign-2', name: 'Next Game' });
+      const state = createMinimalState();
+      state.appState.selectedGame = current;
+      state.appState.queue = [current, next];
+      state.appState.stalledCampaignBlocksByKey = {
+        [gameKey(current)]: { blockedAt: 1, rotationAttempts: 3, eligibleStreamerNames: ['old-channel'] },
+      };
+
+      // When: the stalled session advances its queue.
+      await skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', {
+        onSaveTimingState: async () => {},
+        onOpenStreamer: async () => true,
+      });
+
+      // Then: the blocked campaign remains durable at the tail and is not selected again.
+      expect({
+        selected: state.appState.selectedGame?.campaignId,
+        queue: state.appState.queue.map((game) => game.campaignId),
+      }).toEqual({
+        selected: 'campaign-2',
+        queue: ['campaign-2', 'campaign-1'],
+      });
+    });
+
+    test('clears a terminal manual authorization without retaining a blocked campaign as a new implicit queue', async () => {
+      // Given: the only authorized manual campaign is blocked after exhausted recovery.
+      const current = createGame({ id: 'game-1', campaignId: 'campaign-1', name: 'Blocked Game' });
+      const state = createMinimalState();
+      state.appState.manualQueueAuthorized = true;
+      state.appState.selectedGame = current;
+      state.appState.queue = [current];
+      state.appState.stalledCampaignBlocksByKey = {
+        [gameKey(current)]: { blockedAt: 1, rotationAttempts: 3, eligibleStreamerNames: ['old-channel'] },
+      };
+
+      // When: the blocked campaign has no eligible successor.
+      await skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', {
+        onStopFarmingSession: async () => undefined,
+      });
+
+      // Then: the session cannot authorize later manual campaigns implicitly, while retry evidence retains context.
+      expect({
+        manualQueueAuthorized: state.appState.manualQueueAuthorized,
+        queue: state.appState.queue.map((game) => game.campaignId),
+      }).toEqual({ manualQueueAuthorized: false, queue: ['campaign-1'] });
     });
 
     test('skips farming-complete queue entries after a stalled campaign', async () => {
@@ -155,7 +207,7 @@ export function registerQueue13Part01() {
 
       expect(stopReason).toBe('queue-complete');
       expect(stopMessage).toContain('Queue completed');
-      expect(stopMessage).toContain('No live streamers found');
+      expect(stopMessage).toContain('No eligible streamer was found');
     });
 
     test('clears stale stalled recovery when no-streamers skip exhausts the queue', async () => {
@@ -203,67 +255,7 @@ export function registerQueue13Part01() {
       expect(notification?.title).toBe('Farming stopped: no drop progress');
       expect(notification?.message).toContain('Stalled Game');
       expect(notification?.message).toContain('opened a stream but drop progress did not resume');
-      expect(notification?.message).not.toContain('No live streamers found');
-    });
-
-    test('uses truthful unverifiable-Twitch terminal state when no games remain', async () => {
-      const current = createGame({
-        id: 'game-1',
-        name: 'Unverifiable Game',
-        rewardSummary: {
-          completion: 'farming-complete',
-          remainderReasons: ['unverifiable-twitch'],
-        },
-      });
-      const state = createMinimalState();
-      state.appState.selectedGame = current;
-      state.appState.queue = [current];
-
-      let stop:
-        | { stopReason: string; stopMessage: string; notification: { title: string; message: string } }
-        | undefined;
-      await skipCurrentGameAndAdvanceQueue(state, 'unverifiable-twitch', {
-        onStopFarmingSession: async (options) => {
-          stop = options;
-        },
-      });
-
-      expect(stop?.stopReason).toBe('unverifiable-twitch');
-      expect(stop?.stopMessage).toContain('could not be verified');
-      expect(stop?.notification.message).toContain('could not be verified');
-      expect(stop?.stopMessage).not.toMatch(/all rewards (claimed|acquired|complete)/i);
-      expect(state.appState.selectedGame).toEqual(current);
-    });
-
-    test('advances with truthful unverifiable-Twitch copy when another game is queued', async () => {
-      const current = createGame({ id: 'game-1', name: 'Unverifiable Game', campaignId: 'campaign-1' });
-      const next = createGame({ id: 'game-2', name: 'Farmable Game', campaignId: 'campaign-2' });
-      const nextDrop = createDrop({ id: 'next-drop', campaignId: next.campaignId });
-      const state = createMinimalState();
-      state.appState.selectedGame = current;
-      state.appState.queue = [current, next];
-      state.appState.availableGames = [current, next];
-      const notifications: Array<{ title: string; message: string }> = [];
-
-      await skipCurrentGameAndAdvanceQueue(state, 'unverifiable-twitch', {
-        onSaveTimingState: async () => {},
-        onRefreshDropsData: async () => {
-          state.appState.allDrops = [nextDrop];
-          state.appState.pendingDrops = [nextDrop];
-          state.appState.currentDrop = nextDrop;
-        },
-        onOpenStreamer: async () => true,
-        onNotify: async (title, message) => {
-          notifications.push({ title, message });
-        },
-      });
-
-      expect(state.appState.selectedGame?.campaignId).toBe(next.campaignId);
-      expect(state.appState.queue).toEqual([next]);
-      expect(notifications[0]?.title).toBe('Campaign farming finished');
-      expect(notifications[0]?.message).toContain('could not be verified');
-      expect(notifications[0]?.message).toContain('Now farming Farmable Game');
-      expect(notifications[0]?.message).not.toMatch(/all rewards (claimed|acquired|complete)/i);
+      expect(notification?.message).not.toContain('No eligible streamer was found');
     });
   });
 }

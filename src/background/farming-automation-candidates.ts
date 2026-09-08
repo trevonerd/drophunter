@@ -1,3 +1,4 @@
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import {
   dropMatchesGame,
   favoriteGameIdentityKeys,
@@ -8,7 +9,13 @@ import {
 } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isExpiredGame } from '../shared/utils.ts';
-import type { CampaignAvailability, FarmCategoryScope, TwitchDrop, TwitchGame } from '../types/index.ts';
+import type {
+  CampaignAvailability,
+  FarmCategoryScope,
+  StalledCampaignBlock,
+  TwitchDrop,
+  TwitchGame,
+} from '../types/index.ts';
 import { type CampaignPriorityCandidate, orderCampaignCandidates } from './campaign-priority.ts';
 import type { FarmingAutomationLastPreemptionV1 } from './farming-automation-contracts.ts';
 import {
@@ -24,6 +31,8 @@ export interface FarmingAutomationCandidateFacts {
 }
 
 export interface FarmingAutomationPolicySnapshot extends FavoriteCampaignQueuePlanInput {
+  readonly manualQueueAuthorized?: boolean;
+  readonly stalledCampaignBlocksByKey?: Readonly<Record<string, StalledCampaignBlock>>;
   readonly campaignAvailabilityByKey: Readonly<Record<string, CampaignAvailability>>;
   readonly farmCategoryScope: FarmCategoryScope;
   readonly candidateFactsByKey?: Readonly<Record<string, FarmingAutomationCandidateFacts>>;
@@ -81,7 +90,7 @@ function candidateFacts(
   const drops = campaignDrops(snapshot, game);
   const hasStartedReward =
     explicit?.hasStartedReward ?? drops.some((drop) => drop.progress > 0 && !drop.claimed);
-  if (game.rewardSummary?.completion !== 'farmable') {
+  if (campaignRejectionReason(game, now) !== null || game.rewardSummary?.completion !== 'farmable') {
     return { hasFarmableReward: false, hasStartedReward, isActive: false };
   }
   if (explicit) {
@@ -129,24 +138,33 @@ export function rankFarmingAutomationCandidates(
   snapshot: FarmingAutomationPolicySnapshot,
   candidates: readonly FarmingAutomationCandidate[],
 ): readonly FarmingAutomationCandidate[] {
-  const eligible = filterEligibleFarmingAutomationCandidates(candidates)
-    .filter((candidate) => !isHiddenGame(candidate.game, hiddenGameIdentityKeys(snapshot.hiddenGames ?? [])))
-    .filter(
-      (candidate) =>
-        candidate.isFavorite ||
-        snapshot.queueEntryMetadataByKey[gameKey(candidate.game)]?.source !== 'manual',
-    );
+  const eligible = filterEligibleFarmingAutomationCandidates(candidates).filter(
+    (candidate) =>
+      !isHiddenGame(candidate.game, hiddenGameIdentityKeys(snapshot.hiddenGames ?? [])) &&
+      snapshot.stalledCampaignBlocksByKey?.[gameKey(candidate.game)] === undefined,
+  );
   const favoriteIds = favoriteGameIdentityKeys(snapshot.favoriteGames);
   const candidateByKey = new Map(eligible.map((candidate) => [gameKey(candidate.game), candidate]));
-  return orderCampaignCandidates(eligible, {
-    mode: snapshot.campaignPriorityMode,
-    scope: snapshot.farmCategoryScope,
-    favoriteGameIds: favoriteIds,
-    priorityList: snapshot.queue,
-  }).flatMap((ranked) => {
+  const favorites = orderCampaignCandidates(
+    eligible.filter((candidate) => candidate.isFavorite),
+    {
+      mode: 'ending-soonest',
+      scope: 'all',
+      favoriteGameIds: favoriteIds,
+      priorityList: [],
+    },
+  ).flatMap((ranked) => {
     const candidate = candidateByKey.get(gameKey(ranked.game));
     return candidate ? [candidate] : [];
   });
+  if (!snapshot.manualQueueAuthorized) return favorites;
+  const manual = snapshot.queue.flatMap((game) => {
+    const candidate = candidateByKey.get(gameKey(game));
+    return candidate && snapshot.queueEntryMetadataByKey[gameKey(game)]?.source === 'manual'
+      ? [candidate]
+      : [];
+  });
+  return [...favorites, ...manual];
 }
 
 export function planFarmingAutomationPolicy(

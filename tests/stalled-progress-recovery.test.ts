@@ -97,4 +97,98 @@ describe('stalled progress recovery', () => {
     expect(state.appState.recoveryReason).toBeNull();
     expect(state.stalledRecoveryAttempts).toBe(0);
   });
+
+  test('does not start stalled recovery when an authoritative refresh is unavailable', async () => {
+    const state = createStalledState();
+    let inventoryRefreshes = 0;
+    let tablessRestarts = 0;
+
+    const result = await recoverStalledProgress(
+      state,
+      { kind: 'tabless' },
+      {
+        now: () => 1_000,
+        onCampaignRefresh: async () => 'transient-failure',
+        onInventoryRefresh: async () => {
+          inventoryRefreshes += 1;
+          return 'refreshed';
+        },
+        onAdvanceQueueIfCompleted: async () => false,
+        onAttemptPlaybackSelfHeal: async () => {},
+        onRestartTablessWatcher: async () => {
+          tablessRestarts += 1;
+        },
+        onRotateManagedStreamer: async () => {},
+        onSkipCurrentGame: async () => {},
+        onSaveState: async () => {},
+        onSaveTimingState: async () => {},
+      },
+    );
+
+    expect(result).toEqual({ kind: 'refresh-unavailable' });
+    expect(inventoryRefreshes).toBe(0);
+    expect(tablessRestarts).toBe(0);
+    expect(state.stalledRecoveryAttempts).toBe(0);
+    expect(state.appState.recoveryReason).toBeNull();
+  });
+
+  test('does not rotate when inventory evidence is unavailable after a campaign refresh', async () => {
+    const state = createStalledState();
+    let tablessRestarts = 0;
+
+    const result = await recoverStalledProgress(
+      state,
+      { kind: 'tabless' },
+      {
+        now: () => 1_000,
+        onCampaignRefresh: async () => 'refreshed',
+        onInventoryRefresh: async () => 'transient-failure',
+        onAdvanceQueueIfCompleted: async () => false,
+        onAttemptPlaybackSelfHeal: async () => {},
+        onRestartTablessWatcher: async () => {
+          tablessRestarts += 1;
+        },
+        onRotateManagedStreamer: async () => {},
+        onSkipCurrentGame: async () => {},
+        onSaveState: async () => {},
+        onSaveTimingState: async () => {},
+      },
+    );
+
+    expect(result).toEqual({ kind: 'refresh-unavailable' });
+    expect(tablessRestarts).toBe(0);
+    expect(state.stalledRecoveryAttempts).toBe(0);
+  });
+
+  test('exhausts after a persisted second attempt receives two further authoritative no-progress proofs', async () => {
+    const state = createStalledState();
+    state.lastProgressAdvanceAt = 123;
+    state.stalledRecoveryAttempts = 2;
+    state.appState.recoveryReason = 'stalled-progress';
+    let now = 1_000;
+    let skipped = 0;
+    const dependencies = {
+      now: () => now,
+      onCampaignRefresh: async () => 'refreshed' as const,
+      onInventoryRefresh: async () => 'refreshed' as const,
+      onAdvanceQueueIfCompleted: async () => false,
+      onAttemptPlaybackSelfHeal: async () => {},
+      onRestartTablessWatcher: async () => {},
+      onRotateManagedStreamer: async () => {},
+      onSkipCurrentGame: async () => {
+        skipped += 1;
+      },
+      onSaveState: async () => {},
+      onSaveTimingState: async () => {},
+    };
+
+    const thirdAttempt = await recoverStalledProgress(state, { kind: 'tabless' }, dependencies);
+    now = 62_000;
+    const exhausted = await recoverStalledProgress(state, { kind: 'tabless' }, dependencies);
+
+    expect(thirdAttempt).toMatchObject({ kind: 'retry-scheduled', attempt: 3 });
+    expect(exhausted).toEqual({ kind: 'selection-changed' });
+    expect(skipped).toBe(1);
+    expect(state.lastProgressAdvanceAt).toBe(123);
+  });
 });

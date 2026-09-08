@@ -1,25 +1,58 @@
-import type { ActivationSyncResult, ActivationTrigger, CampaignSyncState } from '../types/index.ts';
+import type {
+  ActivationSyncErrorKind,
+  ActivationSyncResult,
+  ActivationTrigger,
+  CampaignSyncState,
+} from '../types/activation-sync.ts';
+import { runActivationSyncAttempt } from './activation-sync-attempt-runner.ts';
+import { reconcileActivationSyncState } from './activation-sync-initialization.ts';
+import { applyActivationSyncOutcome } from './activation-sync-outcome.ts';
+import {
+  ACTIVATION_SYNC_ATTEMPT_TIMEOUT_MS,
+  isCampaignSyncFresh,
+  shouldRespectActivationSyncRetry,
+} from './activation-sync-retry-policy.ts';
 
-export type { ActivationSyncResult, ActivationTrigger, CampaignSyncState } from '../types/index.ts';
+export type {
+  ActivationSyncErrorKind,
+  ActivationSyncResult,
+  ActivationTrigger,
+  CampaignSyncState,
+} from '../types/activation-sync.ts';
 
-export const CAMPAIGN_SYNC_INTERVAL_MS = 30 * 60_000;
+export { CAMPAIGN_SYNC_INTERVAL_MS } from './activation-sync-retry-policy.ts';
+
+export type ActivationSyncExecution = {
+  readonly signal: AbortSignal;
+  readonly isCurrent: () => boolean;
+};
 
 export type ActivationSyncAttempt =
   | { readonly kind: 'synced'; readonly campaignCount: number }
-  | { readonly kind: 'needs-session' }
-  | { readonly kind: 'transient-error'; readonly error: string };
+  | { readonly kind: 'needs-session'; readonly errorKind?: 'auth' | 'session' }
+  | {
+      readonly kind: 'transient-error';
+      readonly error: string;
+      readonly errorKind?: ActivationSyncErrorKind;
+      readonly retryAfterMs?: number;
+    };
 
 interface ActivationSyncCoordinatorDependencies {
   readonly now?: () => number;
+  readonly attemptTimeoutMs?: number;
   readonly getCampaignSyncState: () => CampaignSyncState;
   readonly setCampaignSyncState: (state: CampaignSyncState) => Promise<void> | void;
-  readonly performSync: (trigger: ActivationTrigger) => Promise<ActivationSyncAttempt>;
+  readonly performSync: (
+    trigger: ActivationTrigger,
+    execution: ActivationSyncExecution,
+  ) => Promise<ActivationSyncAttempt>;
   readonly shouldRunPeriodicSync?: () => boolean;
   readonly scheduleRetry?: (retryAt: number) => Promise<void> | void;
   readonly clearRetry?: () => Promise<void> | void;
 }
 
 export interface ActivationSyncCoordinator {
+  readonly initialize: () => Promise<void>;
   readonly request: (trigger: ActivationTrigger) => Promise<ActivationSyncResult>;
 }
 
@@ -31,12 +64,17 @@ const TRIGGER_PRIORITY: Record<ActivationTrigger, number> = {
   'auth-recovered': 4,
   wake: 5,
   'extension-update': 6,
-  manual: 7,
+  'manual-retry': 7,
+  manual: 8,
 };
-
 const CACHE_AWARE_TRIGGERS = new Set<ActivationTrigger>(['popup-open', 'periodic-campaign']);
-const TRANSIENT_RETRY_DELAYS_MS = [60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000] as const;
 
+type ActiveRequest = {
+  readonly controller: AbortController;
+  readonly operation: Promise<ActivationSyncResult>;
+  readonly trigger: ActivationTrigger;
+  obsolete: boolean;
+};
 type PendingRequest = {
   trigger: ActivationTrigger;
   readonly promise: Promise<ActivationSyncResult>;
@@ -58,148 +96,112 @@ export function createActivationSyncCoordinator(
   dependencies: ActivationSyncCoordinatorDependencies,
 ): ActivationSyncCoordinator {
   const now = dependencies.now ?? Date.now;
-  let active: Promise<ActivationSyncResult> | null = null;
-  let activeTrigger: ActivationTrigger | null = null;
+  const attemptTimeoutMs = dependencies.attemptTimeoutMs ?? ACTIVATION_SYNC_ATTEMPT_TIMEOUT_MS;
+  let active: ActiveRequest | null = null;
   let pending: PendingRequest | null = null;
-  let consecutiveTransientFailures = 0;
+  let initialization: Promise<void> | null = null;
 
-  function isFresh(syncState: CampaignSyncState, at: number): boolean {
-    return (
-      syncState.status === 'idle' &&
-      syncState.lastSuccessAt !== null &&
-      at - syncState.lastSuccessAt < CAMPAIGN_SYNC_INTERVAL_MS
-    );
+  function initialize(): Promise<void> {
+    if (initialization) return initialization;
+    const reconciliation = reconcileActivationSyncState(dependencies, now);
+    initialization = reconciliation;
+    void reconciliation.catch(() => {
+      if (initialization === reconciliation) initialization = null;
+    });
+    return initialization;
   }
 
-  async function execute(trigger: ActivationTrigger): Promise<ActivationSyncResult> {
+  async function execute(
+    trigger: ActivationTrigger,
+    controller: AbortController,
+    isCoordinatorCurrent: () => boolean,
+  ): Promise<ActivationSyncResult> {
+    await initialize();
+    if (!isCoordinatorCurrent()) return { kind: 'not-needed' };
     const startedAt = now();
     const previous = dependencies.getCampaignSyncState();
     if (
       trigger === 'periodic-campaign' &&
       dependencies.shouldRunPeriodicSync &&
       !dependencies.shouldRunPeriodicSync()
-    ) {
+    )
       return { kind: 'not-needed' };
-    }
     if (
-      trigger === 'periodic-campaign' &&
+      shouldRespectActivationSyncRetry(trigger) &&
       previous.status === 'retry-scheduled' &&
       startedAt < previous.nextRetryAt
     ) {
-      return {
-        kind: 'retry-scheduled',
-        retryAt: previous.nextRetryAt,
-        error: previous.error,
-      };
+      return { kind: 'retry-scheduled', retryAt: previous.nextRetryAt, error: previous.error };
     }
-    if (CACHE_AWARE_TRIGGERS.has(trigger) && isFresh(previous, startedAt)) {
+    if (shouldRespectActivationSyncRetry(trigger) && previous.status === 'retry-failed') {
+      return { kind: 'retry-failed', error: previous.error };
+    }
+    if (CACHE_AWARE_TRIGGERS.has(trigger) && isCampaignSyncFresh(previous, startedAt))
       return { kind: 'cache-fresh', campaignCount: previous.campaignCount };
-    }
-
-    await dependencies.setCampaignSyncState({
+    const syncingState: CampaignSyncState = {
       status: 'syncing',
       lastAttemptAt: startedAt,
       lastSuccessAt: previous.lastSuccessAt,
       campaignCount: previous.campaignCount,
+      retryAttemptCount: previous.retryAttemptCount,
+      lastErrorKind: previous.lastErrorKind,
       nextRetryAt: null,
-    });
-
-    let attempt: ActivationSyncAttempt;
-    try {
-      attempt = await dependencies.performSync(trigger);
-    } catch (error) {
-      attempt = { kind: 'transient-error', error: error instanceof Error ? error.message : String(error) };
-    }
-
-    switch (attempt.kind) {
-      case 'synced': {
-        consecutiveTransientFailures = 0;
-        await dependencies.clearRetry?.();
-        const completedAt = now();
-        await dependencies.setCampaignSyncState({
-          status: 'idle',
-          lastAttemptAt: startedAt,
-          lastSuccessAt: completedAt,
-          campaignCount: attempt.campaignCount,
-          nextRetryAt: null,
-        });
-        return attempt;
-      }
-      case 'needs-session':
-        consecutiveTransientFailures = 0;
-        await dependencies.clearRetry?.();
-        await dependencies.setCampaignSyncState({
-          status: 'needs-session',
-          lastAttemptAt: startedAt,
-          lastSuccessAt: previous.lastSuccessAt,
-          campaignCount: previous.campaignCount,
-          nextRetryAt: null,
-        });
-        return attempt;
-      case 'transient-error': {
-        if (consecutiveTransientFailures === 0 && previous.status === 'retry-scheduled') {
-          const previousDelay = previous.nextRetryAt - (previous.lastAttemptAt ?? previous.nextRetryAt);
-          const previousIndex = (TRANSIENT_RETRY_DELAYS_MS as readonly number[]).indexOf(previousDelay);
-          if (previousIndex >= 0) consecutiveTransientFailures = previousIndex + 1;
+      attemptDeadlineAt: startedAt + attemptTimeoutMs,
+    };
+    const execution: ActivationSyncExecution = {
+      signal: controller.signal,
+      isCurrent: () => isCoordinatorCurrent() && !controller.signal.aborted,
+    };
+    const attempt = await runActivationSyncAttempt(
+      Promise.resolve().then(async () => {
+        await dependencies.setCampaignSyncState(syncingState);
+        if (!execution.isCurrent()) {
+          return { kind: 'transient-error', error: 'Campaign sync was cancelled.', errorKind: 'network' };
         }
-        const retryDelay =
-          TRANSIENT_RETRY_DELAYS_MS[
-            Math.min(consecutiveTransientFailures, TRANSIENT_RETRY_DELAYS_MS.length - 1)
-          ];
-        consecutiveTransientFailures += 1;
-        const retryAt = now() + retryDelay;
-        await dependencies.scheduleRetry?.(retryAt);
-        await dependencies.setCampaignSyncState({
-          status: 'retry-scheduled',
-          lastAttemptAt: startedAt,
-          lastSuccessAt: previous.lastSuccessAt,
-          campaignCount: previous.campaignCount,
-          nextRetryAt: retryAt,
-          error: attempt.error,
-        });
-        return { kind: 'retry-scheduled', retryAt, error: attempt.error };
-      }
-      default:
-        return attempt satisfies never;
-    }
+        return dependencies.performSync(trigger, execution);
+      }),
+      controller,
+      attemptTimeoutMs,
+    );
+    if (!isCoordinatorCurrent() || attempt === null) return { kind: 'not-needed' };
+    return applyActivationSyncOutcome(dependencies, { attempt, now, previous, startedAt });
   }
 
   function start(trigger: ActivationTrigger): Promise<ActivationSyncResult> {
-    const operation = execute(trigger);
-    active = operation;
-    activeTrigger = trigger;
+    const controller = new AbortController();
+    let request: ActiveRequest | null = null;
+    const operation = execute(trigger, controller, () => active === request && request?.obsolete === false);
+    request = { controller, operation, trigger, obsolete: false };
+    active = request;
     void operation.then(
-      () => settle(operation),
-      () => settle(operation),
+      () => settle(request),
+      () => settle(request),
     );
     return operation;
   }
 
-  function settle(operation: Promise<ActivationSyncResult>): void {
-    if (active !== operation) return;
+  function settle(request: ActiveRequest): void {
+    if (active !== request) return;
     active = null;
-    activeTrigger = null;
     const next = pending;
     pending = null;
-    if (!next) return;
-    void start(next.trigger).then(next.resolve, next.reject);
+    if (next) void start(next.trigger).then(next.resolve, next.reject);
   }
 
   function request(trigger: ActivationTrigger): Promise<ActivationSyncResult> {
     if (!active) return start(trigger);
-
     if (pending) {
       if (TRIGGER_PRIORITY[trigger] > TRIGGER_PRIORITY[pending.trigger]) pending.trigger = trigger;
       return pending.promise;
     }
-
-    if (activeTrigger !== null && TRIGGER_PRIORITY[trigger] > TRIGGER_PRIORITY[activeTrigger]) {
+    if (TRIGGER_PRIORITY[trigger] > TRIGGER_PRIORITY[active.trigger]) {
+      active.obsolete = true;
+      active.controller.abort();
       pending = createPendingRequest(trigger);
       return pending.promise;
     }
-
-    return active;
+    return active.operation;
   }
 
-  return { request };
+  return { initialize, request };
 }

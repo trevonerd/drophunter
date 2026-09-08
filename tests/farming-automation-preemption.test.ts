@@ -17,44 +17,7 @@ import { currentFarmingSessionEpoch } from '../src/background/farming-session-re
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
-import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
-
-const streamer: TwitchStreamer = {
-  id: 'streamer',
-  name: 'channel',
-  displayName: 'Channel',
-  isLive: true,
-  viewerCount: 1,
-};
-
-function campaign(campaignId: string, endsAt: string): TwitchGame {
-  return {
-    id: 'shared-game',
-    name: 'Shared Game',
-    imageUrl: '',
-    campaignId,
-    campaignName: campaignId,
-    endsAt,
-    rewardSummary: { completion: 'farmable', remainderReasons: [] },
-  };
-}
-
-function reward(game: TwitchGame): TwitchDrop {
-  return {
-    id: `drop-${game.campaignId}`,
-    name: 'Reward',
-    gameId: game.id,
-    gameName: game.name,
-    imageUrl: '',
-    progress: 0,
-    currentMinutes: 0,
-    claimed: false,
-    campaignId: game.campaignId,
-    acquisitionMethod: 'watch-time',
-    rewardKind: 'in-game',
-    verificationState: 'unassessed',
-  };
-}
+import { campaign, reward, streamer } from './support/farming-automation-preemption-fixture.ts';
 
 function fixture(candidateEndsAt: string, deduplicated = false, separateCategories = false) {
   const incumbent = {
@@ -254,7 +217,7 @@ describe('Farming automation running-session preservation', () => {
       preparations: subject.preparations(),
     }).toEqual({
       outcome: { kind: 'unchanged', reason: 'preemption-already-applied' },
-      queue: [gameKey(subject.candidate)],
+      queue: [gameKey(subject.incumbent), gameKey(subject.candidate)],
       commits: 0,
       preparations: 0,
     });

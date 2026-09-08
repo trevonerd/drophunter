@@ -147,7 +147,7 @@ describe('false recovery proof guard (freshTimingState)', () => {
       verificationState: 'unassessed' as const,
     };
 
-    splitDropsForSelectedGame(state, [drop]);
+    splitDropsForSelectedGame(state, [drop], true);
 
     expect(state.noProgressRotationAttempts).toBe(3);
     expect(state.recoveryBackoffUntil).toBeGreaterThan(Date.now());
@@ -181,7 +181,7 @@ describe('false recovery proof guard (freshTimingState)', () => {
       verificationState: 'unassessed' as const,
     };
 
-    splitDropsForSelectedGame(state, [drop]);
+    splitDropsForSelectedGame(state, [drop], true);
 
     expect(state.noProgressRotationAttempts).toBe(0);
     expect(state.recoveryBackoffUntil).toBe(0);

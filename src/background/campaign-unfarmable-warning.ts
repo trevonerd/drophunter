@@ -1,6 +1,7 @@
 import { gameKey } from '../shared/game-selection.ts';
 import type { AppState, TwitchGame } from '../types/index.ts';
 import { recordAutomationActivity } from './automation-activity.ts';
+import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import { logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
@@ -8,8 +9,7 @@ export interface CampaignUnfarmableWarningDependencies {
   readonly now: () => number;
   readonly saveState: (state: ServiceWorkerState) => Promise<void>;
   readonly broadcastStateUpdate: (appState: AppState) => void;
-  readonly notifyBrowser: (message: string) => Promise<unknown>;
-  readonly notifyTelegram: (message: string) => Promise<unknown>;
+  readonly notifyAutomation: AutomationEventNotifier['notify'];
 }
 
 export function campaignUnfarmableWarningMessage(game: TwitchGame): string {
@@ -43,18 +43,18 @@ export async function publishCampaignUnfarmableWarning(
   }
   dependencies.broadcastStateUpdate(state.appState);
 
-  const deliveries = await Promise.allSettled([
-    dependencies.notifyBrowser(message),
-    dependencies.notifyTelegram(message),
-  ]);
-  deliveries.forEach((delivery, index) => {
-    if (delivery.status === 'rejected') {
-      logWarn('Campaign unfarmable warning delivery failed', {
-        channel: index === 0 ? 'browser' : 'telegram',
-        error: String(delivery.reason),
-        identity,
-      });
-    }
-  });
+  try {
+    await dependencies.notifyAutomation({
+      transitionId: id,
+      event: 'unfarmable',
+      campaignId: game.campaignId ?? identity,
+      title: 'Campaign no longer farmable',
+      message,
+      priority: 2,
+      telegramReason: 'unverifiable-twitch',
+    });
+  } catch (error) {
+    logWarn('Campaign unfarmable warning delivery failed', { error: String(error), identity });
+  }
   return true;
 }

@@ -156,7 +156,7 @@ describe('farming session watch transport integration', () => {
 
       expect(state.appState.isRunning).toBe(false);
       expect(state.appState.selectedGame).toBeNull();
-      expect(state.appState.queue).toEqual([]);
+      expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([game.campaignId]);
       expect(state.appState.lastStopReason).toBe('stall-skipped');
     } finally {
       Date.now = realDateNow;

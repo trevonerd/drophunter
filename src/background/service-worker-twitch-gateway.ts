@@ -2,9 +2,11 @@ import { browser } from '../shared/browser-api.ts';
 import { resolveCategorySlug as resolveCategorySlugExt } from '../shared/game-selection.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
 import {
+  clearLastTwitchApiFailure,
   fetchDirectoryStreamersFromApiWrapper,
   fetchDropsSnapshotFromApiWrapper,
   fetchInventorySnapshotFromApiWrapper,
+  getLastTwitchApiFailure,
 } from './api-operations.ts';
 import { PROGRESS_POLL_MS } from './constants.ts';
 import type { StreamContext } from './farming-session.ts';
@@ -12,6 +14,8 @@ import { logDebug, logInfo, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   clearTwitchSessionCache,
+  currentTwitchSessionRevision,
+  discardPersistedTwitchSessionIfMatches,
   ensureSessionIntegrity,
   ensureTwitchSession as ensureTwitchSessionExt,
   persistTwitchSession,
@@ -21,6 +25,7 @@ import { createSessionOrchestrator, type TwitchApiRequestOptions } from './sessi
 import { sessionDebugSummary } from './state-persistence.ts';
 import { waitForTabComplete } from './tab-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
+import type { TwitchApiFailure } from './twitch-api/errors.ts';
 import { createTwitchSpadeHeartbeat } from './twitch-api/spade-heartbeat.ts';
 import {
   DEFAULT_TWITCH_CLIENT_ID,
@@ -51,17 +56,24 @@ export function createServiceWorkerTwitchGateway(
     sessionDebugSummary,
     readTwitchSessionViaExecuteScript,
     persistTwitchSession,
+    discardPersistedTwitchSessionIfMatches,
+    validateRecoveredTwitchSession: async (session) => {
+      try {
+        const currentUserId = await new TwitchApiClient(session).fetchCurrentUserId();
+        return currentUserId === session.userId;
+      } catch (error) {
+        logWarn('Recovered Twitch session failed semantic validation', { error: String(error) });
+        return false;
+      }
+    },
+    getSessionRevision: () => currentTwitchSessionRevision(state),
     waitForTabComplete,
-    closeTemporaryTabIfSafe: (tabId) =>
-      browser.tabs
-        .remove(tabId)
-        .then(() => true)
-        .catch(() => false),
     logDebug,
     logWarn,
   });
   const twitchSpadeHeartbeat = createTwitchSpadeHeartbeat({ clientId: DEFAULT_TWITCH_CLIENT_ID });
   let latestProgressSnapshot: DropsSnapshot | null = null;
+  let latestTwitchApiFailure: TwitchApiFailure | null = null;
 
   async function ensureContentScriptOnTab(tabId: number): Promise<void> {
     await sessionOrchestrator.ensureContentScriptOnTab(tabId);
@@ -85,6 +97,7 @@ export function createServiceWorkerTwitchGateway(
     requestOptions: TwitchApiRequestOptions = {},
   ): Promise<DropsSnapshot | null> {
     const shouldResume = state.appState.lastStopReason === 'sign-in-required';
+    clearLastTwitchApiFailure(state);
     const snapshot = await fetchDropsSnapshotFromApiWrapper(
       state,
       requestOptions,
@@ -99,6 +112,7 @@ export function createServiceWorkerTwitchGateway(
       },
       { TwitchApiClient, sessionDebugSummary, PROGRESS_POLL_MS, logDebug, logWarn, logInfo },
     );
+    latestTwitchApiFailure = getLastTwitchApiFailure(state);
     if (snapshot && shouldResume) await dependencies.resumeAfterAuthRecovery?.();
     return snapshot;
   }
@@ -109,6 +123,7 @@ export function createServiceWorkerTwitchGateway(
   ): Promise<DropsSnapshot | null> {
     const shouldResume = state.appState.lastStopReason === 'sign-in-required';
     latestProgressSnapshot = null;
+    clearLastTwitchApiFailure(state);
     const snapshot = await fetchDropsSnapshotFromApiWrapper(
       state,
       requestOptions,
@@ -130,6 +145,7 @@ export function createServiceWorkerTwitchGateway(
         },
       },
     );
+    latestTwitchApiFailure = getLastTwitchApiFailure(state);
     if (snapshot) latestProgressSnapshot = snapshot;
     if (snapshot && shouldResume) await dependencies.resumeAfterAuthRecovery?.();
     return snapshot;
@@ -217,6 +233,7 @@ export function createServiceWorkerTwitchGateway(
     fetchDirectoryStreamers,
     fetchDropsSnapshot,
     fetchDropsSnapshotProgressively,
+    getLastTwitchApiFailure: () => latestTwitchApiFailure,
     getLatestProgressSnapshot: () => latestProgressSnapshot,
     fetchInventorySnapshot,
     fetchStreamContext,

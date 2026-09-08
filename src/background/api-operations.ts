@@ -6,7 +6,8 @@ import { logDebug } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { ensureSessionIntegrity as ensureSessionIntegrityExt } from './session-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
-import { isLikelyAuthError, type TwitchSession } from './twitch-api/types.ts';
+import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/errors.ts';
+import type { TwitchSession } from './twitch-api/types.ts';
 import { markTwitchSessionReady } from './twitch-session-sync.ts';
 
 export type { FetchDropsSnapshotFromApiCallbacks } from './api-drops-wrapper.ts';
@@ -20,10 +21,29 @@ export {
   fetchInventorySnapshotFromApiWrapper,
 } from './api-secondary-wrappers.ts';
 
-export function applyApiBackoff(state: ServiceWorkerState) {
+const latestTwitchApiFailureByState = new WeakMap<ServiceWorkerState, TwitchApiFailure>();
+
+export function getLastTwitchApiFailure(state: ServiceWorkerState): TwitchApiFailure | null {
+  return latestTwitchApiFailureByState.get(state) ?? null;
+}
+
+export function clearLastTwitchApiFailure(state: ServiceWorkerState): void {
+  latestTwitchApiFailureByState.delete(state);
+}
+
+function recordTwitchApiFailure(state: ServiceWorkerState, error: unknown): TwitchApiFailure {
+  const failure = classifyTwitchApiFailure(error);
+  latestTwitchApiFailureByState.set(state, failure);
+  return failure;
+}
+
+export function applyApiBackoff(state: ServiceWorkerState, retryAfterMs?: number) {
   state.apiConsecutiveFailures += 1;
-  state.apiBackoffUntil =
-    Date.now() + Math.min(2 ** Math.max(0, state.apiConsecutiveFailures - 1) * PROGRESS_POLL_MS, 10 * 60_000);
+  const calculatedDelay = Math.min(
+    2 ** Math.max(0, state.apiConsecutiveFailures - 1) * PROGRESS_POLL_MS,
+    10 * 60_000,
+  );
+  state.apiBackoffUntil = Date.now() + Math.max(calculatedDelay, retryAfterMs ?? 0);
 }
 
 export function clearSignInRequiredStop(state: ServiceWorkerState) {
@@ -38,6 +58,7 @@ async function fetchSnapshotWithIntegrityRetry(
   session: TwitchSession,
   fetchSnapshot: (client: TwitchApiClient) => Promise<DropsSnapshot>,
 ): Promise<DropsSnapshot | null> {
+  clearLastTwitchApiFailure(state);
   const sessionWithIntegrity =
     state.integrityFallbackActive && Date.now() < state.integrityFallbackActiveUntil
       ? { ...session, clientIntegrity: undefined }
@@ -46,6 +67,7 @@ async function fetchSnapshotWithIntegrityRetry(
     const snapshot = await fetchSnapshot(new TwitchApiClient(sessionWithIntegrity));
     state.apiConsecutiveFailures = 0;
     state.apiBackoffUntil = 0;
+    clearLastTwitchApiFailure(state);
     clearSignInRequiredStop(state);
     return snapshot;
   } catch (error) {
@@ -57,6 +79,7 @@ async function fetchSnapshotWithIntegrityRetry(
           const snapshot = await fetchSnapshot(new TwitchApiClient(refreshed));
           state.apiConsecutiveFailures = 0;
           state.apiBackoffUntil = 0;
+          clearLastTwitchApiFailure(state);
           clearSignInRequiredStop(state);
           return snapshot;
         } catch (retryError) {
@@ -72,14 +95,16 @@ async function fetchSnapshotWithIntegrityRetry(
         state.integrityFallbackActiveUntil = Date.now() + INTEGRITY_FALLBACK_TTL_MS;
         state.apiConsecutiveFailures = 0;
         state.apiBackoffUntil = 0;
+        clearLastTwitchApiFailure(state);
         clearSignInRequiredStop(state);
         return snapshot;
       } catch (fallbackError) {
         logDebug('No-integrity fallback fetch also failed', { error: String(fallbackError) });
       }
     }
-    if (isLikelyAuthError(error)) throw error;
-    applyApiBackoff(state);
+    const failure = recordTwitchApiFailure(state, error);
+    if (failure.kind === 'auth') throw error;
+    applyApiBackoff(state, failure.retryAfterMs);
     return null;
   }
 }
@@ -119,9 +144,17 @@ export async function fetchDirectoryStreamersFromApi(
     },
   );
   try {
-    return await client.fetchDirectoryStreamers(game.name, game.categorySlug ?? toSlug(game.name), language);
-  } catch {
-    applyApiBackoff(state);
-    return Object.assign([], { languageFilterApplied: false });
+    const streamers = await client.fetchDirectoryStreamers(
+      game.name,
+      game.categorySlug ?? toSlug(game.name),
+      language,
+    );
+    state.apiConsecutiveFailures = 0;
+    state.apiBackoffUntil = 0;
+    return streamers;
+  } catch (error) {
+    const failure = classifyTwitchApiFailure(error);
+    applyApiBackoff(state, failure.retryAfterMs);
+    throw error;
   }
 }
