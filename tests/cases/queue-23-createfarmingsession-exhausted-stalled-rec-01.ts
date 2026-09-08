@@ -22,34 +22,33 @@ export function registerQueue23Part01() {
       mocks.teardown();
     });
 
-    test('parks an identified Twitch-native campaign at 99 percent without changing its reward evidence', async () => {
+    test('finishes an exhausted Twitch-native campaign at 99 percent without claiming its reward', async () => {
       const { game, state } = createExhaustedRecoveryFixture({ progress: 99, currentMinutes: 59 });
       await createStalledRecoverySession(state).checkDropProgress();
 
-      expect(state.unverifiableRewardsByKey).toEqual({});
+      const markers = Object.values(state.unverifiableRewardsByKey);
+      expect(markers).toHaveLength(1);
+      expect(markers[0]).toMatchObject({ progress: 99, currentMinutes: 59 });
+      expect(typeof markers[0]?.markedAt).toBe('number');
       expect(state.appState.pendingDrops[0]?.progress).toBe(99);
-      expect(state.appState.pendingDrops[0]?.verificationState).toBe('unassessed');
-      const block = state.appState.stalledCampaignBlocksByKey['campaign:native-campaign'];
-      expect(typeof block?.blockedAt).toBe('number');
-      expect(block?.rotationAttempts).toBe(3);
-      expect(block?.eligibleStreamerNames).toEqual([]);
-      expect(block?.rewardProgressByKey).toEqual({
-        'native-reward::native-campaign': { progress: 99, currentMinutes: 59 },
-      });
-      expect(state.appState.queue.map((queuedGame) => queuedGame.campaignId)).toEqual([game.campaignId]);
-      expect(state.appState.lastStopReason).toBe('stall-skipped');
+      expect(state.appState.pendingDrops[0]?.verificationState).toBe('unverifiable');
+      expect(state.appState.pendingDrops[0]?.claimed).toBe(false);
+      expect(state.appState.stalledCampaignBlocksByKey).toEqual({});
+      expect(state.appState.queue).toEqual([]);
+      expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
+      expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
     });
 
-    test('preserves exact zero-percent progress when third-attempt recovery blocks the campaign', async () => {
+    test('preserves exact zero-percent progress when exhausted recovery marks native acquisition unverifiable', async () => {
       const { state } = createExhaustedRecoveryFixture({ progress: 0, currentMinutes: 0 });
       await createStalledRecoverySession(state).checkDropProgress();
 
-      expect(state.unverifiableRewardsByKey).toEqual({});
+      expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(1);
       expect(state.appState.pendingDrops[0]?.progress).toBe(0);
       expect(state.appState.pendingDrops[0]?.currentMinutes).toBe(0);
-      expect(state.appState.pendingDrops[0]?.verificationState).toBe('unassessed');
-      expect(state.appState.stalledCampaignBlocksByKey['campaign:native-campaign']).toBeDefined();
-      expect(state.appState.lastStopReason).toBe('stall-skipped');
+      expect(state.appState.pendingDrops[0]?.verificationState).toBe('unverifiable');
+      expect(state.appState.stalledCampaignBlocksByKey).toEqual({});
+      expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
     });
 
     test('does not mark a Twitch-native reward during the first recovery attempt', async () => {
@@ -101,7 +100,7 @@ export function registerQueue23Part01() {
       });
     }
 
-    test('does not reacquire a blocked mixed campaign merely because another reward remains', async () => {
+    test('continues a mixed campaign on its ordinary reward after native recovery is exhausted', async () => {
       const nextReward = createDrop({
         id: 'next-reward',
         gameId: 'native-game',
@@ -130,12 +129,13 @@ export function registerQueue23Part01() {
       }).checkDropProgress();
 
       expect(reacquireCalls).toBe(0);
-      expect(state.appState.currentDrop?.id).toBe('native-reward');
+      expect(state.appState.currentDrop?.id).toBe('next-reward');
       expect(state.appState.pendingDrops.find((drop) => drop.id === 'native-reward')?.verificationState).toBe(
-        'unassessed',
+        'unverifiable',
       );
-      expect(state.appState.stalledCampaignBlocksByKey['campaign:native-campaign']).toBeDefined();
-      expect(state.appState.lastStopReason).toBe('stall-skipped');
+      expect(state.appState.stalledCampaignBlocksByKey).toEqual({});
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.recoveryReason).toBeNull();
     });
   });
 }

@@ -31,7 +31,10 @@ function isTrustedTwitchSender(sender: chrome.runtime.MessageSender): boolean {
   if (getFarmableTwitchChannelNameFromUrl(url) !== null) return true;
   try {
     const parsed = new URL(url);
-    return /(^|\.)twitch\.tv$/i.test(parsed.hostname) && /^\/drops\/campaigns(?:\/|$)/i.test(parsed.pathname);
+    return (
+      /(^|\.)twitch\.tv$/i.test(parsed.hostname) &&
+      /^\/drops\/(campaigns|inventory)(?:\/|$)/i.test(parsed.pathname)
+    );
   } catch {
     return false;
   }
@@ -76,7 +79,19 @@ export function createServiceWorkerTwitchContentHandlers(
   ) {
     if (!sender || !isTrustedTwitchSender(sender))
       return { success: false, error: 'Untrusted message sender' };
-    return syncTwitchIntegrityFromContentScriptExt(state, payload);
+    await dependencies.awaitInitialization();
+    const previousToken = state.twitchSessionCache?.clientIntegrity;
+    const result = await syncTwitchIntegrityFromContentScriptExt(state, payload);
+    const sync = state.appState.campaignSyncState;
+    if (
+      result.success &&
+      payload?.token?.trim() !== previousToken &&
+      sync.lastErrorKind === 'integrity' &&
+      (sync.status === 'retry-scheduled' || sync.status === 'retry-failed')
+    ) {
+      await dependencies.requestAuthRecoveredSync();
+    }
+    return result;
   }
 
   async function handleChannelPointsBonusClaimed(

@@ -136,7 +136,7 @@ export function createServiceWorkerStateLifecycle(
     return Boolean(tab?.id && getFarmableTwitchChannelNameFromUrl(tab.url));
   }
 
-  async function handleStartupResumePolicy(): Promise<boolean> {
+  async function prepareStartupResume(): Promise<void> {
     const now = Date.now();
     const policy = applyStartupResumePolicy(
       state,
@@ -144,16 +144,13 @@ export function createServiceWorkerStateLifecycle(
       CRASH_DETECTION_THRESHOLD_MS,
       RESUME_RECOVERY_GRACE_MS,
     );
-    const farmingSession = dependencies.getFarmingSession();
     if (
       state.appState.isRunning &&
       !state.appState.isPaused &&
       state.appState.selectedGame &&
       campaignRejectionReason(state.appState.selectedGame, now)
     ) {
-      await farmingSession.advanceQueueIfCompleted();
-      if (state.appState.isRunning && !state.appState.isPaused) farmingSession.startMonitoring();
-      return true;
+      return;
     }
     if (policy === 'resume-recovery') {
       logInfo('SW recycled during active no-tab recovery; resuming monitoring without reset', {
@@ -161,10 +158,9 @@ export function createServiceWorkerStateLifecycle(
         recoveryAttempts: state.appState.recoveryAttempts,
         secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
       });
-      farmingSession.startMonitoring();
-      return true;
+      return;
     }
-    if (policy !== 'auto-resume') return false;
+    if (policy !== 'auto-resume') return;
     const keptExistingTab = await canResumeWithExistingManagedTab();
     logInfo(
       keptExistingTab
@@ -179,8 +175,6 @@ export function createServiceWorkerStateLifecycle(
     }
     await saveState(state);
     await saveTimingState(state);
-    farmingSession.startMonitoring();
-    return true;
   }
 
   async function loadState(): Promise<void> {
@@ -199,10 +193,7 @@ export function createServiceWorkerStateLifecycle(
         STREAM_VALIDATION_GRACE_MS,
       },
     );
-    const handledStartupPolicy = await handleStartupResumePolicy();
-    if (!handledStartupPolicy && state.appState.isRunning && !state.appState.isPaused) {
-      dependencies.getFarmingSession().startMonitoring();
-    }
+    await prepareStartupResume();
   }
 
   async function ensureStateHydratedForCache(): Promise<void> {
@@ -220,6 +211,18 @@ export function createServiceWorkerStateLifecycle(
   function beginInitialization(afterLoad: () => Promise<void>): Promise<void> {
     initPromise = initializeAfterStorageMigration(loadState).then(async () => {
       await dependencies.initializeFarmingAutomation?.();
+      const farmingSession = dependencies.getFarmingSession();
+      if (
+        state.appState.isRunning &&
+        !state.appState.isPaused &&
+        state.appState.selectedGame &&
+        campaignRejectionReason(state.appState.selectedGame, Date.now())
+      ) {
+        await farmingSession.advanceQueueIfCompleted();
+      }
+      if (state.appState.isRunning && !state.appState.isPaused) {
+        farmingSession.startMonitoring();
+      }
       await afterLoad();
     });
     return initPromise;

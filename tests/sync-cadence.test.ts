@@ -34,7 +34,8 @@ describe('farming and campaign cadence separation', () => {
       onWatchTransportTick: async () => false,
     });
 
-    expect(refreshes).toEqual([
+    expect(refreshes).toHaveLength(2);
+    expect(refreshes).toMatchObject([
       { includeCampaignFetch: false, includeInventoryFetch: true },
       { includeCampaignFetch: false, includeInventoryFetch: true },
     ]);

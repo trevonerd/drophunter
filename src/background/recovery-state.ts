@@ -22,6 +22,7 @@ import {
   applyTerminalStopStatus,
   clearRecoveryStatus,
   clearTerminalStopStatus,
+  isStreamerAcquisitionRecovery,
 } from '../shared/runtime-status';
 import { logWarn } from './logging';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -57,15 +58,32 @@ export function applyRecoveryState(
 }
 
 export function clearStreamerAcquisitionRecoveryState(state: ServiceWorkerState) {
-  if (
-    state.appState.recoveryReason !== 'no-streamers' &&
-    state.appState.recoveryReason !== 'directory-unavailable'
-  ) {
+  if (!isStreamerAcquisitionRecovery(state.appState.recoveryReason)) {
     return;
   }
   state.recoveryBackoffUntil = 0;
   state.lastRecoveryAttemptAt = 0;
   state.appState = clearRecoveryStatus(state.appState);
+}
+
+export function applyTwitchDataUnavailableRecoveryState(state: ServiceWorkerState) {
+  state.recoveryBackoffUntil = state.apiBackoffUntil;
+  state.lastRecoveryAttemptAt = Date.now();
+  state.appState = applyRecoveryStatus(state.appState, {
+    reason: 'twitch-data-unavailable',
+    retryAt: state.apiBackoffUntil,
+    attempts: Math.max(1, state.apiConsecutiveFailures),
+  });
+}
+
+export function applyApiBackoffRecoveryState(state: ServiceWorkerState) {
+  if (!isStreamerAcquisitionRecovery(state.appState.recoveryReason)) {
+    applyTwitchDataUnavailableRecoveryState(state);
+    return;
+  }
+  const retryAt = Math.max(state.recoveryBackoffUntil, state.apiBackoffUntil);
+  state.recoveryBackoffUntil = retryAt;
+  state.appState.recoveryBackoffUntil = retryAt;
 }
 
 export function applyDirectoryUnavailableRecoveryState(

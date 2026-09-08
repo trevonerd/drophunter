@@ -129,9 +129,11 @@ export class ManagedTabTransport implements WatchTransport {
     if (this.session) await this.stop();
     const session = await this.operations.open(target, { active: false, focus: false });
     if (!isManagedSession(session)) {
-      this.target = null;
+      this.target = target;
       this.session = null;
-      return createWatchHealth(this.mode, 'failed', 'managed-tab-unavailable', this.now);
+      return createWatchHealth(this.mode, 'failed', 'managed-tab-unavailable', this.now, {
+        shouldFallback: true,
+      });
     }
     this.target = target;
     this.session = session;
@@ -141,6 +143,11 @@ export class ManagedTabTransport implements WatchTransport {
   }
 
   async tick(): Promise<WatchHealth> {
+    if (!this.session && this.target) {
+      return createWatchHealth(this.mode, 'failed', 'managed-tab-unavailable', this.now, {
+        shouldFallback: true,
+      });
+    }
     if (!this.session || !this.target) {
       return createWatchHealth(this.mode, 'not-started', 'not-started', this.now);
     }

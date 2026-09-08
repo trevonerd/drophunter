@@ -120,7 +120,6 @@ export async function evaluateStreamHealth(
     progressStalled,
     expectsDropsSignal,
   });
-  if (context.isLive) state.offlineChecks = 0;
   return { health, stallThreshold: effectiveThreshold };
 }
 

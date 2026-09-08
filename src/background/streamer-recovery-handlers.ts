@@ -65,6 +65,7 @@ export async function handleStalledProgress(
   now: number,
   stallThreshold: number,
 ): Promise<void> {
+  if (opts?.isCurrent?.() === false) return;
   if (state.stalledRecoveryAttempts >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS) {
     logWarn('Stalled progress recovery exhausted — skipping game', {
       stalledRecoveryAttempts: state.stalledRecoveryAttempts,
@@ -91,13 +92,18 @@ export async function handleStalledProgress(
       maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
       recoveryBackoffUntil: state.recoveryBackoffUntil,
     });
-    if (opts?.onAttemptPlaybackSelfHeal && tab.id) await opts.onAttemptPlaybackSelfHeal(tab.id);
+    if (opts?.onAttemptPlaybackSelfHeal && tab.id) {
+      await opts.onAttemptPlaybackSelfHeal(tab.id, opts.isCurrent);
+    }
+    if (opts?.isCurrent?.() === false) return;
     await opts?.onSaveState?.();
+    if (opts?.isCurrent?.() === false) return;
     await opts?.onSaveTimingState?.(state);
     return;
   }
   if (opts?.onForceRefreshDropsData) {
-    const refreshOutcome = await opts.onForceRefreshDropsData();
+    const refreshOutcome = await opts.onForceRefreshDropsData(opts.isCurrent);
+    if (opts?.isCurrent?.() === false) return;
     if (refreshOutcome === 'auth-required') return;
     if (state.stalledRecoveryAttempts === 0 || state.appState.currentDrop == null) return;
   }

@@ -106,11 +106,11 @@ describe('ensureSessionIntegrity', () => {
     expect(state.twitchSessionCache?.clientIntegrity).toBe('page-intercept-token-12345');
   });
 
-  test('forces refresh when forceRefresh is true even with existing integrity', async () => {
+  test('forces endpoint refresh when the page still holds the rejected integrity token', async () => {
     const state = createMinimalState();
     const session = validSession({ clientIntegrity: 'old-token' });
     mocks.storage.local._store.set('twitchIntegrity', {
-      token: 'page-token',
+      token: 'old-token',
       expiration: Date.now() + 60_000,
     });
 

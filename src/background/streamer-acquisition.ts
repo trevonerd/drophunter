@@ -1,4 +1,6 @@
-import { getGameDisplayLabel } from '../shared/game-selection.ts';
+import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
+import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logWarn } from './logging.ts';
 import {
   applyDirectoryUnavailableRecoveryState,
@@ -36,24 +38,17 @@ export async function acquireStreamerForSelectedGame(
   if (opts?.isCurrent?.() === false) return false;
   if (!state.appState.selectedGame) return false;
   const now = Date.now();
-  const isNoStreamersRecovery = state.appState.recoveryReason === 'no-streamers';
-  const isStreamerAcquisitionRecovery =
-    isNoStreamersRecovery || state.appState.recoveryReason === 'directory-unavailable';
-  if (isStreamerAcquisitionRecovery && state.recoveryBackoffUntil > now) return false;
+  const acquisitionRecoveryActive = isStreamerAcquisitionRecovery(state.appState.recoveryReason);
+  const previousAttempts = acquisitionRecoveryActive ? Math.max(0, state.appState.recoveryAttempts ?? 0) : 0;
+  if (acquisitionRecoveryActive && state.recoveryBackoffUntil > now) return false;
   let opened = false;
+  let failureKind: 'no-streamers' | 'directory-unavailable' = 'no-streamers';
   try {
     opened = opts?.onOpenStreamer ? await opts.onOpenStreamer() : false;
   } catch (error) {
     if (!(error instanceof TwitchDirectoryUnavailableError)) throw error;
-    const retryAt = Math.max(state.apiBackoffUntil, now + NO_STREAMERS_RETRY_MS);
-    applyDirectoryUnavailableRecoveryState(state, retryAt, Math.max(1, state.apiConsecutiveFailures));
-    logWarn('Twitch streamer search unavailable; scheduling retry', {
-      game: getGameDisplayLabel(state.appState.selectedGame),
-      retryAt,
-    });
-    await opts?.onSaveState?.();
-    await opts?.onSaveTimingState?.(state);
-    return false;
+    if (opts?.isCurrent?.() === false) return false;
+    failureKind = 'directory-unavailable';
   }
   if (opts?.isCurrent?.() === false) return false;
   if (opened) {
@@ -62,20 +57,35 @@ export async function acquireStreamerForSelectedGame(
     await opts?.onSaveTimingState?.(state);
     return true;
   }
-  const previousAttempts = isNoStreamersRecovery ? Math.max(0, state.appState.recoveryAttempts ?? 0) : 0;
   if (previousAttempts >= MAX_NO_STREAMERS_RETRIES) {
     await opts?.onSkipCurrentGame?.();
     await opts?.onSaveState?.();
     await opts?.onSaveTimingState?.(state);
     return false;
   }
-  const retryAt = now + NO_STREAMERS_RETRY_MS;
-  applyNoStreamersRecoveryState(state, retryAt, previousAttempts + 1);
-  logWarn('No eligible streamer found for current Drops; scheduling one retry', {
-    game: getGameDisplayLabel(state.appState.selectedGame),
-    retryAt,
-    attempts: previousAttempts + 1,
-  });
+  const attempts = previousAttempts + 1;
+  const retryAt =
+    failureKind === 'directory-unavailable'
+      ? Math.max(state.apiBackoffUntil, now + NO_STREAMERS_RETRY_MS)
+      : now + NO_STREAMERS_RETRY_MS;
+  switch (failureKind) {
+    case 'directory-unavailable':
+      applyDirectoryUnavailableRecoveryState(state, retryAt, attempts);
+      logWarn('Twitch streamer search unavailable; scheduling retry', {
+        game: getGameDisplayLabel(state.appState.selectedGame),
+        retryAt,
+        attempts,
+      });
+      break;
+    case 'no-streamers':
+      applyNoStreamersRecoveryState(state, retryAt, attempts);
+      logWarn('No eligible streamer found for current Drops; scheduling one retry', {
+        game: getGameDisplayLabel(state.appState.selectedGame),
+        retryAt,
+        attempts,
+      });
+      break;
+  }
   await opts?.onSaveState?.();
   await opts?.onSaveTimingState?.(state);
   return false;
@@ -86,6 +96,15 @@ export async function rotateStreamer(
   reason: StreamRotationReason,
   opts?: RotateStreamerOptions,
 ): Promise<boolean> {
+  const epoch = currentFarmingSessionEpoch(state);
+  const generation = state.tickGeneration;
+  const campaignKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+  const isCurrent = () =>
+    opts?.isCurrent?.() !== false &&
+    currentFarmingSessionEpoch(state) === epoch &&
+    state.tickGeneration === generation &&
+    (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null) === campaignKey;
+  if (!isCurrent()) return false;
   state.noProgressRotationAttempts = nextNoProgressRotationAttempts(state.noProgressRotationAttempts, reason);
   const now = Date.now();
   state.appState.lastRotationReason = reason;
@@ -95,9 +114,18 @@ export async function rotateStreamer(
   state.offlineChecks = 0;
   if (state.appState.activeStreamer?.name) state.avoidStreamerName = state.appState.activeStreamer.name;
   state.appState.activeStreamer = null;
-  const opened = opts?.onOpenStreamer ? await opts.onOpenStreamer() : false;
+  let opened = false;
+  try {
+    opened = opts?.onOpenStreamer ? await opts.onOpenStreamer(isCurrent) : false;
+  } catch (error) {
+    if (!isCurrent()) return false;
+    throw error;
+  }
+  if (!isCurrent()) return false;
   if (!opened && reason === 'stalled-progress') await opts?.onSkipCurrentGame?.();
+  if (!isCurrent()) return false;
   await opts?.onSaveState?.();
+  if (!isCurrent()) return false;
   await opts?.onSaveTimingState?.(state);
   return opened;
 }

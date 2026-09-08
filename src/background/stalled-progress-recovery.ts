@@ -1,5 +1,6 @@
 import { gameKey } from '../shared/game-selection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { applyRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS, STALLED_PROGRESS_RETRY_MS } from './stream-rotation.ts';
@@ -21,13 +22,14 @@ export type StalledProgressRecoveryResult =
   | { readonly kind: 'auth-required' };
 
 export interface StalledProgressRecoveryDependencies {
+  readonly isCurrent?: () => boolean;
   readonly now: () => number;
-  readonly onCampaignRefresh: () => Promise<RefreshDropsOutcome>;
-  readonly onInventoryRefresh: () => Promise<RefreshDropsOutcome>;
+  readonly onCampaignRefresh: (isCurrent?: () => boolean) => Promise<RefreshDropsOutcome>;
+  readonly onInventoryRefresh: (isCurrent?: () => boolean) => Promise<RefreshDropsOutcome>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
-  readonly onAttemptPlaybackSelfHeal: (tabId: number) => Promise<void>;
-  readonly onRestartTablessWatcher: () => Promise<void>;
-  readonly onRotateManagedStreamer: () => Promise<void>;
+  readonly onAttemptPlaybackSelfHeal: (tabId: number, isCurrent?: () => boolean) => Promise<void>;
+  readonly onRestartTablessWatcher: (isCurrent?: () => boolean) => Promise<void>;
+  readonly onRotateManagedStreamer: (isCurrent?: () => boolean) => Promise<void>;
   readonly onSkipCurrentGame: () => Promise<void>;
   readonly onSaveState: () => Promise<void>;
   readonly onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
@@ -37,10 +39,6 @@ function selectedCampaignKey(state: ServiceWorkerState): string | null {
   return state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
 }
 
-function selectionChanged(state: ServiceWorkerState, previousKey: string | null): boolean {
-  return !state.appState.isRunning || selectedCampaignKey(state) !== previousKey;
-}
-
 export async function recoverStalledProgress(
   state: ServiceWorkerState,
   source: StalledProgressSource,
@@ -48,6 +46,16 @@ export async function recoverStalledProgress(
 ): Promise<StalledProgressRecoveryResult> {
   const now = dependencies.now();
   const previousKey = selectedCampaignKey(state);
+  const epoch = currentFarmingSessionEpoch(state);
+  const generation = state.tickGeneration;
+  const isCurrent = () =>
+    dependencies.isCurrent?.() !== false &&
+    currentFarmingSessionEpoch(state) === epoch &&
+    state.tickGeneration === generation &&
+    state.appState.isRunning &&
+    !state.appState.isPaused &&
+    selectedCampaignKey(state) === previousKey;
+  if (!isCurrent()) return { kind: 'selection-changed' };
   const recoveryAlreadyActive = state.appState.recoveryReason === 'stalled-progress';
 
   if (recoveryAlreadyActive && state.recoveryBackoffUntil > now) {
@@ -60,18 +68,20 @@ export async function recoverStalledProgress(
   }
 
   const previousDrop = state.appState.currentDrop;
-  const campaignRefresh = await dependencies.onCampaignRefresh();
+  const campaignRefresh = await dependencies.onCampaignRefresh(isCurrent);
+  if (!isCurrent()) return { kind: 'selection-changed' };
   if (campaignRefresh === 'auth-required') return { kind: 'auth-required' };
   if (campaignRefresh !== 'refreshed') return { kind: 'refresh-unavailable' };
   await dependencies.onAdvanceQueueIfCompleted();
-  if (selectionChanged(state, previousKey)) {
+  if (!isCurrent()) {
     return { kind: 'selection-changed' };
   }
-  const inventoryRefresh = await dependencies.onInventoryRefresh();
+  const inventoryRefresh = await dependencies.onInventoryRefresh(isCurrent);
+  if (!isCurrent()) return { kind: 'selection-changed' };
   if (inventoryRefresh === 'auth-required') return { kind: 'auth-required' };
   if (inventoryRefresh !== 'refreshed') return { kind: 'refresh-unavailable' };
   await dependencies.onAdvanceQueueIfCompleted();
-  if (selectionChanged(state, previousKey)) {
+  if (!isCurrent()) {
     return { kind: 'selection-changed' };
   }
 
@@ -101,19 +111,21 @@ export async function recoverStalledProgress(
   applyRecoveryState(state, 'stalled-progress', retryAt);
 
   if (source.kind === 'tabless') {
-    await dependencies.onRestartTablessWatcher();
+    await dependencies.onRestartTablessWatcher(isCurrent);
   } else if (attempt === 1) {
-    await dependencies.onAttemptPlaybackSelfHeal(source.tabId);
+    await dependencies.onAttemptPlaybackSelfHeal(source.tabId, isCurrent);
   } else {
-    await dependencies.onRotateManagedStreamer();
+    await dependencies.onRotateManagedStreamer(isCurrent);
   }
 
-  if (selectionChanged(state, previousKey)) {
+  if (!isCurrent()) {
     return { kind: 'selection-changed' };
   }
   state.recoveryBackoffUntil = retryAt;
   applyRecoveryState(state, 'stalled-progress', retryAt);
   await dependencies.onSaveState();
+  if (!isCurrent()) return { kind: 'selection-changed' };
   await dependencies.onSaveTimingState(state);
+  if (!isCurrent()) return { kind: 'selection-changed' };
   return { kind: 'retry-scheduled', attempt, retryAt, started: true };
 }

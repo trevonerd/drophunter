@@ -15,7 +15,8 @@ export type EnterPersistentRecoveryFn = (
 ) => Promise<void>;
 
 export interface RotateStreamerOptions {
-  onOpenStreamer?: () => Promise<boolean>;
+  readonly isCurrent?: () => boolean;
+  onOpenStreamer?: (isCurrent?: () => boolean) => Promise<boolean>;
   onSaveState?: () => Promise<void>;
   onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
   onEnterPersistentRecovery?: EnterPersistentRecoveryFn;
@@ -40,18 +41,22 @@ export interface StreamContext {
 }
 
 export interface RotateStreamerIfInvalidOptions {
+  readonly isCurrent?: () => boolean;
   onFetchStreamContext?: (tabId: number) => Promise<StreamContext | null>;
   onResolveCategorySlug?: (game: TwitchGame) => Promise<string>;
-  onAttemptPlaybackSelfHeal?: (tabId: number) => Promise<void>;
+  onAttemptPlaybackSelfHeal?: (tabId: number, isCurrent?: () => boolean) => Promise<void>;
   onSaveState?: () => Promise<void>;
   onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
   onRotateStreamer?: RotateStreamerFn;
   onOpenStreamer?: () => Promise<boolean>;
   onEnterPersistentRecovery?: EnterPersistentRecoveryFn;
   onSkipCurrentGame?: () => Promise<void>;
-  onForceRefreshDropsData?: () => Promise<RefreshDropsOutcome>;
+  onForceRefreshDropsData?: (isCurrent?: () => boolean) => Promise<RefreshDropsOutcome>;
   onTablessWatchActive?: () => boolean;
-  onRecoverStalledProgress?: (source: StalledProgressSource) => Promise<StalledProgressRecoveryResult>;
+  onRecoverStalledProgress?: (
+    source: StalledProgressSource,
+    isCurrent?: () => boolean,
+  ) => Promise<StalledProgressRecoveryResult>;
 }
 
 export interface OpenBestStreamerCallbacks {
@@ -69,6 +74,7 @@ export function rotateStreamerOptsFrom(
   opts: RotateStreamerIfInvalidOptions | undefined,
 ): RotateStreamerOptions {
   return {
+    isCurrent: opts?.isCurrent,
     onOpenStreamer: opts?.onOpenStreamer,
     onSaveState: opts?.onSaveState,
     onSaveTimingState: opts?.onSaveTimingState,

@@ -55,7 +55,7 @@ export function registerWatchTransportCoordinatorFailureCases() {
 }
 
 export function registerWatchTransportCoordinatorStallCases() {
-  test('falls back from hidden watching when accepted heartbeats remain stalled', async () => {
+  test('preserves a Hidden progress stall for the session recovery ladder', async () => {
     const fixture = createWatchTransportCoordinatorFixture();
     let opens = 0;
     const coordinator = createWatchTransportCoordinator({
@@ -89,14 +89,15 @@ export function registerWatchTransportCoordinatorStallCases() {
 
     await coordinator.tick();
 
-    expect(opens).toBe(1);
+    expect(opens).toBe(0);
     expect(fixture.state.appState.watchTransportPreference).toBe('tabless');
-    expect(fixture.state.appState.watchTransportMode).toBe('managed-tab');
+    expect(fixture.state.appState.watchTransportMode).toBe('tabless');
     expect(fixture.state.appState.watchHealth).toMatchObject({
-      mode: 'managed-tab',
-      status: 'healthy',
-      shouldFallback: false,
+      mode: 'tabless',
+      status: 'stalled',
+      reason: 'stalled-progress',
+      shouldFallback: true,
     });
-    expect(fixture.state.appState.watchFallbackReason).toBe('stalled-progress');
+    expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 }

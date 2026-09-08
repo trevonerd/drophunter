@@ -46,7 +46,7 @@ export interface FarmingSessionAdapters {
   readonly resolveCategorySlug: (game: TwitchGame) => Promise<string>;
   readonly openForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;
   readonly enforcePlaybackPolicyOnStreamTab: () => Promise<void>;
-  readonly attemptPlaybackSelfHeal: (tabId: number) => Promise<void>;
+  readonly attemptPlaybackSelfHeal: (tabId: number, isCurrent?: () => boolean) => Promise<void>;
   readonly attemptAutoClaimChannelPointsBonus: () => Promise<boolean>;
   readonly closeManagedTabIfSafe: (tabId: number | null) => Promise<boolean>;
   readonly clearManagedTabOwnership: () => void;

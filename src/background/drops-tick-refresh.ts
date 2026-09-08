@@ -106,11 +106,11 @@ export async function refreshDropsData(
     const baseDrops = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : drops;
     if (baseDrops.length > 0) {
       refreshAttempted = true;
-      state.lastInventoryRefreshAt = Date.now();
       const inventorySnapshot = await callbacks.onFetchInventorySnapshotFromApi(baseDrops, {
         sessionRecoveryMode: options.sessionRecoveryMode,
       });
       if (!isCurrent()) return 'transient-failure';
+      state.lastInventoryRefreshAt = Date.now();
       refreshSucceeded = inventorySnapshot !== null;
       if (inventorySnapshot?.drops.length) {
         drops = inventorySnapshot.drops;

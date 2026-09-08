@@ -7,13 +7,16 @@ import {
 } from '../src/background/storage-migrations.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 
-test('preserves queue authorization, stall evidence and explicit settings through a version upgrade', async () => {
+test.each([
+  ['3.99.0.14', '3.99.0.15'],
+  ['3.99.0.15', '3.99.0.14'],
+])('preserves queue authorization, stall evidence and settings across %s → %s', async (previousVersion, version) => {
   const mocks = setupChromeMocks();
   try {
     const block = { blockedAt: 1000, rotationAttempts: 3, eligibleStreamerNames: ['channel-a'] };
     await mocks.storage.local.set({
       [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
-      [EXTENSION_VERSION_STORAGE_KEY]: '3.99.0.14',
+      [EXTENSION_VERSION_STORAGE_KEY]: previousVersion,
       appState: {
         manualQueueAuthorized: true,
         farmingSessionOrigin: 'automatic',
@@ -25,7 +28,7 @@ test('preserves queue authorization, stall evidence and explicit settings throug
       },
     });
 
-    await migrateExtensionStorage('3.99.0.15');
+    await migrateExtensionStorage(version);
 
     expect(mocks.storage.local._store.get('appState')).toMatchObject({
       manualQueueAuthorized: true,

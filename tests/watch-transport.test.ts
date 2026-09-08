@@ -78,7 +78,7 @@ describe('ManagedTabTransport', () => {
       isHealthy: false,
       status: 'failed',
       reason: 'managed-tab-unavailable',
-      shouldFallback: false,
+      shouldFallback: true,
     });
   });
 

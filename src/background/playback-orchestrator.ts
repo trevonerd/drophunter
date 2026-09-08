@@ -87,26 +87,36 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
     return options.transport.prepare(tabId, preparation);
   }
 
-  async function warnIfPlaybackNeedsAttention(tabId: number, prepared: PlaybackPrepResult): Promise<void> {
+  async function warnIfPlaybackNeedsAttention(
+    tabId: number,
+    prepared: PlaybackPrepResult,
+    isCurrent: () => boolean = () => true,
+  ): Promise<void> {
+    if (!isCurrent()) return;
     if (prepared.gateDismissed) {
       await delay(700);
+      if (!isCurrent()) return;
       const retried = await prepareStreamPlayback(tabId, {
         unmuteTab: true,
         muteAfterPrep: options.attention.muteAfterPreparation(),
       });
-      await options.attention.notifyIfNeeded(retried);
+      if (isCurrent()) await options.attention.notifyIfNeeded(retried);
       return;
     }
     await options.attention.notifyIfNeeded(prepared);
   }
 
-  async function attemptPlaybackSelfHeal(tabId: number): Promise<void> {
+  async function attemptPlaybackSelfHeal(
+    tabId: number,
+    isCurrent: () => boolean = () => true,
+  ): Promise<void> {
+    if (!isCurrent()) return;
     options.attention.beginAttempt();
     const prepared = await prepareStreamPlayback(tabId, {
       unmuteTab: true,
       muteAfterPrep: options.attention.muteAfterPreparation(),
     });
-    await warnIfPlaybackNeedsAttention(tabId, prepared);
+    await warnIfPlaybackNeedsAttention(tabId, prepared, isCurrent);
   }
 
   async function openForegroundChannel(
