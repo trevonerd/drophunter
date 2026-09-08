@@ -2,6 +2,23 @@
 
 Data della ricerca: 15 luglio 2026.
 
+## Aggiornamento verificato — 8 settembre 2026
+
+La risposta autenticata dell'inventario Twitch per **Resonance Minotaur** contiene
+il benefit `7f11cb5d-9749-11f1-b447-0a58a9feac02`, `game: null` e
+`lastAwardedAt: "2026-09-08T11:49:11.448Z"`. La UI Twitch lo mostra tra i premi
+riscossi, mentre il progresso della campagna resta a zero. Il requisito di gioco
+coincidente descritto sotto era quindi troppo restrittivo per i premi nativi.
+
+Il parser ora conserva il valore esplicito `game: null` in un ambito separato.
+Per badge ed emote può usarlo solo con benefit ID esatto, timestamp valido nella
+finestra della ricompensa e assenza di campagne concorrenti note con lo stesso
+benefit. Un campo `game` assente o malformato non equivale a `null`; un gioco
+diverso non diventa una prova globale. Nome e immagine non determinano il match.
+Il test `tests/native-award-proof.test.ts` riproduce il payload osservato senza
+credenziali. Il resto del documento conserva il contesto della ricerca iniziale;
+le formule che richiedono sempre lo stesso gioco vanno lette con questa eccezione.
+
 ## Risposta breve
 
 Con i dati che DropHunter legge già dalla sessione Twitch, `currentUser.inventory.gameEventDrops` può fornire una prova positiva che Twitch ha **assegnato** un benefit all'utente corrente. La prova è forte quando l'ID del benefit coincide e `lastAwardedAt` cade nella finestra della ricompensa; senza timestamp, con ID riutilizzati o con campagne sovrapposte, il dato diventa un indizio e non identifica con certezza la campagna che ha prodotto l'assegnazione.

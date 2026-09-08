@@ -203,9 +203,8 @@ describe('Farming automation ordered effects', () => {
       transition: 'start',
     });
     expect(subject.automationEvents).toEqual([
-      { event: 'discovery', campaignId: 'campaign-b', telegramReason: 'favorite-discovered' },
-      { event: 'discovery', campaignId: 'campaign-a', telegramReason: 'favorite-discovered' },
       { event: 'start', campaignId: 'campaign-b', telegramReason: 'auto-started' },
+      { event: 'discovery', campaignId: 'campaign-a', telegramReason: 'favorite-discovered' },
     ]);
   });
 
@@ -252,9 +251,9 @@ describe('Farming automation ordered effects', () => {
       activity: subject.state.appState.automationActivity.length,
     }).toEqual({
       outcome: { kind: 'unchanged', reason: 'already-farming-best-campaign' },
-      notifications: 3,
+      notifications: 2,
       activity: 3,
     });
-    expect(subject.automationEvents).toHaveLength(3);
+    expect(subject.automationEvents).toHaveLength(2);
   });
 });

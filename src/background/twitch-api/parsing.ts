@@ -173,12 +173,14 @@ export function buildConflictedRewardBenefitKeys(
 
   for (const candidate of candidates) {
     for (const benefitId of candidate.benefitIds) {
-      const key = rewardBenefitKey(candidate.gameName, benefitId);
-      const firstCampaign = firstCampaignByBenefit.get(key);
-      if (firstCampaign === undefined) {
-        firstCampaignByBenefit.set(key, candidate.campaignIdentity);
-      } else if (firstCampaign !== candidate.campaignIdentity) {
-        conflicts.add(key);
+      for (const scope of [candidate.gameName, '']) {
+        const key = rewardBenefitKey(scope, benefitId);
+        const firstCampaign = firstCampaignByBenefit.get(key);
+        if (firstCampaign === undefined) {
+          firstCampaignByBenefit.set(key, candidate.campaignIdentity);
+        } else if (firstCampaign !== candidate.campaignIdentity) {
+          conflicts.add(key);
+        }
       }
     }
   }

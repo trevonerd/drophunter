@@ -93,6 +93,11 @@ export function composeDropsSnapshot(
   detailsMap: ReadonlyMap<string, Record<string, unknown>>,
   campaignsVerified = false,
 ): DropsSnapshot {
+  // A progressive batch cannot rule out another campaign sharing a game-less
+  // benefit. Only the verified final snapshot can establish that uniqueness.
+  const claimedRewards = campaignsVerified
+    ? context.claimedRewards
+    : new Map([...context.claimedRewards].filter(([gameName]) => gameName !== null));
   const parsedCampaigns = context.usableCampaigns.flatMap((campaign, index) => {
     const campaignId = normalizeText(campaign.id);
     const mergedCampaign =
@@ -121,14 +126,14 @@ export function composeDropsSnapshot(
       campaign,
       game,
       context.inventoryMaps,
-      context.claimedRewards,
+      claimedRewards,
       context.globalClaimedRewards,
       conflictedBenefitKeys,
     );
     const eventDrops = parseEventBasedDrops(
       campaign,
       game,
-      context.claimedRewards,
+      claimedRewards,
       context.globalClaimedRewards,
       conflictedBenefitKeys,
     );

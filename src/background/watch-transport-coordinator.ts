@@ -33,7 +33,7 @@ export interface WatchTransportCoordinatorOptions {
 
 export interface WatchTransportCoordinator {
   readonly start: (streamer: TwitchStreamer, isCurrent?: () => boolean) => Promise<WatchHealth>;
-  readonly tick: () => Promise<WatchHealth>;
+  readonly tick: (isCurrent?: () => boolean) => Promise<WatchHealth>;
   readonly stop: () => Promise<void>;
   readonly setPreference: (mode: WatchTransportMode) => Promise<void>;
 }
@@ -170,24 +170,18 @@ export function createWatchTransportCoordinator(
     fallbackPolicy.reset();
     lastTickAt = 0;
     state.appState.activeStreamer = { ...streamer, isLive: true };
-    state.appState.tabId = null;
+    if (candidate.mode === 'tabless') state.appState.tabId = null;
     return settleHealth(health, 'started', isCurrentStart);
   };
 
-  const tick = async (): Promise<WatchHealth> => {
+  const tick = async (isCurrent: () => boolean = () => true): Promise<WatchHealth> => {
+    const generation = operationGeneration;
+    const isCurrentTick = () => isCurrent() && generation === operationGeneration;
+    if (!isCurrentTick()) return projection.currentHealth() ?? streamHealth(null, active.mode, now());
     if (!target) {
       const persistedStreamer = state.appState.activeStreamer;
       if (state.appState.isRunning && !state.appState.isPaused && persistedStreamer) {
-        const restoredTarget = targetFor(state, persistedStreamer);
-        if (restoredTarget) {
-          target = restoredTarget;
-          const prefersTabless = state.appState.watchTransportPreference === 'tabless';
-          if (prefersTabless) state.appState.tabId = null;
-          active = prefersTabless ? createTabless() : createManaged();
-          fallbackPolicy.reset();
-          const restoredHealth = await active.start(restoredTarget);
-          return settleHealth(restoredHealth, 'started');
-        }
+        return start(persistedStreamer, isCurrent);
       }
       const health = streamHealth(state.appState.currentDrop?.currentMinutes ?? null, active.mode, now());
       await projection.apply({ kind: 'checked', health });
@@ -198,12 +192,13 @@ export function createWatchTransportCoordinator(
     }
     lastTickAt = now();
     const health = await active.tick();
-    return settleHealth(health, 'checked');
+    return settleHealth(health, 'checked', isCurrentTick);
   };
 
   const stop = async () => {
-    operationGeneration += 1;
+    const generation = ++operationGeneration;
     await active.stop();
+    if (generation !== operationGeneration) return;
     target = null;
     fallbackPolicy.reset();
     lastTickAt = 0;

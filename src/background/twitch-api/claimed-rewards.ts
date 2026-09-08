@@ -2,6 +2,7 @@ import type { TwitchDrop } from '../../types/index.ts';
 import {
   buildConflictedRewardBenefitKeys,
   classifyRewardKind,
+  extractRecordArray,
   normalizeText,
   rewardBenefitKey,
   toIsoDate,
@@ -18,7 +19,8 @@ export interface ClaimedRewardEntry {
   idAwardedAt: Map<string, ClaimedRewardAwardedAt[]>;
 }
 
-export type ClaimedRewardLookup = Map<string, ClaimedRewardEntry>;
+// Null scopes an award to Twitch itself, rather than a game (badges and emotes).
+export type ClaimedRewardLookup = Map<string | null, ClaimedRewardEntry>;
 
 export type StrictGameEventRewardProof = {
   readonly benefitIds: readonly string[];
@@ -57,35 +59,31 @@ function normalizeAwardedAt(value: unknown): ClaimedRewardAwardedAt {
 export function buildClaimedRewardLookup(inventoryRaw: unknown): ClaimedRewardLookup {
   const lookup: ClaimedRewardLookup = new Map();
 
-  if (!inventoryRaw || typeof inventoryRaw !== 'object') {
+  if (!inventoryRaw || typeof inventoryRaw !== 'object' || !('gameEventDrops' in inventoryRaw)) {
     return lookup;
   }
 
-  const inventory = inventoryRaw as Record<string, unknown>;
-  const gameEventDrops = Array.isArray(inventory.gameEventDrops)
-    ? (inventory.gameEventDrops as Array<Record<string, unknown>>)
-    : [];
-
-  gameEventDrops.forEach((drop) => {
-    if (!drop || typeof drop !== 'object') return;
-
+  for (const drop of extractRecordArray(inventoryRaw.gameEventDrops)) {
     const gameObj = drop.game;
-    if (!gameObj || typeof gameObj !== 'object') return;
-
-    const gameRec = gameObj as Record<string, unknown>;
-    const gameName = (normalizeText(gameRec.displayName) || normalizeText(gameRec.name)).toLowerCase();
+    if (gameObj === undefined) continue;
+    let gameName: string | null = null;
+    if (gameObj !== null) {
+      if (typeof gameObj !== 'object' || Array.isArray(gameObj)) continue;
+      gameName = (
+        normalizeText('displayName' in gameObj ? gameObj.displayName : undefined) ||
+        normalizeText('name' in gameObj ? gameObj.name : undefined)
+      ).toLowerCase();
+      if (!gameName) continue;
+    }
     const rewardName = normalizeText(drop.name).toLowerCase();
     const benefitId = normalizeText(drop.id);
     const awardedAt = normalizeAwardedAt(drop.lastAwardedAt);
 
-    if (!gameName || (!rewardName && !benefitId)) return;
-
-    if (!lookup.has(gameName)) {
-      lookup.set(gameName, createClaimedRewardEntry());
-    }
-    const entry = lookup.get(gameName)!;
+    if (!rewardName && !benefitId) continue;
+    const entry = lookup.get(gameName) ?? createClaimedRewardEntry();
     addClaimedReward(entry, rewardName, benefitId, awardedAt);
-  });
+    lookup.set(gameName, entry);
+  }
 
   return lookup;
 }
@@ -188,12 +186,8 @@ export function isEarlyAwardableTwitchReward(rewardDistributionTypes?: string[])
   return rewardKind === 'twitch-badge' || rewardKind === 'twitch-emote';
 }
 
-// Strict match used when inventory state already exists for a drop (a specific campaign
-// is already known): only trust a same-game benefit award with a real timestamp inside
-// this drop's own campaign window. No cross-game fallback, no missing-timestamp bypass —
-// those are reserved for matchClaimedReward's looser pass, used when there is no
-// inventory state to be authoritative over. This is what keeps a badge/emote claimed in
-// one campaign from marking a sibling campaign's drop for the same game as done.
+// Native awards may have game:null. Their exact benefit must be unique across
+// campaigns, with a real timestamp inside the reward window; named games stay scoped.
 export function hasClaimedGameEventReward(
   claimedRewards: ClaimedRewardLookup,
   proof: StrictGameEventRewardProof,
@@ -211,7 +205,11 @@ export function hasClaimedGameEventReward(
   }
 
   const gameClaimedRewards = claimedRewards.get(gameName.toLowerCase());
-  return entryHasAwardedBenefit(gameClaimedRewards, benefitIds, window, false);
+  if (entryHasAwardedBenefit(gameClaimedRewards, benefitIds, window, false)) return true;
+  if (benefitIds.some((benefitId) => conflictedBenefitKeys.has(rewardBenefitKey('', benefitId)))) {
+    return false;
+  }
+  return entryHasAwardedBenefit(claimedRewards.get(null), benefitIds, window, false);
 }
 
 export function resolveDropClaimedStatus(

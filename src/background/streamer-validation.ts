@@ -1,4 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
+import { gameKey } from '../shared/game-selection.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logDebug } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { computeEffectiveStallThreshold } from './stream-rotation.ts';
@@ -29,15 +31,26 @@ async function rotateForOpenFailed(
 
 export async function rotateStreamerIfInvalid(
   state: ServiceWorkerState,
-  opts?: RotateStreamerIfInvalidOptions,
+  options?: RotateStreamerIfInvalidOptions,
 ) {
   if (!state.appState.selectedGame) return;
+  const epoch = currentFarmingSessionEpoch(state);
+  const generation = state.tickGeneration;
+  const campaignKey = gameKey(state.appState.selectedGame);
+  const isCurrent = () =>
+    options?.isCurrent?.() !== false &&
+    currentFarmingSessionEpoch(state) === epoch &&
+    state.tickGeneration === generation &&
+    (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null) === campaignKey;
+  if (!isCurrent()) return;
+  const opts = { ...options, isCurrent };
   if (!state.appState.tabId) {
     if (opts?.onTablessWatchActive?.()) return;
     await rotateForOpenFailed(state, opts);
     return;
   }
   const tab = await browser.tabs.get(state.appState.tabId).catch(() => null);
+  if (!isCurrent()) return;
   if (!tab?.id) {
     state.appState.tabId = null;
     state.appState.activeStreamer = null;
@@ -45,6 +58,7 @@ export async function rotateStreamerIfInvalid(
     return;
   }
   const context = opts?.onFetchStreamContext ? await opts.onFetchStreamContext(tab.id) : null;
+  if (!isCurrent()) return;
   const now = Date.now();
   if (now < state.streamValidationGraceUntil) return;
   const effectiveThreshold = computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
@@ -59,6 +73,8 @@ export async function rotateStreamerIfInvalid(
     now,
     opts,
   );
+  if (!isCurrent()) return;
+  if (context.isLive) state.offlineChecks = 0;
   if (health.isHealthy) {
     state.invalidStreamChecks = 0;
     return;
@@ -89,7 +105,7 @@ export async function rotateStreamerIfInvalid(
   }
   if (health.reason === 'stalled-progress') {
     if (opts?.onRecoverStalledProgress) {
-      await opts.onRecoverStalledProgress({ kind: 'managed-tab', tabId: tab.id });
+      await opts.onRecoverStalledProgress({ kind: 'managed-tab', tabId: tab.id }, isCurrent);
       return;
     }
     await handleStalledProgress(state, tab, opts, now, stallThreshold);

@@ -15,6 +15,12 @@ export interface TerminalStopState {
 
 export const MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS = 3;
 
+export function isStreamerAcquisitionRecovery(reason: string | null | undefined): boolean {
+  return (
+    reason === 'no-streamers' || reason === 'directory-unavailable' || reason === 'twitch-data-unavailable'
+  );
+}
+
 function assertNever(value: never): never {
   throw new TypeError(`Unhandled campaign remainder reason: ${String(value)}`);
 }
@@ -163,6 +169,8 @@ export function formatRotationReason(reason: string | null | undefined): string 
 
 export function formatRecoveryReason(reason: string | null | undefined): string | null {
   switch (reason) {
+    case 'twitch-data-unavailable':
+      return 'Twitch data refresh unavailable';
     case 'stalled-progress':
       return 'Checking stalled drop progress';
     case 'open-failed':

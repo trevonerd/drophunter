@@ -10,6 +10,7 @@ import {
   createFarmingAutomationManualWatch,
   type FarmingAutomationManualWatchController,
 } from './farming-automation-manual-watch.ts';
+import { createFarmingAutomationNotificationBatch } from './farming-automation-notifications.ts';
 import {
   createFarmingAutomationScheduler,
   type FarmingAutomationEvaluateBatch,
@@ -95,13 +96,21 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
       replaceDeadline: dependencies.browser.replaceDeadlineAlarm,
       now: dependencies.now,
     });
-  const evaluateBatch = createFarmingAutomationEvaluator({
-    ...dependencies,
-    manualWatch,
-    runtime,
-    now: dependencies.now ?? Date.now,
-    random: dependencies.random ?? Math.random,
-  });
+  const evaluateBatch: FarmingAutomationEvaluateBatch = async (triggers) => {
+    const notifications = createFarmingAutomationNotificationBatch(dependencies.automationNotify);
+    try {
+      return await createFarmingAutomationEvaluator({
+        ...dependencies,
+        manualWatch,
+        runtime,
+        now: dependencies.now ?? Date.now,
+        random: dependencies.random ?? Math.random,
+        automationNotify: notifications,
+      })(triggers);
+    } finally {
+      await notifications.flush();
+    }
+  };
   const scheduler = createFarmingAutomationScheduler(evaluateBatch);
   return {
     request: scheduler.request,

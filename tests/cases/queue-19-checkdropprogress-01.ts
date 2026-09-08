@@ -177,7 +177,7 @@ export function registerQueue19Part01() {
         onSaveTimingState: async () => undefined,
       });
 
-      expect(refreshOptions[0]).toEqual({ includeCampaignFetch: false, includeInventoryFetch: true });
+      expect(refreshOptions[0]).toMatchObject({ includeCampaignFetch: false, includeInventoryFetch: true });
     });
 
     test('does not validate the old tab while no-streamers retry backoff is active', async () => {

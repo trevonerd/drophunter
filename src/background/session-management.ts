@@ -1,6 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
 import { clearTerminalStopStatus } from '../shared/runtime-status.ts';
-import { TWITCH_SESSION_RETRY_COOLDOWN_MS } from './constants.ts';
+import { TWITCH_SESSION_RETRY_COOLDOWN_MS, TWITCH_SESSION_STORAGE_KEY } from './constants.ts';
 import { logDebug, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
@@ -101,7 +101,7 @@ export async function ensureSessionIntegrity(
 ): Promise<TwitchSession> {
   if (!forceRefresh && session.clientIntegrity) return session;
   const pageToken = await loadPageIntegrityToken();
-  if (pageToken && !forceRefresh) {
+  if (pageToken && (!forceRefresh || pageToken !== session.clientIntegrity)) {
     logDebug('Using page-intercepted integrity token', { hasToken: true });
     const updated: TwitchSession = { ...session, clientIntegrity: pageToken };
     state.twitchSessionCache = updated;
@@ -241,16 +241,16 @@ export async function syncTwitchIntegrityFromContentScriptExt(
     expiration,
     hasSession: Boolean(state.twitchSessionCache),
   });
-  state.integrityFallbackActive = false;
-  state.integrityFallbackActiveUntil = 0;
-  if (state.twitchSessionCache) {
-    state.twitchSessionCache = { ...state.twitchSessionCache, clientIntegrity: token };
-    persistTwitchSession(state.twitchSessionCache).catch(() => undefined);
+  const previousSession = state.twitchSessionCache;
+  const updatedSession = previousSession ? { ...previousSession, clientIntegrity: token } : null;
+  await browser.storage.local.set({
+    twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' },
+    ...(updatedSession ? { [TWITCH_SESSION_STORAGE_KEY]: updatedSession } : {}),
+  });
+  if (state.twitchSessionCache === previousSession) {
+    state.twitchSessionCache = updatedSession;
+    state.integrityFallbackActive = false;
+    state.integrityFallbackActiveUntil = 0;
   }
-  browser.storage.local
-    .set({
-      twitchIntegrity: { token, expiration, request_id: payload?.request_id || '' },
-    })
-    .catch(() => undefined);
   return { success: true };
 }

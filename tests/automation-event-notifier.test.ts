@@ -7,6 +7,7 @@ test('delivers an automatic transition independently to browser and Telegram', a
   const notifier = createAutomationEventNotifier({
     notifyBrowser: async ({ event }) => {
       deliveries.push(`browser:${event}`);
+      return { shown: true, deduplicated: false };
     },
     notifyTelegram: async (reason) => {
       deliveries.push(`telegram:${reason}`);

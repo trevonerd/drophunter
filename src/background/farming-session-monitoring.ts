@@ -1,5 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
-import { getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection.ts';
+import { gameKey, getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection.ts';
 import { autoClaimClaimableDrops } from './auto-claim.ts';
 import { ALARM_NAME, PROGRESS_POLL_MS } from './constants.ts';
 import { completedDropKeys, dropStateKey, projectDropsSnapshot } from './drops-projection.ts';
@@ -12,15 +12,16 @@ import type { FarmingSessionContext, RefreshDropsOptions } from './farming-sessi
 import { logWarn } from './logging.ts';
 import { queueCleanupNotification } from './queue-availability-cleanup-activity.ts';
 import { normalizeQueueSelection } from './queue-operations.ts';
+import { applyApiBackoffRecoveryState } from './recovery-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 
 type FarmingSessionMonitoringDependencies = {
-  readonly onRotateStreamerIfInvalid: () => Promise<void>;
-  readonly onAcquireStreamerForSelectedGame: () => Promise<boolean>;
+  readonly onRotateStreamerIfInvalid: (isCurrent?: () => boolean) => Promise<void>;
+  readonly onAcquireStreamerForSelectedGame: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
-  readonly onHandleRecoverySkip: () => Promise<void>;
   readonly onRecoverStalledProgress: (
     source: StalledProgressSource,
+    isCurrent?: () => boolean,
   ) => Promise<StalledProgressRecoveryResult>;
 };
 
@@ -37,21 +38,24 @@ export function createFarmingSessionMonitoring(
 ): FarmingSessionMonitoring {
   const { state, adapters } = context;
 
-  async function tickWatchTransport(): Promise<boolean> {
+  async function tickWatchTransport(isCurrent: () => boolean): Promise<boolean> {
     const directive = await context.manualWatchController.reconcileTransport({
       target: state.appState.selectedGame,
       managedTabId: state.appState.tabId,
       automationActive: state.appState.isRunning && !state.appState.isPaused,
       transportSuspended: context.manualWatchTransportSuspended,
     });
+    if (!isCurrent()) return false;
     switch (directive.kind) {
       case 'suspend':
         context.manualWatchTransportSuspended = true;
         try {
           await adapters.watchTransport?.stop();
         } catch (error) {
+          if (!(error instanceof Error)) throw error;
           logWarn('Manual watch transport suspension failed:', String(error));
         }
+        if (!isCurrent()) return false;
         await adapters.automationNotify?.({
           transitionId: directive.transitionId,
           event: 'manual-suspended',
@@ -65,12 +69,14 @@ export function createFarmingSessionMonitoring(
         const activeStreamer = state.appState.activeStreamer;
         if (activeStreamer && state.appState.isRunning && !state.appState.isPaused) {
           try {
-            await adapters.watchTransport?.start(activeStreamer);
+            await adapters.watchTransport?.start(activeStreamer, isCurrent);
           } catch (error) {
+            if (!(error instanceof Error)) throw error;
             logWarn('Manual watch transport resume failed:', String(error));
             return false;
           }
         }
+        if (!isCurrent()) return false;
         context.manualWatchTransportSuspended = false;
         await adapters.automationNotify?.({
           transitionId: directive.transitionId,
@@ -93,7 +99,8 @@ export function createFarmingSessionMonitoring(
       }
     }
 
-    const health = await adapters.watchTransport?.tick();
+    const health = await adapters.watchTransport?.tick(isCurrent);
+    if (!isCurrent()) return false;
     const stalledRecoveryDue =
       state.appState.recoveryReason === 'stalled-progress' && context.now() >= state.recoveryBackoffUntil;
     const tablessStallDetected =
@@ -103,28 +110,46 @@ export function createFarmingSessionMonitoring(
       state.appState.tabId === null &&
       (health?.mode === 'tabless' || state.appState.watchTransportMode === 'tabless');
     if (tablessStallDetected || tablessRecoveryDue) {
-      const result = await dependencies.onRecoverStalledProgress({ kind: 'tabless' });
+      const result = await dependencies.onRecoverStalledProgress({ kind: 'tabless' }, isCurrent);
       return result.kind === 'selection-changed';
     }
     if (stalledRecoveryDue && state.appState.tabId) {
-      const result = await dependencies.onRecoverStalledProgress({
-        kind: 'managed-tab',
-        tabId: state.appState.tabId,
-      });
+      const result = await dependencies.onRecoverStalledProgress(
+        {
+          kind: 'managed-tab',
+          tabId: state.appState.tabId,
+        },
+        isCurrent,
+      );
       return result.kind === 'selection-changed';
     }
-    if (health?.mode !== 'managed-tab' || !health.shouldFallback) {
+    const transportMissing =
+      health?.status === 'not-started' &&
+      state.appState.selectedGame !== null &&
+      state.appState.tabId === null;
+    if (!transportMissing && (health?.mode !== 'managed-tab' || !health.shouldFallback)) {
       return false;
     }
-    if (health.reason === 'stalled-progress' && state.appState.tabId) {
-      const result = await dependencies.onRecoverStalledProgress({
-        kind: 'managed-tab',
-        tabId: state.appState.tabId,
-      });
+    if (health?.reason === 'stalled-progress' && state.appState.tabId) {
+      const result = await dependencies.onRecoverStalledProgress(
+        {
+          kind: 'managed-tab',
+          tabId: state.appState.tabId,
+        },
+        isCurrent,
+      );
       return result.kind === 'selection-changed';
     }
-    await dependencies.onHandleRecoverySkip();
-    return true;
+    const previousCampaignKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+    if (state.apiBackoffUntil > context.now()) {
+      applyApiBackoffRecoveryState(state);
+      await adapters.saveState(state);
+    } else if (context.now() >= state.recoveryBackoffUntil) {
+      await dependencies.onAcquireStreamerForSelectedGame(isCurrent);
+    }
+    return (
+      previousCampaignKey !== (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null)
+    );
   }
 
   async function evaluateDropTransitions(previousCompletedKeys: Set<string>): Promise<void> {
@@ -173,9 +198,7 @@ export function createFarmingSessionMonitoring(
     return autoClaimClaimableDrops(
       state,
       () => adapters.ensureTwitchSession(),
-      async (drop) => {
-        await adapters.sendAlert('drop-complete', `Claimed: ${drop.name} (${drop.gameName})`);
-      },
+      (drop) => adapters.sendAlert('drop-complete', `Claimed: ${drop.name} (${drop.gameName})`),
     );
   }
 
@@ -214,17 +237,13 @@ export function createFarmingSessionMonitoring(
     if (initPromise) {
       await initPromise;
     }
-    const apiBackoffActive = state.apiBackoffUntil > Date.now();
-    if (apiBackoffActive) {
-      await tickWatchTransport();
-    }
     await checkDropProgressCore(state, {
       onEnforcePlaybackPolicy: adapters.enforcePlaybackPolicyOnStreamTab,
       onRotateStreamerIfInvalid: dependencies.onRotateStreamerIfInvalid,
       onAcquireStreamerForSelectedGame: dependencies.onAcquireStreamerForSelectedGame,
       onAttemptAutoClaimChannelPointsBonus: adapters.attemptAutoClaimChannelPointsBonus,
       onRefreshDropsData: refreshDropsData,
-      onWatchTransportTick: apiBackoffActive ? undefined : tickWatchTransport,
+      onWatchTransportTick: tickWatchTransport,
       onAutoClaimClaimableDrops: claimAvailableDrops,
       onAdvanceQueueIfCompleted: dependencies.onAdvanceQueueIfCompleted,
       onSaveTimingState: adapters.saveTimingState,

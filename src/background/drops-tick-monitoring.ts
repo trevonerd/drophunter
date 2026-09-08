@@ -1,6 +1,7 @@
 // Owns one monitoring tick, including transport, refresh, claim, and queue sequencing.
 import { browser } from '../shared/browser-api.ts';
 import { gameKey } from '../shared/game-selection';
+import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
 import {
   CRASH_RECOVERY_GRACE_MS,
   INVENTORY_REFRESH_INTERVAL_MS,
@@ -13,17 +14,18 @@ import type { ServiceWorkerState } from './runtime-state.ts';
 
 export interface CheckDropProgressCallbacks {
   onEnforcePlaybackPolicy: () => Promise<void>;
-  onRotateStreamerIfInvalid: () => Promise<void>;
-  onAcquireStreamerForSelectedGame: () => Promise<boolean>;
+  onRotateStreamerIfInvalid: (isCurrent?: () => boolean) => Promise<void>;
+  onAcquireStreamerForSelectedGame: (isCurrent?: () => boolean) => Promise<boolean>;
   onAttemptAutoClaimChannelPointsBonus: () => Promise<boolean>;
   onRefreshDropsData: (opts?: {
     includeCampaignFetch?: boolean;
     includeInventoryFetch?: boolean;
+    isCurrent?: () => boolean;
   }) => Promise<RefreshDropsOutcome>;
   onAutoClaimClaimableDrops: () => Promise<boolean>;
   onAdvanceQueueIfCompleted: () => Promise<boolean>;
   onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
-  onWatchTransportTick?: () => Promise<boolean | undefined>;
+  onWatchTransportTick?: (isCurrent: () => boolean) => Promise<boolean | undefined>;
 }
 
 export async function checkDropProgress(
@@ -33,8 +35,6 @@ export async function checkDropProgress(
   if (!state.appState.isRunning || state.appState.isPaused) {
     return;
   }
-
-  state.lastHeartbeatAt = Date.now();
 
   logDebug('Tick entry', {
     isRunning: state.appState.isRunning,
@@ -48,9 +48,12 @@ export async function checkDropProgress(
     return;
   }
   state.monitorTickInFlight = true;
+  state.lastHeartbeatAt = Date.now();
   const myTickGeneration = state.tickGeneration;
+  const ownsTick = () => state.tickGeneration === myTickGeneration;
+  const isCurrent = () => ownsTick() && state.appState.isRunning && !state.appState.isPaused;
   const isStaleTick = () => {
-    if (state.tickGeneration !== myTickGeneration) {
+    if (!isCurrent()) {
       logDebug('Tick generation stale (session stopped/restarted mid-tick) — aborting');
       return true;
     }
@@ -58,16 +61,17 @@ export async function checkDropProgress(
   };
 
   const tickWatchdogTimer = setTimeout(() => {
-    if (state.monitorTickInFlight) {
+    if (ownsTick() && state.monitorTickInFlight) {
       logWarn('Monitoring tick watchdog fired — resetting stuck monitorTickInFlight flag', {
         timeoutMs: TICK_WATCHDOG_TIMEOUT_MS,
       });
+      state.tickGeneration += 1;
       state.monitorTickInFlight = false;
     }
   }, TICK_WATCHDOG_TIMEOUT_MS);
 
   try {
-    const transportAdvancedQueue = await callbacks.onWatchTransportTick?.();
+    const transportAdvancedQueue = await callbacks.onWatchTransportTick?.(isCurrent);
     if (isStaleTick()) return;
     if (transportAdvancedQueue) return;
 
@@ -80,32 +84,28 @@ export async function checkDropProgress(
       return;
     }
 
-    const streamerAcquisitionRecoveryActive =
-      state.appState.recoveryReason === 'no-streamers' ||
-      state.appState.recoveryReason === 'directory-unavailable';
-    if (streamerAcquisitionRecoveryActive) {
-      if (Date.now() >= state.recoveryBackoffUntil) {
-        await callbacks.onAcquireStreamerForSelectedGame();
+    if (!isStreamerAcquisitionRecovery(state.appState.recoveryReason)) {
+      if (state.appState.tabId) {
+        const streamTab = await browser.tabs.get(state.appState.tabId).catch(() => null);
+        if (isStaleTick()) return;
+        if (!streamTab) {
+          state.appState.tabId = null;
+          state.appState.activeStreamer = null;
+        }
       }
-      return;
-    }
-
-    if (state.appState.tabId) {
-      const streamTab = await browser.tabs.get(state.appState.tabId).catch(() => null);
+      await callbacks.onEnforcePlaybackPolicy();
       if (isStaleTick()) return;
-      if (!streamTab) {
-        state.appState.tabId = null;
-        state.appState.activeStreamer = null;
-      }
     }
-    await callbacks.onEnforcePlaybackPolicy();
-    if (isStaleTick()) return;
 
     // Transport stays on the minute heartbeat; inventory is deliberately slower.
     if (Date.now() - state.lastInventoryRefreshAt >= INVENTORY_REFRESH_INTERVAL_MS) {
-      state.lastInventoryRefreshAt = Date.now();
-      await callbacks.onRefreshDropsData({ includeCampaignFetch: false, includeInventoryFetch: true });
+      await callbacks.onRefreshDropsData({
+        includeCampaignFetch: false,
+        includeInventoryFetch: true,
+        isCurrent,
+      });
       if (isStaleTick()) return;
+      state.lastInventoryRefreshAt = Date.now();
     }
 
     const claimedAny = await callbacks.onAutoClaimClaimableDrops();
@@ -113,12 +113,13 @@ export async function checkDropProgress(
     // Confirm a successful claim from inventory before queue mutation without
     // coupling claim handling back to a full campaign refresh.
     if (claimedAny) {
-      state.lastInventoryRefreshAt = Date.now();
       await callbacks.onRefreshDropsData({
         includeCampaignFetch: false,
         includeInventoryFetch: true,
+        isCurrent,
       });
       if (isStaleTick()) return;
+      state.lastInventoryRefreshAt = Date.now();
     }
 
     const selectedBeforeAdvance = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
@@ -132,6 +133,14 @@ export async function checkDropProgress(
       return;
     }
 
+    const streamerAcquisitionRecoveryActive = isStreamerAcquisitionRecovery(state.appState.recoveryReason);
+    if (streamerAcquisitionRecoveryActive) {
+      if (Date.now() >= state.recoveryBackoffUntil) {
+        await callbacks.onAcquireStreamerForSelectedGame(isCurrent);
+      }
+      return;
+    }
+
     const inCrashGrace =
       state.appState.resumedFromCrash != null &&
       Date.now() - state.appState.resumedFromCrash < CRASH_RECOVERY_GRACE_MS;
@@ -141,7 +150,7 @@ export async function checkDropProgress(
       if (state.appState.resumedFromCrash != null) {
         state.appState.resumedFromCrash = null;
       }
-      await callbacks.onRotateStreamerIfInvalid();
+      await callbacks.onRotateStreamerIfInvalid(isCurrent);
       if (isStaleTick()) return;
       if (!state.appState.isRunning || state.appState.isPaused) {
         return;
@@ -152,7 +161,9 @@ export async function checkDropProgress(
     await callbacks.onAdvanceQueueIfCompleted();
   } finally {
     clearTimeout(tickWatchdogTimer);
-    state.monitorTickInFlight = false;
-    await callbacks.onSaveTimingState(state);
+    if (ownsTick()) {
+      state.monitorTickInFlight = false;
+      await callbacks.onSaveTimingState(state);
+    }
   }
 }

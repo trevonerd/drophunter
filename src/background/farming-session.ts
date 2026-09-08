@@ -24,7 +24,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     acquireStreamerForSelectedGame,
     ensureWorkspaceForSelectedGame,
     handleAuthoritativeCampaignUnavailable,
-    handleRecoverySkip,
     recoverStalledProgress,
     rotateStreamerIfInvalid,
   } = streaming;
@@ -32,7 +31,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onRotateStreamerIfInvalid: rotateStreamerIfInvalid,
     onAcquireStreamerForSelectedGame: acquireStreamerForSelectedGame,
     onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
-    onHandleRecoverySkip: handleRecoverySkip,
     onRecoverStalledProgress: recoverStalledProgress,
   });
   const { checkDropProgress, startMonitoring, stopMonitoring } = monitoring;

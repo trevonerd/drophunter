@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { createSessionOrchestrator } from '../../src/background/session-orchestrator.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
 
@@ -51,7 +51,11 @@ test('auth timeout prevents a late open-tab read from creating a Drops tab', asy
 });
 
 test('auth timeout closes an owned Drops tab when readiness never completes', async () => {
-  let removed = false;
+  let readinessStarted = false;
+  let signalRemoval: () => void = () => {};
+  const removed = new Promise<void>((resolve) => {
+    signalRemoval = resolve;
+  });
   const tab = { id: 52, url: 'https://www.twitch.tv/drops/inventory', active: false, windowId: 7 };
   const never = new Promise<void>(() => {});
   const orchestrator = createSessionOrchestrator(
@@ -68,7 +72,7 @@ test('auth timeout closes an owned Drops tab when readiness never completes', as
           return tab;
         },
         async remove() {
-          removed = true;
+          signalRemoval();
         },
         async sendMessage() {
           return { success: false };
@@ -81,14 +85,22 @@ test('auth timeout closes an owned Drops tab when readiness never completes', as
       discardPersistedTwitchSessionIfMatches: async () => {},
       validateRecoveredTwitchSession: async () => true,
       getSessionRevision: () => 0,
-      waitForTabComplete: async () => never,
+      waitForTabComplete: async () => {
+        readinessStarted = true;
+        return never;
+      },
       authRecoveryTimeoutMs: 1,
       logDebug: () => {},
       logWarn: () => {},
     },
   );
 
-  expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBeNull();
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  expect(removed).toBe(true);
+  const clock = spyOn(Date, 'now').mockReturnValue(Date.now());
+  try {
+    expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBeNull();
+    expect(readinessStarted).toBe(true);
+    await removed;
+  } finally {
+    clock.mockRestore();
+  }
 });
