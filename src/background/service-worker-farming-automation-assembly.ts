@@ -1,5 +1,6 @@
 import { gameKey } from '../shared/game-selection.ts';
 import { recordAutomationActivity } from './automation-activity.ts';
+import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import { initializeFarmingAutomationLifecycle } from './extension-lifecycle.ts';
 import { createFarmingAutomation } from './farming-automation.ts';
 import { createFarmingAutomationBrowser } from './farming-automation-browser.ts';
@@ -46,7 +47,7 @@ export interface ServiceWorkerFarmingAutomationAssemblyDependencies {
   readonly browserEvents: BrowserEvents;
   readonly startMonitoring: () => void;
   readonly twitchGateway: TwitchGateway;
-  readonly telegramNotify?: (reason: string, message: string) => Promise<void>;
+  readonly automationNotify?: AutomationEventNotifier;
 }
 
 export interface ServiceWorkerFarmingAutomationAssembly {
@@ -174,7 +175,7 @@ export async function assembleServiceWorkerFarmingAutomation(
       return result.kind === 'failed' ? { kind: 'failed', reason: 'persistence-failed' } : null;
     },
     onStarted: dependencies.startMonitoring,
-    telegramNotify: dependencies.telegramNotify,
+    automationNotify: dependencies.automationNotify,
   });
   await initializeFarmingAutomationLifecycle({
     automation,

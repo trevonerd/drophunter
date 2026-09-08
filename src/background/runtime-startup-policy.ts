@@ -13,6 +13,26 @@ export interface StartupResumePolicyState {
   recoveryNotificationSent: boolean;
 }
 
+export interface StartupAutoResumeState extends StartupResumePolicyState {
+  streamValidationGraceUntil: number;
+  lastProgressAdvanceAt: number;
+  noProgressRotationAttempts: number;
+}
+
+/**
+ * Marks a stale worker resume without manufacturing drop progress or discarding
+ * the persisted stall-recovery evidence. Stream validation gets its own grace
+ * period while Twitch reconstructs the managed player.
+ */
+export function applyStartupAutoResumeTransition(
+  state: StartupAutoResumeState,
+  now: number,
+  streamValidationGraceMs: number,
+): void {
+  state.appState.resumedFromCrash = now;
+  state.streamValidationGraceUntil = now + streamValidationGraceMs;
+}
+
 export function applyStartupResumePolicy(
   state: StartupResumePolicyState,
   now: number,

@@ -10,6 +10,7 @@ import {
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
 import { logWarn } from './logging.ts';
+import { queueCleanupNotification } from './queue-availability-cleanup-activity.ts';
 import { normalizeQueueSelection } from './queue-operations.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 
@@ -43,7 +44,7 @@ export function createFarmingSessionMonitoring(
       automationActive: state.appState.isRunning && !state.appState.isPaused,
       transportSuspended: context.manualWatchTransportSuspended,
     });
-    switch (directive) {
+    switch (directive.kind) {
       case 'suspend':
         context.manualWatchTransportSuspended = true;
         try {
@@ -51,6 +52,14 @@ export function createFarmingSessionMonitoring(
         } catch (error) {
           logWarn('Manual watch transport suspension failed:', String(error));
         }
+        await adapters.automationNotify?.({
+          transitionId: directive.transitionId,
+          event: 'manual-suspended',
+          campaignId: state.appState.selectedGame?.campaignId ?? 'manual-watch',
+          title: 'Manual viewing detected',
+          message: 'DropHunter paused automatic farming while you watch Twitch.',
+          telegramReason: 'manual-suspended',
+        });
         return false;
       case 'resume': {
         const activeStreamer = state.appState.activeStreamer;
@@ -63,6 +72,14 @@ export function createFarmingSessionMonitoring(
           }
         }
         context.manualWatchTransportSuspended = false;
+        await adapters.automationNotify?.({
+          transitionId: directive.transitionId,
+          event: 'manual-resumed',
+          campaignId: state.appState.selectedGame?.campaignId ?? 'manual-watch',
+          title: 'Automatic farming resumed',
+          message: 'DropHunter resumed automatic farming after your Twitch viewing ended.',
+          telegramReason: 'manual-resumed',
+        });
         return false;
       }
       case 'unchanged':
@@ -82,7 +99,9 @@ export function createFarmingSessionMonitoring(
     const tablessStallDetected =
       health?.mode === 'tabless' && health.reason === 'stalled-progress' && health.shouldFallback;
     const tablessRecoveryDue =
-      stalledRecoveryDue && (health?.mode === 'tabless' || state.appState.watchTransportMode === 'tabless');
+      stalledRecoveryDue &&
+      state.appState.tabId === null &&
+      (health?.mode === 'tabless' || state.appState.watchTransportMode === 'tabless');
     if (tablessStallDetected || tablessRecoveryDue) {
       const result = await dependencies.onRecoverStalledProgress({ kind: 'tabless' });
       return result.kind === 'selection-changed';
@@ -121,11 +140,29 @@ export function createFarmingSessionMonitoring(
     const allCompleted =
       hasDrops && state.appState.pendingDrops.length === 0 && state.appState.currentDrop === null;
     if (allCompleted && !state.appState.completionNotified) {
-      const campaign = state.appState.selectedGame
-        ? getGameDisplayLabel(state.appState.selectedGame)
-        : 'this campaign';
-      await adapters.sendAlert('all-complete', `All rewards for ${campaign} are complete.`);
+      const selectedGame = state.appState.selectedGame;
+      const campaign = selectedGame ? getGameDisplayLabel(selectedGame) : 'this campaign';
       state.appState.completionNotified = true;
+      const message = `All rewards for ${campaign} are complete.`;
+      if (adapters.automationNotify) {
+        // Persist the state transition before delivery. A restarted MV3 worker can
+        // then retry only a channel whose delivery did not succeed.
+        await adapters.saveState(state);
+        await adapters.automationNotify({
+          transitionId: `campaign-complete:${selectedGame?.campaignId ?? 'current-campaign'}:${[
+            ...nowCompletedKeys,
+          ]
+            .sort()
+            .join(',')}`,
+          event: 'completion',
+          campaignId: selectedGame?.campaignId ?? 'current-campaign',
+          title: 'Campaign complete',
+          message,
+          telegramReason: 'campaign-complete',
+        });
+      } else {
+        await adapters.sendAlert('all-complete', message);
+      }
     }
     if (nowCompletedKeys.size < previousCompletedKeys.size) {
       state.appState.completionNotified = false;
@@ -151,6 +188,17 @@ export function createFarmingSessionMonitoring(
         onFetchInventorySnapshotFromApi: adapters.fetchInventorySnapshotFromApi,
         onEvaluateDropTransitions: evaluateDropTransitions,
         onSaveState: adapters.saveState,
+        onQueueCampaignsRemoved: async (result) => {
+          const notification = queueCleanupNotification(result);
+          await adapters.automationNotify?.({
+            transitionId: notification.transitionId,
+            event: 'queue-cleanup',
+            campaignId: 'queue',
+            telegramReason: 'queue-cleanup',
+            title: 'Queue updated',
+            message: notification.message,
+          });
+        },
       },
       {
         replaceAvailableGames,

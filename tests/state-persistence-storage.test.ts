@@ -119,7 +119,7 @@ describe('resetStateForInactivity', () => {
 
     expect(state.appState).toMatchObject({
       isRunning: false,
-      selectedGame: null,
+      selectedGame: { id: 'game-1', name: 'Game', imageUrl: '' },
       totalDropsClaimed: 12,
       totalChannelPointsClaimed: 34,
       favoriteGames: [{ gameId: '509658', lastKnownName: 'Valorant', addedAt: 1 }],

@@ -5,11 +5,7 @@ import type { TwitchDrop } from '../types';
 import { INVALID_STREAM_THRESHOLD, STREAM_ROTATE_COOLDOWN_MS } from './constants.ts';
 import { logDebug, logInfo } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import {
-  classifyStreamHealth,
-  NO_DROPS_SIGNAL_STALL_THRESHOLD_MS,
-  type StreamRotationReason,
-} from './stream-rotation.ts';
+import { classifyStreamHealth, type StreamRotationReason } from './stream-rotation.ts';
 import {
   type RotateStreamerIfInvalidOptions,
   rotateStreamerOptsFrom,
@@ -112,14 +108,10 @@ export async function evaluateStreamHealth(
     currentDrop: !!state.appState.currentDrop,
     farmablePending,
   });
-  const noDropsSignal = expectsDropsSignal && !hasDropsSignal;
-  const stallThreshold = noDropsSignal
-    ? Math.min(effectiveThreshold, NO_DROPS_SIGNAL_STALL_THRESHOLD_MS)
-    : effectiveThreshold;
   const progressStalled =
     state.lastProgressAdvanceAt > 0 &&
     state.appState.currentDrop != null &&
-    now - state.lastProgressAdvanceAt >= stallThreshold;
+    now - state.lastProgressAdvanceAt >= effectiveThreshold;
   const health = classifyStreamHealth({
     isLive: context.isLive,
     sameChannel,
@@ -129,7 +121,7 @@ export async function evaluateStreamHealth(
     expectsDropsSignal,
   });
   if (context.isLive) state.offlineChecks = 0;
-  return { health, stallThreshold };
+  return { health, stallThreshold: effectiveThreshold };
 }
 
 export async function handleGenericInvalidStream(

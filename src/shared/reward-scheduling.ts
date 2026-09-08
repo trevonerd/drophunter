@@ -33,5 +33,7 @@ export function isRewardCompletableBeforeExpiry(
 }
 
 export function isRewardFarmableNow(drop: TwitchDrop, now = Date.now()): boolean {
+  if (drop.startsAt && Date.parse(drop.startsAt) > now) return false;
+  if (!drop.claimable && drop.endsAt && Date.parse(drop.endsAt) <= now) return false;
   return isRewardAutomatable(drop) && isRewardCompletableBeforeExpiry(drop, now);
 }

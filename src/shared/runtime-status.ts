@@ -152,8 +152,10 @@ export function formatRotationReason(reason: string | null | undefined): string 
       return 'Tab navigated away';
     case 'open-failed':
       return 'Could not open stream';
+    case 'directory-unavailable':
+      return 'Twitch streamer search unavailable';
     case 'no-streamers':
-      return 'No live streamers found';
+      return 'No eligible streamer found yet';
     default:
       return reason ?? null;
   }
@@ -165,8 +167,10 @@ export function formatRecoveryReason(reason: string | null | undefined): string 
       return 'Checking stalled drop progress';
     case 'open-failed':
       return 'Could not open stream';
+    case 'directory-unavailable':
+      return 'Twitch streamer search unavailable';
     case 'no-streamers':
-      return 'No live streamers found';
+      return 'No eligible streamer found yet';
     case 'drops-inactive':
       return 'Recovering missing drops signal';
     case 'wrong-game':

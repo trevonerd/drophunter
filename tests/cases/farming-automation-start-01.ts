@@ -187,7 +187,6 @@ describe('Farming automation start', () => {
       'commit',
       'facts',
       'broadcast',
-      'notification:farming-transition:start:idle:campaign:campaign-best:1000',
       'alarm',
       'monitor',
     ]);

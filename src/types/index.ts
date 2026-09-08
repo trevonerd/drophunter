@@ -1,9 +1,10 @@
+import type { StalledCampaignBlock } from './stalled-campaign';
+
 export type RewardAcquisitionMethod = 'watch-time' | 'subscription' | 'other-event' | 'unknown';
 export type RewardKind = 'in-game' | 'twitch-badge' | 'twitch-emote' | 'unknown';
 export type RewardVerificationState = 'unassessed' | 'verified' | 'unverifiable';
 export type CampaignCompletion = 'farmable' | 'farming-complete' | 'all-acquired';
 export type CampaignRemainderReason = 'subscription-required' | 'unverifiable-twitch';
-
 export type CampaignRewardSummary = {
   readonly completion: CampaignCompletion;
   readonly remainderReasons: readonly CampaignRemainderReason[];
@@ -73,6 +74,7 @@ export type CampaignPriorityMode = 'ending-soonest' | 'lowest-availability' | 'p
 export type FarmCategoryScope = 'all' | 'favorites-only';
 export type GamePreference = 'normal' | 'favorite' | 'hidden';
 export type QueueEntrySource = 'manual' | 'favorite-auto';
+export type FarmingSessionOrigin = 'manual' | 'automatic';
 export type WatchTransportMode = 'managed-tab' | 'tabless';
 export type TwitchSessionSyncState =
   | { readonly status: 'unknown'; readonly attempts: 0; readonly nextRetryAt: null }
@@ -135,13 +137,16 @@ export interface QueueEntryMetadata {
   readonly reason: 'user-added' | 'favorite-discovered' | 'retained-after-hide';
 }
 
+export type { StalledCampaignBlock } from './stalled-campaign';
+
 export type ManualWatchState = 'inactive' | 'eligible-manual' | 'automation-paused';
 export type AutomationActivityKind =
   | 'favorite-added'
   | 'auto-started'
   | 'preempted'
   | 'auto-start-skipped'
-  | 'campaign-unfarmable';
+  | 'campaign-unfarmable'
+  | 'queue-campaigns-removed';
 
 export interface AutomationActivityEntry {
   readonly id: string;
@@ -165,6 +170,10 @@ export interface DropsSnapshot {
   campaignChannelsMap?: Record<string, string[] | null>;
   /** True only when this campaign snapshot was paired with a successful inventory read. */
   inventoryVerified?: boolean;
+  /** True only when fresh dashboard, inventory, and campaign detail data can prove campaign absence. */
+  campaignsVerified?: boolean;
+  /** Complete dashboard campaign identities, present only with campaignsVerified. */
+  authoritativeCampaignIds?: string[];
   updatedAt: number;
 }
 
@@ -194,6 +203,8 @@ export interface AppState {
   pendingDrops: TwitchDrop[];
   allDrops: TwitchDrop[];
   campaignDropsByKey: Record<string, TwitchDrop[]>;
+  campaignEvidenceUserId?: string;
+  acquiredCampaignIds?: readonly string[];
   availableGames: TwitchGame[];
   queue: TwitchGame[];
   favoriteGames: FavoriteGame[];
@@ -201,7 +212,10 @@ export interface AppState {
   campaignPriorityMode: CampaignPriorityMode;
   farmCategoryScope: FarmCategoryScope;
   autoStartFavoriteGames: boolean;
+  manualQueueAuthorized: boolean;
+  farmingSessionOrigin: FarmingSessionOrigin | null;
   queueEntryMetadataByKey: Record<string, QueueEntryMetadata>;
+  stalledCampaignBlocksByKey: Record<string, StalledCampaignBlock>;
   automationActivity: AutomationActivityEntry[];
   lastAutomationMessage: string | null;
   nextAutomationCheckAt: number | null;
@@ -238,20 +252,7 @@ export interface AppState {
   lastStopMessage?: string | null;
 }
 
-export interface ClaimLogEntry {
-  id: string;
-  claimId?: string;
-  dropId: string;
-  dropName: string;
-  benefitName?: string;
-  gameId: string;
-  gameName: string;
-  campaignId?: string;
-  campaignName?: string;
-  campaignLabel: string;
-  claimedAt: number;
-  imageUrl?: string;
-}
+export type { ClaimLogEntry } from './claim-log.ts';
 
 export interface StorageData {
   state: AppState;

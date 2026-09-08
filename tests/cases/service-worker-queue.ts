@@ -85,14 +85,14 @@ export function registerQueueCases() {
     state = getAppStateFromStorage();
     expect(state.queue).toHaveLength(1);
 
-    // Confirmed missing on a second consecutive snapshot — now it's pruned.
+    // Page-collected snapshots remain partial evidence even when repeated.
     await dispatchMessage({
       type: 'UPDATE_GAMES',
       payload: [gameWithCampaignC],
     });
 
     state = getAppStateFromStorage();
-    expect(state.queue).toHaveLength(0);
+    expect(state.queue).toHaveLength(1);
   });
 
   test('REORDER_QUEUE reorders persisted queue entries when farming is stopped', async () => {

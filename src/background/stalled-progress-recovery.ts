@@ -10,6 +10,7 @@ export type StalledProgressSource =
 
 export type StalledProgressRecoveryResult =
   | { readonly kind: 'recovered' }
+  | { readonly kind: 'refresh-unavailable' }
   | {
       readonly kind: 'retry-scheduled';
       readonly attempt: number;
@@ -61,12 +62,14 @@ export async function recoverStalledProgress(
   const previousDrop = state.appState.currentDrop;
   const campaignRefresh = await dependencies.onCampaignRefresh();
   if (campaignRefresh === 'auth-required') return { kind: 'auth-required' };
+  if (campaignRefresh !== 'refreshed') return { kind: 'refresh-unavailable' };
   await dependencies.onAdvanceQueueIfCompleted();
   if (selectionChanged(state, previousKey)) {
     return { kind: 'selection-changed' };
   }
   const inventoryRefresh = await dependencies.onInventoryRefresh();
   if (inventoryRefresh === 'auth-required') return { kind: 'auth-required' };
+  if (inventoryRefresh !== 'refreshed') return { kind: 'refresh-unavailable' };
   await dependencies.onAdvanceQueueIfCompleted();
   if (selectionChanged(state, previousKey)) {
     return { kind: 'selection-changed' };

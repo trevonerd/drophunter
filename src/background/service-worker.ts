@@ -1,4 +1,4 @@
-import { gameKey } from '../shared/game-selection.ts';
+import { createAutomationEventNotifier } from './automation-event-notifier.ts';
 import { automationNotificationPersistence } from './automation-notification-persistence.ts';
 import { publishCampaignUnfarmableWarning } from './campaign-unfarmable-warning.ts';
 import { setClaimRecordedHandler } from './claim-log.ts';
@@ -13,7 +13,11 @@ import {
   createServiceWorkerFarmingAutomationRuntime,
   type ServiceWorkerFarmingAutomationRuntime,
 } from './service-worker-farming-automation.ts';
-import { createServiceWorkerStarter, registerServiceWorkerRuntime } from './service-worker-runtime-wiring.ts';
+import {
+  createFarmingAutomationUserActionHandlers,
+  createServiceWorkerStarter,
+  registerServiceWorkerRuntime,
+} from './service-worker-runtime-wiring.ts';
 import { createServiceWorkerSettingsHandlers } from './service-worker-settings-handlers.ts';
 import { createServiceWorkerStateLifecycle } from './service-worker-state-lifecycle.ts';
 import { createServiceWorkerTwitchGateway } from './service-worker-twitch-gateway.ts';
@@ -49,16 +53,23 @@ const notificationController = createNotificationController(state, {
   saveState: () => saveState(state),
   automationNotificationPersistence,
   openDropHunter: () => browserEvents.openMonitorDashboardWindow({ toggle: false }),
-  pauseFarming: async () => {
-    await farmingAutomationRuntime.automation.snooze('manual-pause');
-    await farmingSession.handlePauseFarming();
-  },
+  pauseFarming: () =>
+    createFarmingAutomationUserActionHandlers(
+      farmingAutomationRuntime.automation,
+      farmingSession,
+    ).pauseFarming(),
 });
 
 const telegramNotifier = createTelegramNotifier(state, {
   saveState: () => saveState(state),
   loadCredentials: loadTelegramCredentials,
   saveCredentials: saveTelegramCredentials,
+});
+
+const automationEventNotifier = createAutomationEventNotifier({
+  notifyBrowser: (notification) => notificationController.notifyAutomation(notification),
+  notifyTelegram: (reason, message) => telegramNotifier.notifySystemEvent(reason, message),
+  persistence: automationNotificationPersistence,
 });
 
 setClaimRecordedHandler((entries) => telegramNotifier.notifyClaimedDrops(entries));
@@ -83,7 +94,7 @@ farmingAutomationRuntime = createServiceWorkerFarmingAutomationRuntime(state, {
   browserEvents,
   startMonitoring: () => farmingSession.startMonitoring(),
   twitchGateway,
-  telegramNotify: telegramNotifier.notifySystemEvent,
+  automationNotify: automationEventNotifier,
 });
 
 const stateLifecycle = createServiceWorkerStateLifecycle(state, {
@@ -111,23 +122,18 @@ farmingSession = createFarmingSession(state, {
   openMonitorDashboardWindow: browserEvents.openMonitorDashboardWindow,
   sendAlert: browserEvents.sendAlert,
   notify,
+  automationNotify: automationEventNotifier.notify,
   notifyCampaignUnavailable: async (game) => {
     await publishCampaignUnfarmableWarning(state, game, {
       now: Date.now,
       saveState,
       broadcastStateUpdate,
-      notifyBrowser: (message) =>
-        notificationController.notifyAutomation({
-          event: 'unfarmable',
-          campaignId: gameKey(game),
-          title: 'Campaign no longer farmable',
-          message,
-          priority: 2,
-        }),
-      notifyTelegram: (message) => telegramNotifier.notifySystemEvent('campaign-unfarmable', message),
+      notifyAutomation: automationEventNotifier.notify,
     });
   },
-  telegramSystemAlert: telegramNotifier.notifySystemEvent,
+  telegramSystemAlert: async (reason, message) => {
+    await telegramNotifier.notifySystemEvent(reason, message);
+  },
   suppressCampaignUntilRefresh: (campaignKey) =>
     farmingAutomationRuntime.automation.suppressCampaignUntilRefresh(campaignKey),
   saveState,
@@ -144,6 +150,7 @@ contentHandlers = createServiceWorkerContentHandlers(state, {
   stateLifecycle,
   twitchGateway,
   notify,
+  automationNotify: automationEventNotifier.notify,
 });
 
 const settingsHandlers = createServiceWorkerSettingsHandlers(state, {
@@ -158,6 +165,7 @@ function beginServiceWorkerInitialization(): Promise<void> {
   const initialization = stateLifecycle.beginInitialization(async () => {
     await notificationController.syncPermissionState();
     await telegramNotifier.syncPermissionState();
+    await contentHandlers.initializeActivationSync();
     browser.alarms.create(CAMPAIGN_SYNC_ALARM_NAME, { periodInMinutes: 30 });
   });
   void initialization
@@ -197,4 +205,20 @@ export function startServiceWorker(): void {
 
 export function setLastInventoryRefreshAtForTests(value: number): void {
   state.lastInventoryRefreshAt = value;
+}
+
+export function resetCampaignEvidenceForTests(): void {
+  state.appState.acquiredCampaignIds = [];
+  state.appState.campaignDropsByKey = {};
+  state.appState.currentDrop = null;
+  state.appState.allDrops = [];
+  state.appState.completedDrops = [];
+  state.appState.pendingDrops = [];
+  state.appState.availableGames = state.appState.availableGames.map((game) => {
+    const { allDropsCompleted: _completed, rewardSummary: _summary, ...identity } = game;
+    return identity;
+  });
+  state.cachedDropsSnapshot = [];
+  state.unverifiableRewardsByKey = {};
+  state.dropClaimRetryAtById.clear();
 }

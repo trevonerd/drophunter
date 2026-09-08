@@ -1,6 +1,8 @@
+import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import type { TwitchDrop, TwitchGame } from '../types/index.ts';
 import { dropStateKey } from './drops-projection.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import type { TwitchApiFailure } from './twitch-api/errors.ts';
 
 export type GamesCacheRefreshResult =
   | {
@@ -10,7 +12,7 @@ export type GamesCacheRefreshResult =
       readonly inventoryVerified?: boolean;
     }
   | { readonly kind: 'cached'; readonly games: TwitchGame[] }
-  | { readonly kind: 'unavailable'; readonly games: TwitchGame[] };
+  | { readonly kind: 'unavailable'; readonly games: TwitchGame[]; readonly failure?: TwitchApiFailure };
 
 const refreshInFlightByState = new WeakMap<ServiceWorkerState, Promise<GamesCacheRefreshResult>>();
 
@@ -41,6 +43,7 @@ export function mergeUniqueDrops(primary: TwitchDrop[], additional: TwitchDrop[]
 }
 
 export function removeTerminalSummary(game: TwitchGame): TwitchGame {
+  if (isCampaignAcquired(game) || game.rewardSummary?.completion !== 'farming-complete') return game;
   const withoutSummary = { ...game };
   delete withoutSummary.rewardSummary;
   delete withoutSummary.allDropsCompleted;

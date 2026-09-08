@@ -50,7 +50,11 @@ function reward(game: TwitchGame): TwitchDrop {
 }
 
 function fixture(failure: PostCommitFailure = null) {
-  const telegramAlerts: Array<{ reason: string; message: string }> = [];
+  const automationEvents: Array<{
+    readonly event: string;
+    readonly campaignId: string;
+    readonly telegramReason: string;
+  }> = [];
   const incumbent = campaign('a', '2030-08-03T16:00:00.000Z');
   const candidate = campaign('b', '2030-08-03T12:00:00.000Z');
   const drops = [reward(incumbent), reward(candidate)];
@@ -164,11 +168,17 @@ function fixture(failure: PostCommitFailure = null) {
     },
     now: () => 2_000,
     random: () => 0,
-    telegramNotify: async (reason, message) => {
-      telegramAlerts.push({ reason, message });
+    automationNotify: {
+      notify: async (notification) => {
+        automationEvents.push({
+          event: notification.event,
+          campaignId: notification.campaignId,
+          telegramReason: notification.telegramReason,
+        });
+      },
     },
   });
-  return { automation, candidate, events, state, storage, telegramAlerts, watch };
+  return { automation, automationEvents, candidate, events, state, storage, watch };
 }
 
 describe('Farming automation ordered effects', () => {
@@ -184,15 +194,18 @@ describe('Farming automation ordered effects', () => {
       outcome,
       events: subject.events,
       activity: subject.state.appState.automationActivity.map(({ kind }) => kind),
-      cleanup: subject.storage.getLocal(FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY),
     }).toEqual({
       outcome: { kind: 'started', campaignKey: gameKey(subject.candidate), transition: 'start' },
-      events: ['refresh', 'broadcast', 'commit', 'facts', 'broadcast', 'notification', 'alarm'],
-      activity: ['auto-started'],
-      cleanup: expect.objectContaining({ transition: 'start' }),
+      events: ['refresh', 'broadcast', 'commit', 'facts', 'broadcast', 'alarm'],
+      activity: ['auto-started', 'favorite-added', 'favorite-added'],
     });
-    expect(subject.telegramAlerts).toEqual([
-      { reason: 'auto-started', message: subject.state.appState.lastAutomationMessage },
+    expect(subject.storage.getLocal(FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY)).toMatchObject({
+      transition: 'start',
+    });
+    expect(subject.automationEvents).toEqual([
+      { event: 'discovery', campaignId: 'campaign-b', telegramReason: 'favorite-discovered' },
+      { event: 'discovery', campaignId: 'campaign-a', telegramReason: 'favorite-discovered' },
+      { event: 'start', campaignId: 'campaign-b', telegramReason: 'auto-started' },
     ]);
   });
 
@@ -235,13 +248,13 @@ describe('Farming automation ordered effects', () => {
     // Then: no second notification or activity entry is produced.
     expect({
       outcome,
-      notifications: subject.events.filter((event) => event === 'notification').length,
+      notifications: subject.automationEvents.length,
       activity: subject.state.appState.automationActivity.length,
     }).toEqual({
       outcome: { kind: 'unchanged', reason: 'already-farming-best-campaign' },
-      notifications: 1,
-      activity: 1,
+      notifications: 3,
+      activity: 3,
     });
-    expect(subject.telegramAlerts.length).toBe(1);
+    expect(subject.automationEvents).toHaveLength(3);
   });
 });

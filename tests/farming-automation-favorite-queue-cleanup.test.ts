@@ -29,8 +29,8 @@ function campaign({ campaignId, completion, endsAt }: CampaignInput): TwitchGame
   };
 }
 
-test('favorite queue cleanup persists when no new automatic campaign is added', async () => {
-  // Given: one manual campaign plus terminal and redundant automatic siblings for the same favorite game.
+test('favorite queue cleanup retains a separate farmable campaign for the same favorite game', async () => {
+  // Given: one manual campaign plus terminal and still-farmable automatic campaigns for one favorite game.
   const state = createServiceWorkerState();
   const completedAuto = campaign({
     campaignId: 'campaign-completed-auto',
@@ -74,7 +74,7 @@ test('favorite queue cleanup persists when no new automatic campaign is added', 
     now: 2_000,
   });
 
-  // Then: both live and durable state keep only the manual campaign and produce no fake addition activity.
+  // Then: completion is removed, but the distinct farmable campaign remains queued and is not re-announced.
   expect({
     persisted,
     added: plan.added,
@@ -85,14 +85,16 @@ test('favorite queue cleanup persists when no new automatic campaign is added', 
   }).toEqual({
     persisted: true,
     added: [],
-    queue: [gameKey(manual)],
+    queue: [gameKey(redundantAuto), gameKey(manual)],
     metadata: {
+      [gameKey(redundantAuto)]: { source: 'favorite-auto', addedAt: 11, reason: 'favorite-discovered' },
       [gameKey(manual)]: { source: 'manual', addedAt: 12, reason: 'user-added' },
     },
     activity: [],
     stored: expect.objectContaining({
-      queue: [manual],
+      queue: [redundantAuto, manual],
       queueEntryMetadataByKey: {
+        [gameKey(redundantAuto)]: { source: 'favorite-auto', addedAt: 11, reason: 'favorite-discovered' },
         [gameKey(manual)]: { source: 'manual', addedAt: 12, reason: 'user-added' },
       },
     }),

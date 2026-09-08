@@ -1,6 +1,5 @@
-import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
-import { pickNearestDrop } from '../shared/drop-order';
 import { getGameDisplayLabel } from '../shared/game-selection';
 import {
   deriveRuntimeMode,
@@ -13,6 +12,7 @@ import {
 } from '../shared/runtime-status';
 import { createInitialState } from '../shared/utils';
 import type { AppState, AutomationActivityEntry } from '../types';
+import { selectMonitorDrop } from './selected-drop';
 
 const AUTOMATION_NOTICE_TTL_MS = 6_000;
 
@@ -59,7 +59,7 @@ export type MonitorViewProps = {
 };
 
 export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: MonitorViewProps) {
-  const nearestDrop = useMemo(() => pickNearestDrop(state.pendingDrops), [state.pendingDrops]);
+  const nearestDrop = selectMonitorDrop(state);
   const selectedCampaignLabel = state.selectedGame ? getGameDisplayLabel(state.selectedGame) : null;
   const runtimeMode = deriveRuntimeMode(state);
   const selectedRewardSummary = state.selectedGame?.rewardSummary;

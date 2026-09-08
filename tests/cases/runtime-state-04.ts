@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { applyStartupResumePolicy } from '../../src/background/runtime-state.ts';
+import {
+  applyStartupAutoResumeTransition,
+  applyStartupResumePolicy,
+} from '../../src/background/runtime-state.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
 
 describe('applyStartupResumePolicy', () => {
@@ -70,6 +73,25 @@ describe('applyStartupResumePolicy', () => {
     expect(state.appState.queue).toHaveLength(1);
     expect(state.appState.tabId).toBe(123);
     expect(state.appState.activeStreamer?.id).toBe('streamer-1');
+  });
+
+  test('keeps the second stalled recovery attempt and real progress across a worker restart', () => {
+    const state = {
+      ...makePolicyState(),
+      streamValidationGraceUntil: 0,
+      lastProgressAdvanceAt: 12_345,
+      noProgressRotationAttempts: 2,
+    };
+
+    expect(applyStartupResumePolicy(state, 40_000, 30_000, 300_000)).toBe('auto-resume');
+    applyStartupAutoResumeTransition(state, 40_000, 75_000);
+
+    expect(state.lastProgressAdvanceAt).toBe(12_345);
+    expect(state.noProgressRotationAttempts).toBe(2);
+    expect(state.stalledRecoveryAttempts).toBe(2);
+    expect(state.recoveryBackoffUntil).toBe(90_000);
+    expect(state.appState.recoveryReason).toBe('stalled-progress');
+    expect(state.streamValidationGraceUntil).toBe(115_000);
   });
 
   test('allows crash recovery for stale startup sessions when auto-resume is enabled', () => {

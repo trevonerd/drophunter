@@ -12,7 +12,10 @@ function idleState(lastSuccessAt: number | null = null): CampaignSyncState {
     lastAttemptAt: lastSuccessAt,
     lastSuccessAt,
     campaignCount: lastSuccessAt === null ? null : 4,
+    retryAttemptCount: 0,
+    lastErrorKind: null,
     nextRetryAt: null,
+    attemptDeadlineAt: null,
   };
 }
 
@@ -44,15 +47,19 @@ describe('ActivationSyncCoordinator', () => {
     let syncState = idleState();
     const firstAttempt = createDeferred<ActivationSyncAttempt>();
     const attempts: string[] = [];
+    let firstExecution: { readonly signal: AbortSignal; readonly isCurrent: () => boolean } | null = null;
     const coordinator = createActivationSyncCoordinator({
       now: clock.now,
       getCampaignSyncState: () => syncState,
       setCampaignSyncState: async (next) => {
         syncState = next;
       },
-      performSync: async (trigger) => {
+      performSync: async (trigger, execution) => {
         attempts.push(trigger);
-        if (attempts.length === 1) return firstAttempt.promise;
+        if (attempts.length === 1) {
+          firstExecution = execution;
+          return firstAttempt.promise;
+        }
         return { kind: 'synced', campaignCount: 8 };
       },
     });
@@ -62,10 +69,12 @@ describe('ActivationSyncCoordinator', () => {
     const wake = coordinator.request('wake');
     const popup = coordinator.request('popup-open');
     expect(attempts).toEqual(['periodic-campaign']);
+    expect(firstExecution?.signal.aborted).toBe(true);
+    expect(firstExecution?.isCurrent()).toBe(false);
 
     firstAttempt.resolve({ kind: 'synced', campaignCount: 7 });
 
-    expect(await periodic).toEqual({ kind: 'synced', campaignCount: 7 });
+    expect(await periodic).toEqual({ kind: 'not-needed' });
     expect(await wake).toEqual({ kind: 'synced', campaignCount: 8 });
     expect(await popup).toEqual({ kind: 'synced', campaignCount: 8 });
     expect(attempts).toEqual(['periodic-campaign', 'wake']);
@@ -89,7 +98,10 @@ describe('ActivationSyncCoordinator', () => {
       lastAttemptAt: clock.now(),
       lastSuccessAt: null,
       campaignCount: null,
+      retryAttemptCount: 0,
+      lastErrorKind: 'session',
       nextRetryAt: null,
+      attemptDeadlineAt: null,
     });
   });
 
@@ -121,14 +133,17 @@ describe('ActivationSyncCoordinator', () => {
     expect(scheduledRetries).toHaveLength(5);
   });
 
-  test('continues persisted retry backoff after a service-worker recycle', async () => {
+  test('continues persisted retry backoff when the user explicitly retries', async () => {
     const clock = createTestClock(10_000);
     let syncState: CampaignSyncState = {
       status: 'retry-scheduled',
       lastAttemptAt: 8_000,
       lastSuccessAt: null,
       campaignCount: null,
+      retryAttemptCount: 2,
+      lastErrorKind: 'network',
       nextRetryAt: 8_000 + 2 * 60_000,
+      attemptDeadlineAt: null,
       error: 'offline',
     };
     const coordinator = createActivationSyncCoordinator({
@@ -140,7 +155,7 @@ describe('ActivationSyncCoordinator', () => {
       performSync: async () => ({ kind: 'transient-error', error: 'offline' }),
     });
 
-    const result = await coordinator.request('wake');
+    const result = await coordinator.request('manual');
 
     expect(result).toEqual({ kind: 'retry-scheduled', retryAt: clock.now() + 5 * 60_000, error: 'offline' });
   });
@@ -152,7 +167,10 @@ describe('ActivationSyncCoordinator', () => {
       lastAttemptAt: 10_000,
       lastSuccessAt: null,
       campaignCount: 3,
+      retryAttemptCount: 1,
+      lastErrorKind: 'network',
       nextRetryAt: 80_000,
+      attemptDeadlineAt: null,
       error: 'offline',
     };
     let attempts = 0;

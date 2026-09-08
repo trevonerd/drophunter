@@ -1,6 +1,7 @@
 import { browser } from '../shared/browser-api.ts';
 import { replaceAvailableGames } from '../shared/game-selection.ts';
 import type { TwitchGame } from '../types/index.ts';
+import { preserveAcquiredCampaigns, rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
 import {
   attemptAutoClaimChannelPointsBonusExt,
   recordChannelPointsBonusClaimedExt,
@@ -45,14 +46,24 @@ export function createServiceWorkerContentUtilities(
   }
 
   async function handleUpdateGames(payload?: TwitchGame[]) {
-    state.appState.availableGames = replaceAvailableGames(payload ?? []);
+    await dependencies.awaitInitialization();
+    rememberAcquiredCampaigns(state.appState, [
+      ...state.appState.availableGames,
+      ...state.appState.queue,
+      ...(state.appState.selectedGame ? [state.appState.selectedGame] : []),
+    ]);
+    state.appState.availableGames = preserveAcquiredCampaigns(
+      state.appState,
+      replaceAvailableGames(payload ?? []),
+    );
     state.appState.availableGames = annotateGameCompletion(
       state.appState.availableGames,
       state.cachedDropsSnapshot,
     );
+    rememberAcquiredCampaigns(state.appState, state.appState.availableGames);
     if (state.appState.availableGames.length > 0) state.appState.lastSuccessfulRefreshAt = Date.now();
     normalizeGameSelection(state, state.appState.availableGames, true);
-    normalizeQueueSelection(state, state.appState.availableGames, true);
+    normalizeQueueSelection(state, state.appState.availableGames, false);
     await saveState(state);
     saveTimingState(state).catch(() => undefined);
     await dependencies.automation.request('campaign-refresh');

@@ -53,7 +53,7 @@ function evaluateDropsForGame(
 } {
   const allDrops = drops.filter((drop) => dropMatchesSelectedGame(drop, game));
   const pendingDrops = allDrops.filter((drop) => !isRewardAcquired(drop));
-  return { allDrops, pendingDrops, hasFarmableDrops: pendingDrops.some(isRewardFarmableNow) };
+  return { allDrops, pendingDrops, hasFarmableDrops: pendingDrops.some((drop) => isRewardFarmableNow(drop)) };
 }
 
 export function createFarmingSessionQueue(
@@ -66,7 +66,12 @@ export function createFarmingSessionQueue(
     return advanceQueue(state, {
       onOpenStreamer: dependencies.onAcquireStreamer,
       onEnsureWorkspace: dependencies.onEnsureWorkspace,
-      onSendAlert: adapters.sendAlert,
+      onSendAlert: async (kind, message) => {
+        if (kind === 'all-complete' && state.appState.completionNotified && adapters.automationNotify) {
+          return;
+        }
+        await adapters.sendAlert(kind, message);
+      },
       onStopMonitoring: () => {
         dependencies.onStopMonitoring();
         context.manualWatchTransportSuspended = false;
@@ -78,7 +83,15 @@ export function createFarmingSessionQueue(
       onNotify: async (title, message) => {
         await adapters.notify(title, message);
       },
-      onSystemAlert: adapters.telegramSystemAlert,
+      onSystemAlert: async (reason, message) => {
+        const completionWasAlreadyDelivered =
+          state.appState.completionNotified &&
+          adapters.automationNotify &&
+          (reason === 'queue-complete' || reason === 'farming-complete');
+        if (!completionWasAlreadyDelivered) {
+          await adapters.telegramSystemAlert?.(reason, message);
+        }
+      },
       onRefreshDropsData: async (options) => {
         await dependencies.onRefreshDropsData(options);
       },

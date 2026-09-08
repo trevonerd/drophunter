@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { prepareTablessProvisionalWatch } from '../src/background/tabless-transport.ts';
 import {
   createTablessTransport,
   type FarmingTarget,
@@ -126,6 +127,36 @@ describe('ManagedTabTransport', () => {
 });
 
 describe('TablessTransport', () => {
+  test('returns a typed rejected candidate when the initial hidden heartbeat throws', async () => {
+    const candidate = await prepareTablessProvisionalWatch(target, {
+      enabled: true,
+      heartbeat: async () => {
+        throw new Error('network unavailable');
+      },
+      now: () => 1_000,
+    });
+
+    expect(candidate?.health).toMatchObject({
+      mode: 'tabless',
+      status: 'failed',
+      reason: 'error',
+    });
+  });
+
+  test('returns a typed rejected candidate when hidden watching is disabled', async () => {
+    const candidate = await prepareTablessProvisionalWatch(target, {
+      enabled: false,
+      heartbeat: async () => ({ accepted: true }),
+      now: () => 1_000,
+    });
+
+    expect(candidate?.health).toMatchObject({
+      mode: 'tabless',
+      status: 'disabled',
+      reason: 'transport-disabled',
+    });
+  });
+
   test('is explicitly disabled when the store build has no compliance gate', async () => {
     let heartbeats = 0;
     const transport = createTablessTransport({

@@ -2,10 +2,11 @@ import type { AppState } from '../types/index.ts';
 
 export { createServiceWorkerState } from './runtime-service-worker-state.ts';
 export type {
+  StartupAutoResumeState,
   StartupResumePolicyResult,
   StartupResumePolicyState,
 } from './runtime-startup-policy.ts';
-export { applyStartupResumePolicy } from './runtime-startup-policy.ts';
+export { applyStartupAutoResumeTransition, applyStartupResumePolicy } from './runtime-startup-policy.ts';
 export type { ServiceWorkerState } from './runtime-state-types.ts';
 export type {
   TimingState,

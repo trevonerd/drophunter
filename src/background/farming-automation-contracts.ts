@@ -18,6 +18,7 @@ export type FarmingAutomationLastPreemptionV1 = {
 export type FarmingAutomationManualWatchV1 = {
   readonly kind: 'eligible-manual' | 'automation-paused';
   readonly observedAt: number;
+  readonly stoppedAt: number | null;
   readonly expiresAt: number;
   readonly recheckAt: number;
 };
@@ -101,6 +102,7 @@ export type FarmingAutomationPersistenceWrite =
     };
 
 export type FarmingAutomationPolicyPatch = {
+  readonly activity?: Pick<AppState, 'automationActivity' | 'lastAutomationMessage'>;
   readonly queue: readonly TwitchGame[];
   readonly queueEntryMetadataByKey: Readonly<Record<string, QueueEntryMetadata>>;
   readonly campaignAvailabilityByKey: Readonly<Record<string, CampaignAvailability>>;
@@ -180,6 +182,9 @@ export type FarmingAutomationOutcome =
 
 export interface FarmingAutomation {
   request(trigger: FarmingAutomationTrigger): Promise<FarmingAutomationOutcome>;
+  /** Invalidates an in-flight evaluation before it can commit a later transition. */
+  invalidate?(): void;
   snooze(reason: 'manual-pause' | 'manual-stop'): Promise<'snoozed' | 'persistence-failed'>;
+  clearSnooze?(): Promise<'cleared' | 'persistence-failed'>;
   suppressCampaignUntilRefresh(campaignKey: string): Promise<'suppressed' | 'persistence-failed'>;
 }

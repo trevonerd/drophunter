@@ -234,7 +234,7 @@ describe('extension storage migration', () => {
       wasRunning: true,
       dropsPageRefreshInProgress: false,
       lastDropsPageRefreshError: null,
-      watchTransportMode: 'managed-tab',
+      watchTransportMode: 'tabless',
       watchFallbackReason: null,
       tabId: null,
     });

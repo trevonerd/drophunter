@@ -22,82 +22,34 @@ export function registerQueue23Part01() {
       mocks.teardown();
     });
 
-    test('marks an identified Twitch-native reward at 99 percent before terminal queue mutation', async () => {
-      const realDateNow = Date.now;
-      const now = realDateNow();
-      Date.now = () => now;
+    test('parks an identified Twitch-native campaign at 99 percent without changing its reward evidence', async () => {
       const { game, state } = createExhaustedRecoveryFixture({ progress: 99, currentMinutes: 59 });
-      const events: string[] = [];
-      let markerRecorded = false;
-      let reprojectRecorded = false;
-      let queueMutationRecorded = false;
+      await createStalledRecoverySession(state).checkDropProgress();
 
-      try {
-        const session = createStalledRecoverySession(state, {
-          saveTimingState: async (nextState) => {
-            if (!markerRecorded && Object.keys(nextState.unverifiableRewardsByKey).length === 1) {
-              markerRecorded = true;
-              events.push('marker-save');
-              expect(nextState.appState.queue.map((queuedGame) => queuedGame.campaignId)).toEqual([
-                game.campaignId,
-              ]);
-            }
-          },
-          saveState: async (nextState) => {
-            if (
-              markerRecorded &&
-              !reprojectRecorded &&
-              nextState.appState.currentDrop === null &&
-              nextState.appState.queue.length === 1
-            ) {
-              reprojectRecorded = true;
-              events.push('reproject');
-            }
-            if (markerRecorded && !queueMutationRecorded && nextState.appState.queue.length === 0) {
-              queueMutationRecorded = true;
-              events.push('queue-mutation');
-            }
-          },
-        });
-
-        await session.checkDropProgress();
-
-        expect(events.slice(0, 3)).toEqual(['marker-save', 'reproject', 'queue-mutation']);
-        expect(Object.values(state.unverifiableRewardsByKey)).toEqual([
-          { progress: 99, currentMinutes: 59, markedAt: now },
-        ]);
-        expect(state.appState.pendingDrops[0]?.progress).toBe(99);
-        expect(state.appState.pendingDrops[0]?.verificationState).toBe('unverifiable');
-        expect(state.appState.availableGames[0]?.rewardSummary).toEqual({
-          completion: 'farming-complete',
-          remainderReasons: ['unverifiable-twitch'],
-        });
-        expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
-        expect(state.appState.lastStopMessage).not.toMatch(/all rewards (claimed|acquired|complete)/i);
-      } finally {
-        Date.now = realDateNow;
-      }
+      expect(state.unverifiableRewardsByKey).toEqual({});
+      expect(state.appState.pendingDrops[0]?.progress).toBe(99);
+      expect(state.appState.pendingDrops[0]?.verificationState).toBe('unassessed');
+      const block = state.appState.stalledCampaignBlocksByKey['campaign:native-campaign'];
+      expect(typeof block?.blockedAt).toBe('number');
+      expect(block?.rotationAttempts).toBe(3);
+      expect(block?.eligibleStreamerNames).toEqual([]);
+      expect(block?.rewardProgressByKey).toEqual({
+        'native-reward::native-campaign': { progress: 99, currentMinutes: 59 },
+      });
+      expect(state.appState.queue.map((queuedGame) => queuedGame.campaignId)).toEqual([game.campaignId]);
+      expect(state.appState.lastStopReason).toBe('stall-skipped');
     });
 
-    test('preserves exact zero-percent progress when third-attempt recovery becomes unverifiable', async () => {
-      const realDateNow = Date.now;
-      const now = realDateNow();
-      Date.now = () => now;
+    test('preserves exact zero-percent progress when third-attempt recovery blocks the campaign', async () => {
       const { state } = createExhaustedRecoveryFixture({ progress: 0, currentMinutes: 0 });
+      await createStalledRecoverySession(state).checkDropProgress();
 
-      try {
-        await createStalledRecoverySession(state).checkDropProgress();
-
-        expect(Object.values(state.unverifiableRewardsByKey)).toEqual([
-          { progress: 0, currentMinutes: 0, markedAt: now },
-        ]);
-        expect(state.appState.pendingDrops[0]?.progress).toBe(0);
-        expect(state.appState.pendingDrops[0]?.currentMinutes).toBe(0);
-        expect(state.appState.pendingDrops[0]?.verificationState).toBe('unverifiable');
-        expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
-      } finally {
-        Date.now = realDateNow;
-      }
+      expect(state.unverifiableRewardsByKey).toEqual({});
+      expect(state.appState.pendingDrops[0]?.progress).toBe(0);
+      expect(state.appState.pendingDrops[0]?.currentMinutes).toBe(0);
+      expect(state.appState.pendingDrops[0]?.verificationState).toBe('unassessed');
+      expect(state.appState.stalledCampaignBlocksByKey['campaign:native-campaign']).toBeDefined();
+      expect(state.appState.lastStopReason).toBe('stall-skipped');
     });
 
     test('does not mark a Twitch-native reward during the first recovery attempt', async () => {
@@ -149,7 +101,7 @@ export function registerQueue23Part01() {
       });
     }
 
-    test('reprojects and reacquires the same mixed campaign when another automatable reward remains', async () => {
+    test('does not reacquire a blocked mixed campaign merely because another reward remains', async () => {
       const nextReward = createDrop({
         id: 'next-reward',
         gameId: 'native-game',
@@ -160,14 +112,12 @@ export function registerQueue23Part01() {
         rewardKind: 'in-game',
         verificationState: 'unassessed',
       });
-      const { game, nativeReward, state } = createExhaustedRecoveryFixture({
+      const { state } = createExhaustedRecoveryFixture({
         progress: 99,
         currentMinutes: 59,
         additionalDrops: [nextReward],
       });
-      const events: string[] = [];
-      let markerRecorded = false;
-      let reprojectRecorded = false;
+      let reacquireCalls = 0;
 
       await createStalledRecoverySession(state, {
         fetchDirectoryStreamersFromApi: async () =>
@@ -175,31 +125,17 @@ export function registerQueue23Part01() {
             languageFilterApplied: true,
           }),
         openForegroundChannel: async () => {
-          events.push('reacquire');
-        },
-        saveTimingState: async (nextState) => {
-          if (!markerRecorded && Object.keys(nextState.unverifiableRewardsByKey).length === 1) {
-            markerRecorded = true;
-            events.push('marker-save');
-          }
-        },
-        saveState: async (nextState) => {
-          if (markerRecorded && !reprojectRecorded && nextState.appState.currentDrop?.id === nextReward.id) {
-            reprojectRecorded = true;
-            events.push('reproject');
-          }
+          reacquireCalls += 1;
         },
       }).checkDropProgress();
 
-      expect(events.slice(0, 3)).toEqual(['marker-save', 'reproject', 'reacquire']);
-      expect(state.appState.isRunning).toBe(true);
-      expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
-      expect(state.appState.queue.map((queuedGame) => queuedGame.campaignId)).toEqual([game.campaignId]);
-      expect(state.appState.currentDrop?.id).toBe(nextReward.id);
-      expect(state.appState.pendingDrops.find((drop) => drop.id === nativeReward.id)?.verificationState).toBe(
-        'unverifiable',
+      expect(reacquireCalls).toBe(0);
+      expect(state.appState.currentDrop?.id).toBe('native-reward');
+      expect(state.appState.pendingDrops.find((drop) => drop.id === 'native-reward')?.verificationState).toBe(
+        'unassessed',
       );
-      expect(state.appState.lastStopReason).toBeNull();
+      expect(state.appState.stalledCampaignBlocksByKey['campaign:native-campaign']).toBeDefined();
+      expect(state.appState.lastStopReason).toBe('stall-skipped');
     });
   });
 }

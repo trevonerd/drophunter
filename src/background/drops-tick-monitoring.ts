@@ -80,8 +80,10 @@ export async function checkDropProgress(
       return;
     }
 
-    const noStreamersRecoveryActive = state.appState.recoveryReason === 'no-streamers';
-    if (noStreamersRecoveryActive) {
+    const streamerAcquisitionRecoveryActive =
+      state.appState.recoveryReason === 'no-streamers' ||
+      state.appState.recoveryReason === 'directory-unavailable';
+    if (streamerAcquisitionRecoveryActive) {
       if (Date.now() >= state.recoveryBackoffUntil) {
         await callbacks.onAcquireStreamerForSelectedGame();
       }

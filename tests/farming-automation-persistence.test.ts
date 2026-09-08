@@ -3,7 +3,6 @@ import { DROPS_SNAPSHOT_CACHE_KEY } from '../src/background/constants.ts';
 import {
   FARMING_AUTOMATION_FACTS_STORAGE_KEY,
   FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
-  type FarmingSessionTransitionReceiptV1,
 } from '../src/background/farming-automation-contracts.ts';
 import { createInitialFarmingAutomationFacts } from '../src/background/farming-automation-facts.ts';
 import {
@@ -12,8 +11,8 @@ import {
   createInMemoryFarmingAutomationStorage,
 } from '../src/background/farming-automation-persistence.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
-import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
+import { drop, game, transitionReceipt } from './support/farming-automation-persistence-fixture.ts';
 
 function persistenceFor(
   storage: ReturnType<typeof createInMemoryFarmingAutomationStorage>,
@@ -26,43 +25,6 @@ function persistenceFor(
     getSessionRevision: () => 'revision-1',
     broadcast,
   });
-}
-
-function transitionReceipt(): FarmingSessionTransitionReceiptV1 {
-  return {
-    version: 1,
-    attemptId: 'attempt-a-b',
-    transition: 'preemption',
-    fromCampaignKey: 'campaign-a',
-    toCampaignKey: 'campaign-b',
-    toStreamerName: 'streamer-b',
-    committedAt: 1_750_000_000_000,
-    sessionRevision: 'revision-1',
-    fromWatch: { kind: 'tabless', targetKey: 'campaign-a:streamer-a' },
-    toWatch: { kind: 'tabless', targetKey: 'campaign-b:streamer-b' },
-    cleanup: { kind: 'not-required' },
-  };
-}
-
-function game(id: string, campaignId: string): TwitchGame {
-  return { id, campaignId, name: id, imageUrl: `https://example.test/${id}.jpg` };
-}
-
-function drop(id: string, campaignId: string): TwitchDrop {
-  return {
-    id,
-    campaignId,
-    name: id,
-    gameId: id,
-    gameName: id,
-    imageUrl: `https://example.test/${id}.jpg`,
-    progress: 0,
-    currentMinutes: 0,
-    claimed: false,
-    acquisitionMethod: 'watch-time',
-    rewardKind: 'in-game',
-    verificationState: 'unassessed',
-  };
 }
 
 describe('Farming automation persistence', () => {
@@ -103,6 +65,7 @@ describe('Farming automation persistence', () => {
       manualWatch: {
         kind: 'automation-paused',
         observedAt: 1_750_000_000_000,
+        stoppedAt: null,
         expiresAt: 1_750_000_060_000,
         recheckAt: 1_750_000_030_000,
       },

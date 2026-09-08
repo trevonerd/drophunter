@@ -2,72 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { FarmingAutomation, FarmingAutomationOutcome } from '../src/background/farming-automation.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createServiceWorkerContentHandlers } from '../src/background/service-worker-content-handlers.ts';
+import { createFarmingAutomationUserActionHandlers } from '../src/background/service-worker-runtime-wiring.ts';
 import { createServiceWorkerSettingsHandlers } from '../src/background/service-worker-settings-handlers.ts';
-import type { TwitchGame } from '../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
-
-const game: TwitchGame = {
-  id: 'game-1',
-  campaignId: 'campaign-1',
-  name: 'Game One',
-  imageUrl: 'https://example.test/game.png',
-  dropCount: 1,
-};
-
-function createSettingsDependencies(automation: FarmingAutomation) {
-  return {
-    automation,
-    browserEvents: {
-      watchTransport: {
-        setPreference: async () => undefined,
-        start: async () => ({ kind: 'started' as const }),
-        stop: async () => undefined,
-      },
-    },
-    notificationController: {
-      setNotificationsEnabled: async () => ({ success: true, notificationsEnabled: true }),
-    },
-    stateLifecycle: {
-      awaitInitialization: async () => undefined,
-      trackActivity: async () => undefined,
-    },
-    telegramNotifier: {
-      sendTestAlert: async () => ({ success: true }),
-      setTelegramAlertsEnabled: async () => ({ success: true, telegramAlertsEnabled: true }),
-      setTelegramCredentials: async () => ({ success: true, configured: true, chatId: '1' }),
-    },
-  };
-}
-
-function createContentDependencies(
-  automation: FarmingAutomation,
-  resumeAfterAuthRecovery: () => Promise<void> = async () => undefined,
-) {
-  return {
-    automation,
-    farmingSession: { resumeAfterAuthRecovery, stop: async () => undefined },
-    notify: async () => undefined,
-    stateLifecycle: {
-      awaitInitialization: async () => undefined,
-      ensureStateHydratedForCache: async () => undefined,
-      getInitPromise: () => null,
-      trackActivity: async () => undefined,
-    },
-    twitchGateway: {
-      ensureContentScriptOnTab: async () => undefined,
-      fetchDropsSnapshot: async () => null,
-      persistSessionFromDropsPage: async () => null,
-      shouldRefreshCampaignsAfterSessionSync: () => false,
-    },
-  };
-}
-
-function disabledAutomation(): FarmingAutomation {
-  return {
-    request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-    snooze: async () => 'snoozed',
-  };
-}
+import {
+  createContentDependencies,
+  createSettingsDependencies,
+  disabledAutomation,
+  game,
+} from './support/farming-automation-runtime-wiring-fixture.ts';
 
 describe('farming automation runtime wiring', () => {
   let chromeMocks: ChromeMocks;
@@ -78,6 +21,84 @@ describe('farming automation runtime wiring', () => {
 
   afterEach(() => {
     chromeMocks.teardown();
+  });
+
+  test('does not snooze automatic favorites when the user pauses or stops an automatic session', async () => {
+    // Given: automatic favorites remain enabled while a session receives user transport controls.
+    const calls: string[] = [];
+    const handlers = createFarmingAutomationUserActionHandlers(
+      {
+        request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
+        snooze: async (reason) => {
+          calls.push(`snooze:${reason}`);
+          return 'snoozed';
+        },
+      },
+      {
+        automaticFavoritesEnabled: () => true,
+        handlePauseFarming: async () => {
+          calls.push('pause');
+          return { success: true };
+        },
+        handleResumeFarming: async () => ({ success: true }),
+        handleStopFarming: async () => {
+          calls.push('stop');
+          return { success: true };
+        },
+      },
+    );
+
+    // When: Pause and Stop are invoked through their public runtime handlers.
+    await handlers.pauseFarming();
+    await handlers.stopFarming();
+
+    // Then: they stop the current transport without suppressing the next favorite evaluation.
+    expect(calls).toEqual(['pause', 'stop']);
+  });
+
+  test('clears a previous manual snooze when auto-start is enabled again', async () => {
+    // Given: auto-start was disabled after a manual stop and its snooze is still persisted.
+    const state = createServiceWorkerState();
+    state.appState.autoStartFavoriteGames = false;
+    const calls: string[] = [];
+    const automation: FarmingAutomation = {
+      request: async (trigger) => {
+        calls.push(`request:${trigger}`);
+        return { kind: 'unchanged', reason: 'no-eligible-campaign' };
+      },
+      snooze: async () => 'snoozed',
+      clearSnooze: async () => {
+        calls.push('clear-snooze');
+        return 'cleared';
+      },
+    };
+    const settings = createServiceWorkerSettingsHandlers(state, createSettingsDependencies(automation));
+
+    // When: the user re-enables favorite auto-start.
+    const result = await settings.handleSetAutoStartFavorites({ enabled: true });
+
+    // Then: the prior manual stop cannot remain an invisible gate.
+    expect({ calls, result, enabled: state.appState.autoStartFavoriteGames }).toEqual({
+      calls: ['clear-snooze', 'request:campaign-refresh'],
+      result: { success: true, autoStartFavoriteGames: true },
+      enabled: true,
+    });
+  });
+
+  test('keeps favorite auto-start enabled when browser notifications are disabled', async () => {
+    const state = createServiceWorkerState();
+    state.appState.autoStartFavoriteGames = true;
+    const dependencies = createSettingsDependencies(disabledAutomation());
+    dependencies.notificationController.setNotificationsEnabled = async () => ({
+      success: true,
+      notificationsEnabled: false,
+    });
+    const handlers = createServiceWorkerSettingsHandlers(state, dependencies);
+
+    const result = await handlers.handleSetNotificationsEnabled({ enabled: false });
+
+    expect(result).toEqual({ success: true, notificationsEnabled: false });
+    expect(state.appState.autoStartFavoriteGames).toBe(true);
   });
 
   test('maps all runtime automation sources exhaustively', async () => {

@@ -3,17 +3,17 @@ import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 
 describe('watch transport app state', () => {
-  test('defaults to managed-tab and preserves a valid tabless health snapshot', () => {
+  test('defaults to hidden watching and preserves stored managed preference', () => {
     const defaults = createInitialState();
-    expect(defaults.watchTransportPreference).toBe('managed-tab');
-    expect(defaults.watchTransportMode).toBe('managed-tab');
+    expect(defaults.watchTransportPreference).toBe('tabless');
+    expect(defaults.watchTransportMode).toBe('tabless');
     expect(defaults.watchHealth).toBeNull();
 
     const state = normalizeStoredAppState({
-      watchTransportPreference: 'tabless',
-      watchTransportMode: 'tabless',
+      watchTransportPreference: 'managed-tab',
+      watchTransportMode: 'managed-tab',
       watchHealth: {
-        mode: 'tabless',
+        mode: 'managed-tab',
         isHealthy: true,
         status: 'healthy',
         reason: 'heartbeat',
@@ -26,8 +26,8 @@ describe('watch transport app state', () => {
       watchFallbackReason: null,
     });
 
-    expect(state.watchTransportPreference).toBe('tabless');
-    expect(state.watchTransportMode).toBe('tabless');
+    expect(state.watchTransportPreference).toBe('managed-tab');
+    expect(state.watchTransportMode).toBe('managed-tab');
     expect(state.watchHealth?.progress).toBe(12);
   });
 });

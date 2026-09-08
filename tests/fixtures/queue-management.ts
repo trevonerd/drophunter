@@ -177,6 +177,16 @@ export function createStalledRecoverySession(
   return createFarmingSession(
     state,
     createFarmingSessionAdapters({
+      fetchDropsSnapshotFromApi: async () => ({
+        games: state.appState.availableGames,
+        drops: state.appState.allDrops,
+        updatedAt: Date.now(),
+      }),
+      fetchInventorySnapshotFromApi: async () => ({
+        games: state.appState.availableGames,
+        drops: state.appState.allDrops,
+        updatedAt: Date.now(),
+      }),
       fetchStreamContext: async () => ({
         channelName: 'stalled-streamer',
         categorySlug: 'native-game',

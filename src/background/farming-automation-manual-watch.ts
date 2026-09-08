@@ -9,7 +9,10 @@ import type { FarmingAutomationWake } from './farming-automation-wake.ts';
 import { detectManualViewing } from './manual-watch-detector.ts';
 import { MANUAL_WATCH_TTL_MS } from './manual-watch-policy.ts';
 
-export type ManualWatchTransportDirective = 'suspend' | 'resume' | 'unchanged';
+export type ManualWatchTransportDirective =
+  | { readonly kind: 'suspend'; readonly transitionId: string }
+  | { readonly kind: 'resume'; readonly transitionId: string }
+  | { readonly kind: 'unchanged' };
 
 export type FarmingAutomationManualWatchInput = {
   readonly target: TwitchGame | null;
@@ -18,7 +21,7 @@ export type FarmingAutomationManualWatchInput = {
 };
 
 export type FarmingAutomationManualWatchResult =
-  | { readonly kind: 'inactive' }
+  | { readonly kind: 'inactive'; readonly stoppedAt?: number }
   | { readonly kind: 'active'; readonly watch: FarmingAutomationManualWatchV1 }
   | {
       readonly kind: 'failed';
@@ -42,6 +45,14 @@ export interface FarmingAutomationManualWatchOptions {
   readonly onSessionFailure?: (
     reason: Extract<FarmingAutomationManualWatchResult, { readonly kind: 'failed' }>['reason'],
   ) => void;
+}
+
+function transitionId(
+  event: 'manual-suspended' | 'manual-resumed',
+  target: TwitchGame | null,
+  at: number,
+): string {
+  return `${event}:${target?.campaignId ?? target?.id ?? 'manual-watch'}:${at}`;
 }
 
 function withoutManualWatchDeadline(facts: FarmingAutomationFactsV1): number | null {
@@ -124,9 +135,33 @@ export function createFarmingAutomationManualWatch(
                       observation.tabs.find(({ tab }) => tab.id === tabId)?.context ?? null,
                   });
             switch (classification.kind) {
+              case 'failed':
+                return { kind: 'failed', reason: 'candidate-preparation-failed' };
               case 'inactive': {
                 if (currentWatch === null) {
                   return { kind: 'inactive' };
+                }
+                if (currentWatch.stoppedAt === null) {
+                  const recheckAt = observedAt + MANUAL_WATCH_TTL_MS;
+                  const watch: FarmingAutomationManualWatchV1 = {
+                    ...currentWatch,
+                    stoppedAt: observedAt,
+                    expiresAt: recheckAt,
+                    recheckAt,
+                  };
+                  const persisted = await persistAndReplaceDeadline({
+                    ...loaded.value,
+                    manualWatch: watch,
+                    nextEvaluationAt: withManualWatchDeadline(loaded.value, recheckAt),
+                  });
+                  if (!persisted) {
+                    return { kind: 'failed', reason: 'persistence-failed' };
+                  }
+                  return { kind: 'active', watch };
+                }
+                if (observedAt < currentWatch.expiresAt) {
+                  await options.replaceDeadline(loaded.value.nextEvaluationAt ?? currentWatch.recheckAt);
+                  return { kind: 'active', watch: currentWatch };
                 }
                 const persisted = await persistAndReplaceDeadline({
                   ...loaded.value,
@@ -136,7 +171,7 @@ export function createFarmingAutomationManualWatch(
                 if (!persisted) {
                   return { kind: 'failed', reason: 'persistence-failed' };
                 }
-                return { kind: 'inactive' };
+                return { kind: 'inactive', stoppedAt: currentWatch.stoppedAt ?? observedAt };
               }
               case 'eligible-manual':
               case 'automation-paused': {
@@ -144,6 +179,7 @@ export function createFarmingAutomationManualWatch(
                 const watch: FarmingAutomationManualWatchV1 = {
                   kind: classification.kind,
                   observedAt,
+                  stoppedAt: null,
                   expiresAt: recheckAt,
                   recheckAt,
                 };
@@ -193,11 +229,21 @@ export function createFarmingAutomationManualWatch(
         switch (result.kind) {
           case 'failed':
             options.onSessionFailure?.(result.reason);
-            return 'unchanged';
+            return { kind: 'unchanged' };
           case 'active':
-            return input.transportSuspended ? 'unchanged' : 'suspend';
+            return input.transportSuspended
+              ? { kind: 'unchanged' }
+              : {
+                  kind: 'suspend',
+                  transitionId: transitionId('manual-suspended', input.target, result.watch.observedAt),
+                };
           case 'inactive':
-            return input.transportSuspended ? 'resume' : 'unchanged';
+            return input.transportSuspended
+              ? {
+                  kind: 'resume',
+                  transitionId: transitionId('manual-resumed', input.target, result.stoppedAt ?? now()),
+                }
+              : { kind: 'unchanged' };
           default: {
             const unreachable: never = result;
             throw new DOMException(

@@ -57,6 +57,8 @@ export async function openBestStreamerForSelectedGame(
   callbacks: OpenBestStreamerCallbacks,
   deps: OpenBestStreamerDependencies,
 ): Promise<boolean> {
+  const isCurrent = callbacks.isCurrent ?? (() => true);
+  if (!isCurrent()) return false;
   const initialSelection = state.appState.selectedGame;
   if (!initialSelection) {
     logWarn('Unable to open streamer: no selected game');
@@ -74,12 +76,14 @@ export async function openBestStreamerForSelectedGame(
     ...initialSelection,
     categorySlug: await deps.resolveCategorySlug(initialSelection),
   };
+  if (!isCurrent()) return false;
   state.appState.selectedGame = selectedGame;
   const streamers = await callbacks.onFetchDirectoryStreamersFromApi(
     selectedGame,
     false,
     state.appState.preferredStreamerLanguage ?? '',
   );
+  if (!isCurrent()) return false;
   logDebug('Language filter applied to directory query', {
     language: state.appState.preferredStreamerLanguage ?? '',
     resultCount: streamers.length,
@@ -123,6 +127,7 @@ export async function openBestStreamerForSelectedGame(
   }
   if (candidates.length === 0 && allowed?.length && streamers.languageFilterApplied) {
     const unfiltered = await callbacks.onFetchDirectoryStreamersFromApi(selectedGame, false, '');
+    if (!isCurrent()) return false;
     candidates = filterStreamersByAllowedChannels(unfiltered, allowed);
     languageFilterApplied = unfiltered.languageFilterApplied;
     totalStreamers = unfiltered.length;
@@ -178,11 +183,13 @@ export async function openBestStreamerForSelectedGame(
     candidates: candidates.length,
   });
   state.avoidStreamerName = null;
+  if (!isCurrent()) return false;
   if (callbacks.onOpenWatchTransport) {
     const opened = await callbacks.onOpenWatchTransport(streamer);
-    if (opened) state.appState.activeStreamer = streamer;
+    if (opened && isCurrent()) state.appState.activeStreamer = streamer;
     return opened;
   }
+  if (!isCurrent()) return false;
   await callbacks.onOpenForegroundChannel(streamer);
-  return true;
+  return isCurrent();
 }

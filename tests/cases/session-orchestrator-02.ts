@@ -19,6 +19,94 @@ function createState() {
 }
 
 describe('session orchestrator', () => {
+  test('keeps a recovery tab that was navigated or focused by the user', async () => {
+    const state = createState();
+    let removed = false;
+    const original = { id: 81, url: 'https://www.twitch.tv/drops/inventory', active: false, windowId: 9 };
+    const orchestrator = createSessionOrchestrator(state, {
+      tabsApi: {
+        async query(query) {
+          return query.windowId ? [{ id: 1 }, original] : [];
+        },
+        async create() {
+          return original;
+        },
+        async get() {
+          return { ...original, url: 'https://www.twitch.tv/settings', active: true };
+        },
+        async remove() {
+          removed = true;
+        },
+        async sendMessage() {
+          return { success: true, session: validSession };
+        },
+      },
+      scriptingApi: {
+        async executeScript() {
+          return [];
+        },
+      },
+      sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
+      sessionDebugSummary: () => ({}),
+      readTwitchSessionViaExecuteScript: async () => null,
+      persistTwitchSession: async () => {},
+      validateRecoveredTwitchSession: async () => true,
+      getSessionRevision: () => 0,
+      discardPersistedTwitchSessionIfMatches: async () => {},
+      sessionReadAttempts: 1,
+      logDebug: () => {},
+      logWarn: () => {},
+    });
+
+    expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBe(validSession);
+    expect(removed).toBe(false);
+  });
+
+  test('does not publish a recovered session after its revision becomes stale', async () => {
+    const state = createState();
+    let revision = 0;
+    let releaseValidation: () => void = () => {};
+    const validation = new Promise<void>((resolve) => {
+      releaseValidation = resolve;
+    });
+    let persisted = false;
+    const orchestrator = createSessionOrchestrator(state, {
+      tabsApi: {
+        async query() {
+          return [{ id: 82, url: 'https://www.twitch.tv/drops/inventory', active: false }];
+        },
+        async create() {
+          return null;
+        },
+        async sendMessage() {
+          return { success: true, session: validSession };
+        },
+      },
+      sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
+      sessionDebugSummary: () => ({}),
+      readTwitchSessionViaExecuteScript: async () => null,
+      persistTwitchSession: async () => {
+        persisted = true;
+      },
+      validateRecoveredTwitchSession: async () => {
+        await validation;
+        return true;
+      },
+      getSessionRevision: () => revision,
+      discardPersistedTwitchSessionIfMatches: async () => {},
+      logDebug: () => {},
+      logWarn: () => {},
+    });
+
+    const recovery = orchestrator.recoverTwitchSessionAfterAuthError('background-tab');
+    await Promise.resolve();
+    revision += 1;
+    releaseValidation();
+    expect(await recovery).toBeNull();
+    expect(persisted).toBe(false);
+    expect(state.twitchSessionCache).toBeNull();
+  });
+
   test('recovers from an existing Twitch tab without creating or closing a user tab', async () => {
     const state = createState();
     const events: string[] = [];
@@ -42,6 +130,9 @@ describe('session orchestrator', () => {
       persistTwitchSession: async () => {
         events.push('persist');
       },
+      validateRecoveredTwitchSession: async () => true,
+      getSessionRevision: () => 0,
+      discardPersistedTwitchSessionIfMatches: async () => {},
       closeTemporaryTabIfSafe: async () => {
         events.push('close');
         return true;
@@ -56,10 +147,10 @@ describe('session orchestrator', () => {
     expect(events).toEqual(['read:33', 'persist']);
   });
 
-  test('does not create a Twitch tab when no existing tab can resynchronize OAuth', async () => {
+  test('uses one temporary-tab recovery budget while the session revision remains unresolved', async () => {
     const state = createState();
     let createCalls = 0;
-    let closeCalls = 0;
+    let currentTime = 10_000;
     const orchestrator = createSessionOrchestrator(state, {
       tabsApi: {
         async query() {
@@ -82,12 +173,12 @@ describe('session orchestrator', () => {
       sessionDebugSummary: () => ({ available: false }),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
+      validateRecoveredTwitchSession: async () => true,
+      getSessionRevision: () => 0,
+      discardPersistedTwitchSessionIfMatches: async () => {},
       waitForTabComplete: async () => {},
-      closeTemporaryTabIfSafe: async () => {
-        closeCalls += 1;
-        return true;
-      },
       sessionReadAttempts: 1,
+      now: () => currentTime,
       logDebug: () => {},
       logWarn: () => {},
     });
@@ -99,8 +190,10 @@ describe('session orchestrator', () => {
       nextRetryAt: Date.now() + 60_000,
     };
     expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBeNull();
-    expect(createCalls).toBe(0);
-    expect(closeCalls).toBe(0);
+    expect(createCalls).toBe(1);
+    currentTime += 60_000;
+    expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBeNull();
+    expect(createCalls).toBe(2);
   });
 
   test('deduplicates concurrent recovery through one existing Twitch tab', async () => {
@@ -135,6 +228,9 @@ describe('session orchestrator', () => {
       sessionDebugSummary: () => ({ available: true }),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
+      validateRecoveredTwitchSession: async () => true,
+      getSessionRevision: () => 0,
+      discardPersistedTwitchSessionIfMatches: async () => {},
       waitForTabComplete: async () => {},
       logDebug: () => {},
       logWarn: () => {},

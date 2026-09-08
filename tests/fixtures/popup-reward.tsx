@@ -96,7 +96,7 @@ export function renderMainView(
     onPause: () => {},
     onResume: () => {},
     onStop: () => {},
-    onRefreshCampaigns: () => {},
+    onRetryCampaignSync: () => {},
     onAddToQueue: () => {},
     onRemoveFromQueue: () => {},
     onClearQueue: () => {},

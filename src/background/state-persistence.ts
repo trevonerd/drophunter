@@ -5,6 +5,7 @@ import { DROPS_SNAPSHOT_CACHE_KEY, GAMES_CACHE_TTL_MS, LAST_ACTIVITY_AT_KEY } fr
 import { logDebug, logWarn } from './logging';
 import { pickDurablePreferences } from './runtime-state';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
 import type { TwitchSession } from './twitch-api/types';
 
 export {
@@ -126,6 +127,10 @@ export async function loadState(
     state.cachedDropsSnapshot = Array.isArray(storedDropsSnapshot)
       ? (storedDropsSnapshot as TwitchDrop[])
       : [];
+    await bindCampaignEvidenceAccount(
+      state,
+      state.twitchSessionCache?.userId || state.appState.campaignEvidenceUserId,
+    );
     state.lastActivityAt =
       typeof result[deps.LAST_ACTIVITY_AT_KEY] === 'number'
         ? (result[deps.LAST_ACTIVITY_AT_KEY] as number)
@@ -137,7 +142,6 @@ export async function loadState(
     }
     if (state.appState.isRunning && !state.appState.isPaused && state.appState.tabId) {
       state.streamValidationGraceUntil = Date.now() + deps.STREAM_VALIDATION_GRACE_MS;
-      state.noProgressRotationAttempts = 0;
     }
   } catch (error) {
     logWarn('Error loading state:', String(error));
@@ -163,14 +167,49 @@ export async function resetStateForInactivity(
     LAST_ACTIVITY_AT_KEY: string;
     TIMING_STATE_KEY: string;
   },
-): Promise<void> {
+): Promise<boolean> {
   const persistentState = pickDurablePreferences(state.appState);
-  callbacks.onStopMonitoring();
-  state.appState = callbacks.onClearRotationMetadata({
+  const savedState = state.appState;
+  const resumeManualQueue =
+    savedState.manualQueueAuthorized && savedState.autoResumeOnStartup && !savedState.isPaused;
+  const resetAppState = callbacks.onClearRotationMetadata({
     ...deps.createInitialState(),
     ...persistentState,
+    queue: savedState.queue,
+    queueEntryMetadataByKey: savedState.queueEntryMetadataByKey,
+    selectedGame: savedState.selectedGame,
+    stalledCampaignBlocksByKey: savedState.stalledCampaignBlocksByKey,
+    availableGames: savedState.availableGames,
+    campaignDropsByKey: savedState.campaignDropsByKey,
+    campaignEvidenceUserId: savedState.campaignEvidenceUserId,
+    acquiredCampaignIds: savedState.acquiredCampaignIds,
+    allDrops: savedState.allDrops,
+    pendingDrops: savedState.pendingDrops,
+    completedDrops: savedState.completedDrops,
+    currentDrop: savedState.currentDrop,
+    lastSuccessfulRefreshAt: savedState.lastSuccessfulRefreshAt,
+    automationActivity: savedState.automationActivity,
+    campaignSyncState: savedState.campaignSyncState,
+    twitchSessionSyncState: savedState.twitchSessionSyncState,
+    manualQueueAuthorized: resumeManualQueue,
+    farmingSessionOrigin: resumeManualQueue ? savedState.farmingSessionOrigin : null,
+    wasRunning: savedState.isRunning || savedState.wasRunning,
+    watchTransportMode: savedState.watchTransportPreference,
   });
-  state.cachedDropsSnapshot = [];
+  const resetAt = Date.now();
+  try {
+    await browser.storage.local.set({
+      appState: resetAppState,
+      [deps.DROPS_SNAPSHOT_CACHE_KEY]: state.cachedDropsSnapshot,
+      [deps.LAST_ACTIVITY_AT_KEY]: resetAt,
+    });
+  } catch (error) {
+    logWarn('Inactivity reset was not persisted; retaining the current session state.', String(error));
+    return false;
+  }
+
+  callbacks.onStopMonitoring();
+  state.appState = resetAppState;
   state.cachedCampaignChannelsMap = {};
   callbacks.onResetStreamTrackingState(state);
   state.lastFullRefreshAt = 0;
@@ -186,18 +225,12 @@ export async function resetStateForInactivity(
   state.stalledRecoveryAttempts = 0;
   state.recoveryNotificationSent = false;
   state.unverifiableRewardsByKey = {};
-  state.lastActivityAt = Date.now();
-  await browser.storage.local
-    .set({
-      appState: state.appState,
-      [deps.DROPS_SNAPSHOT_CACHE_KEY]: [],
-      [deps.LAST_ACTIVITY_AT_KEY]: state.lastActivityAt,
-    })
-    .catch(() => undefined);
+  state.lastActivityAt = resetAt;
   await Promise.all([
     browser.storage.local.remove(deps.TIMING_STATE_KEY).catch(() => undefined),
     browser.storage.session.remove(deps.TIMING_STATE_KEY).catch(() => undefined),
   ]);
   await callbacks.onSaveTimingState(state);
   callbacks.onBroadcastStateUpdate(state.appState);
+  return true;
 }

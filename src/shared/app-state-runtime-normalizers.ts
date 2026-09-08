@@ -69,9 +69,15 @@ export function normalizeCampaignSyncState(value: Record<string, unknown>): AppS
   const campaignCount = nullableFiniteNumber(
     candidate?.campaignCount ?? value.lastDropsPageRefreshCampaignCount,
   );
-  const common = { lastAttemptAt, lastSuccessAt, campaignCount };
+  const retryAttemptCount = nonNegativeInteger(candidate?.retryAttemptCount) ?? 0;
+  const lastErrorKind = isActivationSyncErrorKind(candidate?.lastErrorKind) ? candidate.lastErrorKind : null;
+  const common = { lastAttemptAt, lastSuccessAt, campaignCount, retryAttemptCount, lastErrorKind };
+  const attemptDeadlineAt = nullableFiniteNumber(candidate?.attemptDeadlineAt);
+  if (candidate?.status === 'syncing' && attemptDeadlineAt !== null) {
+    return { status: 'syncing', ...common, nextRetryAt: null, attemptDeadlineAt };
+  }
   if (candidate?.status === 'needs-session') {
-    return { status: 'needs-session', ...common, nextRetryAt: null };
+    return { status: 'needs-session', ...common, nextRetryAt: null, attemptDeadlineAt: null };
   }
   const nextRetryAt = nullableFiniteNumber(candidate?.nextRetryAt);
   if (
@@ -79,13 +85,48 @@ export function normalizeCampaignSyncState(value: Record<string, unknown>): AppS
     typeof candidate.error === 'string' &&
     nextRetryAt !== null
   ) {
-    return { status: 'retry-scheduled', ...common, nextRetryAt, error: candidate.error };
+    return {
+      status: 'retry-scheduled',
+      ...common,
+      retryAttemptCount: Math.max(1, retryAttemptCount),
+      nextRetryAt,
+      attemptDeadlineAt: null,
+      error: candidate.error,
+    };
   }
-  return { status: 'idle', ...common, nextRetryAt: null };
+  if (candidate?.status === 'retry-failed' && typeof candidate.error === 'string') {
+    return {
+      status: 'retry-failed',
+      ...common,
+      retryAttemptCount: Math.max(1, retryAttemptCount),
+      nextRetryAt: null,
+      attemptDeadlineAt: null,
+      error: candidate.error,
+    };
+  }
+  return {
+    status: 'idle',
+    ...common,
+    retryAttemptCount: 0,
+    lastErrorKind: null,
+    nextRetryAt: null,
+    attemptDeadlineAt: null,
+  };
 }
 
 function nonNegativeInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+}
+
+function isActivationSyncErrorKind(value: unknown): value is AppState['campaignSyncState']['lastErrorKind'] {
+  return (
+    value === 'auth' ||
+    value === 'session' ||
+    value === 'integrity' ||
+    value === 'network' ||
+    value === 'rate-limit' ||
+    value === 'invalid-response'
+  );
 }
 
 export function normalizeTwitchSessionSyncState(

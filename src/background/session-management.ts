@@ -1,13 +1,19 @@
 import { browser } from '../shared/browser-api.ts';
 import { clearTerminalStopStatus } from '../shared/runtime-status.ts';
-import { TWITCH_SESSION_RETRY_COOLDOWN_MS, TWITCH_SESSION_STORAGE_KEY } from './constants.ts';
+import { TWITCH_SESSION_RETRY_COOLDOWN_MS } from './constants.ts';
 import { logDebug, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
+import { persistTwitchSession } from './session-credentials-storage.ts';
 import { recoverTwitchSessionFromStorageKeys } from './session-storage-recovery.ts';
 import { sessionDebugSummary } from './state-persistence.ts';
 import { fetchTwitchIntegrityToken } from './twitch-api/gql.ts';
 import { sanitizeTwitchSession, type TwitchSession } from './twitch-api/types.ts';
 
+export {
+  discardPersistedTwitchSessionIfMatches,
+  persistTwitchSession,
+} from './session-credentials-storage.ts';
 export { readTwitchSessionViaExecuteScript } from './session-page-extraction.ts';
 export {
   findSessionCandidateDeep,
@@ -15,17 +21,32 @@ export {
   trySanitizeSessionCandidate,
 } from './session-storage-recovery.ts';
 
-export async function persistTwitchSession(session: TwitchSession | null) {
-  if (session) {
-    await browser.storage.local.set({ [TWITCH_SESSION_STORAGE_KEY]: session });
-    return;
-  }
-  await browser.storage.local.remove(TWITCH_SESSION_STORAGE_KEY).catch(() => undefined);
+const sessionRevisions = new WeakMap<ServiceWorkerState, number>();
+
+export function currentTwitchSessionRevision(state: ServiceWorkerState): number {
+  return sessionRevisions.get(state) ?? 0;
 }
 
-export function clearTwitchSessionCache(state: ServiceWorkerState) {
+export function invalidateTwitchSessionRevision(state: ServiceWorkerState): number {
+  const nextRevision = currentTwitchSessionRevision(state) + 1;
+  sessionRevisions.set(state, nextRevision);
+  return nextRevision;
+}
+
+function sessionsHaveDifferentCredentials(left: TwitchSession | null, right: TwitchSession): boolean {
+  return (
+    !left ||
+    left.oauthToken !== right.oauthToken ||
+    left.userId !== right.userId ||
+    left.deviceId !== right.deviceId
+  );
+}
+
+export async function clearTwitchSessionCache(state: ServiceWorkerState): Promise<void> {
+  if (state.twitchSessionCache) await bindCampaignEvidenceAccount(state, state.twitchSessionCache.userId);
+  if (state.twitchSessionCache) invalidateTwitchSessionRevision(state);
   state.twitchSessionCache = null;
-  void persistTwitchSession(null);
+  await persistTwitchSession(null);
 }
 
 export async function refreshTwitchIntegrityToken(
@@ -102,7 +123,7 @@ export interface EnsureTwitchSessionDeps {
   sanitizeTwitchSession: (raw: unknown) => TwitchSession | null;
   sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
   persistTwitchSession: (session: TwitchSession | null) => Promise<void>;
-  clearTwitchSessionCache: (state: ServiceWorkerState) => void;
+  clearTwitchSessionCache: (state: ServiceWorkerState) => Promise<void> | void;
 }
 
 export async function ensureTwitchSession(
@@ -124,11 +145,17 @@ export async function ensureTwitchSession(
         .catch(() => ({}));
       const fromStorage = deps.sanitizeTwitchSession(result.twitchSession);
       if (fromStorage) {
+        if (sessionsHaveDifferentCredentials(state.twitchSessionCache, fromStorage))
+          invalidateTwitchSessionRevision(state);
+        await bindCampaignEvidenceAccount(state, fromStorage.userId);
         state.twitchSessionCache = fromStorage;
         return fromStorage;
       }
       const recovered = await recoverTwitchSessionFromStorageKeys();
       if (recovered) {
+        if (sessionsHaveDifferentCredentials(state.twitchSessionCache, recovered))
+          invalidateTwitchSessionRevision(state);
+        await bindCampaignEvidenceAccount(state, recovered.userId);
         state.twitchSessionCache = recovered;
         await deps.persistTwitchSession(recovered);
         state.twitchSessionLastAttemptAt = Date.now();
@@ -137,6 +164,9 @@ export async function ensureTwitchSession(
     }
     const fromOpenTabs = await callbacks.onFindTwitchSessionInOpenTabs();
     if (fromOpenTabs) {
+      if (sessionsHaveDifferentCredentials(state.twitchSessionCache, fromOpenTabs))
+        invalidateTwitchSessionRevision(state);
+      await bindCampaignEvidenceAccount(state, fromOpenTabs.userId);
       state.twitchSessionCache = fromOpenTabs;
       await deps.persistTwitchSession(fromOpenTabs);
       state.twitchSessionLastAttemptAt = Date.now();
@@ -144,7 +174,7 @@ export async function ensureTwitchSession(
     }
     if (state.twitchSessionCache && state.twitchSessionCache !== sessionAtStart)
       return state.twitchSessionCache;
-    deps.clearTwitchSessionCache(state);
+    await deps.clearTwitchSessionCache(state);
     return null;
   })()
     .then((session) => {
@@ -172,6 +202,10 @@ export async function syncTwitchSessionFromContentScriptExt(
 ): Promise<{ success: boolean; error?: string }> {
   const incoming = sanitizeTwitchSession(rawPayload);
   if (!incoming) return { success: false, error: 'Invalid session payload' };
+  if (sessionsHaveDifferentCredentials(state.twitchSessionCache, incoming)) {
+    invalidateTwitchSessionRevision(state);
+  }
+  await bindCampaignEvidenceAccount(state, incoming.userId);
   state.twitchSessionCache = incoming;
   state.twitchSessionLastAttemptAt = 0;
   state.appState.twitchSessionDetected = true;

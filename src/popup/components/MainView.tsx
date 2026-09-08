@@ -15,6 +15,7 @@ import { CampaignSyncPanel } from './CampaignSyncPanel';
 import { CheckIcon } from './icons';
 import type { MainViewProps } from './main-view-types';
 import { PopupHeader } from './PopupHeader';
+import { QueueCleanupNotice } from './QueueCleanupNotice';
 import { SessionSummary } from './SessionSummary';
 import { TwitchSessionGate } from './TwitchSessionGate';
 
@@ -45,7 +46,7 @@ export function MainView({
   onPause,
   onResume,
   onStop,
-  onRefreshCampaigns,
+  onRetryCampaignSync,
   onAddToQueue,
   onAddAllToQueue,
   onLinkAccount,
@@ -79,6 +80,7 @@ export function MainView({
   const campaignPriorityMode = state.campaignPriorityMode ?? 'priority-list-only';
   const campaignAvailabilityByKey = state.campaignAvailabilityByKey ?? {};
   const automationActivity = state.automationActivity ?? [];
+  const queueCampaignRemoval = automationActivity.find((entry) => entry.kind === 'queue-campaigns-removed');
   const favoriteIds = favoriteGameIdentityKeys(favoriteGames);
   const hiddenIds = hiddenGameIdentityKeys(state.hiddenGames ?? []);
   const now = Date.now();
@@ -104,6 +106,9 @@ export function MainView({
   );
   const showSelectedCampaignStatus =
     selectedGame !== null && sortedGames.some((game) => gameKey(game) === gameKey(selectedGame));
+  const queueCampaignRemovalNotice = queueCampaignRemoval ? (
+    <QueueCleanupNotice message={queueCampaignRemoval.message} />
+  ) : null;
 
   return (
     <div className="flex flex-col">
@@ -123,6 +128,7 @@ export function MainView({
               notificationPermissionDenied={notificationPermissionDenied}
               onToggle={onAutoStartFavoriteGamesToggle}
             />
+            {queueCampaignRemovalNotice}
           </>
         ) : (
           <>
@@ -131,6 +137,7 @@ export function MainView({
               notificationPermissionDenied={notificationPermissionDenied}
               onToggle={onAutoStartFavoriteGamesToggle}
             />
+            {queueCampaignRemovalNotice}
             <SessionSummary
               state={state}
               runtimeMode={runtimeMode}
@@ -181,21 +188,26 @@ export function MainView({
                 highlightedCampaignKey={highlightedCampaignKey}
                 actionLoading={actionLoading}
                 now={now}
-                runningGame={state.isRunning ? state.selectedGame : null}
+                runningGame={state.isRunning && !state.isPaused ? state.selectedGame : null}
                 beforeCatalog={
                   <>
                     <CampaignSyncPanel
                       status={campaignSyncStatus}
                       error={activeSyncError}
                       hasCachedCampaigns={state.availableGames.length > 0}
-                      onRefresh={onRefreshCampaigns}
+                      campaignSyncState={state.campaignSyncState}
+                      onOpenTwitchDrops={onOpenDropsPage}
+                      onRetry={onRetryCampaignSync}
                     />
-                    {!dropsRefreshLoading && firstSyncConfirmation && firstSyncCampaignCount != null && (
-                      <div className="dh-contain flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-2.5 py-2 text-[11px] text-green-200">
-                        <CheckIcon />
-                        <span>{firstSyncCampaignCount} campaigns loaded.</span>
-                      </div>
-                    )}
+                    {!dropsRefreshLoading &&
+                      campaignSyncStatus === 'fresh' &&
+                      firstSyncConfirmation &&
+                      firstSyncCampaignCount != null && (
+                        <div className="dh-contain flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-2.5 py-2 text-[11px] text-green-200">
+                          <CheckIcon />
+                          <span>{firstSyncCampaignCount} campaigns loaded.</span>
+                        </div>
+                      )}
                   </>
                 }
                 onOpenTwitchDrops={onOpenDropsPage}

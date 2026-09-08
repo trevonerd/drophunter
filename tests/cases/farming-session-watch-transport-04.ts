@@ -3,7 +3,6 @@ import { createFarmingSession } from '../../src/background/farming-session.ts';
 import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import { STALLED_PROGRESS_RETRY_MS } from '../../src/background/stream-rotation.ts';
 import type { WatchHealth } from '../../src/background/watch-transport.ts';
-import { gameKey } from '../../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
 
@@ -117,7 +116,7 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
 }
 
 describe('farming session watch transport integration', () => {
-  test('three backoff-spaced Hidden attempts skip to the next campaign without waiting for another stall window', async () => {
+  test('three backoff-spaced Hidden attempts park the blocked campaign behind the next campaign', async () => {
     const realDateNow = Date.now;
     let now = 4_000_000;
     Date.now = () => now;
@@ -191,9 +190,12 @@ describe('farming session watch transport integration', () => {
       await session.checkDropProgress();
 
       expect(state.appState.selectedGame?.campaignId).toBe(nextGame.campaignId);
-      expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([nextGame.campaignId]);
+      expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([
+        nextGame.campaignId,
+        game.campaignId,
+      ]);
       expect(hiddenStarts).toBe(4);
-      expect(suppressedCampaignKeys).toEqual([gameKey(game)]);
+      expect(suppressedCampaignKeys).toEqual([]);
     } finally {
       Date.now = realDateNow;
     }

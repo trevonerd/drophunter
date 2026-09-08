@@ -33,19 +33,34 @@ interface TelegramApiResponse {
 }
 
 export type TelegramSystemEventReason =
+  | 'favorite-discovered'
   | 'auto-started'
   | 'preempted'
+  | 'manual-suspended'
+  | 'manual-resumed'
+  | 'recovery'
+  | 'campaign-excluded'
+  | 'campaign-complete'
+  | 'sign-in-required'
   | 'queue-complete'
   | 'farming-complete'
   | 'unverifiable-twitch'
   | 'stall-skipped'
   | 'no-active-campaigns'
   | 'persistent-recovery'
-  | 'sign-in-recovery';
+  | 'sign-in-recovery'
+  | 'queue-cleanup';
 
 const SYSTEM_EVENT_TITLES: Record<TelegramSystemEventReason, string> = {
+  'favorite-discovered': '⭐ Favorite campaign found',
   'auto-started': '▶️ Farming started',
   preempted: '🔀 Campaign priority changed',
+  'manual-suspended': '⏸️ Manual viewing detected',
+  'manual-resumed': '▶️ Automatic farming resumed',
+  recovery: '🔄 Farming recovery',
+  'campaign-excluded': '⏭️ Campaign temporarily excluded',
+  'campaign-complete': '🎉 Campaign complete',
+  'sign-in-required': '🔑 Twitch sign-in required',
   'queue-complete': '🏁 Queue complete',
   'farming-complete': '🎉 Campaign complete',
   'unverifiable-twitch': '⏭️ Campaign skipped',
@@ -53,6 +68,7 @@ const SYSTEM_EVENT_TITLES: Record<TelegramSystemEventReason, string> = {
   'no-active-campaigns': '🚫 No Drops campaigns available',
   'persistent-recovery': '⚠️ Recovery mode',
   'sign-in-recovery': '🔑 Twitch sign-in required',
+  'queue-cleanup': '🧹 Queue updated',
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

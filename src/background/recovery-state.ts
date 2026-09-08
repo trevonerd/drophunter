@@ -56,13 +56,30 @@ export function applyRecoveryState(
   });
 }
 
-export function clearNoStreamersRecoveryState(state: ServiceWorkerState) {
-  if (state.appState.recoveryReason !== 'no-streamers') {
+export function clearStreamerAcquisitionRecoveryState(state: ServiceWorkerState) {
+  if (
+    state.appState.recoveryReason !== 'no-streamers' &&
+    state.appState.recoveryReason !== 'directory-unavailable'
+  ) {
     return;
   }
   state.recoveryBackoffUntil = 0;
   state.lastRecoveryAttemptAt = 0;
   state.appState = clearRecoveryStatus(state.appState);
+}
+
+export function applyDirectoryUnavailableRecoveryState(
+  state: ServiceWorkerState,
+  retryAt: number,
+  attempts: number,
+) {
+  state.recoveryBackoffUntil = retryAt;
+  state.lastRecoveryAttemptAt = Date.now();
+  state.appState = applyRecoveryStatus(state.appState, {
+    reason: 'directory-unavailable',
+    retryAt,
+    attempts,
+  });
 }
 
 export function applyNoStreamersRecoveryState(state: ServiceWorkerState, retryAt: number, attempts: number) {

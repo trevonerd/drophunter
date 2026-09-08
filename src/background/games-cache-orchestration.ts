@@ -5,16 +5,20 @@
 // explicit `state` + dep callbacks — they do NOT close over any adapter
 // factory and have no shared mutable state.
 
-import { dropMatchesGame, gameKey, isSameGameIdentity } from '../shared/game-selection';
+import { dropMatchesGame, isSameGameIdentity } from '../shared/game-selection';
 import { isRewardAutomatable } from '../shared/reward-semantics';
-import type { DropsSnapshot, TwitchGame } from '../types';
+import type { TwitchGame } from '../types';
+import { preserveAcquiredCampaigns, rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
 import {
   type DropsSnapshotProvenance,
   dropStateKey,
   hasCompleteIdentifiedRewardSet,
   reconcileUnverifiableRewardMarkers,
 } from './drops-projection';
+import { snapshotProvenance } from './drops-snapshot-provenance.ts';
 import type { GamesCacheRefreshDeps, RefreshGamesCacheOptions } from './games-cache-contracts.ts';
+import { applyAuthoritativeEmptyCampaignRefresh } from './games-cache-empty.ts';
+import { applyProgressiveCampaignSnapshot } from './games-cache-progressive.ts';
 import {
   type GamesCacheRefreshResult,
   getGamesCacheRefreshInFlight,
@@ -22,6 +26,16 @@ import {
   removeTerminalSummary,
   setGamesCacheRefreshInFlight,
 } from './games-cache-refresh-state.ts';
+import {
+  cleanUnavailableQueueCampaigns,
+  type QueueAvailabilityCleanupResult,
+} from './queue-availability-cleanup.ts';
+import {
+  combineQueueCleanupResults,
+  notifyQueueCleanup,
+  persistQueueCleanup,
+  recordQueueCleanupActivity,
+} from './queue-availability-cleanup-activity.ts';
 import type { ServiceWorkerState } from './runtime-state';
 
 export type { GamesCacheRefreshDeps, RefreshGamesCacheOptions } from './games-cache-contracts.ts';
@@ -47,14 +61,33 @@ export async function refreshGamesCacheFromHiddenFetch(
       ? await deps.fetchDropsSnapshotProgressively({
           priorityGameIds,
           onProgress: async (snapshot) => {
-            await applyProgressiveCampaignSnapshot(state, snapshot, deps);
+            await applyProgressiveCampaignSnapshot(
+              state,
+              snapshot,
+              deps,
+              () => options.isCurrent?.() !== false,
+            );
+            if (options.isCurrent?.() === false) return;
             await options.onProgressiveSnapshotApplied?.();
             deps.onProgressiveSnapshotApplied?.();
           },
         })
       : await deps.fetchDropsSnapshot();
+    if (options.isCurrent?.() === false) return { kind: 'unavailable', games: state.appState.availableGames };
+    rememberAcquiredCampaigns(state.appState, [
+      ...state.appState.availableGames,
+      ...state.appState.queue,
+      ...(state.appState.selectedGame ? [state.appState.selectedGame] : []),
+      ...(apiSnapshot?.games ?? []),
+    ]);
+    const elapsedQueueCleanup = cleanUnavailableQueueCampaigns(state);
     if (!apiSnapshot && options.requireFreshSnapshot) {
-      return { kind: 'unavailable', games: state.appState.availableGames };
+      if (elapsedQueueCleanup.selectedRemoved && state.appState.isRunning && state.appState.selectedGame) {
+        await deps.onAuthoritativeCampaignUnavailable?.(state.appState.selectedGame);
+      }
+      await persistQueueCleanup(state, elapsedQueueCleanup, deps);
+      const failure = deps.getLastTwitchApiFailure?.() ?? undefined;
+      return { kind: 'unavailable', games: state.appState.availableGames, ...(failure ? { failure } : {}) };
     }
     const previousSelectedGame = state.appState.selectedGame;
     const previousSelectedDrops = previousSelectedGame
@@ -63,16 +96,31 @@ export async function refreshGamesCacheFromHiddenFetch(
           state.appState.allDrops.filter((drop) => dropMatchesGame(drop, previousSelectedGame)),
         )
       : [];
+    let queueCleanup = elapsedQueueCleanup;
     if (apiSnapshot) {
+      const authoritativeQueueCleanup =
+        apiSnapshot.campaignsVerified === true
+          ? cleanUnavailableQueueCampaigns(state, {
+              authoritativeGames: apiSnapshot.games,
+              authoritativeCampaignIds: apiSnapshot.authoritativeCampaignIds,
+            })
+          : ({ removed: [], selectedRemoved: false } satisfies QueueAvailabilityCleanupResult);
+      queueCleanup = combineQueueCleanupResults(elapsedQueueCleanup, authoritativeQueueCleanup);
       if (apiSnapshot.games.length === 0 && apiSnapshot.drops.length === 0) {
-        const shouldAccept = options.acceptAuthoritativeEmpty !== false;
+        const shouldAccept =
+          options.acceptAuthoritativeEmpty !== false &&
+          apiSnapshot.campaignsVerified === true &&
+          apiSnapshot.authoritativeCampaignIds?.length === 0;
         if (shouldAccept) {
           const unavailableCampaign = state.appState.isRunning ? state.appState.selectedGame : null;
           if (unavailableCampaign && deps.onAuthoritativeCampaignUnavailable) {
             await deps.onAuthoritativeCampaignUnavailable(unavailableCampaign);
           }
+          if (options.isCurrent?.() === false)
+            return { kind: 'unavailable', games: state.appState.availableGames };
           await applyAuthoritativeEmptyCampaignRefresh(state, deps, unavailableCampaign !== null);
         }
+        await persistQueueCleanup(state, queueCleanup, deps);
         return {
           kind: 'refreshed',
           games: [],
@@ -82,7 +130,7 @@ export async function refreshGamesCacheFromHiddenFetch(
             : { inventoryVerified: apiSnapshot.inventoryVerified }),
         };
       }
-      provenance = 'campaign-authoritative';
+      provenance = snapshotProvenance(apiSnapshot);
       if (apiSnapshot.games.length > 0) {
         fetchedGames = apiSnapshot.games;
       }
@@ -112,6 +160,7 @@ export async function refreshGamesCacheFromHiddenFetch(
     const hasFreshFarmableEvidence = freshSelectedDrops.some(isRewardAutomatable);
     const authoritativeUnavailableCampaign =
       provenance === 'campaign-authoritative' &&
+      apiSnapshot?.campaignsVerified === true &&
       state.appState.isRunning &&
       previousSelectedGame &&
       (!freshSelectedGame || !hasFreshFarmableEvidence)
@@ -152,19 +201,22 @@ export async function refreshGamesCacheFromHiddenFetch(
     } else if (provenance === 'campaign-authoritative' && hasFreshFarmableEvidence) {
       annotatedGames = annotatedGames.map((game) =>
         isSameGameIdentity(game, previousSelectedGame ?? game) &&
-        (game.allDropsCompleted === true ||
-          game.rewardSummary?.completion === 'farming-complete' ||
-          game.rewardSummary?.completion === 'all-acquired')
+        game.rewardSummary?.completion === 'farming-complete'
           ? removeTerminalSummary(game)
           : game,
       );
     }
+    rememberAcquiredCampaigns(state.appState, annotatedGames);
+    annotatedGames = preserveAcquiredCampaigns(state.appState, annotatedGames);
     state.appState.availableGames = annotatedGames;
-    if (authoritativeUnavailableCampaign && deps.onAuthoritativeCampaignUnavailable) {
-      await deps.onAuthoritativeCampaignUnavailable(authoritativeUnavailableCampaign);
+    const unavailableSelectedCampaign =
+      authoritativeUnavailableCampaign ??
+      (queueCleanup.selectedRemoved && state.appState.isRunning ? state.appState.selectedGame : null);
+    if (unavailableSelectedCampaign && deps.onAuthoritativeCampaignUnavailable) {
+      await deps.onAuthoritativeCampaignUnavailable(unavailableSelectedCampaign);
     } else {
       deps.normalizeGameSelection(state, annotatedGames, Boolean(apiSnapshot));
-      deps.normalizeQueueSelection(state, annotatedGames, Boolean(apiSnapshot));
+      deps.normalizeQueueSelection(state, annotatedGames, apiSnapshot?.campaignsVerified === true);
     }
     // If a campaign refresh succeeded, the selected campaign split should reflect it,
     // including the valid "no rewards left" case.
@@ -182,71 +234,25 @@ export async function refreshGamesCacheFromHiddenFetch(
     }
     deps.resetStreamTrackingState(state);
     state.lastGamesCacheRefreshAt = Date.now();
+    if (options.isCurrent?.() === false) return { kind: 'unavailable', games: state.appState.availableGames };
+    recordQueueCleanupActivity(state, queueCleanup);
     await deps.saveState(state);
+    await notifyQueueCleanup(queueCleanup, deps);
     return apiSnapshot
       ? {
           kind: 'refreshed',
-          games: mergedGames,
+          games: annotatedGames,
           ...(apiSnapshot.inventoryVerified === undefined
             ? {}
             : { inventoryVerified: apiSnapshot.inventoryVerified }),
         }
-      : { kind: 'cached', games: mergedGames };
+      : { kind: 'cached', games: annotatedGames };
   })().finally(() => {
     setGamesCacheRefreshInFlight(state, null);
   });
   setGamesCacheRefreshInFlight(state, refreshInFlight);
 
   return refreshInFlight;
-}
-
-async function applyProgressiveCampaignSnapshot(
-  state: ServiceWorkerState,
-  snapshot: DropsSnapshot,
-  deps: GamesCacheRefreshDeps,
-): Promise<void> {
-  const mergedGames = deps.replaceAvailableGames([...state.appState.availableGames, ...snapshot.games]);
-  const mergedSnapshot: DropsSnapshot = {
-    games: mergedGames,
-    drops: mergeUniqueDrops(state.cachedDropsSnapshot, snapshot.drops),
-    campaignChannelsMap: { ...state.cachedCampaignChannelsMap, ...snapshot.campaignChannelsMap },
-    updatedAt: snapshot.updatedAt,
-  };
-  const reconciledDrops = reconcileUnverifiableRewardMarkers(state, mergedSnapshot, 'campaign-authoritative');
-  state.cachedDropsSnapshot = reconciledDrops;
-  state.cachedCampaignChannelsMap = mergedSnapshot.campaignChannelsMap ?? state.cachedCampaignChannelsMap;
-  const annotatedGames = deps.annotateGameCompletion(mergedGames, reconciledDrops, 'campaign-authoritative');
-  state.appState.availableGames = annotatedGames;
-  state.appState.campaignDropsByKey = Object.fromEntries(
-    annotatedGames.map((game) => [
-      gameKey(game),
-      reconciledDrops.filter((drop) => dropMatchesGame(drop, game)),
-    ]),
-  );
-  if (state.appState.selectedGame) deps.splitDropsForSelectedGame(state, reconciledDrops);
-  state.appState.lastSuccessfulRefreshAt = Date.now();
-  await deps.saveState(state);
-}
-
-async function applyAuthoritativeEmptyCampaignRefresh(
-  state: ServiceWorkerState,
-  deps: GamesCacheRefreshDeps,
-  preserveTerminalStop = false,
-): Promise<void> {
-  if (state.appState.isRunning) {
-    await deps.stopFarmingSession({
-      stopReason: 'no-active-campaigns',
-      stopMessage: 'No active Twitch Drops campaigns found.',
-    });
-  } else if (!preserveTerminalStop) {
-    state.appState = deps.clearTerminalStopStatus(deps.clearRecoveryStatus(state.appState));
-  }
-
-  deps.resetStateForAuthoritativeEmptyCampaign(state);
-  state.appState.lastSuccessfulRefreshAt = Date.now();
-  deps.resetStreamTrackingState(state);
-  state.lastGamesCacheRefreshAt = Date.now();
-  await deps.saveState(state);
 }
 
 export { type EnsureGamesCacheDeps, handleEnsureGamesCache } from './games-cache-ensure.ts';

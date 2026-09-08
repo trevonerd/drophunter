@@ -40,6 +40,8 @@ describe('farming session facade', () => {
     // Then
     expect(methods).toEqual([
       'acquireStreamerForSelectedGame',
+      'advanceQueueIfCompleted',
+      'automaticFavoritesEnabled',
       'checkDropProgress',
       'handleAddToQueue',
       'handleAuthoritativeCampaignUnavailable',

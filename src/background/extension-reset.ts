@@ -32,6 +32,7 @@ export function createExtensionUpdateAppState(
     streamerSelectionMode: appState.streamerSelectionMode,
     preferredStreamerLanguage: appState.preferredStreamerLanguage,
     watchTransportPreference: appState.watchTransportPreference,
+    watchTransportMode: appState.watchTransportPreference,
     favoriteGames: appState.favoriteGames,
     hiddenGames: appState.hiddenGames,
     campaignPriorityMode: appState.campaignPriorityMode,
@@ -40,6 +41,9 @@ export function createExtensionUpdateAppState(
     queue: intent.queue,
     selectedGame: intent.selectedGame,
     queueEntryMetadataByKey: intent.queueEntryMetadataByKey,
+    manualQueueAuthorized: appState.manualQueueAuthorized,
+    farmingSessionOrigin: appState.farmingSessionOrigin,
+    stalledCampaignBlocksByKey: appState.stalledCampaignBlocksByKey,
     wasRunning: intent.wasRunning,
   };
   return clearRotationMetadata({ ...createInitialState(), ...preserved });

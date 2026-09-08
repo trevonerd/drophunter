@@ -25,6 +25,7 @@ export interface DropsPageRefreshOptions {
     forceSessionRefresh?: boolean;
     acceptAuthoritativeEmpty?: boolean;
     requireFreshSnapshot?: boolean;
+    isCurrent?: () => boolean;
     onProgressiveSnapshotApplied?: () => Promise<void> | void;
   }) => Promise<GamesCacheRefreshResult>;
   saveState: () => Promise<unknown> | unknown;

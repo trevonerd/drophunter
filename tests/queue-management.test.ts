@@ -23,6 +23,7 @@ import { registerQueue19Part01 } from './cases/queue-19-checkdropprogress-01.ts'
 import { registerQueue20Part01 } from './cases/queue-20-farming-session-streamer-acquisition-seman-01.ts';
 import { registerQueue21Part01 } from './cases/queue-21-openbeststreamerforselectedgame-01.ts';
 import { registerQueue21Part02 } from './cases/queue-21-openbeststreamerforselectedgame-02.ts';
+import './cases/streamer-selection-cancellation.ts';
 import { registerQueue22Part01 } from './cases/queue-22-refreshdropsdata-light-refresh-01.ts';
 import { registerQueue23Part01 } from './cases/queue-23-createfarmingsession-exhausted-stalled-rec-01.ts';
 import { registerQueue24Part01 } from './cases/queue-24-rotatestreamerifinvalid-01.ts';

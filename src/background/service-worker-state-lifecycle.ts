@@ -1,5 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
-import { clearRecoveryStatus } from '../shared/runtime-status.ts';
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { createInitialState } from '../shared/utils.ts';
 import {
@@ -17,7 +17,12 @@ import {
 } from './extension-reset.ts';
 import { persistExtensionResetState } from './extension-reset-persistence.ts';
 import { logInfo } from './logging.ts';
-import { applyStartupResumePolicy, clearRotationMetadata, type ServiceWorkerState } from './runtime-state.ts';
+import {
+  applyStartupAutoResumeTransition,
+  applyStartupResumePolicy,
+  clearRotationMetadata,
+  type ServiceWorkerState,
+} from './runtime-state.ts';
 import { resetStreamTrackingState } from './session-lifecycle.ts';
 import {
   broadcastStateUpdate,
@@ -36,6 +41,7 @@ const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000;
 
 interface StateLifecycleFarmingSession {
   readonly acquireStreamerForSelectedGame: () => Promise<boolean>;
+  readonly advanceQueueIfCompleted: () => Promise<boolean>;
   readonly startMonitoring: () => void;
   readonly stop: (options?: { readonly skipTimingStateSave?: boolean }) => Promise<void>;
   readonly stopMonitoring: () => void;
@@ -53,7 +59,7 @@ export function createServiceWorkerStateLifecycle(
   let initPromise: Promise<void> | null = null;
   let extensionStorageResetInFlight: Promise<void> | null = null;
 
-  async function resetForInactivity(trigger: string, idleForMs: number): Promise<void> {
+  async function resetForInactivity(trigger: string, idleForMs: number): Promise<boolean> {
     logInfo('Resetting state after inactivity', {
       trigger,
       idleForMs,
@@ -61,7 +67,7 @@ export function createServiceWorkerStateLifecycle(
       wasPaused: state.appState.isPaused,
     });
     const farmingSession = dependencies.getFarmingSession();
-    await resetStateForInactivityExt(
+    return resetStateForInactivityExt(
       state,
       trigger,
       idleForMs,
@@ -84,8 +90,7 @@ export function createServiceWorkerStateLifecycle(
     }
     const idleForMs = Date.now() - reference;
     if (idleForMs < INACTIVITY_RESET_MS) return false;
-    await resetForInactivity(trigger, idleForMs);
-    return true;
+    return resetForInactivity(trigger, idleForMs);
   }
 
   async function trackActivity(reason: string): Promise<void> {
@@ -140,6 +145,16 @@ export function createServiceWorkerStateLifecycle(
       RESUME_RECOVERY_GRACE_MS,
     );
     const farmingSession = dependencies.getFarmingSession();
+    if (
+      state.appState.isRunning &&
+      !state.appState.isPaused &&
+      state.appState.selectedGame &&
+      campaignRejectionReason(state.appState.selectedGame, now)
+    ) {
+      await farmingSession.advanceQueueIfCompleted();
+      if (state.appState.isRunning && !state.appState.isPaused) farmingSession.startMonitoring();
+      return true;
+    }
     if (policy === 'resume-recovery') {
       logInfo('SW recycled during active no-tab recovery; resuming monitoring without reset', {
         recoveryReason: state.appState.recoveryReason,
@@ -157,14 +172,7 @@ export function createServiceWorkerStateLifecycle(
         : 'Long browser restart detected; reopening streamer',
       { secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000) },
     );
-    state.appState.resumedFromCrash = now;
-    state.lastProgressAdvanceAt = now;
-    state.noProgressRotationAttempts = 0;
-    state.recoveryBackoffUntil = 0;
-    state.stalledRecoveryAttempts = 0;
-    state.recoveryNotificationSent = false;
-    state.appState = clearRecoveryStatus(state.appState);
-    state.streamValidationGraceUntil = now + STREAM_VALIDATION_GRACE_MS;
+    applyStartupAutoResumeTransition(state, now, STREAM_VALIDATION_GRACE_MS);
     if (!keptExistingTab) {
       state.appState.tabId = null;
       state.appState.activeStreamer = null;

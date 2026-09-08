@@ -3,7 +3,7 @@ import { createWatchTransportCoordinator } from '../../src/background/watch-tran
 import { createWatchTransportCoordinatorFixture } from '../fixtures/watch-transport-coordinator.ts';
 
 export function registerWatchTransportCoordinatorFailureCases() {
-  test('keeps strict tabless mode after ten unhealthy heartbeats', async () => {
+  test('falls back from hidden watching after ten unhealthy heartbeats and preserves the reason', async () => {
     const fixture = createWatchTransportCoordinatorFixture();
     let attempts = 0;
     const coordinator = createWatchTransportCoordinator({
@@ -13,7 +13,9 @@ export function registerWatchTransportCoordinatorFailureCases() {
       minHeartbeatIntervalMs: 1_000,
       heartbeat: async () => {
         attempts += 1;
-        return { accepted: false, reason: 'heartbeat-failed' };
+        return attempts === 1
+          ? { accepted: true, progress: 1 }
+          : { accepted: false, reason: 'heartbeat-failed' };
       },
       managedTab: {
         open: async (_target, options) => {
@@ -35,20 +37,25 @@ export function registerWatchTransportCoordinatorFailureCases() {
     });
 
     await coordinator.start({ id: 'channel-1', name: 'channel-1', displayName: 'Channel 1', isLive: true });
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 10; index += 1) {
       await coordinator.tick();
     }
 
-    expect(attempts).toBe(10);
-    expect(fixture.counters.opens).toBe(0);
-    expect(fixture.state.appState.watchTransportMode).toBe('tabless');
-    expect(fixture.state.appState.watchHealth?.shouldFallback).toBe(true);
-    expect(fixture.state.appState.watchFallbackReason).toBeNull();
+    expect(attempts).toBe(11);
+    expect(fixture.counters.opens).toBe(1);
+    expect(fixture.state.appState.watchTransportPreference).toBe('tabless');
+    expect(fixture.state.appState.watchTransportMode).toBe('managed-tab');
+    expect(fixture.state.appState.watchHealth).toMatchObject({
+      mode: 'managed-tab',
+      status: 'healthy',
+      shouldFallback: false,
+    });
+    expect(fixture.state.appState.watchFallbackReason).toBe('heartbeat-failed');
   });
 }
 
 export function registerWatchTransportCoordinatorStallCases() {
-  test('keeps strict tabless mode when accepted heartbeats remain stalled', async () => {
+  test('falls back from hidden watching when accepted heartbeats remain stalled', async () => {
     const fixture = createWatchTransportCoordinatorFixture();
     let opens = 0;
     const coordinator = createWatchTransportCoordinator({
@@ -82,9 +89,14 @@ export function registerWatchTransportCoordinatorStallCases() {
 
     await coordinator.tick();
 
-    expect(opens).toBe(0);
-    expect(fixture.state.appState.watchTransportMode).toBe('tabless');
-    expect(fixture.state.appState.watchHealth?.shouldFallback).toBe(true);
-    expect(fixture.state.appState.watchFallbackReason).toBeNull();
+    expect(opens).toBe(1);
+    expect(fixture.state.appState.watchTransportPreference).toBe('tabless');
+    expect(fixture.state.appState.watchTransportMode).toBe('managed-tab');
+    expect(fixture.state.appState.watchHealth).toMatchObject({
+      mode: 'managed-tab',
+      status: 'healthy',
+      shouldFallback: false,
+    });
+    expect(fixture.state.appState.watchFallbackReason).toBe('stalled-progress');
   });
 }

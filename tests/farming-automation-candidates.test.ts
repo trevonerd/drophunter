@@ -90,7 +90,7 @@ describe('farming automation candidate policy', () => {
     });
   });
 
-  test('plans at most one favorite-auto campaign per favorite category', () => {
+  test('plans every favorite campaign independently by deadline', () => {
     const first = game('campaign-a', '2030-08-03T14:00:00.000Z');
     const second = game('campaign-b', '2030-08-03T12:00:00.000Z');
     const manual = game('manual', '2030-08-03T18:00:00.000Z', 'manual-game');
@@ -106,11 +106,15 @@ describe('farming automation candidate policy', () => {
 
     const plan = planFavoriteCampaignQueue(snapshot, 20);
 
-    expect(plan.queue.map((entry) => gameKey(entry))).toEqual([gameKey(second), gameKey(manual)]);
+    expect(plan.queue.map((entry) => gameKey(entry))).toEqual([
+      gameKey(second),
+      gameKey(first),
+      gameKey(manual),
+    ]);
     expect(plan.queueEntryMetadataByKey[gameKey(manual)]).toEqual(manualMetadata);
-    expect(plan.queueEntryMetadataByKey[gameKey(first)]).toBeUndefined();
+    expect(plan.queueEntryMetadataByKey[gameKey(first)]?.source).toBe('favorite-auto');
     expect(plan.queueEntryMetadataByKey[gameKey(second)]?.source).toBe('favorite-auto');
-    expect(plan.added.map((entry) => gameKey(entry.game))).toEqual([gameKey(second)]);
+    expect(plan.added.map((entry) => gameKey(entry.game))).toEqual([gameKey(second), gameKey(first)]);
   });
 
   test('hidden categories never enter automatic queue planning or candidate ranking', () => {
@@ -164,7 +168,7 @@ describe('farming automation candidate policy', () => {
     expect(new Set(candidates.map((candidate) => gameKey(candidate.game))).size).toBe(2);
   });
 
-  test('keeps private modes byte-for-byte immutable', () => {
+  test('normalizes retired priority modes to the shared favorite deadline policy', () => {
     const first = game('campaign-a', '2030-08-03T14:00:00.000Z');
     const second = game('campaign-b', '2030-08-03T12:00:00.000Z');
     const manual = game('manual', '2030-08-03T18:00:00.000Z', 'manual-game');
@@ -175,12 +179,15 @@ describe('farming automation candidate policy', () => {
       },
       campaignPriorityMode: 'ending-soonest',
     });
-    const before = JSON.stringify({ queue: snapshot.queue, metadata: snapshot.queueEntryMetadataByKey });
-
     const plan = planFavoriteCampaignQueue(snapshot, 20);
     const ranked = rankFarmingAutomationCandidates(snapshot, deriveFarmingAutomationCandidates(snapshot));
 
-    expect(JSON.stringify({ queue: plan.queue, metadata: plan.queueEntryMetadataByKey })).toBe(before);
+    expect(plan.queue.map((candidate) => candidate.campaignId)).toEqual([
+      'campaign-b',
+      'campaign-a',
+      'manual',
+    ]);
+    expect(plan.queueEntryMetadataByKey[gameKey(first)]?.source).toBe('favorite-auto');
     expect(ranked.map((candidate) => candidate.game.campaignId)).toEqual(['campaign-b', 'campaign-a']);
   });
 

@@ -223,4 +223,25 @@ export function registerDiscoveredDropsPageRefreshCases() {
       { tabId: 12, properties: { url: 'https://www.twitch.tv/drops/campaigns' } },
     ]);
   });
+
+  test('does not start a cache refresh after its activation generation is cancelled', async () => {
+    const state = createDropsPageState();
+    const tabsApi = createTabsApi();
+    let current = true;
+    let refreshCalls = 0;
+    const refresher = createTestRefresher(state, tabsApi, {
+      waitForTabComplete: async () => {
+        current = false;
+      },
+      refreshGamesCacheFromHiddenFetch: async () => {
+        refreshCalls += 1;
+        return { kind: 'refreshed', games: [] };
+      },
+    });
+
+    const result = await refresher.openDropsPageAndRefresh({ isCurrent: () => current });
+
+    expect(result.success).toBe(false);
+    expect(refreshCalls).toBe(0);
+  });
 }

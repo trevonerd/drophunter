@@ -1,15 +1,13 @@
 import type { AppState } from '../types';
+import { refreshDropsPageCampaigns } from './drops-page-campaign-refresh.ts';
 import {
   type DropsPageRefreshOptions,
   type DropsPageState,
   findOrOpenDropsPageTab,
   publishDropsPageRefreshState,
-  waitForDropsDelay,
 } from './drops-page-tab-lifecycle.ts';
 
 const DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS = 10_000;
-const DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS = 3;
-const DEFAULT_CAMPAIGN_REFRESH_RETRY_DELAY_MS = 500;
 
 export interface DropsPageRefreshResult {
   success: boolean;
@@ -25,6 +23,7 @@ interface OpenDropsPageRefreshOptions {
   active?: boolean;
   openIfMissing?: boolean;
   waitForExistingTabMs?: number;
+  isCurrent?: () => boolean;
 }
 
 export function createDropsPageRefresher(state: DropsPageState, options: DropsPageRefreshOptions) {
@@ -42,80 +41,11 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     await publishDropsPageRefreshState(state, options, inProgress, stateOptions);
   };
 
-  const refreshCampaignsUntilReady = async (
+  const refreshFromDropsPageTab = (
     tabId: number,
-    startedAt: number,
-  ): Promise<{ gamesCount: number; sawSession: boolean; snapshotAvailable: boolean }> => {
-    const attempts = Math.max(
-      1,
-      Math.floor(options.campaignRefreshAttempts ?? DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS),
-    );
-    const retryDelayMs = Math.max(
-      0,
-      options.campaignRefreshRetryDelayMs ?? DEFAULT_CAMPAIGN_REFRESH_RETRY_DELAY_MS,
-    );
-    const readyTimeoutMs = Math.max(
-      1,
-      options.dropsPageReadyTimeoutMs ?? DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS,
-    );
-    const deadline = startedAt + readyTimeoutMs;
-    let sawSession = false;
-    let gamesCount = 0;
-    let snapshotAvailable = false;
-    let initialSnapshotPublished = false;
-
-    const publishInitialSnapshot = async () => {
-      if (initialSnapshotPublished) return;
-      initialSnapshotPublished = true;
-      gamesCount = state.appState.availableGames.length;
-      snapshotAvailable = true;
-      // A verified campaign batch is enough to let the user act on the
-      // visible Drops. Do not keep the popup's global loader hostage to
-      // unrelated campaign detail requests that are still running.
-      await publishRefreshState(false, {
-        completedAt: Date.now(),
-        campaignCount: gamesCount,
-        error: null,
-      });
-    };
-
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      const isFinalAttemptByCount = attempt === attempts;
-      const isFinalAttemptByTime = Date.now() >= deadline;
-      const sessionFromTab = await options.persistSessionFromDropsPage(tabId);
-      sawSession = sawSession || Boolean(sessionFromTab);
-      const refreshResult = await options.refreshGamesCacheFromHiddenFetch({
-        forceSessionRefresh: !sessionFromTab,
-        acceptAuthoritativeEmpty: isFinalAttemptByCount || isFinalAttemptByTime,
-        requireFreshSnapshot: true,
-        onProgressiveSnapshotApplied: publishInitialSnapshot,
-      });
-
-      if (refreshResult.kind === 'refreshed') {
-        gamesCount = refreshResult.games.length;
-      } else {
-        gamesCount = state.appState.availableGames.length;
-      }
-      if (refreshResult.kind === 'refreshed' && gamesCount > 0) {
-        snapshotAvailable = true;
-        break;
-      }
-      if (refreshResult.kind === 'refreshed' && (isFinalAttemptByCount || isFinalAttemptByTime)) {
-        snapshotAvailable = true;
-        break;
-      }
-
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) {
-        break;
-      }
-      await waitForDropsDelay(Math.min(retryDelayMs, remainingMs));
-    }
-
-    return { gamesCount, sawSession, snapshotAvailable };
-  };
-
-  const refreshFromDropsPageTab = (tabId: number, opened: boolean): Promise<DropsPageRefreshResult> => {
+    opened: boolean,
+    isCurrent: () => boolean,
+  ): Promise<DropsPageRefreshResult> => {
     if (refreshInFlight) {
       return refreshInFlight;
     }
@@ -128,10 +58,14 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
           tabId,
           options.dropsPageReadyTimeoutMs ?? DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS,
         );
-        const { gamesCount, sawSession, snapshotAvailable } = await refreshCampaignsUntilReady(
-          tabId,
+        const { gamesCount, sawSession, snapshotAvailable } = await refreshDropsPageCampaigns({
+          isCurrent,
+          options,
+          publishRefreshState,
           startedAt,
-        );
+          state,
+          tabId,
+        });
 
         result = {
           success: snapshotAvailable,
@@ -154,6 +88,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
         };
       }
 
+      if (!isCurrent()) return result;
       await publishRefreshState(false, {
         completedAt: result.success ? Date.now() : undefined,
         campaignCount: result.success ? result.gamesCount : undefined,
@@ -175,7 +110,15 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     active: boolean,
     openIfMissing: boolean,
     waitForExistingTabMs: number,
+    isCurrent: () => boolean,
   ): Promise<DropsPageRefreshResult> => {
+    if (!isCurrent())
+      return {
+        success: false,
+        opened: false,
+        refreshed: false,
+        gamesCount: state.appState.availableGames.length,
+      };
     await options.trackActivity('open-drops-page-and-refresh');
     await options.ensureStateHydratedForCache();
 
@@ -185,6 +128,13 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
       openIfMissing,
       waitForExistingTabMs,
     );
+    if (!isCurrent())
+      return {
+        success: false,
+        opened: false,
+        refreshed: false,
+        gamesCount: state.appState.availableGames.length,
+      };
     if (!tabId) {
       const error = openIfMissing
         ? 'Unable to open the Twitch Drops page.'
@@ -208,7 +158,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     });
 
     if (!waitForRefresh) {
-      const refreshPromise = refreshFromDropsPageTab(tabId, opened);
+      const refreshPromise = refreshFromDropsPageTab(tabId, opened, isCurrent);
       refreshPromise.catch(() => undefined);
       return {
         success: true,
@@ -218,7 +168,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
       };
     }
 
-    const refreshPromise = refreshFromDropsPageTab(tabId, opened);
+    const refreshPromise = refreshFromDropsPageTab(tabId, opened, isCurrent);
     return refreshPromise;
   };
 
@@ -228,19 +178,24 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     const active = openOptions.active !== false;
     const openIfMissing = openOptions.openIfMissing !== false;
     const waitForExistingTabMs = Math.max(0, openOptions.waitForExistingTabMs ?? 0);
+    const isCurrent = openOptions.isCurrent ?? (() => true);
     if (openOptions.waitForRefresh === false) {
-      return openAndMaybeRefresh(false, active, openIfMissing, waitForExistingTabMs);
+      return openAndMaybeRefresh(false, active, openIfMissing, waitForExistingTabMs, isCurrent);
     }
 
     if (openAndRefreshInFlight) {
       return openAndRefreshInFlight;
     }
 
-    openAndRefreshInFlight = openAndMaybeRefresh(true, active, openIfMissing, waitForExistingTabMs).finally(
-      () => {
-        openAndRefreshInFlight = null;
-      },
-    );
+    openAndRefreshInFlight = openAndMaybeRefresh(
+      true,
+      active,
+      openIfMissing,
+      waitForExistingTabMs,
+      isCurrent,
+    ).finally(() => {
+      openAndRefreshInFlight = null;
+    });
     return openAndRefreshInFlight;
   };
 

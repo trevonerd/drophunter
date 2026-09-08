@@ -7,7 +7,7 @@ function retainKnownClassification<T extends string>(nextClassification: T, prev
 export function mergeDropProgressMonotonic(nextDrop: TwitchDrop, previousDrop: TwitchDrop): TwitchDrop {
   const mergedProgress = Math.max(nextDrop.progress, previousDrop.progress);
   const mergedClaimed = nextDrop.claimed || previousDrop.claimed;
-  const mergedClaimable = mergedClaimed ? false : Boolean(nextDrop.claimable);
+  const mergedClaimable = mergedClaimed ? false : Boolean(nextDrop.claimable || previousDrop.claimable);
   const mergedRequiredMinutes = nextDrop.requiredMinutes ?? previousDrop.requiredMinutes ?? null;
   const mergedRemainingMinutes =
     mergedClaimed || mergedClaimable

@@ -5,7 +5,6 @@ import {
   isSameGameIdentity,
 } from '../shared/game-selection';
 import { normalizeToken } from '../shared/matching';
-import { isExpiredGame } from '../shared/utils';
 import { TwitchGame } from '../types';
 import { CRASH_RECOVERY_GRACE_MS, QUEUE_MISSING_CONFIRM_THRESHOLD } from './constants';
 import { logDebug } from './logging';
@@ -157,9 +156,6 @@ export function normalizeQueueSelection(
     }
     const game = resolved ?? queuedGame;
     state.queueMissingStreak.delete(gameKey(game));
-    if (isExpiredGame(game)) {
-      return;
-    }
     const key = gameKey(game);
     if (seen.has(key)) {
       return;

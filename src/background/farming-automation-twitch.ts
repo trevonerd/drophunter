@@ -114,7 +114,7 @@ export function createFarmingAutomationTwitchAdapter(
 ): FarmingAutomationTwitchAdapter {
   const refresh = async (forceSessionRefresh = false): Promise<FarmingAutomationRefreshResult> => {
     const session = await source.loadSession(forceSessionRefresh);
-    if (!session) return Object.freeze({ kind: 'session-missing' as const });
+    if (!session?.userId.trim()) return Object.freeze({ kind: 'session-missing' as const });
 
     let campaignSnapshot: DropsSnapshot | null;
     try {
@@ -156,7 +156,7 @@ export function createFarmingAutomationTwitchAdapter(
     language = '',
   ): Promise<FarmingAutomationDirectoryResult> => {
     const session = await source.loadSession(false);
-    if (!session) return Object.freeze({ kind: 'session-missing' as const });
+    if (!session?.userId.trim()) return Object.freeze({ kind: 'session-missing' as const });
     let response: FarmingAutomationDirectoryResponse;
     try {
       response = await source.fetchDirectoryStreamers(game, session, language);

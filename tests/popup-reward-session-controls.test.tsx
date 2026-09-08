@@ -57,11 +57,93 @@ test('automation summary hides transport diagnostics from the main interface', (
   expect(markup).not.toContain('Healthy');
 });
 
+test('paused or stopped session keeps favorite auto-start state clear to the user', () => {
+  const selected = game();
+  const markup = renderMainView(
+    {
+      ...appState(selected),
+      isRunning: true,
+      isPaused: true,
+      autoStartFavoriteGames: true,
+    },
+    [selected],
+    { runtimeMode: 'paused' },
+  );
+
+  expect(markup).toContain('Favorite auto-start remains enabled and may resume farming at the next check.');
+  expect(markup).not.toContain('class="dh-running-badge"');
+});
+
+test('paused manual queue promises continuation only after Resume', () => {
+  const selected = game();
+  const markup = renderMainView(
+    {
+      ...appState(selected),
+      isRunning: true,
+      isPaused: true,
+      manualQueueAuthorized: true,
+      queue: [selected],
+    },
+    [selected],
+    { runtimeMode: 'paused' },
+  );
+
+  expect(markup).toContain('The started queue is saved and will continue after Resume.');
+  expect(markup).not.toContain('The started queue will continue automatically');
+});
+
+test('no-streamer recovery explains manual queue continuation without an inactive transport badge', () => {
+  const selected = game();
+  const next = game({
+    id: 'next-game',
+    name: 'Next Game',
+    campaignId: 'next-campaign',
+    campaignName: 'Next Campaign',
+  });
+  const markup = renderMainView(
+    {
+      ...appState(selected),
+      isRunning: true,
+      autoStartFavoriteGames: true,
+      manualQueueAuthorized: true,
+      farmingSessionOrigin: 'manual',
+      queue: [selected, next],
+      recoveryReason: 'no-streamers',
+      recoveryAttempts: 1,
+      recoveryBackoffUntil: 60_000,
+      watchTransportPreference: 'tabless',
+      watchTransportMode: 'managed-tab',
+      activeStreamer: {
+        id: 'stale-streamer-id',
+        name: 'stale-streamer',
+        displayName: 'Stale Streamer',
+        isLive: false,
+      },
+      tabId: 42,
+    },
+    [next],
+    { runtimeMode: 'recovering', recoveryNow: 1 },
+  );
+
+  expect(markup).toContain('DropHunter will search again automatically.');
+  expect(markup).toContain(
+    'The started queue will continue automatically, including campaigns added manually.',
+  );
+  expect(markup).not.toContain('data-watch-transport=');
+  expect(markup).not.toContain('Fallback tab');
+});
+
 test('session summary exposes exactly one effective transport indicator', () => {
   const selected = game();
   const base = {
     ...appState(selected),
     isRunning: true,
+    activeStreamer: {
+      id: 'streamer-id',
+      name: 'streamer',
+      displayName: 'Streamer',
+      isLive: true,
+    },
   } satisfies AppState;
 
   const hiddenMarkup = renderMainView(
@@ -105,9 +187,9 @@ test('session summary exposes exactly one effective transport indicator', () => 
   );
   const fallbackSummary =
     fallbackMarkup.match(/<section[^>]*data-session-mode="running"[\s\S]*?<\/section>/)?.[0] ?? '';
-  expect(fallbackSummary).toContain('data-watch-transport="fallback-tab"');
-  expect(fallbackSummary).toContain('>Fallback tab<');
-  expect(fallbackSummary.match(/>Fallback tab</g)).toHaveLength(1);
+  expect(fallbackSummary).toContain('data-watch-transport="tab"');
+  expect(fallbackSummary).toContain('>Tab<');
+  expect(fallbackSummary).not.toContain('Fallback tab');
   expect(fallbackSummary).not.toContain('heartbeat');
 
   const manualMarkup = renderMainView(

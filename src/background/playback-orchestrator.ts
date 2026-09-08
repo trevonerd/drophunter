@@ -1,3 +1,4 @@
+import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import type { PlaybackPrepResult, TwitchStreamer } from '../types/index.ts';
 import { STREAM_VALIDATION_GRACE_MS } from './constants.ts';
 import type { ManualStreamContext, ManualWatchTab } from './manual-watch-detector.ts';
@@ -10,7 +11,7 @@ export type ManualPlaybackTab = ManualWatchTab & {
 
 export type ManualPlaybackObservation = {
   readonly tab: ManualPlaybackTab;
-  readonly context: ManualStreamContext | null;
+  readonly context: ManualStreamContext;
 };
 
 export type ManualPlaybackObservationResult =
@@ -22,13 +23,14 @@ export type ManualPlaybackObservationResult =
 
 export async function observeManualPlayback(
   tabsApi: {
-    readonly query: (query: { readonly active: true }) => Promise<readonly ManualPlaybackTab[]>;
+    readonly query: (query: { readonly active?: boolean }) => Promise<readonly ManualPlaybackTab[]>;
   },
   getStreamContext: (tabId: number) => Promise<ManualStreamContext | null>,
+  managedTabId: number | null = null,
 ): Promise<ManualPlaybackObservationResult> {
   let tabs: readonly ManualPlaybackTab[];
   try {
-    tabs = await tabsApi.query({ active: true });
+    tabs = await tabsApi.query({});
   } catch (error) {
     if (error instanceof Error) return { kind: 'failed' };
     throw error;
@@ -37,9 +39,8 @@ export async function observeManualPlayback(
   for (const tab of tabs) {
     if (
       typeof tab.id !== 'number' ||
-      tab.active !== true ||
-      !tab.url ||
-      !/^https?:\/\/([^/]*\.)?twitch\.tv\//i.test(tab.url)
+      tab.id === managedTabId ||
+      getFarmableTwitchChannelNameFromUrl(tab.url) === null
     ) {
       continue;
     }
@@ -50,6 +51,7 @@ export async function observeManualPlayback(
       if (error instanceof Error) return { kind: 'failed' };
       throw error;
     }
+    if (context === null) return { kind: 'failed' };
     observations.push({ tab, context });
   }
   return { kind: 'observed', tabs: observations };

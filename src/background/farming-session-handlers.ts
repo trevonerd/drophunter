@@ -1,6 +1,15 @@
 import { PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
-import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
-import { runFarmingSessionMutation } from './farming-session-revision.ts';
+import type { FarmingSessionContext } from './farming-session-context.ts';
+import {
+  invalidateFarmingSessionEpoch,
+  isFarmingSessionEpochCurrent,
+  runFarmingSessionMutation,
+  runInFarmingSessionCriticalSection,
+} from './farming-session-revision.ts';
+import {
+  type FarmingSessionStartDependencies,
+  runFarmingSessionStart,
+} from './farming-session-start-execution.ts';
 import {
   applyStopState,
   applyTwitchSessionRetryState,
@@ -8,7 +17,7 @@ import {
   clearStopState,
 } from './recovery-state.ts';
 import { clearRotationMetadata } from './runtime-state.ts';
-import { handleStartFarming as startFarming, stopFarmingSession } from './session-lifecycle.ts';
+import { stopFarmingSession } from './session-lifecycle.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StartFarmingPayload, StartFarmingResult } from './session-lifecycle-types.ts';
 import { markTwitchSessionBlocked, markTwitchSessionReady } from './twitch-session-sync.ts';
@@ -25,21 +34,18 @@ export type FarmingSessionAuthRecoveryOptions = {
   readonly notification?: { readonly title: string; readonly message: string };
 };
 
-type FarmingSessionHandlerDependencies = {
-  readonly onEnsureWorkspace: () => Promise<void>;
-  readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<unknown>;
-  readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
-  readonly onAcquireStreamer: () => Promise<boolean>;
-  readonly onStartMonitoring: () => void;
-  readonly onStopMonitoring: () => void;
-};
+type FarmingSessionHandlerDependencies = FarmingSessionStartDependencies;
 
 type SuccessResult = { readonly success: true };
 
 export type FarmingSessionHandlers = {
+  readonly automaticFavoritesEnabled: () => boolean;
   readonly handlePauseFarming: () => Promise<SuccessResult>;
   readonly handleResumeFarming: () => Promise<SuccessResult>;
-  readonly handleStartFarming: (payload: StartFarmingPayload) => Promise<StartFarmingResult>;
+  readonly handleStartFarming: (
+    payload: StartFarmingPayload,
+    isCurrent?: () => boolean,
+  ) => Promise<StartFarmingResult>;
   readonly handleStopFarming: () => Promise<SuccessResult>;
   readonly recoverTwitchSession: (options?: FarmingSessionAuthRecoveryOptions) => Promise<void>;
   readonly resumeAfterAuthRecovery: () => Promise<void>;
@@ -53,7 +59,8 @@ export function createFarmingSessionHandlers(
   const { state, adapters } = context;
 
   async function stop(options?: FarmingSessionStopOptions): Promise<void> {
-    if (options?.stopReason === 'sign-in-required') {
+    const signInRequired = options?.stopReason === 'sign-in-required';
+    if (signInRequired) {
       markTwitchSessionBlocked(state, state.apiConsecutiveFailures);
     }
     await adapters.watchTransport?.stop();
@@ -66,59 +73,54 @@ export function createFarmingSessionHandlers(
       },
       onClearRotationMetadata: clearRotationMetadata,
       onApplyStopState: applyStopState,
-      onNotify: options?.suppressNotifications
-        ? undefined
-        : async (title, message) => {
-            await adapters.notify(title, message);
-          },
-      onSystemAlert: options?.suppressNotifications ? undefined : adapters.telegramSystemAlert,
+      onNotify:
+        options?.suppressNotifications || (signInRequired && adapters.automationNotify)
+          ? undefined
+          : async (title, message) => {
+              await adapters.notify(title, message);
+            },
+      onSystemAlert:
+        options?.suppressNotifications || (signInRequired && adapters.automationNotify)
+          ? undefined
+          : adapters.telegramSystemAlert,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: options?.skipTimingStateSave ? undefined : adapters.saveTimingState,
     });
+    if (signInRequired && adapters.automationNotify) {
+      const selectedGame = state.appState.selectedGame;
+      await adapters.automationNotify({
+        transitionId: `sign-in-required:${selectedGame?.campaignId ?? 'session'}:${state.appState.twitchSessionSyncState.attempts}`,
+        event: 'sign-in-required',
+        campaignId: selectedGame?.campaignId ?? 'session',
+        title: options?.notification?.title ?? 'Sign-in required',
+        message:
+          options?.stopMessage ??
+          options?.notification?.message ??
+          'DropHunter could not refresh your Twitch session. Please open Twitch and sign in.',
+        telegramReason: 'sign-in-required',
+      });
+    }
   }
 
-  async function start(payload: StartFarmingPayload): Promise<StartFarmingResult> {
-    const result = await startFarming(state, payload, {
-      onEnsureWorkspace: dependencies.onEnsureWorkspace,
-      onRefreshDropsData: async (options) => {
-        await dependencies.onRefreshDropsData(options);
-      },
-      onSaveState: () => adapters.saveState(state),
-      onSaveTimingState: adapters.saveTimingState,
-      onBroadcastStateUpdate: () => adapters.broadcastStateUpdate(state.appState),
-      onStopMonitoring: dependencies.onStopMonitoring,
-      onTrackActivity: adapters.trackActivity,
-      onApplyStopState: applyStopState,
-    });
-    if (!result.success) {
-      return result;
-    }
-
-    const advanced = await dependencies.onAdvanceQueueIfCompleted();
-    if (!advanced) {
-      return { success: false, error: 'Queue completed. No pending rewards left.' };
-    }
-    if (!state.appState.activeStreamer && !state.appState.tabId && state.appState.selectedGame) {
-      await dependencies.onAcquireStreamer();
-    }
-    if (state.appState.monitorAutoOpen) {
-      await new Promise((resolve) => setTimeout(resolve, adapters.monitorAutoOpenDelayMs));
-      await adapters.openMonitorDashboardWindow({ toggle: false }).catch(() => undefined);
-    }
-
-    await adapters.saveState(state);
-    await adapters.saveTimingState(state);
-    dependencies.onStartMonitoring();
-    return { success: true };
-  }
-
-  function handleStartFarming(payload: StartFarmingPayload): Promise<StartFarmingResult> {
-    return runFarmingSessionMutation(state, () => start(payload));
+  function handleStartFarming(
+    payload: StartFarmingPayload,
+    externalIsCurrent?: () => boolean,
+  ): Promise<StartFarmingResult> {
+    const isGuardedStart = externalIsCurrent !== undefined;
+    const current = externalIsCurrent ?? (() => true);
+    const epoch = invalidateFarmingSessionEpoch(state);
+    const isCurrent = () => current() && isFarmingSessionEpochCurrent(state, epoch);
+    return runInFarmingSessionCriticalSection(state, () =>
+      runFarmingSessionStart(context, dependencies, payload, isCurrent, isGuardedStart),
+    );
   }
 
   async function stopManually(): Promise<SuccessResult> {
     await adapters.trackActivity('stop-farming');
     await stop({ stopReason: 'user-stop', stopMessage: 'Stopped by user.' });
+    state.appState.manualQueueAuthorized = false;
+    state.appState.farmingSessionOrigin = null;
+    await adapters.saveState(state);
     return { success: true };
   }
 
@@ -205,6 +207,7 @@ export function createFarmingSessionHandlers(
   }
 
   return {
+    automaticFavoritesEnabled: () => state.appState.autoStartFavoriteGames,
     handlePauseFarming,
     handleResumeFarming,
     handleStartFarming,

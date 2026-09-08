@@ -241,7 +241,11 @@ export function createFarmingAutomationBrowser(
     );
     return notificationId ? { kind: 'delivered', notificationId } : { kind: 'unavailable' };
   };
-  const observeManualTabs = () => observeManualPlayback(host.tabs, options.getManualStreamContext);
+  const observeManualTabs = () => {
+    const ownership = watch.currentOwnership();
+    const managedTabId = ownership?.kind === 'managed-tab' ? ownership.tabId : null;
+    return observeManualPlayback(host.tabs, options.getManualStreamContext, managedTabId);
+  };
   return {
     watch,
     replaceDeadlineAlarm,

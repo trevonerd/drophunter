@@ -87,6 +87,8 @@ export function farmingCompleteSnapshot(): DropsSnapshot {
   return {
     games: [selectedCampaign],
     drops: [subscriptionReward, unverifiableReward],
+    campaignsVerified: true,
+    authoritativeCampaignIds: ['terminal-campaign'],
     updatedAt: 1,
   };
 }
@@ -95,6 +97,8 @@ export function incompleteTerminalSnapshot(): DropsSnapshot {
   return {
     games: [selectedCampaign],
     drops: [subscriptionReward],
+    campaignsVerified: true,
+    authoritativeCampaignIds: ['terminal-campaign'],
     updatedAt: 2,
   };
 }

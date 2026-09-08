@@ -1,3 +1,4 @@
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { gameKey } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import type { TwitchDrop, TwitchGame } from '../types/index.ts';
@@ -100,6 +101,7 @@ export function candidateWorkingState(
   }
   working.appState.isRunning = true;
   working.appState.isPaused = false;
+  working.appState.farmingSessionOrigin = 'automatic';
   working.appState.activeStreamer = null;
   working.appState.completionNotified = false;
   working.appState.lastRotationReason = null;
@@ -112,11 +114,18 @@ export function candidateWorkingState(
   if (request.transition === 'preemption' && incumbent) {
     const incumbentKey = gameKey(incumbent);
     const refreshedIncumbent = games.find((game) => gameKey(game) === incumbentKey) ?? incumbent;
+    const projectedIncumbent =
+      working.appState.availableGames.find((game) => gameKey(game) === incumbentKey) ?? refreshedIncumbent;
     const remainingQueue = working.appState.queue.filter((game) => {
       const key = gameKey(game);
       return key !== candidateKey && key !== incumbentKey;
     });
-    working.appState.queue = [candidate, refreshedIncumbent, ...remainingQueue];
+    const retainedIncumbent =
+      campaignRejectionReason(incumbent, now) === null &&
+      campaignRejectionReason(projectedIncumbent, now) === null
+        ? [refreshedIncumbent]
+        : [];
+    working.appState.queue = [candidate, ...retainedIncumbent, ...remainingQueue];
     working.appState.queueEntryMetadataByKey = Object.fromEntries(
       working.appState.queue.map((game) => {
         const key = gameKey(game);
@@ -154,7 +163,7 @@ export function pairMatchesState(
 ): boolean {
   switch (request.transition) {
     case 'start':
-      return !state.appState.isRunning;
+      return !state.appState.isRunning || state.appState.isPaused;
     case 'preemption':
       return (
         state.appState.isRunning &&

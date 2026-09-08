@@ -27,7 +27,7 @@ export interface MainViewProps {
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
-  onRefreshCampaigns: () => void;
+  onRetryCampaignSync: () => void;
   onAddToQueue: (game?: TwitchGame) => void;
   onAddAllToQueue: (games: readonly TwitchGame[]) => void;
   onLinkAccount: (game: TwitchGame) => void;

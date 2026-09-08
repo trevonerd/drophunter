@@ -6,6 +6,7 @@ import {
   normalizeFavoriteGames,
   normalizeHiddenGames,
   normalizeQueueMetadata,
+  normalizeStalledCampaignBlocks,
 } from './app-state-collection-normalizers.ts';
 import {
   normalizeCampaignSyncState,
@@ -38,12 +39,7 @@ export function normalizeStoredAppState(value: unknown): AppState {
       (entry) => ![entry.gameId, ...(entry.identityKeys ?? [])].some((key) => hiddenIdentityKeys.has(key)),
     ),
     hiddenGames,
-    campaignPriorityMode:
-      value.campaignPriorityMode === 'ending-soonest' ||
-      value.campaignPriorityMode === 'lowest-availability' ||
-      value.campaignPriorityMode === 'priority-list-only'
-        ? value.campaignPriorityMode
-        : defaults.campaignPriorityMode,
+    campaignPriorityMode: 'ending-soonest',
     farmCategoryScope:
       value.farmCategoryScope === 'all' || value.farmCategoryScope === 'favorites-only'
         ? value.farmCategoryScope
@@ -52,7 +48,15 @@ export function normalizeStoredAppState(value: unknown): AppState {
       typeof value.autoStartFavoriteGames === 'boolean'
         ? value.autoStartFavoriteGames
         : defaults.autoStartFavoriteGames,
+    manualQueueAuthorized: value.manualQueueAuthorized === true,
+    farmingSessionOrigin:
+      value.farmingSessionOrigin === 'manual' || value.farmingSessionOrigin === 'automatic'
+        ? value.farmingSessionOrigin
+        : value.isRunning === true && value.manualQueueAuthorized !== true
+          ? 'automatic'
+          : null,
     queueEntryMetadataByKey: normalizeQueueMetadata(value.queueEntryMetadataByKey),
+    stalledCampaignBlocksByKey: normalizeStalledCampaignBlocks(value.stalledCampaignBlocksByKey),
     automationActivity: normalizeAutomationActivity(value.automationActivity),
     lastAutomationMessage:
       typeof value.lastAutomationMessage === 'string' ? value.lastAutomationMessage : null,
@@ -66,6 +70,19 @@ export function normalizeStoredAppState(value: unknown): AppState {
         : 'inactive',
     campaignAvailabilityByKey: normalizeCampaignAvailability(value.campaignAvailabilityByKey),
     campaignDropsByKey: normalizeCampaignDrops(value.campaignDropsByKey),
+    campaignEvidenceUserId:
+      typeof value.campaignEvidenceUserId === 'string' && value.campaignEvidenceUserId.trim()
+        ? value.campaignEvidenceUserId.trim()
+        : undefined,
+    acquiredCampaignIds: Array.isArray(value.acquiredCampaignIds)
+      ? [
+          ...new Set(
+            value.acquiredCampaignIds.filter(
+              (id): id is string => typeof id === 'string' && id.trim().length > 0,
+            ),
+          ),
+        ]
+      : [],
     watchTransportPreference:
       value.watchTransportPreference === 'tabless' || value.watchTransportPreference === 'managed-tab'
         ? value.watchTransportPreference

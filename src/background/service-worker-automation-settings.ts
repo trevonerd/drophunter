@@ -8,23 +8,17 @@ import type { GamePreference, TwitchGame, WatchTransportMode } from '../types/in
 import type { FarmingAutomation, FarmingAutomationOutcome } from './farming-automation.ts';
 import { setGamePreference } from './favorite-games.ts';
 import { logWarn } from './logging.ts';
-import type { createNotificationController } from './notifications.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
 import type { createServiceWorkerStateLifecycle } from './service-worker-state-lifecycle.ts';
 import { saveState } from './state-persistence.ts';
 
 type BrowserEvents = Pick<ReturnType<typeof createServiceWorkerBrowserEvents>, 'watchTransport'>;
-type NotificationController = Pick<
-  ReturnType<typeof createNotificationController>,
-  'setNotificationsEnabled'
->;
 type StateLifecycle = Pick<ReturnType<typeof createServiceWorkerStateLifecycle>, 'trackActivity'>;
 
 export interface ServiceWorkerAutomationSettingsDependencies {
   readonly automation: FarmingAutomation;
   readonly browserEvents: BrowserEvents;
-  readonly notificationController: NotificationController;
   readonly stateLifecycle: StateLifecycle;
 }
 
@@ -109,14 +103,20 @@ export function createServiceWorkerAutomationSettingsHandlers(
       await dependencies.automation.request('campaign-refresh');
       return { success: true, autoStartFavoriteGames: false };
     }
-    const result = await dependencies.notificationController.setNotificationsEnabled(true);
-    state.appState.autoStartFavoriteGames = result.success;
+    const snooze = await dependencies.automation.clearSnooze?.();
+    if (snooze === 'persistence-failed') {
+      return {
+        success: false,
+        autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
+        error: 'Automatic-farming state could not be resumed.',
+      };
+    }
+    state.appState.autoStartFavoriteGames = true;
     await saveState(state);
     await dependencies.automation.request('campaign-refresh');
     return {
-      success: result.success,
+      success: true,
       autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
-      error: result.error,
     };
   }
 

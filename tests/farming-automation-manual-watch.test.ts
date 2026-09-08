@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import './cases/farming-automation-manual-watch-02.ts';
 import { createInitialFarmingAutomationFacts } from '../src/background/farming-automation-facts.ts';
 import { createFarmingAutomationManualWatch } from '../src/background/farming-automation-manual-watch.ts';
 import {
@@ -122,14 +123,15 @@ describe('Farming automation manual watch', () => {
       watch: {
         kind: 'eligible-manual',
         observedAt: 1_000,
-        expiresAt: 21_000,
-        recheckAt: 21_000,
+        stoppedAt: null,
+        expiresAt: 31_000,
+        recheckAt: 31_000,
       },
     });
     expect(state.appState.manualWatchState).toBe('eligible-manual');
-    expect(state.appState.nextAutomationCheckAt).toBe(21_000);
+    expect(state.appState.nextAutomationCheckAt).toBe(31_000);
     expect(projectedStates).toEqual(['eligible-manual']);
-    expect(events).toEqual(['persist', 'wake:21000']);
+    expect(events).toEqual(['persist', 'wake:31000']);
   });
 
   test('reconstructs and expires from durable facts', async () => {
@@ -177,29 +179,36 @@ describe('Farming automation manual watch', () => {
       });
     await createController().evaluate({ target, managedTabId: null, automationActive: true });
 
-    // When: a reconstructed controller evaluates before and exactly at the durable expiry.
+    // When: a reconstructed controller observes the stopped stream and its 30-second grace ends.
     const reconstructed = createController();
-    currentTime = 20_000;
+    currentTime = 30_000;
     const beforeExpiry = await reconstructed.evaluate({
       target,
       managedTabId: null,
       automationActive: true,
     });
-    currentTime = 21_000;
+    currentTime = 31_000;
     manualPlaybackActive = false;
-    const atExpiry = await reconstructed.evaluate({
+    const atConfirmedStop = await reconstructed.evaluate({
+      target,
+      managedTabId: null,
+      automationActive: true,
+    });
+    currentTime = 61_000;
+    const afterStopGrace = await reconstructed.evaluate({
       target,
       managedTabId: null,
       automationActive: true,
     });
 
-    // Then: the fact suppresses early observation and expires at the exact clock boundary.
+    // Then: the durable fact survives reconstruction and applies grace from the confirmed stop.
     expect(beforeExpiry.kind).toBe('active');
-    expect(atExpiry).toEqual({ kind: 'inactive' });
-    expect(observations).toBe(2);
+    expect(atConfirmedStop.kind).toBe('active');
+    expect(afterStopGrace).toEqual({ kind: 'inactive', stoppedAt: 31_000 });
+    expect(observations).toBe(3);
     expect(state.appState.manualWatchState).toBe('inactive');
     expect(state.appState.nextAutomationCheckAt).toBeNull();
-    expect(deadlines).toEqual([21_000, 21_000, null]);
+    expect(deadlines).toEqual([31_000, 31_000, 61_000, null]);
   });
 
   test('maps candidate preparation failure and preserves suspension on observation failure', async () => {

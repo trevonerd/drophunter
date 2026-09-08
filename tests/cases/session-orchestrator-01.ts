@@ -26,6 +26,9 @@ describe('session orchestrator', () => {
       sessionDebugSummary: () => ({}),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
+      validateRecoveredTwitchSession: async () => true,
+      getSessionRevision: () => 0,
+      discardPersistedTwitchSessionIfMatches: async () => {},
       logDebug: () => {},
       logWarn: () => {},
     });
@@ -68,6 +71,9 @@ describe('session orchestrator', () => {
       persistTwitchSession: async (session) => {
         persisted.push(session);
       },
+      validateRecoveredTwitchSession: async () => true,
+      getSessionRevision: () => 0,
+      discardPersistedTwitchSessionIfMatches: async () => {},
       logDebug: () => {},
       logWarn: () => {},
     });
@@ -112,6 +118,9 @@ describe('session orchestrator', () => {
       persistTwitchSession: async (session) => {
         persisted.push(session);
       },
+      validateRecoveredTwitchSession: async () => true,
+      getSessionRevision: () => 0,
+      discardPersistedTwitchSessionIfMatches: async () => {},
       sessionReadAttempts: 3,
       sessionReadRetryDelayMs: 0,
       logDebug: () => {},
@@ -156,6 +165,9 @@ describe('session orchestrator', () => {
       persistTwitchSession: async () => {
         events.push('persist');
       },
+      validateRecoveredTwitchSession: async () => true,
+      getSessionRevision: () => 0,
+      discardPersistedTwitchSessionIfMatches: async () => {},
       waitForTabComplete: async (tabId) => {
         events.push(`wait:${tabId}`);
       },

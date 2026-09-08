@@ -32,7 +32,7 @@ export interface WatchTransportCoordinatorOptions {
 }
 
 export interface WatchTransportCoordinator {
-  readonly start: (streamer: TwitchStreamer) => Promise<WatchHealth>;
+  readonly start: (streamer: TwitchStreamer, isCurrent?: () => boolean) => Promise<WatchHealth>;
   readonly tick: () => Promise<WatchHealth>;
   readonly stop: () => Promise<void>;
   readonly setPreference: (mode: WatchTransportMode) => Promise<void>;
@@ -88,16 +88,30 @@ export function createWatchTransportCoordinator(
   let active: WatchTransport = createManaged();
   let target: FarmingTarget | null = null;
   let lastTickAt = 0;
+  let operationGeneration = 0;
 
-  const startManagedFallback = async (fallbackHealth: WatchHealth): Promise<WatchHealth> => {
+  const startManagedFallback = async (
+    fallbackHealth: WatchHealth,
+    isCurrent: () => boolean = () => true,
+  ): Promise<WatchHealth> => {
+    if (!isCurrent()) return fallbackHealth;
     const nextTarget = target;
     if (!nextTarget) {
+      if (!isCurrent()) return fallbackHealth;
       await projection.apply({ kind: 'checked', health: fallbackHealth });
       return fallbackHealth;
     }
-    await active.stop();
-    active = createManaged();
-    const health = await active.start(nextTarget);
+    const previous = active;
+    await previous.stop();
+    if (!isCurrent()) return fallbackHealth;
+    const candidate = createManaged();
+    const health = await candidate.start(nextTarget);
+    if (!isCurrent()) {
+      await candidate.stop();
+      return health;
+    }
+    active = candidate;
+    if (!isCurrent()) return health;
     await projection.apply({
       kind: 'fallback',
       health,
@@ -109,40 +123,55 @@ export function createWatchTransportCoordinator(
   const settleHealth = async (
     health: WatchHealth,
     projectionKind: Extract<WatchTransportProjection['kind'], 'started' | 'checked'>,
+    isCurrent: () => boolean = () => true,
   ): Promise<WatchHealth> => {
+    if (!isCurrent()) return health;
+    if (projectionKind === 'started' && health.mode === 'tabless' && !health.isHealthy) {
+      return startManagedFallback(health, isCurrent);
+    }
     const decision = fallbackPolicy.evaluate(health);
     switch (decision.kind) {
       case 'continue':
+        if (!isCurrent()) return health;
         await projection.apply({ kind: projectionKind, health });
         return health;
       case 'fallback':
-        if (state.appState.watchTransportPreference === 'tabless') {
-          await projection.apply({ kind: projectionKind, health });
-          return health;
-        }
-        return startManagedFallback(health);
+        return startManagedFallback(health, isCurrent);
       default:
         decision satisfies never;
         return health;
     }
   };
 
-  const start = async (streamer: TwitchStreamer): Promise<WatchHealth> => {
+  const start = async (
+    streamer: TwitchStreamer,
+    isCurrent: () => boolean = () => true,
+  ): Promise<WatchHealth> => {
+    const generation = ++operationGeneration;
+    const isCurrentStart = () => isCurrent() && generation === operationGeneration;
     const nextTarget = targetFor(state, streamer);
     if (!nextTarget) {
       const health = streamHealth(state.appState.currentDrop?.currentMinutes ?? null, 'managed-tab', now());
+      if (!isCurrentStart()) return health;
       await projection.apply({ kind: 'started', health });
       return health;
     }
+    await active.stop();
+    if (!isCurrentStart()) return streamHealth(null, active.mode, now());
+    const candidate =
+      state.appState.watchTransportPreference === 'tabless' ? createTabless() : createManaged();
+    const health = await candidate.start(nextTarget);
+    if (!isCurrentStart()) {
+      await candidate.stop();
+      return health;
+    }
     target = nextTarget;
+    active = candidate;
     fallbackPolicy.reset();
     lastTickAt = 0;
     state.appState.activeStreamer = { ...streamer, isLive: true };
     state.appState.tabId = null;
-    await active.stop();
-    active = state.appState.watchTransportPreference === 'tabless' ? createTabless() : createManaged();
-    const health = await active.start(nextTarget);
-    return settleHealth(health, 'started');
+    return settleHealth(health, 'started', isCurrentStart);
   };
 
   const tick = async (): Promise<WatchHealth> => {
@@ -173,6 +202,7 @@ export function createWatchTransportCoordinator(
   };
 
   const stop = async () => {
+    operationGeneration += 1;
     await active.stop();
     target = null;
     fallbackPolicy.reset();
@@ -186,6 +216,7 @@ export function createWatchTransportCoordinator(
   };
 
   const adopt = (adoption: WatchTransportAdoption): void => {
+    operationGeneration += 1;
     const previous = active;
     const next = adoption.ownership.kind === 'tabless' ? createTabless() : createManaged();
     if (!next.adopt(adoption.target, adoption.ownership, adoption.health)) {

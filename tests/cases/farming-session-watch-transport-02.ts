@@ -145,11 +145,15 @@ describe('farming session watch transport integration', () => {
           fetchDropsSnapshotFromApi: async () => ({
             games: [game],
             drops: [progressedDrop],
+            campaignsVerified: false,
+            inventoryVerified: true,
             updatedAt: now,
           }),
           fetchInventorySnapshotFromApi: async () => ({
             games: [game],
             drops: [progressedDrop],
+            campaignsVerified: false,
+            inventoryVerified: true,
             updatedAt: now,
           }),
           watchTransport: {

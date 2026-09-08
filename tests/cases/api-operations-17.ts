@@ -28,6 +28,8 @@ describe('fetchDirectoryStreamersFromApi', () => {
     const { fetchDirectoryStreamersFromApi } = await import('../../src/background/api-operations.ts');
 
     const state = createMinimalState();
+    state.apiConsecutiveFailures = 2;
+    state.apiBackoffUntil = Date.now() + 60_000;
     const game = createGame({ name: 'Test Game', categorySlug: 'test-game' });
     const session = createSession();
     const mockStreamers = [
@@ -52,6 +54,8 @@ describe('fetchDirectoryStreamersFromApi', () => {
     const result = await fetchDirectoryStreamersFromApi(state, game, session);
 
     expect(result).toHaveLength(2);
+    expect(state.apiConsecutiveFailures).toBe(0);
+    expect(state.apiBackoffUntil).toBe(0);
   });
 
   test('returns empty array with languageFilterApplied=false when API returns empty', async () => {
@@ -83,7 +87,7 @@ describe('fetchDirectoryStreamersFromApi', () => {
     expect(result).toHaveLength(1);
   });
 
-  test('returns empty array with languageFilterApplied=false on error', async () => {
+  test('does not report a directory request failure as an empty streamer list', async () => {
     const { fetchDirectoryStreamersFromApi } = await import('../../src/background/api-operations.ts');
 
     const state = createMinimalState();
@@ -96,10 +100,23 @@ describe('fetchDirectoryStreamersFromApi', () => {
       },
     ]);
 
-    const result = await fetchDirectoryStreamersFromApi(state, game, session);
+    await expect(fetchDirectoryStreamersFromApi(state, game, session)).rejects.toThrow('network failure');
+    expect(state.apiBackoffUntil).toBeGreaterThan(Date.now());
+  });
 
-    expect(result).toHaveLength(0);
-    expect(result.languageFilterApplied).toBe(false);
+  test('honors Twitch Retry-After when the directory is rate limited', async () => {
+    const { fetchDirectoryStreamersFromApi } = await import('../../src/background/api-operations.ts');
+
+    const state = createMinimalState();
+    const game = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+    const session = createSession();
+    const beforeRequest = Date.now();
+
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response('', { status: 429, headers: { 'Retry-After': '120' } });
+
+    await expect(fetchDirectoryStreamersFromApi(state, game, session)).rejects.toThrow('HTTP 429');
+    expect(state.apiBackoffUntil).toBeGreaterThanOrEqual(beforeRequest + 120_000);
   });
 
   test('includes broadcasterLanguages in request when language is specified', async () => {
@@ -157,11 +174,38 @@ describe('fetchDirectoryStreamersFromApi', () => {
       },
     ]);
 
-    const result = await fetchDirectoryStreamersFromApi(state, game, session);
-
-    expect(result).toHaveLength(0);
-    expect(result.languageFilterApplied).toBe(false);
+    await expect(fetchDirectoryStreamersFromApi(state, game, session)).rejects.toThrow('401 unauthorized');
     expect(state.twitchSessionCache).toBe(session);
     expect(state.apiBackoffUntil).toBeGreaterThan(Date.now());
+  });
+
+  test('directory wrapper preserves an unavailable response instead of reporting zero streamers', async () => {
+    const { fetchDirectoryStreamersFromApiWrapper } = await import(
+      '../../src/background/api-secondary-wrappers.ts'
+    );
+    const session = createSession();
+    const state = createMinimalState({ twitchSessionCache: session });
+    const game = createGame({ name: 'Test Game', categorySlug: 'test-game' });
+
+    originalFetch = installFetchMock([
+      async () => {
+        throw new Error('directory unavailable');
+      },
+    ]);
+
+    await expect(
+      fetchDirectoryStreamersFromApiWrapper(
+        state,
+        game,
+        false,
+        '',
+        {
+          onEnsureTwitchSession: async () => session,
+          onIsLikelyAuthError: () => false,
+          onClearTwitchSessionCache: async () => undefined,
+        },
+        { logWarn: () => undefined },
+      ),
+    ).rejects.toThrow('directory unavailable');
   });
 });

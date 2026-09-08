@@ -21,7 +21,7 @@ export interface FetchDropsSnapshotFromApiCallbacks {
     stopMessage?: string | null;
   }) => Promise<void>;
   onIsLikelyAuthError: (error: unknown) => boolean;
-  onClearTwitchSessionCache: (state: ServiceWorkerState) => void;
+  onClearTwitchSessionCache: (state: ServiceWorkerState) => Promise<void> | void;
 }
 
 const SIGN_IN_REQUIRED_MESSAGE =
@@ -98,7 +98,7 @@ export async function fetchDropsSnapshotFromApiWrapper(
       if (callbacks.onIsLikelyAuthError(error)) {
         explicitAuthFailure = true;
         deps.logWarn('Failed to auto-detect userId: auth error', String(error));
-        callbacks.onClearTwitchSessionCache(state);
+        await callbacks.onClearTwitchSessionCache(state);
         if (!authRecoveryAttempted && callbacks.onRecoverTwitchSessionAfterAuthError) {
           const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError(recoveryMode);
           if (recovered)
@@ -147,7 +147,7 @@ export async function fetchDropsSnapshotFromApiWrapper(
     return await fetchDropsSnapshotFromApi(state, session, options);
   } catch (error) {
     if (callbacks.onIsLikelyAuthError(error)) {
-      callbacks.onClearTwitchSessionCache(state);
+      await callbacks.onClearTwitchSessionCache(state);
       if (!authRecoveryAttempted && callbacks.onRecoverTwitchSessionAfterAuthError) {
         const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError(recoveryMode);
         if (recovered)

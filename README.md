@@ -8,7 +8,8 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 
 ## Features
 
-- Queue multiple campaigns and let the extension work through them in order; expired or vanished campaigns are automatically removed from the queue mid-farming, advancing to the next entry transparently
+- Add campaigns to a manual queue and press Start to work through them in order
+- Favorite games to discover and automatically farm their campaigns by earliest expiry; urgent favorites can interrupt and later resume an authorized manual queue
 - Track current reward progress directly from the popup and extension badge
 - Open and validate an eligible Twitch stream for the selected campaign
 - Rotate to a new streamer only when the current stream becomes invalid or progress stalls
@@ -20,7 +21,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Filter streamers by preferred language (30+ languages supported)
 - Automatically claim free channel points bonuses on open Twitch channel tabs
 - Show desktop alerts for important farming events and claimed channel points, with a Settings toggle to mute them
-- Optionally send claimed-Drop alerts through your own Telegram bot and chat
+- Optionally send reward and farming-event alerts through your own Telegram bot and chat
 - Show a separate live monitor window for at-a-glance progress
 - Let you choose whether the monitor opens automatically when farming starts
 - Control whether farming tabs are muted from Settings
@@ -49,22 +50,36 @@ The production Chrome build is generated in `.output/chrome-mv3/`. The Edge buil
 
 ## Usage
 
-1. Open the Twitch [Drops campaigns](https://www.twitch.tv/drops/campaigns) page at least once so DropHunter can detect available campaigns.
-2. Click the DropHunter extension icon.
-3. Select a campaign from the dropdown, or add multiple campaigns to the queue.
-4. Press **Start Farming**.
+1. Click the DropHunter extension icon and use the Twitch connection button to open [Drops campaigns](https://www.twitch.tv/drops/campaigns).
+2. Let DropHunter detect your Twitch session and load campaigns. A new installation has no favorites and remains idle.
+3. Use **Add** to prepare a manual queue, then **Start** to authorize farming in that order; or star a game to let favorite auto-start handle its campaigns.
+
+New installations enable favorite auto-start and prefer hidden farming. Browser and Telegram notifications remain optional; neither is required for farming. Existing explicit preferences are preserved on upgrade.
 
 From there, DropHunter will:
 
-- open a Twitch stream for the selected campaign
-- keep the tab muted
+- use hidden farming when possible, falling back to a muted background Twitch tab if needed
 - track progress and update the extension badge
 - claim completed drops when they become available
 - claim free channel points bonuses on open Twitch channel tabs when enabled
 - switch streams only when recovery is needed
-- continue through the queue when a campaign is completed
+- continue through authorized campaigns when a campaign is completed; an automatic favorite does not start a manual queue you have only prepared
 
-DropHunter refreshes the campaign list and drop statuses every 2 minutes in the background to catch new campaigns, status changes, and expirations.
+DropHunter checks for new campaigns every five minutes and after relevant changes, including while idle or while you watch Twitch yourself. Drop progress has its own monitoring cadence.
+
+While favorite auto-start is enabled, **Stop** and **Pause** stop the current playback but an eligible favorite can restart at the next automatic evaluation. Disable favorite auto-start to keep farming stopped. Your personal Twitch streams take priority even in background tabs; farming resumes after all of them stop, close, or leave the channel, with a short grace period.
+
+If a campaign stalls after recovery attempts, it remains queued but excluded until there is positive progress, a newly eligible streamer, or you explicitly press Start. Other authorized campaigns can continue; otherwise the popup explains why farming stopped.
+
+After a prolonged browser absence, DropHunter keeps your queue and preferences
+while checking saved campaign data. It attempts session recovery in the background;
+if recovery fails, the popup offers **Retry** and **Open Twitch Drops**. A scheduled
+retry survives a service-worker restart.
+
+Expired campaigns are removed automatically with a queue-update notice. Campaigns
+missing from a complete, verified Twitch update are removed too; failed or partial
+updates do not establish that a campaign has disappeared. The remaining queue
+continues only when its farming session was authorized.
 
 If Twitch blocks playback or needs a manual interaction, DropHunter can notify you so you can click the player and resume progress. If the browser restarts mid-session, you can also choose whether DropHunter should resume automatically or stay paused until you come back.
 
@@ -85,7 +100,9 @@ DropHunter includes a few runtime controls in the popup so you can tune how aggr
 - toggle auto-claim for channel points bonuses
 - toggle auto-claim for completed drops
 - review and clear the local drop claim log
-- configure optional Telegram claim alerts with your own bot and chat ID
+- enable favorite auto-start independently of notification settings
+- choose hidden farming or a managed Twitch tab
+- configure optional Telegram reward and farming-event alerts with your own bot and chat ID
 - switch between low-view, random, and top-viewer streamer selection
 - prefer a specific streamer language when one is available
 - choose whether the farming tab stays muted

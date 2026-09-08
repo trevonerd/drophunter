@@ -1,10 +1,14 @@
+import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import { dropMatchesGame, findMatchingGame, isSameGameIdentity } from '../shared/game-selection.ts';
 import { isTwitchNativeReward, summarizeCampaignRewards } from '../shared/reward-semantics.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types/index.ts';
+import { preserveAcquiredCampaigns, rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
+import { hasCompleteIdentifiedRewardSet } from './campaign-reward-identity.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { encodeUnverifiableRewardKey, parseUnverifiableRewardKey } from './unverifiable-reward-key.ts';
 
 export type DropsSnapshotProvenance = 'campaign-authoritative' | 'inventory-partial' | 'cached';
+export { hasCompleteIdentifiedRewardSet } from './campaign-reward-identity.ts';
 
 export function dropStateKey(drop: TwitchDrop): string {
   return `${drop.id}::${drop.campaignId ?? ''}`;
@@ -16,38 +20,6 @@ export function completedDropKeys(drops: TwitchDrop[]): Set<string> {
 
 function unverifiableRewardKey(drop: TwitchDrop): string | null {
   return encodeUnverifiableRewardKey(drop.id, drop.campaignId);
-}
-
-function hasExactIdentifiedRewardSet(
-  game: TwitchGame,
-  matching: TwitchDrop[],
-  requireRewardIdentity = false,
-): boolean {
-  const campaignId = game.campaignId?.trim() ?? '';
-  const expectedCount = game.dropCount;
-  if (
-    typeof expectedCount !== 'number' ||
-    !Number.isInteger(expectedCount) ||
-    expectedCount < 0 ||
-    (requireRewardIdentity && (campaignId.length === 0 || expectedCount === 0)) ||
-    matching.length !== expectedCount
-  ) {
-    return false;
-  }
-  const identifiedKeys = matching.map(unverifiableRewardKey);
-  return (
-    identifiedKeys.every((key) => key !== null) &&
-    new Set(identifiedKeys.filter((key) => key !== null)).size === expectedCount
-  );
-}
-
-export function hasCompleteIdentifiedRewardSet(
-  game: TwitchGame,
-  drops: readonly TwitchDrop[],
-  requireRewardIdentity = false,
-): boolean {
-  const matching = drops.filter((drop) => dropMatchesGame(drop, game));
-  return hasExactIdentifiedRewardSet(game, matching, requireRewardIdentity);
 }
 
 export function markDropUnverifiable(
@@ -188,6 +160,7 @@ export function annotateGameCompletion(
   provenance: DropsSnapshotProvenance = 'cached',
 ): TwitchGame[] {
   return games.map((game) => {
+    if (game.campaignId && isCampaignAcquired(game)) return game;
     const matching = drops.filter((drop) => dropMatchesGame(drop, game));
     const hasCompleteRewardSet =
       provenance === 'campaign-authoritative' && hasCompleteIdentifiedRewardSet(game, drops);
@@ -204,6 +177,7 @@ export function annotateGameCompletion(
 }
 
 export function recomputeKnownCompleteGameSummary(game: TwitchGame, drops: TwitchDrop[]): TwitchGame {
+  if (game.campaignId && isCampaignAcquired(game)) return game;
   if (!game.rewardSummary) {
     return game;
   }
@@ -224,22 +198,38 @@ export function rememberInspectedCampaignSummary(state: ServiceWorkerState): voi
   if (!selectedGame) {
     return;
   }
+  rememberAcquiredCampaigns(state.appState, [
+    selectedGame,
+    findMatchingGame(selectedGame, state.appState.availableGames) ?? selectedGame,
+  ]);
+  const knownGame = isCampaignAcquired(selectedGame)
+    ? selectedGame
+    : (preserveAcquiredCampaigns(state.appState, [selectedGame])[0] ?? selectedGame);
+  const hasAcquiredEvidence = Boolean(knownGame.campaignId && isCampaignAcquired(knownGame));
   const inspectedDrops = state.appState.allDrops.filter((drop) => dropMatchesGame(drop, selectedGame));
-  if (inspectedDrops.length === 0 || !hasCompleteIdentifiedRewardSet(selectedGame, inspectedDrops)) {
+  if (
+    !hasAcquiredEvidence &&
+    (inspectedDrops.length === 0 || !hasCompleteIdentifiedRewardSet(selectedGame, inspectedDrops))
+  ) {
     return;
   }
 
   const rewardSummary = summarizeCampaignRewards(inspectedDrops);
-  const rememberedGame = {
-    ...selectedGame,
-    rewardSummary,
-    allDropsCompleted: rewardSummary.completion === 'all-acquired',
-  };
+  const rememberedGame: TwitchGame = hasAcquiredEvidence
+    ? knownGame
+    : {
+        ...selectedGame,
+        rewardSummary,
+        allDropsCompleted: rewardSummary.completion === 'all-acquired',
+      };
   const rememberMatchingCampaign = (game: TwitchGame) =>
-    isSameGameIdentity(game, selectedGame) ? rememberedGame : game;
+    isSameGameIdentity(game, selectedGame) && !(hasAcquiredEvidence && isCampaignAcquired(game))
+      ? rememberedGame
+      : game;
   state.appState.availableGames = state.appState.availableGames.map(rememberMatchingCampaign);
   state.appState.queue = state.appState.queue.map(rememberMatchingCampaign);
   state.appState.selectedGame = rememberedGame;
+  rememberAcquiredCampaigns(state.appState, [rememberedGame]);
 }
 
 export function preserveGameCompletionSummaries(
@@ -247,6 +237,7 @@ export function preserveGameCompletionSummaries(
   previousGames: TwitchGame[],
 ): TwitchGame[] {
   return games.map((game) => {
+    if (game.campaignId && isCampaignAcquired(game)) return game;
     const previous = findMatchingGame(game, previousGames);
     return previous
       ? {
