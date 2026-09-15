@@ -134,6 +134,7 @@ export async function fetchDirectoryStreamersFromApi(
   game: TwitchGame,
   session: TwitchSession | null,
   language = '',
+  isCurrent: () => boolean = () => true,
 ): Promise<TwitchStreamer[] & { languageFilterApplied: boolean }> {
   const client = new TwitchApiClient(
     session ?? {
@@ -149,12 +150,17 @@ export async function fetchDirectoryStreamersFromApi(
       game.categorySlug ?? toSlug(game.name),
       language,
     );
-    state.apiConsecutiveFailures = 0;
-    state.apiBackoffUntil = 0;
+    if (isCurrent()) {
+      state.apiConsecutiveFailures = 0;
+      state.apiBackoffUntil = 0;
+      clearLastTwitchApiFailure(state);
+    }
     return streamers;
   } catch (error) {
-    const failure = classifyTwitchApiFailure(error);
-    applyApiBackoff(state, failure.retryAfterMs);
+    if (isCurrent()) {
+      const failure = recordTwitchApiFailure(state, error);
+      applyApiBackoff(state, failure.retryAfterMs);
+    }
     throw error;
   }
 }

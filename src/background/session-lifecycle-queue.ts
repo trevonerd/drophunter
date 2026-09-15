@@ -2,13 +2,9 @@ import { haveAllDropsExpiredOrVanished } from '../shared/drops.ts';
 import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isExpiredGame } from '../shared/utils.ts';
-import type { TwitchGame } from '../types/index.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
-import {
-  promoteQueueHead,
-  removeQueueEntriesForGame,
-  removeQueueEntriesForHeadGame,
-} from './queue-operations.ts';
+import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
+import { removeQueueEntriesForGame, removeQueueEntriesForHeadGame } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   isKnownCompletedSelection,
@@ -16,18 +12,14 @@ import {
   selectedFarmingCompleteGame,
   selectedGameMarkedCompleted,
 } from './session-lifecycle-completion.ts';
+import { parkCampaignForStreamerRetry, waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
 import { refreshQueueHead } from './session-lifecycle-queue-refresh.ts';
 import {
   isAutomaticFavoriteSession,
   parkBlockedCampaignAtQueueTail,
-  rotateBlockedQueueHead,
+  prepareNextEligibleQueueHead,
 } from './session-lifecycle-queue-selection.ts';
-import {
-  finalizeCompletedQueue,
-  queueSkipCopy,
-  resetNoProgressRotationAttempts,
-  resetStreamTrackingState,
-} from './session-lifecycle-stop.ts';
+import { finalizeCompletedQueue, queueSkipCopy, resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type {
   AdvanceQueueOptions,
   QueueSkipReason,
@@ -35,59 +27,11 @@ import type {
 } from './session-lifecycle-types.ts';
 import { isCampaignStallBlocked } from './stalled-campaign-block.ts';
 
-function prepareQueueHead(state: ServiceWorkerState, clearPreviousDropsCount: boolean): TwitchGame | null {
-  const nextGame = promoteQueueHead(state);
-  if (!nextGame) {
-    return null;
-  }
-  state.appState.completionNotified = false;
-  state.invalidStreamChecks = 0;
-  state.lastTrackedProgress = -1;
-  state.lastTrackedMinutes = -1;
-  state.lastTrackedDropKey = null;
-  state.lastProgressAdvanceAt = 0;
-  if (clearPreviousDropsCount) {
-    state.previousAllDropsCount = 0;
-  }
-  resetNoProgressRotationAttempts(state);
-  return nextGame;
-}
-
-/**
- * A stall block is durable evidence that a campaign must not be selected again.
- * Keep it in the queue for later evidence-based recovery, while scanning the
- * remaining entries exactly once for a campaign that can be farmed now.
- */
-function prepareNextEligibleQueueHead(
-  state: ServiceWorkerState,
-  clearPreviousDropsCount: boolean,
-  restrictUnauthorizedManualContinuation: boolean,
-): TwitchGame | null {
-  let remainingCandidates = state.appState.queue.length;
-  while (remainingCandidates > 0) {
-    const queuedHead = state.appState.queue[0];
-    if (
-      queuedHead &&
-      restrictUnauthorizedManualContinuation &&
-      state.appState.queueEntryMetadataByKey[gameKey(queuedHead)]?.source !== 'favorite-auto'
-    ) {
-      return null;
-    }
-    const nextGame = prepareQueueHead(state, clearPreviousDropsCount);
-    if (!nextGame) return null;
-    if (!isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, nextGame)) {
-      return nextGame;
-    }
-    rotateBlockedQueueHead(state);
-    remainingCandidates -= 1;
-  }
-  return null;
-}
-
 export async function advanceQueueIfCompleted(
   state: ServiceWorkerState,
   options?: AdvanceQueueOptions,
 ): Promise<boolean> {
+  if (options?.isCurrent?.() === false) return false;
   if (!state.appState.isRunning || state.appState.isPaused) {
     return false;
   }
@@ -116,6 +60,9 @@ export async function advanceQueueIfCompleted(
   if (!knownCompletedCurrent && !campaignExpiredOrVanished) {
     return true;
   }
+  if (options?.isCampaignValidationCurrent && !options.isCampaignValidationCurrent()) {
+    return true;
+  }
   if (campaignExpiredOrVanished && !knownCompletedCurrent) {
     logInfo('Campaign expired or vanished mid-farming — advancing queue', {
       selectedGame: state.appState.selectedGame ? getGameDisplayLabel(state.appState.selectedGame) : null,
@@ -138,11 +85,12 @@ export async function advanceQueueIfCompleted(
   }
 
   while (state.appState.queue.length > 0) {
-    const nextGame = prepareNextEligibleQueueHead(state, true, restrictUnauthorizedManualContinuation);
+    const nextGame = prepareNextEligibleQueueHead(state, restrictUnauthorizedManualContinuation);
     if (!nextGame) {
       break;
     }
     await refreshQueueHead(state, options);
+    if (options?.isCurrent?.() === false) return false;
     if (isWaitingForScheduledRewards(state)) {
       await options?.onSaveState?.();
       return true;
@@ -160,7 +108,9 @@ export async function advanceQueueIfCompleted(
       continue;
     }
     if (options?.onOpenStreamer) {
-      await options.onOpenStreamer();
+      const opened = await options.onOpenStreamer(options.isCurrent);
+      if (options.isCurrent?.() === false) return false;
+      if (opened) resetQueueAcquisitionRound(state);
     }
     if (options?.onSaveState) {
       await options.onSaveState();
@@ -168,6 +118,8 @@ export async function advanceQueueIfCompleted(
     return true;
   }
 
+  if (await waitForParkedQueue(state, restrictUnauthorizedManualContinuation, options)) return true;
+  if (options?.isCurrent?.() === false) return false;
   await finalizeCompletedQueue(
     state,
     { completedWhileNoStreamers, completedGameName, terminalFarmingCompleteGame },
@@ -181,6 +133,7 @@ export async function skipCurrentGameAndAdvanceQueue(
   reason: QueueSkipReason = 'stalled-progress',
   options?: SkipCurrentGameOptions,
 ): Promise<void> {
+  if (options?.isCurrent?.() === false) return;
   const skippedGame = state.appState.selectedGame;
   const gameName = skippedGame ? getGameDisplayLabel(skippedGame) : 'current game';
   const copy = queueSkipCopy(reason, gameName);
@@ -191,7 +144,9 @@ export async function skipCurrentGameAndAdvanceQueue(
     stalledRecoveryAttempts: state.stalledRecoveryAttempts,
   });
   if (skippedGame) {
-    if (
+    if ((reason === 'no-streamers' || reason === 'directory-unavailable') && !isExpiredGame(skippedGame)) {
+      parkCampaignForStreamerRetry(state, skippedGame, reason);
+    } else if (
       reason === 'stalled-progress' &&
       isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, skippedGame)
     ) {
@@ -203,11 +158,12 @@ export async function skipCurrentGameAndAdvanceQueue(
   resetStreamTrackingState(state);
 
   while (state.appState.queue.length > 0) {
-    const nextGame = prepareNextEligibleQueueHead(state, false, restrictUnauthorizedManualContinuation);
+    const nextGame = prepareNextEligibleQueueHead(state, restrictUnauthorizedManualContinuation);
     if (!nextGame) {
       break;
     }
     await refreshQueueHead(state, options);
+    if (options?.isCurrent?.() === false) return;
     if (isWaitingForScheduledRewards(state)) {
       await options?.onSaveState?.();
       return;
@@ -216,19 +172,24 @@ export async function skipCurrentGameAndAdvanceQueue(
       removeQueueEntriesForHeadGame(state, nextGame);
       continue;
     }
-    if (options?.onOpenStreamer) {
-      await options.onOpenStreamer();
+    const opened = await options?.onOpenStreamer?.(options.isCurrent);
+    if (options?.isCurrent?.() === false) return;
+    if (opened) resetQueueAcquisitionRound(state);
+    if (opened && state.appState.selectedGame && gameKey(state.appState.selectedGame) === gameKey(nextGame)) {
+      await options?.onNotify?.(
+        copy.skipNotificationTitle,
+        `${copy.skipMessage} Now farming ${getGameDisplayLabel(nextGame)}.`,
+      );
+      if (options?.isCurrent?.() === false) return;
     }
-    await options?.onNotify?.(
-      copy.skipNotificationTitle,
-      `${copy.skipMessage} Now farming ${getGameDisplayLabel(nextGame)}.`,
-    );
     if (options?.onSaveState) {
       await options.onSaveState();
     }
     return;
   }
 
+  if (await waitForParkedQueue(state, restrictUnauthorizedManualContinuation, options)) return;
+  if (options?.isCurrent?.() === false) return;
   if (reason !== 'unverifiable-twitch') {
     state.appState.selectedGame = null;
   }

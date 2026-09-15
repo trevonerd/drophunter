@@ -43,6 +43,7 @@ export async function findOrOpenDropsPageTab(
   active: boolean,
   openIfMissing: boolean,
   waitForExistingTabMs: number,
+  isCurrent: () => boolean = () => true,
 ): Promise<{ tabId: number | null; opened: boolean }> {
   const tabsApi = options.tabsApi ?? browser.tabs;
   const deadline = Date.now() + Math.max(0, waitForExistingTabMs);
@@ -53,6 +54,7 @@ export async function findOrOpenDropsPageTab(
         url: ['https://www.twitch.tv/drops/campaigns*', 'https://twitch.tv/drops/campaigns*'],
       })
       .catch(() => []);
+    if (!isCurrent()) return { tabId: null, opened: false };
     existing = tabs.find((tab) => typeof tab.id === 'number');
     if (existing || Date.now() >= deadline) break;
     await waitForDropsDelay(Math.min(250, deadline - Date.now()));
@@ -60,6 +62,7 @@ export async function findOrOpenDropsPageTab(
   if (existing?.id) {
     if (existing.discarded)
       await tabsApi.update(existing.id, { url: TWITCH_DROPS_PAGE_URL }).catch(() => undefined);
+    if (!isCurrent()) return { tabId: null, opened: false };
     if (active) await tabsApi.update(existing.id, { active }).catch(() => undefined);
     return { tabId: existing.id, opened: false };
   }

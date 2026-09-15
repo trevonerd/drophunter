@@ -53,6 +53,7 @@ const notificationController = createNotificationController(state, {
   saveState: () => saveState(state),
   automationNotificationPersistence,
   openDropHunter: () => browserEvents.openMonitorDashboardWindow({ toggle: false }),
+  openTwitchDrops: () => contentHandlers.openDropsAndSync(),
   pauseFarming: () =>
     createFarmingAutomationUserActionHandlers(
       farmingAutomationRuntime.automation,
@@ -88,6 +89,8 @@ browserEvents = createServiceWorkerBrowserEvents(state, {
   fetchStreamContext: twitchGateway.fetchStreamContext,
   heartbeat: twitchGateway.heartbeat,
   notify,
+  notifyQueueComplete: notificationController.notifyQueueComplete,
+  clearQueueCompleteNotification: notificationController.clearQueueCompleteNotification,
 });
 
 farmingAutomationRuntime = createServiceWorkerFarmingAutomationRuntime(state, {
@@ -122,6 +125,7 @@ farmingSession = createFarmingSession(state, {
   openMonitorDashboardWindow: browserEvents.openMonitorDashboardWindow,
   sendAlert: browserEvents.sendAlert,
   notify,
+  notifyQueueComplete: notificationController.notifyQueueComplete,
   automationNotify: automationEventNotifier.notify,
   notifyCampaignUnavailable: async (game) => {
     await publishCampaignUnfarmableWarning(state, game, {
@@ -150,6 +154,7 @@ contentHandlers = createServiceWorkerContentHandlers(state, {
   stateLifecycle,
   twitchGateway,
   notify,
+  clearQueueCompleteNotification: browserEvents.clearQueueCompleteNotification,
   automationNotify: automationEventNotifier.notify,
 });
 

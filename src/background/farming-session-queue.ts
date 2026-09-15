@@ -10,16 +10,20 @@ import {
   handleSetSelectedGame as setSelectedGame,
 } from './drops-tick.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
-import { runFarmingSessionMutation } from './farming-session-revision.ts';
+import {
+  currentFarmingSessionEpoch,
+  isFarmingSessionEpochCurrent,
+  runFarmingSessionMutation,
+} from './farming-session-revision.ts';
 import { logDebug, logWarn } from './logging.ts';
 import { removeGameFromQueue, resolveGameFromState } from './queue-operations.ts';
 import { applyStopState } from './recovery-state.ts';
 import { advanceQueueIfCompleted as advanceQueue } from './session-lifecycle.ts';
 
 type FarmingSessionQueueDependencies = {
-  readonly onEnsureWorkspace: () => Promise<void>;
+  readonly onEnsureWorkspace: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<unknown>;
-  readonly onAcquireStreamer: () => Promise<boolean>;
+  readonly onAcquireStreamer: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly onStopMonitoring: () => void;
 };
 
@@ -30,7 +34,7 @@ type RemoveQueuePayload = {
 };
 
 export type FarmingSessionQueue = {
-  readonly advanceQueueIfCompleted: () => Promise<boolean>;
+  readonly advanceQueueIfCompleted: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly handleAddToQueue: (payload: { readonly game?: TwitchGame }) => ReturnType<typeof addToQueue>;
   readonly handleClearQueue: () => Promise<{ readonly success: true; readonly queueLength: number }>;
   readonly handleRemoveFromQueue: (payload: RemoveQueuePayload) => ReturnType<typeof removeFromQueue>;
@@ -62,8 +66,14 @@ export function createFarmingSessionQueue(
 ): FarmingSessionQueue {
   const { state, adapters } = context;
 
-  async function advanceQueueIfCompleted(): Promise<boolean> {
+  async function advanceQueueIfCompleted(isCurrent?: () => boolean): Promise<boolean> {
+    const epoch = currentFarmingSessionEpoch(state);
+    const tickGeneration = state.tickGeneration;
     return advanceQueue(state, {
+      isCurrent: () =>
+        (isCurrent?.() ?? true) &&
+        isFarmingSessionEpochCurrent(state, epoch) &&
+        state.tickGeneration === tickGeneration,
       onOpenStreamer: dependencies.onAcquireStreamer,
       onEnsureWorkspace: dependencies.onEnsureWorkspace,
       onSendAlert: async (kind, message) => {
@@ -72,6 +82,8 @@ export function createFarmingSessionQueue(
         }
         await adapters.sendAlert(kind, message);
       },
+      onQueueCompleteNotification: adapters.notifyQueueComplete,
+      isCampaignValidationCurrent: () => state.hasCurrentGenerationCampaignValidation,
       onStopMonitoring: () => {
         dependencies.onStopMonitoring();
         context.manualWatchTransportSuspended = false;
@@ -168,6 +180,7 @@ export function createFarmingSessionQueue(
     await adapters.trackActivity('clear-queue');
     state.appState.queue = [];
     state.appState.queueEntryMetadataByKey = {};
+    state.appState.queueAcquisitionRound = null;
     if (!state.appState.isRunning) {
       state.appState.selectedGame = null;
       state.appState.currentDrop = null;

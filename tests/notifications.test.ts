@@ -4,6 +4,8 @@ import { createInitialState } from '../src/shared/utils.ts';
 
 function createChromeNotificationFakes(permissionGranted: boolean) {
   const notifications: unknown[] = [];
+  const notificationIds: string[] = [];
+  const cleared: string[] = [];
   const permissionChecks: chrome.permissions.Permissions[] = [];
 
   return {
@@ -15,11 +17,24 @@ function createChromeNotificationFakes(permissionGranted: boolean) {
       },
     },
     notificationsApi: {
-      async create(options: chrome.notifications.NotificationOptions<true>) {
-        notifications.push(options);
+      async create(
+        notificationIdOrOptions: string | chrome.notifications.NotificationOptions<true>,
+        options?: chrome.notifications.NotificationOptions<true>,
+      ) {
+        const notificationOptions =
+          typeof notificationIdOrOptions === 'string' ? options : notificationIdOrOptions;
+        if (!notificationOptions) throw new TypeError('Notification options are required');
+        if (typeof notificationIdOrOptions === 'string') notificationIds.push(notificationIdOrOptions);
+        notifications.push(notificationOptions);
         return 'notification-id';
       },
+      async clear(notificationId: string) {
+        cleared.push(notificationId);
+        return true;
+      },
     },
+    cleared,
+    notificationIds,
     permissionChecks,
   };
 }
@@ -109,6 +124,25 @@ describe('notification controller', () => {
         priority: 1,
       },
     ]);
+  });
+
+  test('creates and clears only the stable queue-complete notification', async () => {
+    // Given a browser alert for a completed queue.
+    const state = { appState: { ...createInitialState(), notificationsEnabled: true } };
+    const fakes = createChromeNotificationFakes(true);
+    const controller = createNotificationController(state, {
+      permissionsApi: fakes.permissionsApi,
+      notificationsApi: fakes.notificationsApi,
+      saveState: async () => {},
+    });
+
+    // When fresh Twitch validation contradicts the cached terminal transition.
+    await controller.notifyQueueComplete('All drops completed', 'Queue completed. No pending rewards left.');
+    await controller.clearQueueCompleteNotification();
+
+    // Then only the queue-complete alert is retracted by its dedicated provenance ID.
+    expect(fakes.notificationIds).toEqual(['drophunter-queue-complete']);
+    expect(fakes.cleared).toEqual(['drophunter-queue-complete']);
   });
 });
 

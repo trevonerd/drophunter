@@ -65,17 +65,37 @@ export function normalizeHiddenGames(value: unknown): AppState['hiddenGames'] {
 export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMetadataByKey'] {
   if (!isRecord(value)) return {};
   return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, AppState['queueEntryMetadataByKey'][string]] => {
-      const metadata = entry[1];
-      return (
-        isRecord(metadata) &&
-        (metadata.source === 'manual' || metadata.source === 'favorite-auto') &&
-        Number.isFinite(metadata.addedAt) &&
-        (metadata.reason === 'user-added' ||
-          metadata.reason === 'favorite-discovered' ||
-          metadata.reason === 'retained-after-hide')
-      );
-    }),
+    Object.entries(value)
+      .filter((entry): entry is [string, AppState['queueEntryMetadataByKey'][string]] => {
+        const metadata = entry[1];
+        return (
+          isRecord(metadata) &&
+          (metadata.source === 'manual' || metadata.source === 'favorite-auto') &&
+          Number.isFinite(metadata.addedAt) &&
+          (metadata.reason === 'user-added' ||
+            metadata.reason === 'favorite-discovered' ||
+            metadata.reason === 'retained-after-hide')
+        );
+      })
+      .map(([key, metadata]) => {
+        const { streamerRetryAt, streamerRetryReason, streamerRetryAttempts, ...provenance } = metadata;
+        const validRetry =
+          typeof streamerRetryAt === 'number' && Number.isFinite(streamerRetryAt) && streamerRetryAt > 0;
+        return [
+          key,
+          {
+            ...provenance,
+            ...(Number.isInteger(streamerRetryAttempts) && streamerRetryAttempts === 1
+              ? { streamerRetryAttempts }
+              : {}),
+            ...(validRetry ? { streamerRetryAt } : {}),
+            ...(validRetry &&
+            (streamerRetryReason === 'no-streamers' || streamerRetryReason === 'directory-unavailable')
+              ? { streamerRetryReason }
+              : {}),
+          },
+        ];
+      }),
   );
 }
 

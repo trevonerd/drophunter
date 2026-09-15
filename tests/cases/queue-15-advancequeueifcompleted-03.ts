@@ -17,6 +17,33 @@ export function registerQueue15Part03() {
       mocks.teardown();
     });
 
+    test('keeps a cached completed queue pending until this worker validates Twitch campaigns', async () => {
+      // Given: a restarted worker restored a terminal-looking campaign from its cache.
+      const state = createMinimalState();
+      state.hasCurrentGenerationCampaignValidation = false;
+      state.appState.isRunning = true;
+      state.appState.selectedGame = createGame({ id: 'cached-game' });
+      state.appState.allDrops = [createDrop({ id: 'cached-drop', claimed: true })];
+      state.appState.pendingDrops = [];
+      state.appState.currentDrop = null;
+      state.previousAllDropsCount = 1;
+      const alerts: Array<{ kind: string; message: string }> = [];
+
+      // When: the cached queue reaches its terminal branch before fresh validation.
+      const advanced = await advanceQueueIfCompleted(state, {
+        isCampaignValidationCurrent: () => false,
+        onSendAlert: async (kind, message) => {
+          alerts.push({ kind, message });
+        },
+      });
+
+      // Then: the campaign remains pending and no queue-complete alert is emitted.
+      expect(advanced).toBe(true);
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.selectedGame?.id).toBe('cached-game');
+      expect(alerts).toEqual([]);
+    });
+
     test('keeps ordinary all-acquired queue completion unchanged', async () => {
       // Given: the selected campaign has acquired every reward.
       const state = createMinimalState();
@@ -33,6 +60,7 @@ export function registerQueue15Part03() {
 
       // When: lifecycle advancement reaches the end of the queue.
       await advanceQueueIfCompleted(state, {
+        isCampaignValidationCurrent: () => true,
         onStopMonitoring: () => {
           stopMonitoringCalled = true;
         },
@@ -51,6 +79,15 @@ export function registerQueue15Part03() {
       expect(alerts).toEqual([
         { kind: 'all-complete', message: 'Queue completed. No pending rewards left.' },
       ]);
+
+      // A later worker tick cannot replay the already-confirmed terminal notice.
+      await advanceQueueIfCompleted(state, {
+        isCampaignValidationCurrent: () => true,
+        onSendAlert: async (kind, message) => {
+          alerts.push({ kind, message });
+        },
+      });
+      expect(alerts).toHaveLength(1);
     });
 
     test('keeps ordinary expired queue completion unchanged', async () => {

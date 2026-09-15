@@ -177,7 +177,7 @@ export function registerRecoveryCases() {
     expect(state.queue.map((game) => game.name)).toEqual([nextGame.name, thirdGame.name]);
   });
 
-  test('completes the queue when the last queued game has no live streamers after retry', async () => {
+  test('retains the authorized queue when every campaign is temporarily without streamers', async () => {
     const realDateNow = Date.now;
     let now = realDateNow();
     Date.now = () => now;
@@ -234,24 +234,25 @@ export function registerRecoveryCases() {
         await sleepTick();
       }
 
-      now += 61_000;
+      now += 31_000;
       await triggerMonitorAlarm();
       const finalState = await waitForAppState(
-        (state) => !state.isRunning && state.lastStopReason === 'queue-complete',
-        'queue did not complete after the last no-streamers retry failed',
+        (state) =>
+          state.isRunning &&
+          state.selectedGame?.campaignId === demoGame.campaignId &&
+          state.recoveryReason === 'no-streamers',
+        'queue did not park both campaigns for later retry',
       );
 
       expect(finalState.isPaused).toBe(false);
-      expect(finalState.selectedGame).toBeNull();
       expect(finalState.activeStreamer).toBeNull();
-      expect(finalState.tabId).toBeNull();
-      expect(finalState.queue).toEqual([]);
-      expect(finalState.recoveryReason).toBeNull();
-      expect(finalState.recoveryBackoffUntil).toBeNull();
-      expect(finalState.recoveryAttempts).toBeNull();
-      expect(finalState.lastStopMessage).toContain('Queue completed');
-      expect(finalState.lastStopMessage).toContain('No eligible streamer was found');
-      expect(notifications.some((notification) => notification.title === 'Queue completed')).toBe(true);
+      expect(finalState.queue.map((game) => game.campaignId).sort()).toEqual(
+        [demoGame.campaignId, nextGame.campaignId].sort(),
+      );
+      expect(finalState.manualQueueAuthorized).toBe(true);
+      expect(finalState.recoveryBackoffUntil).toBeGreaterThan(now);
+      expect(finalState.recoveryBackoffUntil).toBeLessThanOrEqual(now + 60_000);
+      expect(notifications.some((notification) => notification.title === 'Queue completed')).toBe(false);
     } finally {
       Date.now = realDateNow;
       chrome.notifications.create = originalCreateNotification;

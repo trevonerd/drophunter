@@ -29,8 +29,10 @@ import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   computeRecoveryBackoffMs,
   MAX_PERSISTENT_RECOVERY_CYCLES,
+  NO_STREAMERS_RETRY_MS,
   StreamRotationReason,
 } from './stream-rotation';
+import type { TwitchApiFailureKind } from './twitch-api/errors.ts';
 import { markTwitchSessionRetrying } from './twitch-session-sync.ts';
 
 export function clearRecoveryState(state: ServiceWorkerState) {
@@ -67,23 +69,33 @@ export function clearStreamerAcquisitionRecoveryState(state: ServiceWorkerState)
 }
 
 export function applyTwitchDataUnavailableRecoveryState(state: ServiceWorkerState) {
-  state.recoveryBackoffUntil = state.apiBackoffUntil;
+  state.recoveryBackoffUntil = Math.max(state.apiBackoffUntil, Date.now() + NO_STREAMERS_RETRY_MS);
   state.lastRecoveryAttemptAt = Date.now();
   state.appState = applyRecoveryStatus(state.appState, {
     reason: 'twitch-data-unavailable',
-    retryAt: state.apiBackoffUntil,
+    retryAt: state.recoveryBackoffUntil,
     attempts: Math.max(1, state.apiConsecutiveFailures),
   });
 }
 
 export function applyApiBackoffRecoveryState(state: ServiceWorkerState) {
-  if (!isStreamerAcquisitionRecovery(state.appState.recoveryReason)) {
+  if (!state.appState.recoveryReason?.startsWith('twitch-')) {
     applyTwitchDataUnavailableRecoveryState(state);
     return;
   }
   const retryAt = Math.max(state.recoveryBackoffUntil, state.apiBackoffUntil);
   state.recoveryBackoffUntil = retryAt;
   state.appState.recoveryBackoffUntil = retryAt;
+}
+
+export function applyGlobalStreamerRecoveryState(state: ServiceWorkerState, kind: TwitchApiFailureKind) {
+  state.recoveryBackoffUntil = state.apiBackoffUntil;
+  state.lastRecoveryAttemptAt = Date.now();
+  state.appState = applyRecoveryStatus(state.appState, {
+    reason: `twitch-${kind}`,
+    retryAt: state.apiBackoffUntil,
+    attempts: state.apiConsecutiveFailures,
+  });
 }
 
 export function applyDirectoryUnavailableRecoveryState(

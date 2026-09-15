@@ -1,6 +1,6 @@
 import { dropMatchesGame, gameCategoryKey, gameKey } from '../../shared/game-selection.ts';
 import { isRewardAutomatable } from '../../shared/reward-semantics.ts';
-import { isExpiredGame } from '../../shared/utils.ts';
+import { isExpiredGame, remainingCampaignTimeMs } from '../../shared/utils.ts';
 import type { TwitchDrop, TwitchGame } from '../../types';
 
 export interface CampaignProgressSummary {
@@ -47,13 +47,8 @@ export function resolveCampaignProgress(
 }
 
 export function formatCampaignEnd(game: TwitchGame, now: number): string {
-  const relativeMs =
-    typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)
-      ? game.expiresInMs
-      : game.endsAt
-        ? Date.parse(game.endsAt) - now
-        : Number.NaN;
-  if (!Number.isFinite(relativeMs)) return 'Ends in unknown time';
+  const relativeMs = remainingCampaignTimeMs(game, now);
+  if (relativeMs === null) return 'Ends in unknown time';
   if (relativeMs <= 0) return 'Expired';
   const minutes = Math.max(1, Math.round(relativeMs / 60_000));
   if (minutes < 60) return `Ends in ${minutes}m`;

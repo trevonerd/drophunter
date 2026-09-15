@@ -12,11 +12,12 @@ import { isExpiredGame } from '../shared/utils.ts';
 import type {
   CampaignAvailability,
   FarmCategoryScope,
+  QueueAcquisitionRound,
   StalledCampaignBlock,
   TwitchDrop,
   TwitchGame,
 } from '../types/index.ts';
-import { type CampaignPriorityCandidate, orderCampaignCandidates } from './campaign-priority.ts';
+import { type CampaignPriorityCandidate, expiryTime, orderCampaignCandidates } from './campaign-priority.ts';
 import type { FarmingAutomationLastPreemptionV1 } from './farming-automation-contracts.ts';
 import {
   type FavoriteCampaignQueuePlan,
@@ -32,6 +33,7 @@ export interface FarmingAutomationCandidateFacts {
 
 export interface FarmingAutomationPolicySnapshot extends FavoriteCampaignQueuePlanInput {
   readonly manualQueueAuthorized?: boolean;
+  readonly queueAcquisitionRound?: QueueAcquisitionRound | null;
   readonly stalledCampaignBlocksByKey?: Readonly<Record<string, StalledCampaignBlock>>;
   readonly campaignAvailabilityByKey: Readonly<Record<string, CampaignAvailability>>;
   readonly farmCategoryScope: FarmCategoryScope;
@@ -90,7 +92,14 @@ function candidateFacts(
   const drops = campaignDrops(snapshot, game);
   const hasStartedReward =
     explicit?.hasStartedReward ?? drops.some((drop) => drop.progress > 0 && !drop.claimed);
-  if (campaignRejectionReason(game, now) !== null || game.rewardSummary?.completion !== 'farmable') {
+  if (
+    (snapshot.queueAcquisitionRound?.attemptedCampaignKeys.includes(gameKey(game)) &&
+      (snapshot.queueAcquisitionRound.nextRoundAt === null ||
+        snapshot.queueAcquisitionRound.nextRoundAt > now)) ||
+    (snapshot.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt ?? 0) > now ||
+    campaignRejectionReason(game, now) !== null ||
+    game.rewardSummary?.completion !== 'farmable'
+  ) {
     return { hasFarmableReward: false, hasStartedReward, isActive: false };
   }
   if (explicit) {
@@ -164,7 +173,9 @@ export function rankFarmingAutomationCandidates(
       ? [candidate]
       : [];
   });
-  return [...favorites, ...manual];
+  return [
+    ...new Map([...favorites, ...manual].map((candidate) => [gameKey(candidate.game), candidate])).values(),
+  ].sort((left, right) => expiryTime(left.game) - expiryTime(right.game));
 }
 
 export function planFarmingAutomationPolicy(

@@ -6,18 +6,25 @@ export async function refreshQueueHead(
   state: ServiceWorkerState,
   options?: QueueProgressOptions,
 ): Promise<void> {
+  if (options?.isCurrent?.() === false) return;
+  await options?.onSaveState?.();
+  if (options?.isCurrent?.() === false) return;
   if (options?.onSaveTimingState) {
     await options.onSaveTimingState(state);
   } else {
     saveTimingState(state).catch(() => undefined);
   }
+  if (options?.isCurrent?.() === false) return;
+  if (state.apiBackoffUntil > Date.now()) return;
   if (options?.onEnsureWorkspace) {
-    await options.onEnsureWorkspace();
+    await options.onEnsureWorkspace(options.isCurrent);
+    if (options.isCurrent?.() === false) return;
   }
   if (options?.onRefreshDropsData) {
     await options.onRefreshDropsData({
       includeCampaignFetch: true,
       includeInventoryFetch: true,
+      isCurrent: options.isCurrent,
       suppressNotifications: true,
     });
   }

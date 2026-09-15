@@ -10,6 +10,7 @@ import {
 } from './api-operations.ts';
 import { PROGRESS_POLL_MS } from './constants.ts';
 import type { StreamContext } from './farming-session.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
@@ -25,7 +26,7 @@ import { createSessionOrchestrator, type TwitchApiRequestOptions } from './sessi
 import { sessionDebugSummary } from './state-persistence.ts';
 import { waitForTabComplete } from './tab-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
-import type { TwitchApiFailure } from './twitch-api/errors.ts';
+import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/errors.ts';
 import { createTwitchSpadeHeartbeat } from './twitch-api/spade-heartbeat.ts';
 import {
   DEFAULT_TWITCH_CLIENT_ID,
@@ -52,6 +53,7 @@ export function createServiceWorkerTwitchGateway(
   dependencies: ServiceWorkerTwitchGatewayDependencies,
 ) {
   const sessionOrchestrator = createSessionOrchestrator(state, {
+    authRecoveryTimeoutMs: 50_000,
     sanitizeTwitchSession,
     sessionDebugSummary,
     readTwitchSessionViaExecuteScript,
@@ -63,7 +65,8 @@ export function createServiceWorkerTwitchGateway(
         return currentUserId === session.userId;
       } catch (error) {
         logWarn('Recovered Twitch session failed semantic validation', { error: String(error) });
-        return false;
+        if (classifyTwitchApiFailure(error).kind === 'auth') return false;
+        throw error;
       }
     },
     getSessionRevision: () => currentTwitchSessionRevision(state),
@@ -74,6 +77,16 @@ export function createServiceWorkerTwitchGateway(
   const twitchSpadeHeartbeat = createTwitchSpadeHeartbeat({ clientId: DEFAULT_TWITCH_CLIENT_ID });
   let latestProgressSnapshot: DropsSnapshot | null = null;
   let latestTwitchApiFailure: TwitchApiFailure | null = null;
+
+  function authResumeGuard(): () => boolean {
+    const epoch = currentFarmingSessionEpoch(state);
+    const shouldResume = state.appState.lastStopReason === 'sign-in-required';
+    return () =>
+      shouldResume &&
+      currentFarmingSessionEpoch(state) === epoch &&
+      !state.appState.isPaused &&
+      (!state.appState.lastStopReason || state.appState.lastStopReason === 'sign-in-required');
+  }
 
   async function ensureContentScriptOnTab(tabId: number): Promise<void> {
     await sessionOrchestrator.ensureContentScriptOnTab(tabId);
@@ -96,7 +109,7 @@ export function createServiceWorkerTwitchGateway(
   async function fetchDropsSnapshot(
     requestOptions: TwitchApiRequestOptions = {},
   ): Promise<DropsSnapshot | null> {
-    const shouldResume = state.appState.lastStopReason === 'sign-in-required';
+    const shouldResume = authResumeGuard();
     clearLastTwitchApiFailure(state);
     const snapshot = await fetchDropsSnapshotFromApiWrapper(
       state,
@@ -113,7 +126,7 @@ export function createServiceWorkerTwitchGateway(
       { TwitchApiClient, sessionDebugSummary, PROGRESS_POLL_MS, logDebug, logWarn, logInfo },
     );
     latestTwitchApiFailure = getLastTwitchApiFailure(state);
-    if (snapshot && shouldResume) await dependencies.resumeAfterAuthRecovery?.();
+    if (snapshot && shouldResume()) await dependencies.resumeAfterAuthRecovery?.();
     return snapshot;
   }
 
@@ -121,7 +134,7 @@ export function createServiceWorkerTwitchGateway(
     options: FetchDropsSnapshotOptions = {},
     requestOptions: TwitchApiRequestOptions = {},
   ): Promise<DropsSnapshot | null> {
-    const shouldResume = state.appState.lastStopReason === 'sign-in-required';
+    const shouldResume = authResumeGuard();
     latestProgressSnapshot = null;
     clearLastTwitchApiFailure(state);
     const snapshot = await fetchDropsSnapshotFromApiWrapper(
@@ -147,7 +160,7 @@ export function createServiceWorkerTwitchGateway(
     );
     latestTwitchApiFailure = getLastTwitchApiFailure(state);
     if (snapshot) latestProgressSnapshot = snapshot;
-    if (snapshot && shouldResume) await dependencies.resumeAfterAuthRecovery?.();
+    if (snapshot && shouldResume()) await dependencies.resumeAfterAuthRecovery?.();
     return snapshot;
   }
 
@@ -174,6 +187,7 @@ export function createServiceWorkerTwitchGateway(
     game: TwitchGame,
     forceSessionRefresh = false,
     language = '',
+    isCurrent?: () => boolean,
   ): Promise<TwitchStreamer[] & { languageFilterApplied: boolean }> {
     return fetchDirectoryStreamersFromApiWrapper(
       state,
@@ -182,8 +196,11 @@ export function createServiceWorkerTwitchGateway(
       language,
       {
         onEnsureTwitchSession: ensureTwitchSession,
+        onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
+        onStopFarmingSession: dependencies.recoverTwitchSession,
         onIsLikelyAuthError: isLikelyAuthError,
         onClearTwitchSessionCache: clearTwitchSessionCache,
+        isCurrent,
       },
       { logWarn },
     );

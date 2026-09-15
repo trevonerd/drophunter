@@ -6,6 +6,10 @@ export function createServiceWorkerState(): ServiceWorkerState {
   return {
     appState: createInitialState(),
     monitorTickInFlight: false,
+    monitorTickDeadlineAt: 0,
+    streamerAcquisitionInFlight: null,
+    streamerAcquisitionDeadlineAt: 0,
+    streamerAcquisitionGeneration: 0,
     tickGeneration: 0,
     invalidStreamChecks: 0,
     lastStreamRotationAt: 0,
@@ -42,6 +46,7 @@ export function createServiceWorkerState(): ServiceWorkerState {
     lastHeartbeatAt: 0,
     lastLifecycleCheckAt: 0,
     lastGamesCacheRefreshAt: 0,
+    hasCurrentGenerationCampaignValidation: false,
     unverifiableRewardsByKey: {},
   };
 }

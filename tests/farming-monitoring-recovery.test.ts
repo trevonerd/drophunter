@@ -42,6 +42,7 @@ describe('farming monitoring recovery', () => {
       state.appState.isPaused = status === 'paused';
       state.appState.isRunning = status !== 'stopped';
       state.monitorTickInFlight = status === 'busy';
+      state.monitorTickDeadlineAt = Date.now() + 60_000;
       let ticks = 0;
       const health = createWatchHealth('tabless', 'healthy', 'started', Date.now);
       const session = createFarmingSession(

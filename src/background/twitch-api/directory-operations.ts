@@ -1,6 +1,7 @@
 import { toSlug } from '../../shared/utils';
 import type { TwitchStreamer } from '../../types';
 import { logDebug, logWarn } from '../logging';
+import { TwitchInvalidResponseError } from './errors.ts';
 import { normalizeImageUrl, normalizeText, toNumber } from './parsing';
 
 const DROPS_TAG_ID = 'c2542d6d-cd10-4532-919b-3d19f30a768b';
@@ -141,7 +142,17 @@ async function fetchDirectoryEdges(
   const data = await transport.post<{ game?: { streams?: { edges?: DirectoryEdge[] } } }>(
     buildDirectoryPayload(request),
   );
-  return data.game?.streams?.edges ?? [];
+  const edges = data?.game?.streams?.edges;
+  if (!Array.isArray(edges)) {
+    throw new TwitchInvalidResponseError('Twitch directory response is missing stream edges');
+  }
+  if (edges.some((edge) => !edge || typeof edge !== 'object')) {
+    throw new TwitchInvalidResponseError('Twitch directory response contains invalid stream edges');
+  }
+  if (edges.length > 0 && parseDirectoryEdges(edges).length === 0) {
+    throw new TwitchInvalidResponseError('Twitch directory response contains no readable stream edges');
+  }
+  return edges;
 }
 
 export async function fetchDirectoryStreamers(

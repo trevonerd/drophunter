@@ -210,33 +210,6 @@ test('session summary exposes exactly one effective transport indicator', () => 
   expect(manualSummary).not.toContain('Healthy');
 });
 
-test('header mute action requires a running DropHunter-owned managed tab', () => {
-  const selected = game();
-  const headerFor = (overrides: Partial<AppState>) => {
-    const markup = renderMainView(
-      { ...appState(selected), ...overrides },
-      [],
-      { runtimeMode: overrides.isRunning ? 'running' : 'idle' },
-    );
-    return markup.match(/<header[\s\S]*?<\/header>/)?.[0] ?? '';
-  };
-
-  expect(
-    headerFor({ isRunning: true, watchTransportMode: 'managed-tab', tabId: 17, muteFarmingTab: false }),
-  ).toContain(
-    'aria-label="Mute stream audio"',
-  );
-  expect(headerFor({ isRunning: true, watchTransportMode: 'tabless', tabId: null })).not.toContain(
-    'aria-label="Mute stream audio"',
-  );
-  expect(headerFor({ isRunning: true, watchTransportMode: 'managed-tab', tabId: null })).not.toContain(
-    'aria-label="Mute stream audio"',
-  );
-  expect(headerFor({ isRunning: false, watchTransportMode: 'managed-tab', tabId: 17 })).not.toContain(
-    'aria-label="Mute stream audio"',
-  );
-});
-
 test('non-blocking session retry never exposes Twitch recovery controls', () => {
   const selected = game();
   const authRecoveryMarkup = renderMainView(

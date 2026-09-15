@@ -7,7 +7,7 @@ import type { StartFarmingPayload, StartFarmingResult } from './session-lifecycl
 export type FarmingSessionStartDependencies = {
   readonly onEnsureWorkspace: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<unknown>;
-  readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
+  readonly onAdvanceQueueIfCompleted: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly onAcquireStreamer: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly onStartMonitoring: () => void;
   readonly onStopMonitoring: () => void;
@@ -23,10 +23,12 @@ export async function runFarmingSessionStart(
   payload: StartFarmingPayload,
   isCurrent: () => boolean,
   skipLegacyQueueAdvance: boolean,
+  preserveQueueContext = false,
 ): Promise<StartFarmingResult> {
   const { state, adapters } = context;
   const result = await startFarming(state, payload, {
-    ...(skipLegacyQueueAdvance ? { isCurrent } : {}),
+    isCurrent,
+    preserveQueueContext,
     onEnsureWorkspace: dependencies.onEnsureWorkspace,
     onRefreshDropsData: async (options) => {
       await dependencies.onRefreshDropsData(options);
@@ -56,7 +58,7 @@ export async function runFarmingSessionStart(
   // legacy callbacks do not receive the activation predicate. Manual starts
   // retain their established queue-advance behavior.
   if (!skipLegacyQueueAdvance) {
-    const advanced = await dependencies.onAdvanceQueueIfCompleted();
+    const advanced = await dependencies.onAdvanceQueueIfCompleted(isCurrent);
     if (!isCurrent()) return superseded();
     if (!advanced) return { success: false, error: 'Unable to advance completed queue.' };
   }

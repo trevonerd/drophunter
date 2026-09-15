@@ -2,6 +2,7 @@
 import { browser } from '../shared/browser-api.ts';
 import { gameKey } from '../shared/game-selection';
 import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
+import { isExpiredGame } from '../shared/utils.ts';
 import {
   CRASH_RECOVERY_GRACE_MS,
   INVENTORY_REFRESH_INTERVAL_MS,
@@ -23,7 +24,7 @@ export interface CheckDropProgressCallbacks {
     isCurrent?: () => boolean;
   }) => Promise<RefreshDropsOutcome>;
   onAutoClaimClaimableDrops: () => Promise<boolean>;
-  onAdvanceQueueIfCompleted: () => Promise<boolean>;
+  onAdvanceQueueIfCompleted: (isCurrent?: () => boolean) => Promise<boolean>;
   onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
   onWatchTransportTick?: (isCurrent: () => boolean) => Promise<boolean | undefined>;
 }
@@ -44,14 +45,23 @@ export async function checkDropProgress(
   });
 
   if (state.monitorTickInFlight) {
-    logDebug('Tick skipped — monitorTickInFlight already true');
-    return;
+    const deadline = state.monitorTickDeadlineAt || state.lastHeartbeatAt + TICK_WATCHDOG_TIMEOUT_MS;
+    if (Date.now() < deadline) {
+      logDebug('Tick skipped — monitorTickInFlight already true');
+      return;
+    }
+    logWarn('Expired monitoring operation invalidated after wake', { deadline });
+    state.tickGeneration += 1;
+    state.monitorTickInFlight = false;
   }
   state.monitorTickInFlight = true;
   state.lastHeartbeatAt = Date.now();
+  const deadline = Date.now() + TICK_WATCHDOG_TIMEOUT_MS;
+  state.monitorTickDeadlineAt = deadline;
   const myTickGeneration = state.tickGeneration;
   const ownsTick = () => state.tickGeneration === myTickGeneration;
-  const isCurrent = () => ownsTick() && state.appState.isRunning && !state.appState.isPaused;
+  const isCurrent = () =>
+    ownsTick() && Date.now() < deadline && state.appState.isRunning && !state.appState.isPaused;
   const isStaleTick = () => {
     if (!isCurrent()) {
       logDebug('Tick generation stale (session stopped/restarted mid-tick) — aborting');
@@ -67,10 +77,15 @@ export async function checkDropProgress(
       });
       state.tickGeneration += 1;
       state.monitorTickInFlight = false;
+      state.monitorTickDeadlineAt = 0;
     }
   }, TICK_WATCHDOG_TIMEOUT_MS);
 
   try {
+    if (state.appState.selectedGame && isExpiredGame(state.appState.selectedGame)) {
+      await callbacks.onAdvanceQueueIfCompleted(isCurrent);
+      return;
+    }
     const transportAdvancedQueue = await callbacks.onWatchTransportTick?.(isCurrent);
     if (isStaleTick()) return;
     if (transportAdvancedQueue) return;
@@ -79,6 +94,13 @@ export async function checkDropProgress(
       logDebug('API backoff active, skipping network refresh work', {
         remainingMs: state.apiBackoffUntil - Date.now(),
       });
+      if (
+        isStreamerAcquisitionRecovery(state.appState.recoveryReason) &&
+        Date.now() >= state.recoveryBackoffUntil
+      ) {
+        await callbacks.onAcquireStreamerForSelectedGame(isCurrent);
+        if (isStaleTick()) return;
+      }
       await callbacks.onAutoClaimClaimableDrops();
       if (isStaleTick()) return;
       return;
@@ -123,7 +145,7 @@ export async function checkDropProgress(
     }
 
     const selectedBeforeAdvance = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
-    const advancedBeforeValidation = await callbacks.onAdvanceQueueIfCompleted();
+    const advancedBeforeValidation = await callbacks.onAdvanceQueueIfCompleted(isCurrent);
     if (isStaleTick()) return;
     if (!advancedBeforeValidation || !state.appState.isRunning || state.appState.isPaused) {
       return;
@@ -158,11 +180,12 @@ export async function checkDropProgress(
     }
     await callbacks.onAttemptAutoClaimChannelPointsBonus();
     if (isStaleTick()) return;
-    await callbacks.onAdvanceQueueIfCompleted();
+    await callbacks.onAdvanceQueueIfCompleted(isCurrent);
   } finally {
     clearTimeout(tickWatchdogTimer);
     if (ownsTick()) {
       state.monitorTickInFlight = false;
+      state.monitorTickDeadlineAt = 0;
       await callbacks.onSaveTimingState(state);
     }
   }

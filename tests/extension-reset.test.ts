@@ -30,7 +30,7 @@ describe('extension update reset', () => {
       totalDropsClaimed: 42,
       notificationsEnabled: true,
       watchTransportPreference: 'tabless',
-      availableGames: [],
+      availableGames: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       queue: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       selectedGame: { id: 'game-1', name: 'Stale Game', imageUrl: '' },
       isRunning: false,

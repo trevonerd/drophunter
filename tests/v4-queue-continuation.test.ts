@@ -163,7 +163,14 @@ describe('v4 queue continuation authorization', () => {
       stopped,
       queue: state.appState.queue.map(gameKey),
       selected: state.appState.selectedGame,
-    }).toEqual({ opened: 0, stopped: 1, queue: [gameKey(manualA)], selected: null });
+    }).toEqual({
+      opened: 0,
+      stopped: 0,
+      queue: [gameKey(automaticC), gameKey(manualA)],
+      selected: automaticC,
+    });
+    expect(state.appState.manualQueueAuthorized).toBe(false);
+    expect(state.appState.recoveryReason).toBe('no-streamers');
   });
 
   test('does not continue into an unauthorized manual tail after the active campaign expires', async () => {

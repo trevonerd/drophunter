@@ -27,6 +27,12 @@ export type ManagedPlaybackPreparation = {
 type ManagedWatchOwnership = Extract<WatchOwnershipV1, { readonly kind: 'managed-tab' }>;
 
 export interface ManagedProvisionalWatchOperations {
+  readonly isCurrent?: () => boolean;
+  readonly confirmOwnership?: (
+    tabId: number,
+    ownershipToken: string,
+    expectedUrl: string,
+  ) => Promise<boolean>;
   readonly createOwnershipToken: () => string;
   readonly persistOwnership: (token: string, expectedUrl: string) => Promise<boolean>;
   readonly discardOwnership: (token: string) => Promise<void>;
@@ -46,8 +52,14 @@ export async function prepareManagedProvisionalWatch(
   expectedUrl: string,
   operations: ManagedProvisionalWatchOperations,
 ): Promise<ProvisionalWatchCandidate | null> {
+  const isCurrent = operations.isCurrent ?? (() => true);
+  if (!isCurrent()) return null;
   const ownershipToken = operations.createOwnershipToken();
   if (!(await operations.persistOwnership(ownershipToken, expectedUrl))) return null;
+  if (!isCurrent()) {
+    await operations.discardOwnership(ownershipToken);
+    return null;
+  }
   const tab = await operations.openTab(expectedUrl);
   if (typeof tab?.id !== 'number') {
     await operations.discardOwnership(ownershipToken);
@@ -63,14 +75,27 @@ export async function prepareManagedProvisionalWatch(
   let probe: WatchProbeResult = { accepted: false, reason: 'error' };
   let prepared = false;
   try {
-    await operations.waitForTabComplete(tabId, 15_000);
-    await operations.preparePlayback(tabId, {
-      activateTab: false,
-      unmuteTab: false,
-      muteAfterPrep: true,
-    });
-    probe = await operations.probe(ownership, target);
-    prepared = true;
+    if (isCurrent()) await operations.waitForTabComplete(tabId, 15_000);
+    if (
+      isCurrent() &&
+      operations.confirmOwnership &&
+      !(await operations.confirmOwnership(tabId, ownershipToken, expectedUrl))
+    ) {
+      return {
+        target,
+        ownership,
+        health: createWatchHealth('managed-tab', 'failed', 'error', operations.now),
+        dispose: () => operations.release(ownership).then(() => undefined),
+      };
+    }
+    if (isCurrent())
+      await operations.preparePlayback(tabId, {
+        activateTab: false,
+        unmuteTab: false,
+        muteAfterPrep: true,
+      });
+    if (isCurrent()) probe = await operations.probe(ownership, target);
+    prepared = isCurrent();
   } catch (error) {
     if (!(error instanceof Error)) throw error;
   }

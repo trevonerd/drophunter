@@ -1,4 +1,8 @@
 import {
+  readManagedWatchMarkerInPage,
+  writeManagedWatchMarkerInPage,
+} from '../../src/background/managed-watch-marker.ts';
+import {
   clearPendingTimingStateSaveForTests,
   setTimingSaveDebounceMsForTests,
 } from '../../src/background/state-persistence.ts';
@@ -7,35 +11,35 @@ import type { RuntimeRequest, RuntimeResponseByType } from '../../src/shared/mes
 import type { AppState, TwitchGame } from '../../src/types/index.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
 import type { MessageSender } from '../mocks/chrome-types.ts';
+import { installManagedWatchPages } from '../support/managed-watch-pages.ts';
 import { installFetchMock, resetFetchScenarios } from './service-worker-fetch.ts';
 
 const originalFetch = globalThis.fetch;
 export const chromeMocks = setupChromeMocks();
+const defaultQueryTabs = chromeMocks.chrome.tabs.query;
+const defaultExecuteScript = chromeMocks.chrome.scripting.executeScript;
 setTimingSaveDebounceMsForTests(0);
 
 export const serviceWorkerModule = await import('../../src/background/service-worker.ts');
 serviceWorkerModule.startServiceWorker();
 
 export function installActiveTabMocks() {
-  chromeMocks.chrome.tabs.create = async ({ url }) => ({
-    id: 999,
-    windowId: 1,
-    url: url ?? 'https://www.twitch.tv/test-streamer',
-    status: 'complete',
-  });
-  chromeMocks.chrome.tabs.update = async (tabId, updateProperties) => ({
-    id: tabId,
-    windowId: 1,
-    url: updateProperties?.url ?? 'https://www.twitch.tv/test-streamer',
-    active: Boolean(updateProperties?.active),
-    status: 'complete',
-  });
-  chromeMocks.chrome.tabs.get = async (tabId) => ({
-    id: tabId,
-    windowId: 1,
-    url: 'https://www.twitch.tv/test-streamer',
-    status: 'complete',
-  });
+  const pages = installManagedWatchPages(chromeMocks);
+  const executePageScript = chromeMocks.chrome.scripting.executeScript;
+  const getPage = chromeMocks.chrome.tabs.get;
+  let nextTabId = 999;
+  chromeMocks.chrome.tabs.query = defaultQueryTabs;
+  chromeMocks.chrome.tabs.create = async ({ url }) =>
+    pages.add(url ?? 'https://www.twitch.tv/test-streamer', nextTabId++);
+  chromeMocks.chrome.tabs.get = async (tabId) =>
+    pages.pages.has(tabId)
+      ? getPage(tabId)
+      : { id: tabId, windowId: 1, url: 'https://www.twitch.tv/test-streamer', status: 'complete' };
+  chromeMocks.chrome.scripting.executeScript = async (options) => {
+    if (options.func === writeManagedWatchMarkerInPage || options.func === readManagedWatchMarkerInPage)
+      return executePageScript(options);
+    return defaultExecuteScript(options);
+  };
   chromeMocks.chrome.tabs.sendMessage = async (_tabId, message) => {
     if (message.type === 'PREPARE_STREAM_PLAYBACK') {
       return { success: true, isPlaybackReady: true, userInteractionRequired: false };

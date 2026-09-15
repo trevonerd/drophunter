@@ -51,3 +51,12 @@ export function runFarmingSessionMutation<T>(
   invalidateFarmingSessionEpoch(state);
   return runInFarmingSessionCriticalSection(state, mutation);
 }
+
+export function interruptFarmingSessionMutation<T>(
+  state: ServiceWorkerState,
+  mutation: () => Promise<T>,
+): Promise<T> {
+  invalidateFarmingSessionEpoch(state);
+  revisionState(state).tail = Promise.resolve();
+  return runInFarmingSessionCriticalSection(state, mutation);
+}

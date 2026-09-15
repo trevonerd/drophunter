@@ -1,6 +1,7 @@
 // Extracted from src/popup/App.tsx (QueueChips component).
 import { useEffect, useState } from 'react';
 import { gameKey, getGameDisplayLabel, isFavoriteGame } from '../../shared/game-selection';
+import { remainingCampaignTimeMs } from '../../shared/utils.ts';
 import type { CampaignPriorityMode, QueueEntryMetadata, TwitchGame } from '../../types';
 import { useQueueDragReorder } from '../hooks/useQueueDragReorder';
 import { isSameQueuedGame, queueGameIdentity } from '../queue-start';
@@ -73,13 +74,8 @@ export function QueueChips({
   const favorites = favoriteGameIds instanceof Set ? favoriteGameIds : new Set(favoriteGameIds ?? []);
 
   const formatEndsIn = (game: TwitchGame): string => {
-    const relativeMs =
-      typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)
-        ? game.expiresInMs
-        : game.endsAt
-          ? Date.parse(game.endsAt) - now
-          : Number.NaN;
-    if (!Number.isFinite(relativeMs)) return 'Ends in unknown time';
+    const relativeMs = remainingCampaignTimeMs(game, now);
+    if (relativeMs === null) return 'Ends in unknown time';
     if (relativeMs <= 0) return 'Expired';
     const minutes = Math.max(1, Math.round(relativeMs / 60_000));
     if (minutes < 60) return `Ends in ${minutes}m`;

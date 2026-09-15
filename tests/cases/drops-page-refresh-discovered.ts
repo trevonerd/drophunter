@@ -32,6 +32,7 @@ export function registerDiscoveredDropsPageRefreshCases() {
       opened: false,
       refreshed: true,
       gamesCount: 1,
+      inventoryVerified: false,
       appState: state.appState,
     });
     expect(tabsApi.activated).toEqual([12]);
@@ -144,6 +145,7 @@ export function registerDiscoveredDropsPageRefreshCases() {
       opened: true,
       refreshed: true,
       gamesCount: 1,
+      inventoryVerified: false,
       appState: state.appState,
     });
     expect(result.error).toBeUndefined();

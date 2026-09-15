@@ -35,6 +35,7 @@ export type SessionSummaryModelInput = {
   readonly runtimeMode: RuntimeMode;
   readonly currentAutomatableDrop: TwitchDrop | null;
   readonly recoveryNow: number;
+  readonly automaticStartPending?: boolean;
 };
 
 function campaignSubject(state: AppState): string {
@@ -67,6 +68,7 @@ export function createSessionSummaryModel({
   runtimeMode,
   currentAutomatableDrop,
   recoveryNow,
+  automaticStartPending,
 }: SessionSummaryModelInput): SessionSummaryModel {
   const subject = campaignSubject(state);
   const manualWatchState = state.manualWatchState ?? 'inactive';
@@ -179,6 +181,7 @@ export function createSessionSummaryModel({
   }
 
   if (
+    automaticStartPending ||
     !state.twitchSessionDetected ||
     campaignSyncStatus === 'syncing' ||
     campaignSyncStatus === 'needs-session' ||
@@ -190,7 +193,11 @@ export function createSessionSummaryModel({
       progressState: 'waiting',
       label: 'Campaigns pending validation',
       subject,
-      detail: 'Saved campaign data will be confirmed when Twitch is available.',
+      detail: automaticStartPending
+        ? state.manualQueueAuthorized
+          ? 'The started queue will resume automatically after campaign validation succeeds.'
+          : 'Favorite auto-start will check eligible favorites after campaign validation succeeds.'
+        : 'Saved campaign data will be confirmed when Twitch is available.',
       tone: 'warning',
     };
   }

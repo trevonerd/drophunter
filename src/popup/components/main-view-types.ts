@@ -18,6 +18,7 @@ export interface MainViewProps {
   firstSyncConfirmation: boolean;
   firstSyncCampaignCount: number | null;
   queueMessage: string | null;
+  dismissedQueueCleanupActivityId: string | null;
   notificationPermissionDenied: boolean;
   onAutoStartFavoriteGamesToggle: () => void;
   onMuteToggle: () => void;
@@ -28,6 +29,7 @@ export interface MainViewProps {
   onResume: () => void;
   onStop: () => void;
   onRetryCampaignSync: () => void;
+  onDismissQueueCleanup: (activityId: string) => void;
   onAddToQueue: (game?: TwitchGame) => void;
   onAddAllToQueue: (games: readonly TwitchGame[]) => void;
   onLinkAccount: (game: TwitchGame) => void;

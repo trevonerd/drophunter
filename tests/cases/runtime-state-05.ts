@@ -73,15 +73,15 @@ describe('applyExtensionUpdateStateTransition', () => {
     expect(state.appState.wasRunning).toBe(true);
   });
 
-  test('wipes volatile session/recovery/rotation state', () => {
+  test('clears volatile stream state while retaining the persisted recovery deadline', () => {
     const state = makeRunningState();
     applyExtensionUpdateStateTransition(state);
 
     expect(state.appState.tabId).toBeNull();
     expect(state.appState.activeStreamer).toBeNull();
-    expect(state.appState.recoveryReason).toBeNull();
-    expect(state.appState.recoveryBackoffUntil).toBeNull();
-    expect(state.appState.recoveryAttempts).toBeNull();
+    expect(state.appState.recoveryReason).toBe('stalled-progress');
+    expect(state.appState.recoveryBackoffUntil).toBe(99_999);
+    expect(state.appState.recoveryAttempts).toBe(3);
     expect(state.appState.resumedFromCrash).toBeNull();
     expect(state.appState.completionNotified).toBe(false);
     expect(state.appState.dropsPageRefreshInProgress).toBe(false);

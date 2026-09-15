@@ -96,10 +96,12 @@ export interface PermissionsRequest {
 export interface ScriptInjection {
   target: { tabId: number };
   func: () => unknown;
+  args?: readonly unknown[];
 }
 
 export interface ScriptInjectionResult {
   result?: unknown;
+  frameId?: number;
 }
 
 export interface ListenerMock<T> {

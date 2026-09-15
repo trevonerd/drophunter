@@ -5,6 +5,10 @@ import type { TwitchSession } from './twitch-api/types.ts';
 export interface ServiceWorkerState {
   appState: AppState;
   monitorTickInFlight: boolean;
+  monitorTickDeadlineAt: number;
+  streamerAcquisitionInFlight: Promise<boolean> | null;
+  streamerAcquisitionDeadlineAt: number;
+  streamerAcquisitionGeneration: number;
   tickGeneration: number;
   invalidStreamChecks: number;
   lastStreamRotationAt: number;
@@ -41,5 +45,6 @@ export interface ServiceWorkerState {
   lastHeartbeatAt: number;
   lastLifecycleCheckAt: number;
   lastGamesCacheRefreshAt: number;
+  hasCurrentGenerationCampaignValidation: boolean;
   unverifiableRewardsByKey: Record<string, UnverifiableRewardMarker>;
 }

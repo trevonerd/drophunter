@@ -11,6 +11,33 @@ function deferred() {
 }
 
 describe('farming automation user-action wiring', () => {
+  for (const favoritesEnabled of [false, true]) {
+    test(`Stop invalidates immediately and snoozes automation with favorites=${favoritesEnabled}`, async () => {
+      const persistence = deferred();
+      const events: string[] = [];
+      const automation: FarmingAutomation = {
+        request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
+        snooze: async () => {
+          events.push('snoozed');
+          await persistence.promise;
+          return 'snoozed';
+        },
+      };
+      const actions = createFarmingAutomationUserActionHandlers(automation, {
+        automaticFavoritesEnabled: () => favoritesEnabled,
+        handlePauseFarming: async () => ({ success: true }),
+        handleResumeFarming: async () => ({ success: true }),
+        handleStopFarming: async () => {
+          events.push('stopped');
+          return { success: true };
+        },
+      });
+      const stop = actions.stopFarming();
+      expect(events).toEqual(['snoozed', 'stopped']);
+      persistence.resolve();
+      expect(await stop).toEqual({ success: true });
+    });
+  }
   test('applies user action and surfaces snooze failure', async () => {
     // Given pause and stop snoozes whose synchronous invalidation precedes a blocked persistence write.
     const events: string[] = [];
@@ -38,7 +65,7 @@ describe('farming automation user-action wiring', () => {
     // When each request reaches the storage barrier and that persistence attempt fails.
     const pause = actions.pauseFarming();
     await Promise.resolve();
-    expect(events).toEqual(['manual-pause:invalidate']);
+    expect(events).toEqual(['manual-pause:invalidate', 'pause:action']);
     persistence.resolve();
     const pauseResponse = await pause;
     persistence = deferred();
@@ -46,9 +73,10 @@ describe('farming automation user-action wiring', () => {
     await Promise.resolve();
     expect(events).toEqual([
       'manual-pause:invalidate',
-      'manual-pause:persistence-failed',
       'pause:action',
+      'manual-pause:persistence-failed',
       'manual-stop:invalidate',
+      'stop:action',
     ]);
     persistence.resolve();
     const stopResponse = await stop;
@@ -56,11 +84,11 @@ describe('farming automation user-action wiring', () => {
     // Then both user actions run exactly once and neither response reports a false clean success.
     expect(events).toEqual([
       'manual-pause:invalidate',
-      'manual-pause:persistence-failed',
       'pause:action',
+      'manual-pause:persistence-failed',
       'manual-stop:invalidate',
-      'manual-stop:persistence-failed',
       'stop:action',
+      'manual-stop:persistence-failed',
     ]);
     expect(pauseResponse).toEqual({
       success: false,

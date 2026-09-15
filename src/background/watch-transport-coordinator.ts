@@ -52,6 +52,7 @@ function targetFor(state: ServiceWorkerState, streamer: TwitchStreamer): Farming
     selectionId: selected.id,
     campaignId: selected.campaignId,
     categorySlug: selected.categorySlug?.trim() || toSlug(selected.name),
+    categoryName: selected.name,
     channelName: streamer.name,
   };
 }

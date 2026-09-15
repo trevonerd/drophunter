@@ -15,6 +15,7 @@ import {
   isFarmingSessionEpochCurrent,
   runInFarmingSessionCriticalSection,
 } from './farming-session-revision.ts';
+import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   candidateWorkingState,
@@ -107,9 +108,11 @@ export async function transitionAutomaticFarmingSession(
         campaignId: workingCandidate.candidate.campaignId,
         categorySlug:
           workingCandidate.candidate.categorySlug?.trim() || toSlug(workingCandidate.candidate.name),
+        categoryName: workingCandidate.candidate.name,
         channelName: streamer.name,
       },
       request.watchMode,
+      isCurrent,
     );
   } catch {
     return { kind: 'failed', reason: 'candidate-preparation-failed' };
@@ -134,6 +137,7 @@ export async function transitionAutomaticFarmingSession(
       });
     }
     const working = workingCandidate.state;
+    resetQueueAcquisitionRound(working);
     working.appState.activeStreamer = structuredClone(streamer);
     working.appState.watchTransportMode = preparation.watch.health.mode;
     working.appState.watchHealth = structuredClone(preparation.watch.health);
@@ -177,6 +181,12 @@ export async function transitionAutomaticFarmingSession(
       case 'failed':
         return disposeForResult(preparation.watch, { kind: 'failed', reason: 'transition-commit-failed' });
       case 'committed': {
+        if (!isFarmingSessionEpochCurrent(state, epoch)) {
+          return disposeForResult(preparation.watch, {
+            kind: 'unchanged',
+            reason: 'superseded-by-state-change',
+          });
+        }
         Object.assign(state, working);
         const promotion = preparation.watch.promote();
         if (promotion.kind === 'discarded') {

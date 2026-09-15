@@ -1,5 +1,6 @@
 import { resetSaveStateBroadcastCacheForTests } from '../../src/background/state-persistence';
 import { createListenerMock, createMessageListenerMock } from './chrome-events.ts';
+import { createManagedMarkerScriptMock } from './chrome-managed-markers.ts';
 import { createStorageMock } from './chrome-storage.ts';
 import type {
   Alarm,
@@ -135,7 +136,7 @@ export function setupChromeMocks(): ChromeMocks {
   };
 
   const scripting: MockChrome['scripting'] = {
-    executeScript: (_options) => Promise.resolve([]),
+    executeScript: createManagedMarkerScriptMock(),
   };
   const chrome: MockChrome = {
     storage,

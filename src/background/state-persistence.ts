@@ -1,8 +1,11 @@
 import { normalizeStoredAppState } from '../shared/app-state-sync.ts';
 import { browser } from '../shared/browser-api.ts';
+import { pickNearestDrop } from '../shared/drop-order.ts';
+import { dropMatchesGame } from '../shared/game-selection.ts';
 import type { AppState, TwitchDrop } from '../types';
 import { DROPS_SNAPSHOT_CACHE_KEY, GAMES_CACHE_TTL_MS, LAST_ACTIVITY_AT_KEY } from './constants';
 import { logDebug, logWarn } from './logging';
+import { recordRuntimeDiagnostic } from './runtime-diagnostics.ts';
 import { pickDurablePreferences } from './runtime-state';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
@@ -41,6 +44,19 @@ export function shouldRefreshGamesCache(state: ServiceWorkerState, force = false
   return Date.now() - state.lastGamesCacheRefreshAt >= GAMES_CACHE_TTL_MS;
 }
 
+function selectBadgeProgressDrop(appState: AppState): TwitchDrop | null {
+  const selectedGame = appState.selectedGame;
+  const isCurrentCampaignDrop = (drop: TwitchDrop): boolean =>
+    selectedGame === null || dropMatchesGame(drop, selectedGame);
+  const currentDrop = appState.currentDrop;
+  if (currentDrop && currentDrop.progress < 100 && isCurrentCampaignDrop(currentDrop)) {
+    return currentDrop;
+  }
+  return pickNearestDrop(
+    appState.pendingDrops.filter((drop) => drop.progress < 100 && isCurrentCampaignDrop(drop)),
+  );
+}
+
 export function broadcastStateUpdate(appState: AppState) {
   browser.runtime
     .sendMessage({
@@ -49,8 +65,9 @@ export function broadcastStateUpdate(appState: AppState) {
     })
     .catch(() => undefined);
 
-  if (appState.currentDrop && appState.isRunning) {
-    browser.action.setBadgeText({ text: `${appState.currentDrop.progress}%` });
+  const badgeDrop = selectBadgeProgressDrop(appState);
+  if (badgeDrop && appState.isRunning) {
+    browser.action.setBadgeText({ text: `${badgeDrop.progress}%` });
     browser.action.setBadgeBackgroundColor({ color: '#9146FF' });
   } else if (appState.isRunning) {
     browser.action.setBadgeText({ text: '...' });
@@ -76,6 +93,7 @@ export async function saveState(state: ServiceWorkerState) {
     appState: state.appState,
     [DROPS_SNAPSHOT_CACHE_KEY]: state.cachedDropsSnapshot,
   });
+  recordRuntimeDiagnostic(state.appState);
   const signature = JSON.stringify(state.appState);
   if (signature !== lastBroadcastAppStateSignature) {
     lastBroadcastAppStateSignature = signature;
@@ -170,13 +188,12 @@ export async function resetStateForInactivity(
 ): Promise<boolean> {
   const persistentState = pickDurablePreferences(state.appState);
   const savedState = state.appState;
-  const resumeManualQueue =
-    savedState.manualQueueAuthorized && savedState.autoResumeOnStartup && !savedState.isPaused;
   const resetAppState = callbacks.onClearRotationMetadata({
     ...deps.createInitialState(),
     ...persistentState,
     queue: savedState.queue,
     queueEntryMetadataByKey: savedState.queueEntryMetadataByKey,
+    queueAcquisitionRound: savedState.queueAcquisitionRound,
     selectedGame: savedState.selectedGame,
     stalledCampaignBlocksByKey: savedState.stalledCampaignBlocksByKey,
     availableGames: savedState.availableGames,
@@ -191,8 +208,12 @@ export async function resetStateForInactivity(
     automationActivity: savedState.automationActivity,
     campaignSyncState: savedState.campaignSyncState,
     twitchSessionSyncState: savedState.twitchSessionSyncState,
-    manualQueueAuthorized: resumeManualQueue,
-    farmingSessionOrigin: resumeManualQueue ? savedState.farmingSessionOrigin : null,
+    isRunning: savedState.isRunning,
+    isPaused: savedState.isPaused,
+    manualQueueAuthorized: savedState.manualQueueAuthorized,
+    farmingSessionOrigin: savedState.farmingSessionOrigin,
+    lastStopReason: savedState.lastStopReason,
+    lastStopMessage: savedState.lastStopMessage,
     wasRunning: savedState.isRunning || savedState.wasRunning,
     watchTransportMode: savedState.watchTransportPreference,
   });

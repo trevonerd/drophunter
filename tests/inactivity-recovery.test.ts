@@ -71,7 +71,7 @@ describe('recovery after prolonged browser inactivity', () => {
         autoStartFavoriteGames: false,
         lastSuccessfulRefreshAt: 10,
         campaignSyncState: sync,
-        isRunning: false,
+        isRunning: true,
         tabId: null,
       });
       expect(mocks.storage.local._store.get('appState')).toMatchObject({

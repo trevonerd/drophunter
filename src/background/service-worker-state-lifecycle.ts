@@ -14,8 +14,10 @@ import {
 import {
   applyExtensionDataClearStateTransition,
   applyExtensionUpdateStateTransition,
+  captureExtensionUpdateIntent,
 } from './extension-reset.ts';
 import { persistExtensionResetState } from './extension-reset-persistence.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logInfo } from './logging.ts';
 import {
   applyStartupAutoResumeTransition,
@@ -99,13 +101,13 @@ export function createServiceWorkerStateLifecycle(
   }
 
   async function handleExtensionUpdate(): Promise<void> {
-    const updateIntent = {
-      wasRunning: state.appState.isRunning || state.appState.wasRunning,
-      queue: state.appState.queue.slice(),
-      selectedGame: state.appState.selectedGame,
-      queueEntryMetadataByKey: { ...state.appState.queueEntryMetadataByKey },
-    };
+    const epoch = currentFarmingSessionEpoch(state);
+    const updateIntent = captureExtensionUpdateIntent(state.appState);
     await dependencies.getFarmingSession().stop({ skipTimingStateSave: true });
+    if (currentFarmingSessionEpoch(state) !== epoch) {
+      await saveState(state);
+      return;
+    }
     applyExtensionUpdateStateTransition(state, updateIntent);
     state.lastLifecycleCheckAt = Date.now();
     await clearExtensionRuntimeStorage();

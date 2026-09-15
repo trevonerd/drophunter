@@ -87,8 +87,8 @@ export function registerStreamRecoveryCases() {
     expect(nextNoProgressRotationAttempts(2, 'missing-context')).toBe(2);
   });
 
-  test('no streamer retry window is exactly one minute', () => {
-    expect(NO_STREAMERS_RETRY_MS).toBe(60_000);
+  test('no streamer retry window is thirty seconds', () => {
+    expect(NO_STREAMERS_RETRY_MS).toBe(30_000);
   });
 
   test('stalled progress recovery is capped to three human-readable attempts', () => {

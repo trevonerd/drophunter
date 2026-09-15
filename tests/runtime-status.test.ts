@@ -13,6 +13,7 @@ import {
   formatStopReason,
   getRecoveryState,
   getTerminalStopState,
+  isStreamerAcquisitionRecovery,
 } from '../src/shared/runtime-status.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 
@@ -134,6 +135,23 @@ describe('runtime status selectors', () => {
 });
 
 describe('runtime status formatting', () => {
+  test('recognizes global Twitch failures as acquisition recovery when the directory cannot be queried', () => {
+    // Given global failures that must freeze campaign acquisition counters.
+    const reasons = [
+      'twitch-auth',
+      'twitch-integrity',
+      'twitch-network',
+      'twitch-rate-limit',
+      'twitch-invalid-response',
+    ];
+
+    // When classifying persisted recovery reasons.
+    const recoveries = reasons.map(isStreamerAcquisitionRecovery);
+
+    // Then every global failure remains a recoverable acquisition state.
+    expect(recoveries).toEqual([true, true, true, true, true]);
+  });
+
   test('preserves terminal stop reason labels', () => {
     const reasons = [
       ['no-active-campaigns', 'No active Twitch Drops campaigns found'],
@@ -187,9 +205,11 @@ describe('runtime status formatting', () => {
     expect(formatRecoveryAttemptLabel('stalled-progress', null)).toBeNull();
   });
 
-  test('formats retry label only for future timestamps', () => {
+  test('keeps a waiting label when the retry deadline passes without evidence of an active attempt', () => {
     expect(formatRetryLabel(61_000, 1_000)).toBe('retry in 1m');
     expect(formatRetryLabel(1_500, 1_000)).toBe('retry in 1s');
-    expect(formatRetryLabel(500, 1_000)).toBeNull();
+    expect(formatRetryLabel(500, 1_000)).toBe('waiting for scheduled retry');
+    expect(formatRetryLabel(1_000, 1_000)).toBe('waiting for scheduled retry');
+    expect(formatRetryLabel(null, 1_000)).toBeNull();
   });
 });

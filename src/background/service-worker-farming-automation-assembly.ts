@@ -1,4 +1,5 @@
 import { gameKey } from '../shared/game-selection.ts';
+import { isExpectedStreamCategory } from '../shared/stream-category.ts';
 import { recordAutomationActivity } from './automation-activity.ts';
 import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import { initializeFarmingAutomationLifecycle } from './extension-lifecycle.ts';
@@ -22,6 +23,7 @@ import {
 } from './farming-automation-recovery.ts';
 import { createFarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
+import { reconcileManagedWatchesOnStartup } from './managed-watch-startup.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
 import type { createServiceWorkerTwitchGateway } from './service-worker-twitch-gateway.ts';
@@ -79,6 +81,7 @@ export async function assembleServiceWorkerFarmingAutomation(
     default:
       receiptRead satisfies never;
   }
+  currentOwnership = await reconcileManagedWatchesOnStartup(state, currentOwnership);
   if (currentOwnership) await dependencies.browserEvents.watchTransport.restore(currentOwnership);
 
   const automationBrowser = createFarmingAutomationBrowser({
@@ -92,7 +95,7 @@ export async function assembleServiceWorkerFarmingAutomation(
       probeManaged: async (ownership, target) => {
         const context = await dependencies.twitchGateway.fetchStreamContext(ownership.tabId);
         const sameChannel = context?.channelName.toLowerCase() === target.channelName.toLowerCase();
-        const sameGame = target.categorySlug !== undefined && context?.categorySlug === target.categorySlug;
+        const sameGame = isExpectedStreamCategory(context, target);
         return {
           accepted: context !== null && sameChannel && sameGame && context.isPlaybackReady === true,
           isLive: context?.isLive,

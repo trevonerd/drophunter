@@ -1,15 +1,22 @@
 // Extracted from src/popup/App.tsx (PopupHeader component).
 import type { AppState } from '../../types';
-import { MonitorIcon, SettingsIcon, SpeakerIcon } from './icons';
+import { DropsIcon, MonitorIcon, SettingsIcon, SpeakerIcon } from './icons';
 
 export interface PopupHeaderProps {
   state: AppState;
   onMuteToggle: () => void;
+  onOpenDropsPage: () => void;
   onOpenMonitor: () => void;
   onOpenSettings: () => void;
 }
 
-export function PopupHeader({ state, onMuteToggle, onOpenMonitor, onOpenSettings }: PopupHeaderProps) {
+export function PopupHeader({
+  state,
+  onMuteToggle,
+  onOpenDropsPage,
+  onOpenMonitor,
+  onOpenSettings,
+}: PopupHeaderProps) {
   const iconButtonClass =
     'dh-icon-button shrink-0 disabled:opacity-45 disabled:hover:bg-transparent dh-focus';
   const tabId = state.tabId;
@@ -42,6 +49,15 @@ export function PopupHeader({ state, onMuteToggle, onOpenMonitor, onOpenSettings
               <SpeakerIcon muted={state.muteFarmingTab} />
             </button>
           )}
+          <button
+            type="button"
+            onClick={onOpenDropsPage}
+            className={`${iconButtonClass} text-[color:var(--dh-accent-ink)]`}
+            aria-label="Open Twitch Drops"
+            title="Twitch Drops"
+          >
+            <DropsIcon />
+          </button>
           <button
             type="button"
             onClick={onOpenMonitor}

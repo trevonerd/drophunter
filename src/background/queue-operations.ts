@@ -34,8 +34,16 @@ export function markQueueEntryManual(
 }
 
 function deleteQueueEntryMetadata(state: ServiceWorkerState, games: readonly TwitchGame[]): void {
+  const removedKeys = new Set(games.map(gameKey));
   for (const game of games) {
     delete state.appState.queueEntryMetadataByKey[gameKey(game)];
+  }
+  const round = state.appState.queueAcquisitionRound;
+  if (round) {
+    state.appState.queueAcquisitionRound = {
+      ...round,
+      attemptedCampaignKeys: round.attemptedCampaignKeys.filter((key) => !removedKeys.has(key)),
+    };
   }
 }
 
@@ -122,6 +130,7 @@ export function normalizeQueueSelection(
   if (!Array.isArray(state.appState.queue) || state.appState.queue.length === 0) {
     state.appState.queue = [];
     state.appState.queueEntryMetadataByKey = {};
+    state.appState.queueAcquisitionRound = null;
     state.queueMissingStreak.clear();
     return;
   }

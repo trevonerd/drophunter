@@ -24,6 +24,14 @@ export class TwitchInvalidResponseError extends Error {
   readonly name = 'TwitchInvalidResponseError';
 }
 
+export class TwitchApiBackoffError extends Error {
+  readonly name = 'TwitchApiBackoffError';
+
+  constructor(readonly failure: TwitchApiFailure) {
+    super(failure.message);
+  }
+}
+
 export class TwitchDirectoryUnavailableError extends Error {
   readonly name = 'TwitchDirectoryUnavailableError';
 
@@ -49,6 +57,8 @@ export function createTwitchHttpError(endpoint: TwitchEndpoint, response: Respon
 }
 
 export function classifyTwitchApiFailure(error: unknown): TwitchApiFailure {
+  if (error instanceof TwitchApiBackoffError) return error.failure;
+  if (error instanceof TwitchDirectoryUnavailableError) return classifyTwitchApiFailure(error.cause);
   if (error instanceof TwitchHttpError) {
     if (error.status === 429) {
       return {

@@ -48,6 +48,42 @@ describe('broadcastStateUpdate', () => {
     expect(mocks.action.getBadgeState().text).toBe('55%');
   });
 
+  test('sets badge from the actively farmed reward when currentDrop is already claimable', () => {
+    // Given
+    const selectedGame = {
+      id: 'game-1',
+      name: 'Game',
+      imageUrl: '',
+      campaignId: 'campaign-1',
+    };
+    const claimableDrop = createTwitchDrop({
+      id: 'claimable',
+      campaignId: 'campaign-1',
+      progress: 100,
+      claimable: true,
+    });
+    const activelyFarmingDrop = createTwitchDrop({
+      id: 'active',
+      campaignId: 'campaign-1',
+      progress: 67,
+      currentMinutes: 121,
+      requiredMinutes: 180,
+      remainingMinutes: 59,
+    });
+    const appState = createAppState({
+      isRunning: true,
+      selectedGame,
+      currentDrop: claimableDrop,
+      pendingDrops: [claimableDrop, activelyFarmingDrop],
+    });
+
+    // When
+    broadcastStateUpdate(appState);
+
+    // Then
+    expect(mocks.action.getBadgeState().text).toBe('67%');
+  });
+
   test('sets badge with ... when running but no currentDrop', () => {
     const appState = createAppState({ isRunning: true, currentDrop: null });
 

@@ -196,7 +196,7 @@ The following primitives and repeated components are the reusable surface langua
 ### Popup header and icon actions
 
 - Structure: .dh-header gradient → .dh-popup-header grid → brand and a compact global-action cluster. Settings and log reuse the same header treatment with a back icon. Runtime state never appears here because SessionSummary owns it.
-- Variants: every state shows Monitor and Settings; running exposes farming-tab audio only when the effective transport is a DropHunter-owned managed tab. Hidden/tabless farming never renders an audio action. Pause, resume, stop, Start, Twitch sign-in, notification configuration, and Twitch Drops access remain in their owning task surfaces.
+- Variants: every state shows Twitch Drops, Monitor, and Settings; running exposes farming-tab audio only when the effective transport is a DropHunter-owned managed tab. Hidden/tabless farming never renders an audio action. Pause, resume, stop, Start, Twitch sign-in, and notification configuration remain in their owning task surfaces.
 - Spacing: 12px horizontal/8px vertical header padding; 8px brand/grid gap; 4px action gap; icon buttons are 28×28px with 6px radius.
 - States: default, hover translucent light fill, active darker fill, disabled opacity, and visible 2px focus ring.
 - Accessibility: every icon-only button has an aria-label and title; SVGs are aria-hidden; focus uses .dh-focus/.dh-icon-button:focus-visible.
@@ -214,6 +214,7 @@ The following primitives and repeated components are the reusable surface langua
 
 ### SessionSummary
 
+- Remaining rewards: running, paused, and recovering show a compact remaining-drop count in the status region and a semantic list of existing `CompactDropCard` rows. Only the selected campaign's automatable, unacquired rewards appear; claimable rewards stay until acquired. Merge duplicate catalog/inventory observations conservatively so acquired rewards disappear and known progress never regresses. Order rows by progress descending, then shortest known ETA, so the reward closest to completion leads. Rows remain in document flow, reuse existing spacing and progress tokens, and introduce no animation or nested scroll.
 - Structure: one persistent compact operational section below AutomationSummary. Its first line pairs state and campaign (`Running · Game · Campaign`); a compact trailing indicator names the effective watch source (`Hidden`, `Tab`, `Fallback tab`, or `Manual tab`) without exposing health or cadence diagnostics. When that selected campaign requires an account link, a quiet 10px lock notice sits directly under the session heading and names the game; it is omitted while the campaign catalog is unavailable. Running reuses the standard compact reward row and actions stay inside the section.
 - Variants: ready, running, paused, recovering, complete, and attention-required. Running/complete use success accents; paused/recovering use warning accents; attention-required uses the existing danger or violet accent treatment; ready uses neutral surface tokens.
 - Spacing: inline `dh-contain` panel with 12px padding and the existing 8px internal rhythm. The running variant uses `--dh-border-strong` without glow; type remains in the 10-12px compact scale.
@@ -231,6 +232,7 @@ The following primitives and repeated components are the reusable surface langua
 - Spacing: selector cluster gap 6px; control padding 8px/6px; queue rows use a consistent compact height, 8px rhythm, 8px radius, and one-line truncating text regions.
 - States: default, hover border, focus ring, action loading, queue message, drag target ring, clear confirmation. Queue feedback remains visible for six seconds; a newer message replaces it and restarts dismissal. Future rows remain reorderable and removable while farming; only the current campaign is immutable.
 - Accessibility: select has aria-label=Campaign; queue/remove/clear/reorder controls have explicit labels; reorder also supports arrow keys; queueMessage is role=status aria-live=polite aria-atomic=true.
+- Queue cleanup notice: the compact disclosure keeps its warning surface and adds the existing 28px `CloseIcon` action. Dismissal is stored by activity ID across popup openings; a newer cleanup ID appears normally. The live status content excludes the interactive close button, whose accessible name is `Dismiss queue update`; the control uses the existing icon-button hover, press, focus, and reduced-motion behavior.
 
 ### Farming actions and GameCampaignBrowser
 
@@ -250,7 +252,7 @@ The following primitives and repeated components are the reusable surface langua
 
 CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is the planned semantic primitive for Todo 13/14 and must be expressible with this existing system only.
 
-- Structure: CampaignSyncPanel is a compact inline status row inside Campaigns, with one concise message and either a spinner or action button. OtherDropsDisclosure is a closed disclosure after normal results for Twitch rewards that cannot be matched to an active campaign. The planned primitive may compose a compact cluster of status pills/text and a live region without changing panel geometry.
+- Structure: CampaignSyncPanel appears once at the top of the popup body when validation or session recovery prevents startup, ahead of the automation toggle, session summary, and queue. Nonblocking refreshes during farming remain inline inside Campaigns. Its existing status surface uses a concise heading and wraps recovery actions onto a separate row when needed. OtherDropsDisclosure remains a closed disclosure after normal results for unmatched rewards.
 - Variants: fresh (sync row omitted), syncing, pending validation, waiting, stale, failed, and empty; signed-out uses the dedicated priority TwitchSessionGate before AutomationSummary and suppresses SessionSummary and Campaigns. Saved campaigns remain visible as pending validation until a session-backed refresh confirms them. The panel offers a background Retry and a separate Open Twitch Drops action; only a real scheduled retry time may promise an automatic retry. Planned reward variants remain pending, active, claimable, claimed, subscription-gated, and unverifiable Twitch-native.
 - Token mapping: syncing/info uses existing blue/info or accent utilities; running/claimed uses --dh-success/existing green utilities; paused/recovering/claimable uses --dh-warning/existing yellow utilities; stopped/error/unverifiable-twitch uses --dh-danger/existing red utilities (or the existing warning copy when the state is informational); idle uses surface/text-soft. No new hue, alpha, radius, or shadow is permitted.
 - Spacing: compact 8px inline sync row and 8px/12px stack gaps. Indicators should use the existing 10-12px status scale and pill radius only where a pill already exists.
@@ -258,6 +260,12 @@ CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is 
 - Accessibility: the section remains aria-label=Campaign sync status, aria-live=polite, and aria-busy while syncing. A future indicator live region should announce meaningful transitions once, not every polling tick; retain role=status and aria-atomic=true for concise action feedback.
 - Motion: existing spinner only for active sync; 180ms control transitions. Status changes should be immediate or opacity/transform-only at MOTION_INTENSITY: 2.
 - Layout/scroll: inline panel in the popup body; no nested scroll.
+
+### Startup recovery hierarchy
+
+- A startup blocker states whether recovery is automatic or requires opening Twitch. Integrity, network, rate-limit, and incomplete-data retries remain automatic while a retry is scheduled; they must not ask for sign-in solely because attempts accumulated. A confirmed needs-session state explicitly asks the user to open Twitch Drops.
+- An already authorized manual queue, or enabled favorite with a candidate, shows automatic continuation after validation and the existing Stop action instead of another Start Queue button. Merely enabling favorite auto-start does not authorize unrelated manually added campaigns; preserve their manual Start action. Paused sessions retain Resume.
+- Reuse the existing blue informational/warning surfaces, 11–12px copy, 8px action gaps, native buttons, and focus rings. A priority sync panel uses a stacked text/action layout so the cause is readable at 400px. No new tokens or animation are introduced.
 
 ### RewardList, CompactDropCard, and progress rail
 

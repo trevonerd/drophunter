@@ -21,6 +21,10 @@ const sourceFiles = [
   'src/background/state-persistence.ts',
   'src/content/app-state.ts',
   'src/content/content-script.ts',
+  'src/content/content-session.ts',
+  'src/content/content-messages.ts',
+  'src/content/stream-context.ts',
+  'src/content/stream-playback.ts',
   'src/content/integrity-interceptor.ts',
   'src/popup/App.tsx',
 ];

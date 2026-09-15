@@ -107,11 +107,14 @@ describe('streamer acquisition recovery budget', () => {
     await session.acquireStreamerForSelectedGame();
 
     expect(fixture.state.appState.selectedGame?.campaignId).toBe(fixture.second.campaignId);
-    expect(fixture.state.appState.queue.map((game) => game.campaignId)).toEqual([fixture.second.campaignId]);
+    expect(fixture.state.appState.queue.map((game) => game.campaignId)).toEqual([
+      fixture.second.campaignId,
+      fixture.first.campaignId,
+    ]);
     expect(openedChannels).toEqual(['second-streamer']);
   });
 
-  test('advances after the directory remains unavailable for the retry budget', async () => {
+  test('preserves the queue while global directory failures recover', async () => {
     chrome = setupChromeMocks();
     let now = 5_000_000;
     Date.now = () => now;
@@ -135,12 +138,16 @@ describe('streamer acquisition recovery budget', () => {
     );
 
     await session.acquireStreamerForSelectedGame();
-    now += NO_STREAMERS_RETRY_MS;
+    now = fixture.state.apiBackoffUntil;
     await session.acquireStreamerForSelectedGame();
 
     expect(firstCampaignAttempts).toBe(2);
-    expect(fixture.state.appState.selectedGame?.campaignId).toBe(fixture.second.campaignId);
-    expect(fixture.state.appState.queue.map((game) => game.campaignId)).toEqual([fixture.second.campaignId]);
-    expect(openedChannels).toEqual(['second-streamer']);
+    expect(fixture.state.appState.selectedGame?.campaignId).toBe(fixture.first.campaignId);
+    expect(fixture.state.appState.queue.map((game) => game.campaignId)).toEqual([
+      fixture.first.campaignId,
+      fixture.second.campaignId,
+    ]);
+    expect(openedChannels).toEqual([]);
+    expect(fixture.state.appState.recoveryReason).toBe('twitch-network');
   });
 });

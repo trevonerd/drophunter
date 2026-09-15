@@ -18,7 +18,7 @@ export interface CampaignPriorityOptions {
   readonly priorityList: readonly TwitchGame[];
 }
 
-function expiryTime(game: TwitchGame): number {
+export function expiryTime(game: TwitchGame): number {
   if (!game.endsAt) {
     return Number.POSITIVE_INFINITY;
   }

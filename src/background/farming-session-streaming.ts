@@ -73,7 +73,7 @@ export function createFarmingSessionStreaming(
           }
           state.appState.watchTransportMode = health.mode;
           state.appState.watchHealth = health;
-          return health.mode === 'tabless' || health.status !== 'failed';
+          return !['failed', 'stopped', 'disabled', 'not-started'].includes(health.status);
         },
         isCurrent,
       },
@@ -88,11 +88,12 @@ export function createFarmingSessionStreaming(
     );
   }
 
-  async function skipCurrentGameDueToNoStreamers(): Promise<void> {
-    if (state.appState.selectedGame) {
-      await adapters.suppressCampaignUntilRefresh?.(gameKey(state.appState.selectedGame));
-    }
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
+  async function skipCurrentGameDueToNoStreamers(
+    reason: 'no-streamers' | 'directory-unavailable' = 'no-streamers',
+    isCurrent?: () => boolean,
+  ): Promise<void> {
+    await skipCurrentGameAndAdvanceQueue(state, reason, {
+      isCurrent,
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
       onRefreshDropsData: async (options) => {
         await dependencies.onRefreshDropsData(options);
@@ -107,7 +108,7 @@ export function createFarmingSessionStreaming(
 
   async function acquireStreamerForSelectedGame(isCurrent: () => boolean = () => true): Promise<boolean> {
     return acquireStreamer(state, {
-      onOpenStreamer: () => openBestStreamerForSelectedGame(isCurrent),
+      onOpenStreamer: (current) => openBestStreamerForSelectedGame(current),
       onSkipCurrentGame: skipCurrentGameDueToNoStreamers,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,

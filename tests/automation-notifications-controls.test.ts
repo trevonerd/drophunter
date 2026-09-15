@@ -11,7 +11,7 @@ import {
 } from './support/automation-notification-fakes.ts';
 
 describe('automation notification controls', () => {
-  test('the Pause action preserves enabled favorite automation and snoozes only when it is disabled', async () => {
+  test('the Pause action snoozes automation regardless of the favorite preference', async () => {
     for (const automaticFavoritesEnabled of [true, false]) {
       const state = { appState: { ...createInitialState(), notificationsEnabled: true } };
       const fakes = createAutomationNotificationFakes(true);
@@ -51,7 +51,7 @@ describe('automation notification controls', () => {
       fakes.buttonClickedListeners[0]?.(notificationId, 1);
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(actions).toEqual(automaticFavoritesEnabled ? ['pause'] : ['snooze:manual-pause', 'pause']);
+      expect(actions).toEqual(['snooze:manual-pause', 'pause']);
     }
   });
 

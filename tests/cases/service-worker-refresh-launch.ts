@@ -212,14 +212,12 @@ export function registerRefreshLaunchCases() {
       }
       return { success: false };
     };
-    enqueueDropsSnapshot([]);
+    // An empty catalog is confirmed across three refresh attempts before stale campaigns are removed.
+    for (let attempt = 0; attempt < 3; attempt += 1) enqueueDropsSnapshot([]);
 
     const realDateNow = Date.now;
-    let now = realDateNow();
-    Date.now = () => {
-      now += 61_000;
-      return now;
-    };
+    const now = realDateNow() + 61_000;
+    Date.now = () => now;
     let response: { success?: boolean; gamesCount?: number; error?: string; appState?: AppState };
     try {
       response = (await dispatchMessage({
@@ -230,9 +228,9 @@ export function registerRefreshLaunchCases() {
       Date.now = realDateNow;
     }
 
+    expect(response.error).toBeUndefined();
     expect(response.success).toBe(true);
     expect(response.gamesCount).toBe(0);
-    expect(response.error).toBeUndefined();
     expect(response.appState?.availableGames).toEqual([]);
     expect(response.appState?.selectedGame).toBeNull();
     expect(response.appState?.pendingDrops).toEqual([]);
