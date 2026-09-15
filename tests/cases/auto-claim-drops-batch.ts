@@ -117,6 +117,35 @@ export function registerAutoClaimClaimableDropsCases() {
       expect(onDropClaimed).toHaveBeenCalledWith(claimableDrop);
     });
 
+    test('does not re-alert when a stale refresh restores an already claimed reward', async () => {
+      // Given a reward successfully claimed and recorded by the current worker.
+      const claimableDrop = makeDrop({ claimId: 'stale-claim', claimable: true, claimed: false });
+      const state = createMinimalState({
+        appState: {
+          ...createInitialState(),
+          isRunning: true,
+          autoClaimDrops: true,
+          allDrops: [claimableDrop],
+        },
+        cachedDropsSnapshot: [claimableDrop],
+      });
+      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const claimedNotifications: TwitchDrop[] = [];
+
+      // When a stale Twitch snapshot marks the same reward claimable again.
+      await autoClaimClaimableDrops(state, getSession, async (drop) => {
+        claimedNotifications.push(drop);
+      });
+      state.cachedDropsSnapshot = [{ ...claimableDrop }];
+      await autoClaimClaimableDrops(state, getSession, async (drop) => {
+        claimedNotifications.push(drop);
+      });
+
+      // Then the browser-facing claim callback is emitted only for the new reward.
+      expect(claimedNotifications).toEqual([claimableDrop]);
+      expect(mockClaimDropReward).toHaveBeenCalledTimes(1);
+    });
+
     test('filters out subscription-gated rewards', async () => {
       const eventDrop = makeDrop({
         claimId: 'event-claim',

@@ -7,17 +7,19 @@ export function toSlug(value: string): string {
     .replace(/^-|-$/g, '');
 }
 
-export function isExpiredGame(game: TwitchGame, now: number = Date.now()): boolean {
-  if (typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs)) {
-    return game.expiresInMs <= 0;
-  }
+export function remainingCampaignTimeMs(game: TwitchGame, now: number = Date.now()): number | null {
   if (game.endsAt) {
     const endsAtMs = new Date(game.endsAt).getTime();
     if (Number.isFinite(endsAtMs)) {
-      return endsAtMs <= now;
+      return endsAtMs - now;
     }
   }
-  return false;
+  return typeof game.expiresInMs === 'number' && Number.isFinite(game.expiresInMs) ? game.expiresInMs : null;
+}
+
+export function isExpiredGame(game: TwitchGame, now: number = Date.now()): boolean {
+  const remainingMs = remainingCampaignTimeMs(game, now);
+  return remainingMs !== null && remainingMs <= 0;
 }
 
 export const createInitialState = (): AppState => ({
@@ -52,6 +54,7 @@ export const createInitialState = (): AppState => ({
   manualQueueAuthorized: false,
   farmingSessionOrigin: null,
   queueEntryMetadataByKey: {},
+  queueAcquisitionRound: null,
   stalledCampaignBlocksByKey: {},
   automationActivity: [],
   lastAutomationMessage: null,

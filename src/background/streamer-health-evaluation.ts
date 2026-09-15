@@ -1,6 +1,7 @@
 import { haveAllDropsExpiredOrVanished } from '../shared/drops.ts';
 import { normalizeToken } from '../shared/matching.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isExpectedStreamCategory } from '../shared/stream-category.ts';
 import type { TwitchDrop } from '../types';
 import { INVALID_STREAM_THRESHOLD, STREAM_ROTATE_COOLDOWN_MS } from './constants.ts';
 import { logDebug, logInfo } from './logging.ts';
@@ -94,7 +95,10 @@ export async function evaluateStreamHealth(
   const sameGame =
     selectedCategorySlug.length === 0 ||
     contextCategorySlug.length === 0 ||
-    selectedCategorySlug === contextCategorySlug;
+    isExpectedStreamCategory(context, {
+      categorySlug: selectedCategorySlug,
+      categoryName: selectedGame?.name,
+    });
   const campaignGone = haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
   const farmablePending = state.appState.pendingDrops.some(isRewardFarmableNow);
   const expectsDropsSignal =

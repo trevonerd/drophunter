@@ -1,17 +1,23 @@
 import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 import type { AutomationNotificationEvent } from './automation-notification-events.ts';
+import {
+  AUTOMATION_NOTIFICATION_ID_PREFIX,
+  createNotificationApiResolver,
+  type NotificationApi,
+} from './notification-actions.ts';
 
 export {
   AUTOMATION_NOTIFICATION_EVENTS,
   type AutomationNotificationEvent,
 } from './automation-notification-events.ts';
+export type { NotificationApi } from './notification-actions.ts';
 
 export const NOTIFICATION_PERMISSION: chrome.permissions.Permissions = {
   permissions: ['notifications'],
 };
 
-const AUTOMATION_NOTIFICATION_ID_PREFIX = 'drophunter-automation';
+const QUEUE_COMPLETE_NOTIFICATION_ID = 'drophunter-queue-complete';
 
 export interface AutomationNotificationPayload {
   readonly transitionId: string;
@@ -25,19 +31,6 @@ export interface AutomationNotificationPayload {
 export interface AutomationNotificationPersistence {
   hasSeen(key: string): Promise<boolean> | boolean;
   markSeen(key: string): Promise<void> | void;
-}
-
-interface NotificationEvent<Args extends readonly unknown[]> {
-  addListener(listener: (...args: Args) => void): void;
-}
-
-export interface NotificationApi {
-  create(
-    notificationIdOrOptions: string | chrome.notifications.NotificationCreateOptions,
-    options?: chrome.notifications.NotificationCreateOptions,
-  ): Promise<string>;
-  onClicked?: NotificationEvent<[notificationId: string]>;
-  onButtonClicked?: NotificationEvent<[notificationId: string, buttonIndex: number]>;
 }
 
 export interface AutomationNotificationResult {
@@ -72,6 +65,7 @@ interface NotificationControllerOptions {
   saveState: () => Promise<unknown> | unknown;
   automationNotificationPersistence?: AutomationNotificationPersistence;
   openDropHunter?: () => Promise<unknown> | unknown;
+  openTwitchDrops?: () => Promise<unknown> | unknown;
   pauseFarming?: () => Promise<unknown> | unknown;
 }
 
@@ -82,53 +76,8 @@ export function createNotificationController(
   const permissionsApi = options.permissionsApi ?? browser.permissions;
   const seenAutomationNotifications = new Set<string>();
   const pendingAutomationNotifications = new Map<string, Promise<AutomationNotificationResult>>();
-  const boundNotificationApis = new WeakSet<NotificationApi>();
-
-  const isAutomationNotificationId = (notificationId: string): boolean =>
-    notificationId.startsWith(`${AUTOMATION_NOTIFICATION_ID_PREFIX}-`);
-
-  const invokeAction = (action: (() => Promise<unknown> | unknown) | undefined): void => {
-    if (!action) {
-      return;
-    }
-    void Promise.resolve()
-      .then(action)
-      .catch(() => undefined);
-  };
-
-  const bindNotificationActions = (notificationsApi: NotificationApi): void => {
-    if (boundNotificationApis.has(notificationsApi)) {
-      return;
-    }
-    boundNotificationApis.add(notificationsApi);
-    if (notificationsApi.onClicked && options.openDropHunter) {
-      notificationsApi.onClicked.addListener((notificationId) => {
-        if (isAutomationNotificationId(notificationId)) {
-          invokeAction(options.openDropHunter);
-        }
-      });
-    }
-    if (notificationsApi.onButtonClicked) {
-      notificationsApi.onButtonClicked.addListener((notificationId, buttonIndex) => {
-        if (!isAutomationNotificationId(notificationId)) {
-          return;
-        }
-        if (buttonIndex === 0) {
-          invokeAction(options.openDropHunter);
-        } else if (buttonIndex === 1) {
-          invokeAction(options.pauseFarming);
-        }
-      });
-    }
-  };
-
-  const resolveNotificationsApi = (): NotificationApi | undefined => {
-    const notificationsApi: NotificationApi | undefined = options.notificationsApi ?? browser.notifications;
-    if (notificationsApi) {
-      bindNotificationActions(notificationsApi);
-    }
-    return notificationsApi;
-  };
+  const resolveNotificationsApi = createNotificationApiResolver(options);
+  resolveNotificationsApi();
 
   const hasNotificationPermission = async (): Promise<boolean> => {
     try {
@@ -169,6 +118,40 @@ export function createNotificationController(
       message,
       priority,
     });
+  };
+
+  const notifyQueueComplete = async (title: string, message: string) => {
+    if (!state.appState.notificationsEnabled) {
+      return;
+    }
+    if (!(await hasNotificationPermission())) {
+      state.appState.notificationsEnabled = false;
+      await options.saveState();
+      return;
+    }
+    const notificationsApi = resolveNotificationsApi();
+    if (!notificationsApi) {
+      return;
+    }
+    await notificationsApi.create(QUEUE_COMPLETE_NOTIFICATION_ID, {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title,
+      message,
+      priority: 2,
+    });
+  };
+
+  const clearQueueCompleteNotification = async () => {
+    const notificationsApi = resolveNotificationsApi();
+    if (!notificationsApi?.clear) {
+      return;
+    }
+    try {
+      await notificationsApi.clear(QUEUE_COMPLETE_NOTIFICATION_ID);
+    } catch {
+      // Browser notification cleanup is best-effort and must not block campaign validation.
+    }
   };
 
   // Owns the enable/disable policy: disabled short-circuits, enabled requires
@@ -238,7 +221,10 @@ export function createNotificationController(
         title: payload.title,
         message: payload.message,
         priority: payload.priority ?? 2,
-        buttons: [{ title: 'Open DropHunter' }, { title: 'Pause' }],
+        buttons: [
+          { title: payload.event === 'sign-in-required' ? 'Open Twitch Drops' : 'Open DropHunter' },
+          { title: 'Pause' },
+        ],
       });
       seenAutomationNotifications.add(key);
       await options.automationNotificationPersistence?.markSeen(key);
@@ -264,6 +250,8 @@ export function createNotificationController(
   return {
     hasNotificationPermission,
     notify,
+    notifyQueueComplete,
+    clearQueueCompleteNotification,
     notifyAutomation,
     syncPermissionState,
     setNotificationsEnabled,

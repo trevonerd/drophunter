@@ -10,7 +10,8 @@ export type LifecycleRefreshOptions = {
 };
 
 export type QueueProgressOptions = {
-  readonly onOpenStreamer?: () => Promise<boolean>;
+  readonly isCurrent?: () => boolean;
+  readonly onOpenStreamer?: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly onEnsureWorkspace?: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRefreshDropsData?: (options: LifecycleRefreshOptions) => Promise<void>;
   readonly onSaveState?: () => Promise<void>;
@@ -39,6 +40,8 @@ export type StopFarmingSessionOptions = {
 
 export type AdvanceQueueOptions = QueueProgressOptions & {
   readonly onSendAlert?: (kind: 'drop-complete' | 'all-complete', message: string) => Promise<void>;
+  readonly onQueueCompleteNotification?: (title: string, message: string) => Promise<void>;
+  readonly isCampaignValidationCurrent?: () => boolean;
   readonly onStopMonitoring?: () => void;
   readonly onCloseManagedTabIfSafe?: (tabId: number | null) => Promise<boolean>;
   readonly onClearManagedTabOwnership?: () => void;
@@ -53,7 +56,12 @@ export type CompletedQueueContext = {
   readonly terminalFarmingCompleteGame: TwitchGame | null;
 };
 
-export type QueueSkipReason = 'stalled-progress' | 'no-streamers' | 'unverifiable-twitch' | 'unfarmable';
+export type QueueSkipReason =
+  | 'stalled-progress'
+  | 'no-streamers'
+  | 'directory-unavailable'
+  | 'unverifiable-twitch'
+  | 'unfarmable';
 
 export type QueueSkipCopy = {
   readonly logMessage: string;
@@ -80,6 +88,7 @@ export type SkipCurrentGameOptions = QueueProgressOptions & {
 export type StartFarmingPayload = { readonly game?: TwitchGame };
 
 export type StartFarmingOptions = QueueProgressOptions & {
+  readonly preserveQueueContext?: boolean;
   readonly isCurrent?: () => boolean;
   readonly onBroadcastStateUpdate?: () => void;
   readonly onStartMonitoring?: () => void;

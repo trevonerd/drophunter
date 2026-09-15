@@ -1,17 +1,14 @@
-import type { CSSProperties } from 'react';
 import type { RuntimeMode } from '../../shared/runtime-status';
 import type { AppState, TwitchDrop } from '../../types';
 import { CompactDropCard } from './DropCard';
 import { EyeOffIcon, MonitorIcon } from './icons';
 import { SelectedCampaignStatus } from './SelectedCampaignStatus';
+import { remainingSessionDrops } from './session-drops';
 import {
   createSessionSummaryModel,
   effectiveTransport,
   type SessionSummaryModel,
-  trackedProgress,
 } from './session-summary-model';
-
-type ProgressStyle = CSSProperties & Record<'--dh-progress', number>;
 
 export interface SessionSummaryProps {
   state: AppState;
@@ -20,6 +17,7 @@ export interface SessionSummaryProps {
   recoveryNow: number;
   actionLoading: boolean;
   startDisabled: boolean;
+  automaticStartPending?: boolean;
   showSelectedCampaignStatus: boolean;
   queueCount: number;
   startHighlighted: boolean;
@@ -49,16 +47,14 @@ const labelClasses: Record<SessionSummaryModel['tone'], string> = {
 export function SessionSummary(props: SessionSummaryProps) {
   const model = createSessionSummaryModel(props);
   const transport = effectiveTransport(props.state);
-  const progress = props.currentAutomatableDrop ? trackedProgress(props.currentAutomatableDrop) : null;
-  const progressStyle: ProgressStyle | null = progress === null ? null : { '--dh-progress': progress / 100 };
-  const showLiveProgress =
-    progress !== null && progressStyle !== null && (model.mode === 'paused' || model.mode === 'recovering');
+  const remainingDrops = remainingSessionDrops(props.state);
   const isRunning = model.mode === 'running';
   const isPaused = model.mode === 'paused';
   const isRecovering = model.mode === 'recovering';
+  const showDrops = (isRunning || isPaused || isRecovering) && remainingDrops.length > 0;
   const needsTwitch =
     model.mode === 'attention-required' && props.state.lastStopReason === 'sign-in-required';
-  const canStart = !isRunning && !isPaused && !isRecovering && !needsTwitch;
+  const canStart = !isRunning && !isPaused && !isRecovering && !needsTwitch && !props.automaticStartPending;
   const continuationNote = props.state.manualQueueAuthorized
     ? isPaused
       ? 'The started queue is saved and will continue after Resume.'
@@ -80,6 +76,7 @@ export function SessionSummary(props: SessionSummaryProps) {
       aria-label="Current farming session"
       data-session-mode={model.mode}
       data-progress-state={model.progressState}
+      data-startup-continuation={props.automaticStartPending ? 'automatic' : undefined}
     >
       <div className="px-3 py-2.5" role="status" aria-live="polite" aria-atomic="true">
         <div className="flex min-w-0 items-start justify-between gap-2">
@@ -108,23 +105,20 @@ export function SessionSummary(props: SessionSummaryProps) {
         {isRunning && !props.currentAutomatableDrop && (
           <p className="mt-1 text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{model.detail}</p>
         )}
-        {showLiveProgress && props.currentAutomatableDrop && (
-          <div
-            className="dh-progress-track mt-2 h-1.5 w-full overflow-hidden rounded-full"
-            role="progressbar"
-            aria-label={`${props.currentAutomatableDrop.name} live progress`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress}
-          >
-            <div className="dh-progress-fill h-1.5 w-full rounded-full" style={progressStyle} />
-          </div>
+        {showDrops && (
+          <p className="mt-1 text-[11px] text-[color:var(--dh-text-soft)]">
+            {`${remainingDrops.length} ${remainingDrops.length === 1 ? 'drop' : 'drops'} remaining`}
+          </p>
         )}
       </div>
-      {isRunning && props.currentAutomatableDrop && (
-        <div className="border-t border-[color:var(--dh-border)]">
-          <CompactDropCard drop={props.currentAutomatableDrop} />
-        </div>
+      {showDrops && (
+        <ul className="border-t border-[color:var(--dh-border)]" aria-label="Remaining campaign drops">
+          {remainingDrops.map((drop) => (
+            <li key={`${drop.campaignId ?? drop.gameId}:${drop.id}`}>
+              <CompactDropCard drop={drop} />
+            </li>
+          ))}
+        </ul>
       )}
       <div className="flex gap-1.5 border-t border-[color:var(--dh-border)] px-3 py-2">
         {canStart && (
@@ -159,7 +153,7 @@ export function SessionSummary(props: SessionSummaryProps) {
             Resume
           </button>
         )}
-        {(isRunning || isPaused || isRecovering) && (
+        {(isRunning || isPaused || isRecovering || props.automaticStartPending) && (
           <button
             type="button"
             onClick={props.onStop}

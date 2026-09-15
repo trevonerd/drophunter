@@ -227,7 +227,7 @@ describe('extension storage migration', () => {
       favoriteGames: [
         { gameId: 'favorite-1', lastKnownName: 'Favorite', addedAt: 1, identityKeys: ['id:favorite-1'] },
       ],
-      availableGames: [],
+      availableGames: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       queue: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       selectedGame: { id: 'game-1', name: 'Stale Game', imageUrl: '' },
       isRunning: false,

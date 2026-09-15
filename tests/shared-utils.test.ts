@@ -51,10 +51,9 @@ test('isExpiredGame returns false when no expiry info', () => {
   expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '' })).toBe(false);
 });
 
-test('isExpiredGame prefers expiresInMs over endsAt', () => {
+test('isExpiredGame prefers the absolute deadline over a stale relative countdown', () => {
   const futureDate = new Date(Date.now() + 60_000).toISOString();
-  // expiresInMs=0 means expired, even though endsAt is in the future
-  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: 0, endsAt: futureDate })).toBe(true);
+  expect(isExpiredGame({ id: '1', name: 'G', imageUrl: '', expiresInMs: 0, endsAt: futureDate })).toBe(false);
 });
 
 test('isExpiredGame handles null expiresInMs gracefully', () => {

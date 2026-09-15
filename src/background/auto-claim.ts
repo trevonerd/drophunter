@@ -1,6 +1,6 @@
 import { isRewardAutomatable, isTwitchNativeReward } from '../shared/reward-semantics.ts';
 import { AppState, TwitchDrop } from '../types/index.ts';
-import { recordClaimedDrops } from './claim-log.ts';
+import { loadClaimLog, recordClaimedDrops } from './claim-log.ts';
 import { DROP_CLAIM_RETRY_COOLDOWN_MS } from './constants.ts';
 import { splitDropsForSelectedGame } from './drops-projection.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
@@ -154,10 +154,28 @@ export async function autoClaimClaimableDrops(
     }
   }
 
-  const claimTargets = state.cachedDropsSnapshot
+  const claimableTargets = state.cachedDropsSnapshot
     .filter((drop) => Boolean(drop.claimable) && !drop.claimed)
     .filter((drop) => Boolean((drop.claimId ?? '').trim()))
     .filter(isRewardAutomatable);
+
+  if (claimableTargets.length === 0) {
+    return false;
+  }
+
+  const recordedClaimIds = new Set(
+    (await loadClaimLog()).flatMap((entry) => {
+      const claimId = entry.claimId?.trim();
+      return claimId ? [claimId] : [];
+    }),
+  );
+  const seenClaimIds = new Set<string>();
+  const claimTargets = claimableTargets.filter((drop) => {
+    const claimId = drop.claimId?.trim();
+    if (!claimId || recordedClaimIds.has(claimId) || seenClaimIds.has(claimId)) return false;
+    seenClaimIds.add(claimId);
+    return true;
+  });
 
   if (claimTargets.length === 0) {
     return false;

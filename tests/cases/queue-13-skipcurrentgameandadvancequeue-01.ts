@@ -7,7 +7,7 @@ import './queue-13-skipcurrentgameandadvancequeue-02.ts';
 
 export function registerQueue13Part01() {
   describe('skipCurrentGameAndAdvanceQueue', () => {
-    test('removes no-streamers game and opens the next queued game', async () => {
+    test('retains no-streamers game and opens the next queued game', async () => {
       const mocks = setupChromeMocks();
       const current = createGame({ id: 'game-1', name: 'No Live Game' });
       const next = createGame({ id: 'game-2', name: 'Live Game' });
@@ -25,7 +25,7 @@ export function registerQueue13Part01() {
           },
         });
 
-        expect(state.appState.queue.some((game) => game.id === current.id)).toBe(false);
+        expect(state.appState.queue.some((game) => game.id === current.id)).toBe(true);
         expect(state.appState.selectedGame?.id).toBe(next.id);
         expect(openedGame).toBe(next.id);
       } finally {
@@ -52,8 +52,8 @@ export function registerQueue13Part01() {
         });
 
         const notification = notifications[0];
-        expect(notification?.title).toBe('Game skipped: no eligible streamer');
-        expect(notification?.message).toContain('Skipped No Live Game');
+        expect(notification?.title).toBe('Campaign queued: waiting for streamers');
+        expect(notification?.message).toContain('Kept No Live Game queued for retry');
         expect(notification?.message).toContain('no eligible streamer was found for its Drops');
         expect(notification?.message).not.toContain('drop progress');
         expect(mocks.notifications._notifications).toEqual([]);
@@ -190,7 +190,7 @@ export function registerQueue13Part01() {
       expect(state.appState.queue).toEqual([farmableGame]);
     });
 
-    test('stops cleanly when no-streamers skip exhausts the queue', async () => {
+    test('waits without a terminal stop when only a temporarily unavailable campaign remains', async () => {
       const current = createGame({ id: 'game-1', name: 'No Live Game' });
       const state = createMinimalState();
       state.appState.selectedGame = current;
@@ -205,12 +205,13 @@ export function registerQueue13Part01() {
         },
       });
 
-      expect(stopReason).toBe('queue-complete');
-      expect(stopMessage).toContain('Queue completed');
-      expect(stopMessage).toContain('No eligible streamer was found');
+      expect(stopReason).toBeNull();
+      expect(stopMessage).toBeNull();
+      expect(state.appState.queue).toEqual([current]);
+      expect(state.appState.recoveryReason).toBe('no-streamers');
     });
 
-    test('clears stale stalled recovery when no-streamers skip exhausts the queue', async () => {
+    test('replaces stale stalled recovery with a bounded streamer retry when all campaigns wait', async () => {
       const current = createGame({ id: 'game-1', name: 'No Live Game' });
       const state = createMinimalState({
         stalledRecoveryAttempts: 3,
@@ -232,11 +233,11 @@ export function registerQueue13Part01() {
         },
       });
 
-      expect(state.appState.recoveryReason).toBeNull();
-      expect(state.appState.recoveryBackoffUntil).toBeNull();
-      expect(state.appState.recoveryAttempts).toBeNull();
+      expect(state.appState.recoveryReason).toBe('no-streamers');
+      expect(state.appState.recoveryBackoffUntil).toBeGreaterThan(Date.now());
+      expect(state.appState.recoveryAttempts).toBe(1);
       expect(state.stalledRecoveryAttempts).toBe(0);
-      expect(state.recoveryBackoffUntil).toBe(0);
+      expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 60_000);
     });
 
     test('uses stalled-progress-specific terminal notification when no games remain', async () => {

@@ -135,6 +135,14 @@ export interface QueueEntryMetadata {
   readonly source: QueueEntrySource;
   readonly addedAt: number;
   readonly reason: 'user-added' | 'favorite-discovered' | 'retained-after-hide';
+  readonly streamerRetryAt?: number;
+  readonly streamerRetryReason?: 'no-streamers' | 'directory-unavailable';
+  readonly streamerRetryAttempts?: number;
+}
+
+export interface QueueAcquisitionRound {
+  readonly attemptedCampaignKeys: readonly string[];
+  readonly nextRoundAt: number | null;
 }
 
 export type { StalledCampaignBlock } from './stalled-campaign';
@@ -215,6 +223,7 @@ export interface AppState {
   manualQueueAuthorized: boolean;
   farmingSessionOrigin: FarmingSessionOrigin | null;
   queueEntryMetadataByKey: Record<string, QueueEntryMetadata>;
+  queueAcquisitionRound: QueueAcquisitionRound | null;
   stalledCampaignBlocksByKey: Record<string, StalledCampaignBlock>;
   automationActivity: AutomationActivityEntry[];
   lastAutomationMessage: string | null;

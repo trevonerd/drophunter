@@ -73,8 +73,8 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     return handlers.stop(options);
   }
 
-  function advanceQueueIfCompleted(): Promise<boolean> {
-    return queue.advanceQueueIfCompleted();
+  function advanceQueueIfCompleted(isCurrent?: () => boolean): Promise<boolean> {
+    return queue.advanceQueueIfCompleted(isCurrent);
   }
 
   return {

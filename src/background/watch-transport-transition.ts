@@ -37,7 +37,11 @@ export type WatchPreparation =
   | { readonly kind: 'failed'; readonly reason: 'candidate-unavailable' };
 
 export interface WatchTransportTransition {
-  prepare(target: FarmingTarget, mode: WatchHealth['mode']): Promise<WatchPreparation>;
+  prepare(
+    target: FarmingTarget,
+    mode: WatchHealth['mode'],
+    isCurrent?: () => boolean,
+  ): Promise<WatchPreparation>;
   release(ownership: WatchOwnershipV1): Promise<WatchReleaseResult>;
   currentOwnership(): WatchOwnershipV1 | null;
 }
@@ -57,8 +61,14 @@ export interface WatchTransportRuntime {
 export interface WatchTransportTransitionOptions {
   readonly currentOwnership: WatchOwnershipV1 | null;
   readonly runtime?: WatchTransportRuntime;
-  readonly prepareManaged: (target: FarmingTarget) => Promise<ProvisionalWatchCandidate | null>;
-  readonly prepareTabless: (target: FarmingTarget) => Promise<ProvisionalWatchCandidate | null>;
+  readonly prepareManaged: (
+    target: FarmingTarget,
+    isCurrent?: () => boolean,
+  ) => Promise<ProvisionalWatchCandidate | null>;
+  readonly prepareTabless: (
+    target: FarmingTarget,
+    isCurrent?: () => boolean,
+  ) => Promise<ProvisionalWatchCandidate | null>;
   readonly release: (ownership: WatchOwnershipV1) => Promise<WatchReleaseResult>;
 }
 
@@ -85,30 +95,37 @@ export function createWatchTransportTransition(
   const prepareCandidate = async (
     target: FarmingTarget,
     prepare: WatchTransportTransitionOptions['prepareManaged'],
+    isCurrent: () => boolean,
   ): Promise<{
     readonly candidate: ProvisionalWatchCandidate | null;
     readonly rejectedReason: WatchHealthReason | null;
   }> => {
     let candidate: ProvisionalWatchCandidate | null;
+    if (!isCurrent()) return { candidate: null, rejectedReason: 'error' };
     try {
-      candidate = await prepare(target);
+      candidate = await prepare(target, isCurrent);
     } catch {
       return { candidate: null, rejectedReason: 'error' };
     }
     if (!candidate) return { candidate: null, rejectedReason: 'error' };
-    if (candidate.health.isHealthy) return { candidate, rejectedReason: null };
+    if (isCurrent() && candidate.health.isHealthy) return { candidate, rejectedReason: null };
     await candidate.dispose();
     return { candidate: null, rejectedReason: candidate.health.reason };
   };
 
-  const prepare = async (target: FarmingTarget, mode: WatchHealth['mode']): Promise<WatchPreparation> => {
+  const prepare = async (
+    target: FarmingTarget,
+    mode: WatchHealth['mode'],
+    isCurrent = () => true,
+  ): Promise<WatchPreparation> => {
     const preferred = await prepareCandidate(
       target,
       mode === 'tabless' ? options.prepareTabless : options.prepareManaged,
+      isCurrent,
     );
     const fallback =
       mode === 'tabless' && !preferred.candidate
-        ? await prepareCandidate(target, options.prepareManaged)
+        ? await prepareCandidate(target, options.prepareManaged, isCurrent)
         : null;
     const candidate = preferred.candidate ?? fallback?.candidate ?? null;
     if (!candidate) return { kind: 'failed', reason: 'candidate-unavailable' };

@@ -7,12 +7,15 @@ import {
   type WatchOwnershipV1,
 } from '../../src/background/watch-transport-transition.ts';
 import { gameKey } from '../../src/shared/game-selection.ts';
+import type { QueueAcquisitionRound } from '../../src/types/index.ts';
 import { candidate, incumbent, snapshot, streamer } from '../helpers/farming-session-transition-tabless.ts';
 
 export function registerTablessOwnershipCases() {
   test('starts from idle ownership without false supersession', async () => {
     // Given: an idle Session with no incumbent watch and a viable managed candidate.
     const state = createServiceWorkerState();
+    state.appState.queueAcquisitionRound = { attemptedCampaignKeys: [gameKey(incumbent)], nextRoundAt: null };
+    let committedRound: QueueAcquisitionRound | null = state.appState.queueAcquisitionRound;
     const watch = createWatchTransportTransition({
       currentOwnership: null,
       prepareTabless: async () => null,
@@ -56,7 +59,10 @@ export function registerTablessOwnershipCases() {
         acquireStreamer: async () => streamer,
         currentFingerprint: () => 'fingerprint-a',
         loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
-        commitTransition: async () => ({ kind: 'committed' }),
+        commitTransition: async (commit) => {
+          committedRound = commit.nextAppState.queueAcquisitionRound;
+          return { kind: 'committed' };
+        },
         watch,
         now: () => 2_000,
       },
@@ -64,6 +70,8 @@ export function registerTablessOwnershipCases() {
 
     // Then: null incumbent ownership is stable and B commits normally.
     expect(result.kind).toBe('committed');
+    expect(state.appState.queueAcquisitionRound).toBeNull();
+    expect(committedRound).toBeNull();
   });
 
   test('records no cleanup requirement for obsolete tabless ownership', async () => {

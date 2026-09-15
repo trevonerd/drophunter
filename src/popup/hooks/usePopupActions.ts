@@ -7,6 +7,7 @@ import { formatFarmingCompleteQueueMessage } from '../format';
 import { logPopupWarn } from '../logging';
 import { INITIAL_QUEUE_FEEDBACK_STATE, publishQueueFeedback } from '../queue-feedback';
 import { getGameToStartFromQueue } from '../queue-start';
+import { useQueueCleanupDismissal } from './useQueueCleanupDismissal';
 
 const QUEUE_MESSAGE_DISMISS_MS = 6_000;
 
@@ -30,6 +31,7 @@ export function usePopupActions({
   setOnboardingStep,
 }: UsePopupActionsArgs) {
   const [actionLoading, setActionLoading] = useState(false);
+  const { dismissedQueueCleanupActivityId, handleDismissQueueCleanup } = useQueueCleanupDismissal();
   const [queueFeedback, setQueueMessage] = useReducer(publishQueueFeedback, INITIAL_QUEUE_FEEDBACK_STATE);
   const queueMessage = queueFeedback.message;
   const queueMessageOccurrence = queueFeedback.occurrence;
@@ -224,10 +226,12 @@ export function usePopupActions({
   return {
     actionLoading,
     queueMessage,
+    dismissedQueueCleanupActivityId,
     setQueueMessage,
     handleAddToQueue,
     handleAddAllToQueue,
     handleLinkAccount,
+    handleDismissQueueCleanup,
     handleSetGamePreference,
     handleRemoveFromQueue,
     handleClearQueue,

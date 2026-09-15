@@ -41,6 +41,7 @@ export interface FarmingSessionAdapters {
     game: TwitchGame,
     forceSessionRefresh?: boolean,
     language?: string,
+    isCurrent?: () => boolean,
   ) => Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>;
   readonly fetchStreamContext: (tabId: number) => Promise<StreamContext | null>;
   readonly resolveCategorySlug: (game: TwitchGame) => Promise<string>;
@@ -53,6 +54,7 @@ export interface FarmingSessionAdapters {
   readonly openMonitorDashboardWindow: (options: { readonly toggle: boolean }) => Promise<unknown>;
   readonly sendAlert: (kind: 'drop-complete' | 'all-complete', message: string) => Promise<void>;
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
+  readonly notifyQueueComplete?: (title: string, message: string) => Promise<void>;
   readonly automationNotify?: AutomationEventNotifier['notify'];
   readonly notifyCampaignUnavailable?: (game: TwitchGame) => Promise<void>;
   // Non-claim Telegram system alert (auto-start, preemption, terminal

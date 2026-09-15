@@ -2,6 +2,7 @@
 
 import type { CampaignSyncState } from '../../types';
 import type { CampaignSyncStatus } from '../constants';
+import { campaignValidationFeedback } from './campaign-sync-feedback';
 import { DropsIcon } from './icons';
 
 export interface CampaignSyncPanelProps {
@@ -9,6 +10,7 @@ export interface CampaignSyncPanelProps {
   error: string | null;
   hasCachedCampaigns: boolean;
   campaignSyncState: CampaignSyncState;
+  blocksStartup?: boolean;
   onOpenTwitchDrops: () => void;
   onRetry: () => void;
 }
@@ -18,6 +20,7 @@ export function CampaignSyncPanel({
   error,
   hasCachedCampaigns,
   campaignSyncState,
+  blocksStartup = false,
   onOpenTwitchDrops,
   onRetry,
 }: CampaignSyncPanelProps) {
@@ -26,6 +29,7 @@ export function CampaignSyncPanel({
   }
 
   const isSyncing = status === 'syncing';
+  const needsSession = campaignSyncState.status === 'needs-session';
   const retryScheduled =
     campaignSyncState.status === 'retry-scheduled' && campaignSyncState.nextRetryAt > Date.now();
   const showError =
@@ -33,6 +37,8 @@ export function CampaignSyncPanel({
     (campaignSyncState.status === 'retry-failed' || campaignSyncState.retryAttemptCount < 3);
   const visibleError =
     error ?? (campaignSyncState.status === 'retry-failed' ? campaignSyncState.error : null);
+  const validationFeedback =
+    status === 'pending-validation' ? campaignValidationFeedback(campaignSyncState) : null;
   const panelTone =
     status === 'failed'
       ? 'border-red-500/35 bg-red-500/10'
@@ -52,7 +58,7 @@ export function CampaignSyncPanel({
             : 'Updating campaigns…'
           : status === 'pending-validation'
             ? campaignSyncState.retryAttemptCount >= 3
-              ? 'Campaign validation has not recovered after several retries.'
+              ? 'Campaign validation is delayed.'
               : retryScheduled
                 ? 'Saved campaigns are pending validation. DropHunter will retry automatically.'
                 : 'Saved campaigns are pending validation.'
@@ -67,9 +73,19 @@ export function CampaignSyncPanel({
       aria-busy={isSyncing}
       aria-label="Campaign sync status"
     >
-      <div className="flex items-center justify-between gap-2">
+      <div
+        className={`flex gap-2 ${blocksStartup ? 'flex-col items-start' : 'items-center justify-between'}`}
+      >
         <div className="min-w-0">
+          {blocksStartup && (
+            <h2 className="mb-1 text-xs font-semibold text-[color:var(--dh-text)]">
+              {needsSession ? 'Open Twitch to continue' : 'Waiting for campaign validation'}
+            </h2>
+          )}
           <p className="text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{message}</p>
+          {validationFeedback && (
+            <p className="mt-0.5 text-[10px] text-[color:var(--dh-muted)]">{validationFeedback}</p>
+          )}
           {showError && visibleError && (
             <p className="mt-0.5 truncate text-[10px] text-[color:var(--dh-muted)]" title={visibleError}>
               {visibleError}
@@ -79,7 +95,7 @@ export function CampaignSyncPanel({
         {isSyncing || status === 'stale' ? (
           <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent shrink-0 mt-0.5" />
         ) : (
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
             {(status === 'pending-validation' || status === 'failed' || status === 'waiting') && (
               <button
                 type="button"

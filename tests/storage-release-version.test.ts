@@ -19,7 +19,7 @@ describe('release version storage transition', () => {
     mocks.teardown();
   });
 
-  test('resets legacy 4.0.13 state only once when entering the beta manifest version', async () => {
+  test('resets legacy transport once while retaining campaigns when entering the beta manifest version', async () => {
     // Given
     await mocks.storage.local.set({
       [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
@@ -42,7 +42,7 @@ describe('release version storage transition', () => {
     expect(mocks.storage.local._store.get('appState')).toMatchObject({
       totalDropsClaimed: 7,
       isRunning: false,
-      availableGames: [],
+      availableGames: [{ id: 'stale-game', name: 'Stale Game', imageUrl: '' }],
     });
     expect(mocks.storage.local._store.get('twitchIntegrity')).toEqual({ token: 'current-integrity' });
   });

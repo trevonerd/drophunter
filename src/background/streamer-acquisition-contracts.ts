@@ -64,6 +64,7 @@ export interface OpenBestStreamerCallbacks {
     game: TwitchGame,
     forceRefresh?: boolean,
     language?: string,
+    isCurrent?: () => boolean,
   ) => Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>;
   onOpenForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;
   onOpenWatchTransport?: (streamer: TwitchStreamer) => Promise<boolean>;

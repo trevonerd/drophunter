@@ -132,8 +132,8 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
     reportAsyncError(
       (async () => {
         await awaitInitialization(options.getInitPromise);
+        if (options.onActivationSync) await options.onActivationSync('browser-start');
         await options.farmingAutomation.request('browser-start');
-        await options.onActivationSync?.('browser-start');
       })(),
       'onStartup error',
       options.logWarn,

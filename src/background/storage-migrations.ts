@@ -8,6 +8,8 @@ import {
   FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
 } from './farming-automation-contracts.ts';
 import { normalizeFarmingSessionTransitionReceipt } from './farming-automation-facts.ts';
+import { managedWatchMarker } from './managed-watch-marker.ts';
+import { listManagedWatches } from './managed-watch-registry.ts';
 import { releaseManagedTabOwnership } from './tab-management.ts';
 
 export const STORAGE_SCHEMA_VERSION_KEY = 'storageSchemaVersion';
@@ -72,35 +74,31 @@ async function releasePersistedManagedWatches(): Promise<void> {
   const normalized = normalizeFarmingSessionTransitionReceipt(
     stored[FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY],
   );
-  if (normalized.kind === 'unsupported' || normalized.value === null) {
-    return;
-  }
-
-  const receipt = normalized.value;
+  const receipt = normalized.kind === 'unsupported' ? null : normalized.value;
   const candidates = [
-    receipt.fromWatch,
-    receipt.toWatch,
-    receipt.cleanup.kind === 'pending' ? receipt.cleanup.obsolete : null,
+    ...(await listManagedWatches()),
+    receipt?.fromWatch,
+    receipt?.toWatch,
+    receipt?.cleanup.kind === 'pending' ? receipt.cleanup.obsolete : null,
   ].filter((ownership) => ownership?.kind === 'managed-tab');
   const uniqueManagedWatches = Array.from(
     new Map(candidates.map((ownership) => [ownership.ownershipToken, ownership])).values(),
   );
-  await Promise.all(
-    uniqueManagedWatches.map((ownership) =>
-      releaseManagedTabOwnership(ownership, {
-        tabs: {
-          get: (tabId) => browser.tabs.get(tabId),
-          query: (query) => browser.tabs.query(query),
-          update: async (tabId, properties) => void (await browser.tabs.update(tabId, properties)),
-          remove: async (tabId) => void (await browser.tabs.remove(tabId)),
-        },
-        sessionStorage: {
-          get: (key) => browser.storage.session.get(key),
-          remove: async (key) => void (await browser.storage.session.remove(key)),
-        },
-      }).catch(() => ({ kind: 'abandoned-unproven' as const })),
-    ),
-  );
+  for (const ownership of uniqueManagedWatches) {
+    await releaseManagedTabOwnership(ownership, {
+      managedWatchMarker,
+      tabs: {
+        get: (tabId) => browser.tabs.get(tabId),
+        query: (query) => browser.tabs.query(query),
+        update: async (tabId, properties) => void (await browser.tabs.update(tabId, properties)),
+        remove: async (tabId) => void (await browser.tabs.remove(tabId)),
+      },
+      sessionStorage: {
+        get: (key) => browser.storage.session.get(key),
+        remove: async (key) => void (await browser.storage.session.remove(key)),
+      },
+    }).catch(() => ({ kind: 'abandoned-unproven' as const }));
+  }
 }
 
 async function resetStorageForExtensionVersion(currentVersion: string): Promise<void> {

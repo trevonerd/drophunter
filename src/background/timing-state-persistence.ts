@@ -1,4 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
+import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
 import { TIMING_SAVE_DEBOUNCE_MS, TIMING_STATE_KEY } from './constants.ts';
 import { logWarn } from './logging.ts';
 import { normalizeTimingState, type ServiceWorkerState, type TimingState } from './runtime-state.ts';
@@ -112,6 +113,15 @@ export async function loadTimingState(state: ServiceWorkerState) {
       previousAllDropsCount: saved.previousAllDropsCount,
       unverifiableRewardsByKey: saved.unverifiableRewardsByKey,
     });
+    if (isStreamerAcquisitionRecovery(state.appState.recoveryReason)) {
+      const localRecovery =
+        state.appState.recoveryReason === 'no-streamers' ||
+        state.appState.recoveryReason === 'directory-unavailable';
+      state.recoveryBackoffUntil = localRecovery
+        ? Math.min(state.recoveryBackoffUntil, Date.now() + 60_000)
+        : Math.max(state.recoveryBackoffUntil, state.apiBackoffUntil);
+      state.appState.recoveryBackoffUntil = state.recoveryBackoffUntil;
+    }
     state.dropClaimRetryAtById.clear();
     for (const [id, at] of Object.entries(saved.dropClaimRetryAtById)) state.dropClaimRetryAtById.set(id, at);
   } catch (error) {

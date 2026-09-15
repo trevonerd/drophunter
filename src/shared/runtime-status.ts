@@ -17,7 +17,14 @@ export const MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS = 3;
 
 export function isStreamerAcquisitionRecovery(reason: string | null | undefined): boolean {
   return (
-    reason === 'no-streamers' || reason === 'directory-unavailable' || reason === 'twitch-data-unavailable'
+    reason === 'no-streamers' ||
+    reason === 'directory-unavailable' ||
+    reason === 'twitch-data-unavailable' ||
+    reason === 'twitch-auth' ||
+    reason === 'twitch-integrity' ||
+    reason === 'twitch-network' ||
+    reason === 'twitch-rate-limit' ||
+    reason === 'twitch-invalid-response'
   );
 }
 
@@ -169,6 +176,16 @@ export function formatRotationReason(reason: string | null | undefined): string 
 
 export function formatRecoveryReason(reason: string | null | undefined): string | null {
   switch (reason) {
+    case 'twitch-auth':
+      return 'Recovering Twitch session · queue preserved';
+    case 'twitch-integrity':
+      return 'Recovering Twitch verification · queue preserved';
+    case 'twitch-network':
+      return 'Twitch connection unavailable · queue preserved';
+    case 'twitch-rate-limit':
+      return 'Twitch request limit reached · queue preserved';
+    case 'twitch-invalid-response':
+      return 'Twitch returned incomplete data · queue preserved';
     case 'twitch-data-unavailable':
       return 'Twitch data refresh unavailable';
     case 'stalled-progress':
@@ -204,8 +221,11 @@ export function formatRecoveryAttemptLabel(
 }
 
 export function formatRetryLabel(timestamp?: number | null, now = Date.now()): string | null {
-  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= now) {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
     return null;
+  }
+  if (timestamp <= now) {
+    return 'waiting for scheduled retry';
   }
   const seconds = Math.max(1, Math.ceil((timestamp - now) / 1000));
   if (seconds < 60) {

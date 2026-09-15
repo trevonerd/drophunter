@@ -95,7 +95,7 @@ describe('session lifecycle facade', () => {
     expect(saveCalls).toBe(1);
   });
 
-  test('preserves queue advancement callbacks and persistence count', async () => {
+  test('persists the selected campaign before refresh and again after acquisition', async () => {
     // Given
     const completedGame = game('completed');
     const nextGame = game('next');
@@ -133,7 +133,7 @@ describe('session lifecycle facade', () => {
     expect(state.appState.queue).toEqual([nextGame]);
     expect(state.appState.selectedGame).toEqual(nextGame);
     expect(openCalls).toBe(1);
-    expect(saveCalls).toBe(1);
+    expect(saveCalls).toBe(2);
   });
 
   test('preserves stop callback order and persistence count', async () => {

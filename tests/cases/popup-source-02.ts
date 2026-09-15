@@ -54,13 +54,14 @@ test('native popup prefers 400px without clipping at browser zoom', () => {
   expect(css).toContain('flex-direction: column;');
 });
 
-test('popup keeps Twitch Drops access contextual instead of placing it in the header toolbar', () => {
+test('popup keeps Twitch Drops available in the header and contextual recovery actions', () => {
   const source = readPopupSource();
 
   const headerSource = readFileSync(join(repoRoot, 'src/popup/components/PopupHeader.tsx'), 'utf-8');
   const syncPanelSource = readFileSync(join(repoRoot, 'src/popup/components/CampaignSyncPanel.tsx'), 'utf-8');
 
-  expect(headerSource).not.toContain('DropsIcon');
+  expect(headerSource).toContain('DropsIcon');
+  expect(headerSource).toContain('aria-label="Open Twitch Drops"');
   expect(headerSource).not.toContain('BellIcon');
   expect(syncPanelSource).toContain('DropsIcon');
   expect(source).not.toContain('Refreshing Twitch Drops');

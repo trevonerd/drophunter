@@ -99,25 +99,33 @@ export async function handleStartFarming(
   if (refreshedRequestedStartRejection && !hasRefreshedRequestedReward) {
     return { success: false, error: refreshedRequestedStartRejection };
   }
-  removeQueueEntriesForGame(state, refreshedRequestedGame);
-  state.appState.queue = [refreshedRequestedGame, ...state.appState.queue];
-  markQueueEntryManual(state, refreshedRequestedGame);
+  if (!options?.preserveQueueContext) {
+    removeQueueEntriesForGame(state, refreshedRequestedGame);
+    state.appState.queue = [refreshedRequestedGame, ...state.appState.queue];
+    markQueueEntryManual(state, refreshedRequestedGame);
+  }
   normalizeQueueSelection(state, state.appState.availableGames);
-  state.appState.selectedGame = state.appState.queue[0] ?? refreshedRequestedGame;
+  state.appState.selectedGame = options?.preserveQueueContext
+    ? refreshedRequestedGame
+    : (state.appState.queue[0] ?? refreshedRequestedGame);
   state.appState.isRunning = true;
   state.appState.isPaused = false;
-  state.appState.manualQueueAuthorized = true;
-  state.appState.farmingSessionOrigin = 'manual';
-  state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
-    state.appState.stalledCampaignBlocksByKey,
-    refreshedRequestedGame,
-  );
+  if (!options?.preserveQueueContext) {
+    state.appState.manualQueueAuthorized = true;
+    state.appState.farmingSessionOrigin = 'manual';
+  }
+  if (!options?.preserveQueueContext) {
+    state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
+      state.appState.stalledCampaignBlocksByKey,
+      refreshedRequestedGame,
+    );
+  }
   state.appState.completionNotified = false;
   clearStopState(state);
-  clearRecoveryState(state);
+  if (!options?.preserveQueueContext) clearRecoveryState(state);
   state.appState.lastRotationReason = null;
   state.appState.lastRotationAt = null;
-  resetStreamTrackingState(state);
+  resetStreamTrackingState(state, options?.preserveQueueContext);
   state.dropClaimRetryAtById.clear();
   state.dropClaimInFlight = false;
   state.monitorTickInFlight = false;
@@ -147,6 +155,11 @@ export async function handleStartFarming(
   const selectedStartRejection =
     !hasFarmablePendingNow && selectedGame ? startRejectionMessage(selectedGame) : null;
   if (selectedStartRejection || (!hasFarmablePendingNow && state.appState.currentDrop === null)) {
+    if (options?.preserveQueueContext) {
+      state.appState.isRunning = false;
+      if (isCurrent()) await options.onSaveState?.();
+      return { success: false, error: selectedStartRejection ?? 'Campaign rewards require validation.' };
+    }
     removeGameFromQueue(state, requestedGame);
     state.appState.isRunning = false;
     state.appState.isPaused = false;

@@ -1,5 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
-import type { ActivationTrigger, TwitchStreamer } from '../types/index.ts';
+import { isExpectedStreamCategory } from '../shared/stream-category.ts';
+import type { ActivationTrigger } from '../types/index.ts';
 import { ALARM_NAME, CAMPAIGN_SYNC_RETRY_ALARM_NAME, INVALID_STREAM_THRESHOLD } from './constants.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
@@ -9,6 +10,9 @@ import {
 } from './farming-automation-browser.ts';
 import type { StreamContext } from './farming-session.ts';
 import { logInfo, logWarn } from './logging.ts';
+import { managedWatchMarker } from './managed-watch-marker.ts';
+import { openOwnedManagedWatch } from './managed-watch-open.ts';
+import { forgetClosedManagedWatch } from './managed-watch-registry.ts';
 import { openMonitorDashboardWindow as openMonitorDashboardWindowController } from './monitor-dashboard.ts';
 import { needsPlaybackAttention } from './playback.ts';
 import { createPlaybackAttentionPolicy } from './playback-attention-policy.ts';
@@ -21,7 +25,6 @@ import {
   clearManagedTabOwnership,
   closeManagedTabIfSafe,
   ensureManagedTab,
-  managedTabOwnershipKey,
   monitorDashboardUrl,
   releaseManagedTabOwnership,
   shouldMuteManagedFarmingTab,
@@ -38,6 +41,8 @@ interface ServiceWorkerBrowserDependencies {
   readonly fetchStreamContext: (tabId: number) => Promise<StreamContext | null>;
   readonly heartbeat: (target: FarmingTarget) => Promise<TablessHeartbeat>;
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
+  readonly notifyQueueComplete: (title: string, message: string) => Promise<void>;
+  readonly clearQueueCompleteNotification: () => Promise<void>;
 }
 
 interface ServiceWorkerBrowserRegistration {
@@ -70,53 +75,25 @@ export function createServiceWorkerBrowserEvents(
     streamerWatchUrl,
   });
 
-  async function openManagedWatchChannel(streamer: TwitchStreamer): Promise<number | null> {
-    return playbackOrchestrator.openForegroundChannel(streamer, { focus: false });
-  }
-
   const watchTransport = createWatchTransportCoordinator({
     state,
     enabled: true,
     heartbeat: dependencies.heartbeat,
     managedTab: {
-      open: async (target) => {
-        const ownershipToken = globalThis.crypto.randomUUID();
-        const expectedUrl = streamerWatchUrl(target.channelName);
-        const ownershipKey = managedTabOwnershipKey(ownershipToken);
-        try {
-          await browser.storage.session.set({ [ownershipKey]: { version: 1, expectedUrl } });
-        } catch {
-          return null;
-        }
-        const streamer: TwitchStreamer = {
-          id: target.channelName,
-          name: target.channelName,
-          displayName: target.channelName,
-          isLive: true,
-        };
-        const tabId = await openManagedWatchChannel(streamer);
-        if (tabId === null) {
-          await browser.storage.session.remove(ownershipKey).catch(() => undefined);
-          return null;
-        }
-        return {
-          owner: 'drophunter',
-          tabId,
-          ownership: {
-            kind: 'managed-tab',
-            tabId,
-            ownershipToken,
-            expectedChannel: target.channelName,
-          },
-        };
-      },
+      open: (target) =>
+        openOwnedManagedWatch(state, target, async (tabId, isCurrent) => {
+          playbackAttention.beginAttempt();
+          const prepared = await playbackOrchestrator.prepareStreamPlayback(tabId, {
+            unmuteTab: false,
+            muteAfterPrep: true,
+          });
+          if (isCurrent()) await playbackAttention.notifyIfNeeded(prepared);
+          return prepared;
+        }),
       probe: async (session, target) => {
         const context = await dependencies.fetchStreamContext(session.tabId);
-        const selected = state.appState.selectedGame;
         const sameChannel = context?.channelName.toLowerCase() === target.channelName.toLowerCase();
-        const sameGame =
-          selected?.id === target.gameId ||
-          (Boolean(selected?.categorySlug) && context?.categorySlug === selected?.categorySlug);
+        const sameGame = isExpectedStreamCategory(context, target);
         return {
           accepted: Boolean(context) && sameChannel && sameGame && context?.isPlaybackReady === true,
           isLive: context?.isLive,
@@ -138,6 +115,7 @@ export function createServiceWorkerBrowserEvents(
       close: async (session) => {
         if (session.ownership) {
           await releaseManagedTabOwnership(session.ownership, {
+            managedWatchMarker,
             tabs: {
               get: (tabId) => browser.tabs.get(tabId),
               query: (query) => browser.tabs.query(query),
@@ -169,7 +147,11 @@ export function createServiceWorkerBrowserEvents(
   }
 
   async function sendAlert(kind: 'drop-complete' | 'all-complete', message: string): Promise<void> {
-    await dependencies.notify(kind === 'all-complete' ? 'All drops completed' : 'Drop completed', message);
+    if (kind === 'all-complete') {
+      await dependencies.notifyQueueComplete('All drops completed', message);
+    } else {
+      await dependencies.notify('Drop completed', message);
+    }
     const tabs = await browser.tabs.query({ url: ['https://www.twitch.tv/*', 'https://twitch.tv/*'] });
     await Promise.all(
       tabs.flatMap((tab) => {
@@ -186,6 +168,7 @@ export function createServiceWorkerBrowserEvents(
   }
 
   async function handleManagedTabRemoved(removedTabId: number): Promise<void> {
+    await forgetClosedManagedWatch(removedTabId);
     if (state.appState.tabId !== removedTabId) return;
     clearManagedTabOwnership(state);
     await saveState(state);
@@ -229,6 +212,7 @@ export function createServiceWorkerBrowserEvents(
 
   return {
     attemptPlaybackSelfHeal: playbackOrchestrator.attemptPlaybackSelfHeal,
+    clearQueueCompleteNotification: dependencies.clearQueueCompleteNotification,
     clearManagedTabOwnership: () => clearManagedTabOwnership(state),
     closeManagedTabIfSafe,
     enforcePlaybackPolicyOnStreamTab: playbackOrchestrator.enforcePlaybackPolicyOnStreamTab,

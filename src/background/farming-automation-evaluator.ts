@@ -132,8 +132,9 @@ export function createFarmingAutomationEvaluator(
     const plan = planFarmingAutomationPolicy(
       {
         ...policySnapshot,
-        availableGames: policySnapshot.availableGames.filter((game) => !parkedKeys.has(gameKey(game))),
-        queue: policySnapshot.queue.filter((game) => !parkedKeys.has(gameKey(game))),
+        candidateFactsByKey: Object.fromEntries(
+          [...parkedKeys].map((key) => [key, { hasFarmableReward: false, isActive: false }]),
+        ),
       },
       now,
     );
@@ -170,6 +171,12 @@ export function createFarmingAutomationEvaluator(
       observed.kind === 'active' ? observed.watch : null,
       now,
     );
+    const parkedRetryAt = Math.min(
+      ...Object.values(dependencies.state.appState.queueEntryMetadataByKey).flatMap((entry) =>
+        entry.streamerRetryAt !== undefined && entry.streamerRetryAt > now ? [entry.streamerRetryAt] : [],
+      ),
+    );
+    facts = { ...facts, nextEvaluationAt: Math.min(facts.nextEvaluationAt ?? Infinity, parkedRetryAt) };
     if (observed.kind === 'active') {
       if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
       return { kind: 'unchanged', reason: 'manual-watch-active' };

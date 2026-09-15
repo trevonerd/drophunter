@@ -17,6 +17,7 @@ import type { MainViewProps } from './main-view-types';
 import { PopupHeader } from './PopupHeader';
 import { QueueCleanupNotice } from './QueueCleanupNotice';
 import { SessionSummary } from './SessionSummary';
+import { startupRecovery } from './startup-recovery';
 import { TwitchSessionGate } from './TwitchSessionGate';
 
 export type { MainViewProps } from './main-view-types';
@@ -37,6 +38,7 @@ export function MainView({
   firstSyncConfirmation,
   firstSyncCampaignCount,
   queueMessage,
+  dismissedQueueCleanupActivityId,
   notificationPermissionDenied,
   onAutoStartFavoriteGamesToggle,
   onMuteToggle,
@@ -47,6 +49,7 @@ export function MainView({
   onResume,
   onStop,
   onRetryCampaignSync,
+  onDismissQueueCleanup,
   onAddToQueue,
   onAddAllToQueue,
   onLinkAccount,
@@ -74,6 +77,7 @@ export function MainView({
   }
   const gameToStart = getGameToStartFromQueue(selectedGame, queueGames);
   const startDisabled = gameToStart == null || !isCampaignFarmable(gameToStart);
+  const startup = startupRecovery(state, campaignSyncStatus);
   const isSignedOut =
     state.twitchSessionSyncState?.status === 'blocked' || campaignSyncStatus === 'signed-out';
   const favoriteGames = state.favoriteGames ?? [];
@@ -106,15 +110,31 @@ export function MainView({
   );
   const showSelectedCampaignStatus =
     selectedGame !== null && sortedGames.some((game) => gameKey(game) === gameKey(selectedGame));
-  const queueCampaignRemovalNotice = queueCampaignRemoval ? (
-    <QueueCleanupNotice message={queueCampaignRemoval.message} />
-  ) : null;
+  const queueCampaignRemovalNotice =
+    queueCampaignRemoval && queueCampaignRemoval.id !== dismissedQueueCleanupActivityId ? (
+      <QueueCleanupNotice
+        message={queueCampaignRemoval.message}
+        onDismiss={() => onDismissQueueCleanup(queueCampaignRemoval.id)}
+      />
+    ) : null;
+  const syncPanel = (
+    <CampaignSyncPanel
+      status={campaignSyncStatus}
+      error={activeSyncError}
+      hasCachedCampaigns={state.availableGames.length > 0}
+      campaignSyncState={state.campaignSyncState}
+      blocksStartup={startup.isBlocking}
+      onOpenTwitchDrops={onOpenDropsPage}
+      onRetry={onRetryCampaignSync}
+    />
+  );
 
   return (
     <div className="flex flex-col">
       <PopupHeader
         state={state}
         onMuteToggle={onMuteToggle}
+        onOpenDropsPage={onOpenDropsPage}
         onOpenMonitor={onOpenMonitor}
         onOpenSettings={onOpenSettings}
       />
@@ -132,6 +152,7 @@ export function MainView({
           </>
         ) : (
           <>
+            {startup.isBlocking && syncPanel}
             <AutomationSummary
               state={state}
               notificationPermissionDenied={notificationPermissionDenied}
@@ -145,6 +166,7 @@ export function MainView({
               recoveryNow={recoveryNow}
               actionLoading={actionLoading}
               startDisabled={startDisabled}
+              automaticStartPending={startup.automaticStartPending}
               showSelectedCampaignStatus={showSelectedCampaignStatus}
               queueCount={queueGames.length}
               startHighlighted={onboardingStep === 'start'}
@@ -191,14 +213,7 @@ export function MainView({
                 runningGame={state.isRunning && !state.isPaused ? state.selectedGame : null}
                 beforeCatalog={
                   <>
-                    <CampaignSyncPanel
-                      status={campaignSyncStatus}
-                      error={activeSyncError}
-                      hasCachedCampaigns={state.availableGames.length > 0}
-                      campaignSyncState={state.campaignSyncState}
-                      onOpenTwitchDrops={onOpenDropsPage}
-                      onRetry={onRetryCampaignSync}
-                    />
+                    {!startup.isBlocking && syncPanel}
                     {!dropsRefreshLoading &&
                       campaignSyncStatus === 'fresh' &&
                       firstSyncConfirmation &&

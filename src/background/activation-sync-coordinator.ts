@@ -25,11 +25,13 @@ export { CAMPAIGN_SYNC_INTERVAL_MS } from './activation-sync-retry-policy.ts';
 export type ActivationSyncExecution = {
   readonly signal: AbortSignal;
   readonly isCurrent: () => boolean;
+  readonly confirmCampaignValidation?: (campaignCount: number) => Promise<void>;
+  readonly markBrowserVerificationAttempted?: () => Promise<void>;
 };
 
 export type ActivationSyncAttempt =
   | { readonly kind: 'synced'; readonly campaignCount: number }
-  | { readonly kind: 'needs-session'; readonly errorKind?: 'auth' | 'session' }
+  | { readonly kind: 'needs-session'; readonly errorKind?: 'auth' | 'session' | 'integrity' }
   | {
       readonly kind: 'transient-error';
       readonly error: string;
@@ -73,6 +75,7 @@ type ActiveRequest = {
   readonly controller: AbortController;
   readonly operation: Promise<ActivationSyncResult>;
   readonly trigger: ActivationTrigger;
+  readonly deadlineAt: number;
   obsolete: boolean;
 };
 type PendingRequest = {
@@ -120,6 +123,13 @@ export function createActivationSyncCoordinator(
     if (!isCoordinatorCurrent()) return { kind: 'not-needed' };
     const startedAt = now();
     const previous = dependencies.getCampaignSyncState();
+    let browserVerificationAttempted = previous.browserVerificationAttempted;
+    if (
+      previous.status === 'needs-session' &&
+      previous.lastErrorKind === 'integrity' &&
+      shouldRespectActivationSyncRetry(trigger)
+    )
+      return { kind: 'needs-session' };
     if (
       trigger === 'periodic-campaign' &&
       dependencies.shouldRunPeriodicSync &&
@@ -140,6 +150,7 @@ export function createActivationSyncCoordinator(
       return { kind: 'cache-fresh', campaignCount: previous.campaignCount };
     const syncingState: CampaignSyncState = {
       status: 'syncing',
+      ...(browserVerificationAttempted ? { browserVerificationAttempted } : {}),
       lastAttemptAt: startedAt,
       lastSuccessAt: previous.lastSuccessAt,
       campaignCount: previous.campaignCount,
@@ -148,9 +159,24 @@ export function createActivationSyncCoordinator(
       nextRetryAt: null,
       attemptDeadlineAt: startedAt + attemptTimeoutMs,
     };
+    const validation: { attempt: Extract<ActivationSyncAttempt, { kind: 'synced' }> | null } = {
+      attempt: null,
+    };
     const execution: ActivationSyncExecution = {
       signal: controller.signal,
-      isCurrent: () => isCoordinatorCurrent() && !controller.signal.aborted,
+      markBrowserVerificationAttempted: async () => {
+        if (!execution.isCurrent()) return;
+        browserVerificationAttempted = true;
+        await dependencies.setCampaignSyncState({ ...syncingState, browserVerificationAttempted: true });
+      },
+      isCurrent: () =>
+        isCoordinatorCurrent() && !controller.signal.aborted && now() < startedAt + attemptTimeoutMs,
+      confirmCampaignValidation: async (campaignCount) => {
+        if (!execution.isCurrent() || validation.attempt !== null) return;
+        const attempt = { kind: 'synced', campaignCount } as const;
+        await applyActivationSyncOutcome(dependencies, { attempt, now, previous, startedAt });
+        if (execution.isCurrent()) validation.attempt = attempt;
+      },
     };
     const attempt = await runActivationSyncAttempt(
       Promise.resolve().then(async () => {
@@ -164,14 +190,27 @@ export function createActivationSyncCoordinator(
       attemptTimeoutMs,
     );
     if (!isCoordinatorCurrent() || attempt === null) return { kind: 'not-needed' };
-    return applyActivationSyncOutcome(dependencies, { attempt, now, previous, startedAt });
+    if (
+      validation.attempt !== null &&
+      !(attempt.kind === 'transient-error' && attempt.errorKind === 'invalid-response')
+    )
+      return validation.attempt;
+    return applyActivationSyncOutcome(dependencies, {
+      attempt:
+        now() >= startedAt + attemptTimeoutMs
+          ? { kind: 'transient-error', error: 'Campaign sync timed out.', errorKind: 'network' }
+          : attempt,
+      now,
+      previous: { ...previous, ...(browserVerificationAttempted ? { browserVerificationAttempted } : {}) },
+      startedAt,
+    });
   }
 
   function start(trigger: ActivationTrigger): Promise<ActivationSyncResult> {
     const controller = new AbortController();
     let request: ActiveRequest | null = null;
     const operation = execute(trigger, controller, () => active === request && request?.obsolete === false);
-    request = { controller, operation, trigger, obsolete: false };
+    request = { controller, operation, trigger, deadlineAt: now() + attemptTimeoutMs, obsolete: false };
     active = request;
     void operation.then(
       () => settle(request),
@@ -189,6 +228,19 @@ export function createActivationSyncCoordinator(
   }
 
   function request(trigger: ActivationTrigger): Promise<ActivationSyncResult> {
+    if (active && now() >= active.deadlineAt) {
+      const expired = active;
+      const queued = pending;
+      active = null;
+      pending = null;
+      expired.obsolete = true;
+      expired.controller.abort();
+      const nextTrigger =
+        queued && TRIGGER_PRIORITY[queued.trigger] > TRIGGER_PRIORITY[trigger] ? queued.trigger : trigger;
+      const next = start(nextTrigger);
+      if (queued) void next.then(queued.resolve, queued.reject);
+      return next;
+    }
     if (!active) return start(trigger);
     if (pending) {
       if (TRIGGER_PRIORITY[trigger] > TRIGGER_PRIORITY[pending.trigger]) pending.trigger = trigger;

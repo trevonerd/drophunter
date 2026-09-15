@@ -1,4 +1,5 @@
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logDebug } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
@@ -50,22 +51,29 @@ export function createServiceWorkerTwitchContentHandlers(
 ) {
   async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.MessageSender) {
     if (!isTrustedTwitchSender(sender)) return { success: false, error: 'Untrusted message sender' };
+    const epoch = currentFarmingSessionEpoch(state);
+    const isCurrent = () => currentFarmingSessionEpoch(state) === epoch;
     await dependencies.awaitInitialization();
-    const recoveryIntent = twitchSessionRecoveryIntent(state.appState);
+    const recoveryIntent = isCurrent() ? twitchSessionRecoveryIntent(state.appState) : 'none';
     const result = await syncTwitchSessionFromContentScriptExt(
       state,
       sessionPayloadCandidate(payload),
       sender.tab?.id,
       {
         shouldRefreshCampaignsAfterSessionSync: dependencies.shouldRefreshCampaignsAfterSessionSync,
-        onRefreshCampaigns: dependencies.requestAuthRecoveredSync,
+        onRefreshCampaigns: () => (isCurrent() ? dependencies.requestAuthRecoveredSync() : Promise.resolve()),
         onSaveState: () => saveState(state),
         onBroadcastStateUpdate: () => broadcastStateUpdate(state.appState),
       },
     );
-    if (!result.success) return result;
+    if (!result.success || !isCurrent()) return result;
     markTwitchSessionReady(state);
-    if (recoveryIntent === 'resume') await dependencies.resumeAfterAuthRecovery();
+    if (
+      recoveryIntent === 'resume' &&
+      !state.appState.isPaused &&
+      (!state.appState.lastStopReason || state.appState.lastStopReason === 'sign-in-required')
+    )
+      await dependencies.resumeAfterAuthRecovery();
     else await saveState(state);
     broadcastStateUpdate(state.appState);
     return result;

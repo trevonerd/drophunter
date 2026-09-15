@@ -262,6 +262,7 @@ export function registerQueue15Part01() {
       expect(state.appState.queue).toEqual([farmableSibling]);
       expect(state.appState.isRunning).toBe(true);
       expect(events).toEqual([
+        'persist:campaign-farmable',
         'timing:campaign-farmable',
         'workspace:campaign-farmable',
         'refresh:campaign-farmable',

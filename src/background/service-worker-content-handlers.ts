@@ -32,6 +32,7 @@ import { waitForTabComplete } from './tab-management.ts';
 type FarmingSession = Pick<
   ReturnType<typeof createFarmingSession>,
   | 'acquireStreamerForSelectedGame'
+  | 'advanceQueueIfCompleted'
   | 'handleAuthoritativeCampaignUnavailable'
   | 'handleStartFarming'
   | 'resumeAfterAuthRecovery'
@@ -57,6 +58,7 @@ interface ServiceWorkerContentDependencies {
   readonly stateLifecycle: StateLifecycle;
   readonly twitchGateway: TwitchGateway;
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
+  readonly clearQueueCompleteNotification: () => Promise<void>;
   readonly automationNotify?: AutomationEventNotifier['notify'];
 }
 
@@ -113,6 +115,7 @@ export function createServiceWorkerContentHandlers(
     persistCampaignSyncState(state, campaignSyncState, {
       save: saveState,
       broadcast: broadcastStateUpdate,
+      notifyAutomation: dependencies.automationNotify,
     });
 
   const activationSyncCoordinator = createActivationSyncCoordinator({
@@ -125,6 +128,7 @@ export function createServiceWorkerContentHandlers(
     shouldRunPeriodicSync: () => state.appState.isRunning || state.appState.autoStartFavoriteGames,
     performSync: createServiceWorkerActivationSync({
       automation: dependencies.automation,
+      clearQueueCompleteNotification: dependencies.clearQueueCompleteNotification,
       dropsPageRefresher,
       farmingSession: dependencies.farmingSession,
       refreshGamesCache,

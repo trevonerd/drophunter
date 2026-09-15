@@ -70,6 +70,49 @@ the older third-attempt reward-marking behavior.
 
 ## Authenticated production run
 
+### Sleep, expiry and unavailable streamers
+
+- Resume with a cached positive `expiresInMs` but a past absolute `endsAt`.
+  Verify the campaign is expired in both popup and background, including during
+  Twitch API cooldown. No stream search should delay removal.
+- Return a successful empty directory twice: the initial check and the retry due after 30 seconds
+  (executed on the next monitoring heartbeat). Keep the campaign queued with a
+  60-second cooldown and continue eligible work. Directory errors must be reported
+  as unavailable search, never as proof that no streamer exists.
+- In ending-soonest mode, verify the next untried eligible campaign has the earlier
+  deadline. A parked campaign cannot overtake untried campaigns when its cooldown
+  expires. Complete the round before opening another. Favorites use the same
+  configured ordering; explicit priority-list order remains respected.
+- Make every campaign unavailable. Verify the authorized queue stays intact,
+  waits without a tight loop, and never announces queue completion or successful
+  farming. Restart the worker during this wait and repeat.
+- Restore an older ten-minute acquisition timer. Verify its campaign wait is capped
+  at 60 seconds without shortening Twitch's global API cooldown.
+- Confirm an eligible stream for the exact campaign, not merely a stream with a
+  Drops tag. Restricted campaigns and publisher-account linking remain distinct
+  from being signed in to Twitch.
+- Exercise four campaigns ordered Skull, LEGO, WARDOGS, Marvel with the first
+  three unavailable. Marvel receives a turn before another round begins, even
+  when the first campaign's cooldown expires during the round. Repeat with
+  Marvel expiring first, and queues of one and ten campaigns.
+- During authentication, integrity, network, malformed-response and rate-limit
+  failures, verify selection and campaign retry counts are frozen. A successful
+  empty directory alone consumes the bounded local retry budget. Respect the
+  complete Retry-After deadline across restart.
+- Suspend the deterministic clock for 72 hours during acquisition, validation
+  and retry wait. The next event invalidates expired operations, reconciles
+  absolute campaign expiry and restores the next alarm without replaying missed
+  attempts. No late response opens a stream or overwrites a newer selection.
+- Press Stop while a directory request, session sync, snapshot refresh or commit
+  is pending. Farming stops immediately, including with favorite auto-start
+  enabled, and late completion cannot reactivate it. Repeat after restart.
+- Compare popup and monitor during global recovery, local campaign wait,
+  validation and sign-in-required. An overdue countdown must not claim a retry
+  is running unless an operation exists. Check the local runtimeDiagnostics
+  history contains at most 200 redacted events and no credentials.
+
+### Sustained run
+
 1. Run the release gate and dependency audits from the store checklist. Load
    the exact produced Chrome and Edge artifacts; record the build identifier.
 2. Verify clean-install connection, campaign loading, manual Add/Start,
@@ -82,6 +125,8 @@ the older third-attempt reward-marking behavior.
 4. Restart the service worker during the run. Verify monitoring resumes as
    allowed, progress does not regress, queue authorization/exclusion survives,
    and no duplicate managed tab or notification is produced.
+   Include a real laptop suspension/resume and record both timestamps; the
+   deterministic 72-hour simulation does not replace this observation.
 5. Exercise hidden fallback, offline/wrong-channel conditions, an interrupted
    refresh and recovery. Keep the user's Chrome window open when releasing the
    only managed tab in that window.

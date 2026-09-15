@@ -4,19 +4,44 @@ import { clearRotationMetadata, createServiceWorkerState, type ServiceWorkerStat
 
 interface ExtensionUpdateIntent {
   readonly wasRunning: boolean;
+  readonly isPaused: boolean;
+  readonly manualQueueAuthorized: AppState['manualQueueAuthorized'];
+  readonly farmingSessionOrigin: AppState['farmingSessionOrigin'];
+  readonly lastStopReason: AppState['lastStopReason'];
+  readonly lastStopMessage: AppState['lastStopMessage'];
+  readonly queueAcquisitionRound: AppState['queueAcquisitionRound'];
+  readonly recoveryReason: AppState['recoveryReason'];
+  readonly recoveryBackoffUntil: AppState['recoveryBackoffUntil'];
+  readonly recoveryAttempts: AppState['recoveryAttempts'];
   readonly queue: AppState['queue'];
   readonly selectedGame: AppState['selectedGame'];
   readonly queueEntryMetadataByKey: AppState['queueEntryMetadataByKey'];
 }
 
+export function captureExtensionUpdateIntent(appState: AppState): ExtensionUpdateIntent {
+  return {
+    wasRunning:
+      !appState.isPaused &&
+      appState.lastStopReason !== 'user-stop' &&
+      (appState.isRunning || appState.wasRunning),
+    isPaused: appState.isPaused,
+    manualQueueAuthorized: appState.manualQueueAuthorized,
+    farmingSessionOrigin: appState.farmingSessionOrigin,
+    lastStopReason: appState.lastStopReason,
+    lastStopMessage: appState.lastStopMessage,
+    queueAcquisitionRound: appState.queueAcquisitionRound,
+    recoveryReason: appState.recoveryReason,
+    recoveryBackoffUntil: appState.recoveryBackoffUntil,
+    recoveryAttempts: appState.recoveryAttempts,
+    queue: appState.queue.slice(),
+    selectedGame: appState.selectedGame,
+    queueEntryMetadataByKey: { ...appState.queueEntryMetadataByKey },
+  };
+}
+
 export function createExtensionUpdateAppState(
   appState: AppState,
-  intent: ExtensionUpdateIntent = {
-    wasRunning: appState.isRunning || appState.wasRunning,
-    queue: appState.queue,
-    selectedGame: appState.selectedGame,
-    queueEntryMetadataByKey: appState.queueEntryMetadataByKey,
-  },
+  intent: ExtensionUpdateIntent = captureExtensionUpdateIntent(appState),
 ): AppState {
   const preserved = {
     totalDropsClaimed: appState.totalDropsClaimed,
@@ -41,8 +66,26 @@ export function createExtensionUpdateAppState(
     queue: intent.queue,
     selectedGame: intent.selectedGame,
     queueEntryMetadataByKey: intent.queueEntryMetadataByKey,
-    manualQueueAuthorized: appState.manualQueueAuthorized,
-    farmingSessionOrigin: appState.farmingSessionOrigin,
+    manualQueueAuthorized: intent.manualQueueAuthorized,
+    farmingSessionOrigin: intent.farmingSessionOrigin,
+    isPaused: intent.isPaused,
+    isRunning: intent.isPaused,
+    lastStopReason: intent.lastStopReason,
+    lastStopMessage: intent.lastStopMessage,
+    queueAcquisitionRound: intent.queueAcquisitionRound,
+    recoveryReason: intent.recoveryReason,
+    recoveryBackoffUntil: intent.recoveryBackoffUntil,
+    recoveryAttempts: intent.recoveryAttempts,
+    campaignSyncState: appState.campaignSyncState,
+    twitchSessionSyncState: appState.twitchSessionSyncState,
+    availableGames: appState.availableGames,
+    campaignDropsByKey: appState.campaignDropsByKey,
+    campaignEvidenceUserId: appState.campaignEvidenceUserId,
+    acquiredCampaignIds: appState.acquiredCampaignIds,
+    allDrops: appState.allDrops,
+    pendingDrops: appState.pendingDrops,
+    completedDrops: appState.completedDrops,
+    currentDrop: appState.currentDrop,
     stalledCampaignBlocksByKey: appState.stalledCampaignBlocksByKey,
     wasRunning: intent.wasRunning,
   };

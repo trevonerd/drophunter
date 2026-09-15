@@ -60,6 +60,7 @@ export async function refreshDropsData(
   let apiSnapshotUsed = false;
   let refreshAttempted = false;
   let refreshSucceeded = false;
+  let freshSnapshotValidated = false;
   let provenance: DropsSnapshotProvenance = 'cached';
   let campaignCatalogEmpty = false;
 
@@ -89,9 +90,11 @@ export async function refreshDropsData(
       if (apiSnapshot.drops.length > 0) {
         state.cachedDropsSnapshot = apiSnapshot.drops;
         provenance = provenanceFromSnapshot;
+        freshSnapshotValidated = true;
       } else if (hasAuthoritativeEmptyRewardSet) {
         state.cachedDropsSnapshot = [];
         provenance = provenanceFromSnapshot;
+        freshSnapshotValidated = true;
       } else if (state.cachedDropsSnapshot.length > 0) {
         drops = state.cachedDropsSnapshot;
       } else {
@@ -117,6 +120,7 @@ export async function refreshDropsData(
         state.cachedDropsSnapshot = inventorySnapshot.drops;
         apiSnapshotUsed = true;
         provenance = 'inventory-partial';
+        freshSnapshotValidated = true;
       }
     }
   }
@@ -160,6 +164,9 @@ export async function refreshDropsData(
     provenance,
   );
   deps.normalizeQueueSelection(state, state.appState.availableGames);
+  if (freshSnapshotValidated) {
+    state.hasCurrentGenerationCampaignValidation = true;
+  }
 
   const newlyClaimed = detectNewlyClaimedDrops(drops, previousSnapshotForClaims);
   if (newlyClaimed.length > 0) {

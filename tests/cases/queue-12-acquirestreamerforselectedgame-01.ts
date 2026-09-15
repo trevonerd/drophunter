@@ -5,7 +5,7 @@ import { createGame, createMinimalState } from '../fixtures/queue-management.ts'
 
 export function registerQueue12Part01() {
   describe('acquireStreamerForSelectedGame', () => {
-    test('sets one-minute no-streamers recovery on first failed acquisition', async () => {
+    test('sets thirty-second no-streamers recovery on first failed acquisition', async () => {
       const state = createMinimalState({ stalledRecoveryAttempts: 2 });
       state.appState.selectedGame = createGame({ name: 'Rainbow Six Siege' });
       const before = Date.now();
@@ -21,8 +21,8 @@ export function registerQueue12Part01() {
       expect(openCalls).toBe(1);
       expect(state.appState.recoveryReason).toBe('no-streamers');
       expect(state.appState.recoveryAttempts).toBe(1);
-      expect(state.recoveryBackoffUntil).toBeGreaterThanOrEqual(before + 60_000);
-      expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 60_000);
+      expect(state.recoveryBackoffUntil).toBeGreaterThanOrEqual(before + 30_000);
+      expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 30_000);
       expect(state.stalledRecoveryAttempts).toBe(2);
     });
 
@@ -43,7 +43,7 @@ export function registerQueue12Part01() {
 
       expect(opened).toBe(false);
       expect(skipCalled).toBe(false);
-      expect(state.appState.recoveryReason).toBe('directory-unavailable');
+      expect(state.appState.recoveryReason).toBe('twitch-network');
       expect(state.appState.recoveryAttempts).toBe(1);
       expect(state.appState.recoveryBackoffUntil).toBe(state.apiBackoffUntil);
     });

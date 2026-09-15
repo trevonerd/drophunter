@@ -3,6 +3,7 @@ import { logDebug, logInfo, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { OpenBestStreamerCallbacks } from './streamer-acquisition-contracts.ts';
 import type { PickStreamerResult, StreamerSelectionPreferences } from './streamer-selection.ts';
+import { TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
 
 function filterStreamersByAllowedChannels(
   streamers: TwitchStreamer[],
@@ -82,6 +83,7 @@ export async function openBestStreamerForSelectedGame(
     selectedGame,
     false,
     state.appState.preferredStreamerLanguage ?? '',
+    isCurrent,
   );
   if (!isCurrent()) return false;
   logDebug('Language filter applied to directory query', {
@@ -126,7 +128,7 @@ export async function openBestStreamerForSelectedGame(
     });
   }
   if (candidates.length === 0 && allowed?.length && streamers.languageFilterApplied) {
-    const unfiltered = await callbacks.onFetchDirectoryStreamersFromApi(selectedGame, false, '');
+    const unfiltered = await callbacks.onFetchDirectoryStreamersFromApi(selectedGame, false, '', isCurrent);
     if (!isCurrent()) return false;
     candidates = filterStreamersByAllowedChannels(unfiltered, allowed);
     languageFilterApplied = unfiltered.languageFilterApplied;
@@ -185,7 +187,15 @@ export async function openBestStreamerForSelectedGame(
   state.avoidStreamerName = null;
   if (!isCurrent()) return false;
   if (callbacks.onOpenWatchTransport) {
-    const opened = await callbacks.onOpenWatchTransport(streamer);
+    let opened: boolean;
+    try {
+      opened = await callbacks.onOpenWatchTransport(streamer);
+    } catch (error) {
+      throw new TwitchDirectoryUnavailableError(error);
+    }
+    if (!isCurrent()) return false;
+    if (!opened)
+      throw new TwitchDirectoryUnavailableError(new Error('Watch transport could not start playback'));
     if (opened && isCurrent()) state.appState.activeStreamer = streamer;
     return opened;
   }

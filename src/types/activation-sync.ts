@@ -22,6 +22,7 @@ export type ActivationSyncErrorKind =
   (typeof ACTIVATION_SYNC_ERROR_KINDS)[keyof typeof ACTIVATION_SYNC_ERROR_KINDS];
 
 interface CampaignSyncSnapshot {
+  readonly browserVerificationAttempted?: boolean;
   readonly lastAttemptAt: number | null;
   readonly lastSuccessAt: number | null;
   readonly campaignCount: number | null;

@@ -15,6 +15,7 @@ import {
 } from './app-state-runtime-normalizers.ts';
 import { browser } from './browser-api.ts';
 import { isRuntimeRequest } from './messages.ts';
+import { normalizeQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { createInitialState } from './utils.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -56,6 +57,7 @@ export function normalizeStoredAppState(value: unknown): AppState {
           ? 'automatic'
           : null,
     queueEntryMetadataByKey: normalizeQueueMetadata(value.queueEntryMetadataByKey),
+    queueAcquisitionRound: normalizeQueueAcquisitionRound(value.queueAcquisitionRound),
     stalledCampaignBlocksByKey: normalizeStalledCampaignBlocks(value.stalledCampaignBlocksByKey),
     automationActivity: normalizeAutomationActivity(value.automationActivity),
     lastAutomationMessage:

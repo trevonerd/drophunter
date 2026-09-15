@@ -73,8 +73,12 @@ describe('monitoring tick ownership', () => {
     expect(state.monitorTickInFlight).toBe(false);
   });
 
-  test('skipped checks cannot refresh the heartbeat of a hung tick', async () => {
-    const state = createMinimalState({ monitorTickInFlight: true, lastHeartbeatAt: 42 });
+  test('skipped checks cannot refresh the heartbeat of an unexpired tick', async () => {
+    const state = createMinimalState({
+      monitorTickInFlight: true,
+      lastHeartbeatAt: 42,
+      monitorTickDeadlineAt: Date.now() + TICK_WATCHDOG_TIMEOUT_MS,
+    });
     state.appState.isRunning = true;
     await checkDropProgress(state, callbacks());
     expect(state.lastHeartbeatAt).toBe(42);

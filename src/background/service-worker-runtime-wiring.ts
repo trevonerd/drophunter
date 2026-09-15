@@ -28,14 +28,12 @@ type FarmingAutomationUserActionSession = Pick<
 
 async function runSnoozedUserAction(
   automation: FarmingAutomation,
-  automaticFavoritesEnabled: () => boolean,
   reason: 'manual-pause' | 'manual-stop',
   action: () => Promise<{ readonly success: true }>,
   persistenceError: string,
 ) {
-  if (automaticFavoritesEnabled()) return action();
-  const snooze = await automation.snooze(reason);
-  const result = await action();
+  const snoozing = automation.snooze(reason);
+  const [snooze, result] = await Promise.all([snoozing, action()]);
   return snooze === 'snoozed' ? result : { success: false, error: persistenceError };
 }
 
@@ -43,12 +41,10 @@ export function createFarmingAutomationUserActionHandlers(
   automation: FarmingAutomation,
   farmingSession: FarmingAutomationUserActionSession,
 ) {
-  const automaticFavoritesEnabled = farmingSession.automaticFavoritesEnabled ?? (() => false);
   return {
     pauseFarming: () =>
       runSnoozedUserAction(
         automation,
-        automaticFavoritesEnabled,
         'manual-pause',
         farmingSession.handlePauseFarming,
         'Farming paused, but the automatic-farming snooze could not be persisted.',
@@ -57,7 +53,6 @@ export function createFarmingAutomationUserActionHandlers(
     stopFarming: () =>
       runSnoozedUserAction(
         automation,
-        automaticFavoritesEnabled,
         'manual-stop',
         farmingSession.handleStopFarming,
         'Farming stopped, but the automatic-farming snooze could not be persisted.',

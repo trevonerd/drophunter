@@ -71,7 +71,16 @@ export function normalizeCampaignSyncState(value: Record<string, unknown>): AppS
   );
   const retryAttemptCount = nonNegativeInteger(candidate?.retryAttemptCount) ?? 0;
   const lastErrorKind = isActivationSyncErrorKind(candidate?.lastErrorKind) ? candidate.lastErrorKind : null;
-  const common = { lastAttemptAt, lastSuccessAt, campaignCount, retryAttemptCount, lastErrorKind };
+  const common = {
+    lastAttemptAt,
+    lastSuccessAt,
+    campaignCount,
+    retryAttemptCount,
+    lastErrorKind,
+    ...(candidate?.status !== 'idle' && candidate?.browserVerificationAttempted === true
+      ? { browserVerificationAttempted: true }
+      : {}),
+  };
   const attemptDeadlineAt = nullableFiniteNumber(candidate?.attemptDeadlineAt);
   if (candidate?.status === 'syncing' && attemptDeadlineAt !== null) {
     return { status: 'syncing', ...common, nextRetryAt: null, attemptDeadlineAt };

@@ -1,4 +1,5 @@
 import { formatFarmingCompleteStatusLines } from '../shared/runtime-status.ts';
+import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { clearRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type {
@@ -14,7 +15,7 @@ export function resetNoProgressRotationAttempts(state: ServiceWorkerState): void
   state.noProgressRotationAttempts = 0;
 }
 
-export function resetStreamTrackingState(state: ServiceWorkerState): void {
+export function resetStreamTrackingState(state: ServiceWorkerState, preserveRecovery = false): void {
   state.invalidStreamChecks = 0;
   state.lastStreamRotationAt = 0;
   state.streamValidationGraceUntil = 0;
@@ -26,13 +27,18 @@ export function resetStreamTrackingState(state: ServiceWorkerState): void {
   state.avoidStreamerName = null;
   resetNoProgressRotationAttempts(state);
   state.playbackAttentionWarningSent = false;
-  clearRecoveryState(state);
+  if (!preserveRecovery) clearRecoveryState(state);
 }
 
 export async function stopFarmingSession(
   state: ServiceWorkerState,
   options?: StopFarmingSessionOptions,
 ): Promise<void> {
+  const preserveQueueContext = options?.stopReason === 'sign-in-required';
+  if (!preserveQueueContext) {
+    resetQueueAcquisitionRound(state);
+    state.appState.manualQueueAuthorized = false;
+  }
   if (options?.onStopMonitoring) {
     options.onStopMonitoring();
   }
@@ -51,7 +57,7 @@ export async function stopFarmingSession(
       ...options.onClearRotationMetadata(state.appState),
       isRunning: false,
       isPaused: false,
-      farmingSessionOrigin: null,
+      farmingSessionOrigin: preserveQueueContext ? state.appState.farmingSessionOrigin : null,
       activeStreamer: null,
       tabId: null,
       completionNotified: false,
@@ -61,7 +67,7 @@ export async function stopFarmingSession(
       ...state.appState,
       isRunning: false,
       isPaused: false,
-      farmingSessionOrigin: null,
+      farmingSessionOrigin: preserveQueueContext ? state.appState.farmingSessionOrigin : null,
       activeStreamer: null,
       tabId: null,
       completionNotified: false,
@@ -102,8 +108,11 @@ export async function finalizeCompletedQueue(
   context: CompletedQueueContext,
   options?: AdvanceQueueOptions,
 ): Promise<void> {
+  if (options?.isCurrent?.() === false) return;
+  resetQueueAcquisitionRound(state);
   if (options?.onCloseManagedTabIfSafe) {
     await options.onCloseManagedTabIfSafe(state.appState.tabId);
+    if (options.isCurrent?.() === false) return;
   }
   if (options?.onClearManagedTabOwnership) {
     options.onClearManagedTabOwnership();
@@ -137,18 +146,24 @@ export async function finalizeCompletedQueue(
   }
   if (options?.onSystemAlert) {
     await options.onSystemAlert(stopReason, stopMessage);
+    if (options.isCurrent?.() === false) return;
   }
   if (options?.onStopMonitoring) {
     options.onStopMonitoring();
   }
   if (!context.terminalFarmingCompleteGame) {
-    if (context.completedWhileNoStreamers && options?.onNotify) {
-      await options.onNotify('Queue completed', queueCompleteNotificationMessage);
+    if (context.completedWhileNoStreamers) {
+      if (options?.onQueueCompleteNotification) {
+        await options.onQueueCompleteNotification('Queue completed', queueCompleteNotificationMessage);
+      } else if (options?.onNotify) {
+        await options.onNotify('Queue completed', queueCompleteNotificationMessage);
+      }
     } else if (options?.onSendAlert) {
       await options.onSendAlert('all-complete', queueCompleteMessage);
     }
   }
   if (options?.onSaveState) {
+    if (options?.isCurrent?.() === false) return;
     await options.onSaveState();
   }
 }
@@ -169,13 +184,23 @@ export function queueSkipCopy(reason: QueueSkipReason, gameName: string): QueueS
     }
     case 'no-streamers':
       return {
-        logMessage: 'Skipping game because no eligible Drops streamer was found',
-        skipNotificationTitle: 'Game skipped: no eligible streamer',
-        skipMessage: `Skipped ${gameName} — no eligible streamer was found for its Drops.`,
+        logMessage: 'Parking campaign because no eligible Drops streamer was found',
+        skipNotificationTitle: 'Campaign queued: waiting for streamers',
+        skipMessage: `Kept ${gameName} queued for retry — no eligible streamer was found for its Drops.`,
         terminalNotificationTitle: 'Queue completed',
         terminalMessage: `Queue completed. No eligible streamer was found for ${gameName}.`,
         terminalNotificationMessage: `No eligible streamer was found for the Drops in ${gameName}. DropHunter has stopped.`,
         stopReason: 'queue-complete',
+      };
+    case 'directory-unavailable':
+      return {
+        logMessage: 'Parking campaign because Twitch streamer search is unavailable',
+        skipNotificationTitle: 'Campaign queued: Twitch search unavailable',
+        skipMessage: `Kept ${gameName} queued for retry — Twitch streamer search is temporarily unavailable.`,
+        terminalNotificationTitle: 'No active campaigns',
+        terminalMessage: 'No active campaigns remain in the queue.',
+        terminalNotificationMessage: 'No active campaigns remain in the queue.',
+        stopReason: 'no-active-campaigns',
       };
     case 'unverifiable-twitch':
       return {

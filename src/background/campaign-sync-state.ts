@@ -1,9 +1,12 @@
 import type { CampaignSyncState } from '../types/index.ts';
+import type { AutomationEventNotifier } from './automation-event-notifier.ts';
+import { logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 interface CampaignSyncStatePersistence {
   readonly broadcast: (state: ServiceWorkerState['appState']) => void;
   readonly save: (state: ServiceWorkerState) => Promise<void>;
+  readonly notifyAutomation?: AutomationEventNotifier['notify'];
 }
 
 export async function persistCampaignSyncState(
@@ -28,4 +31,38 @@ export async function persistCampaignSyncState(
   }
   await persistence.save(state);
   persistence.broadcast(state.appState);
+  const appState = state.appState;
+  const hasWaitingWork =
+    appState.isRunning ||
+    (appState.manualQueueAuthorized && appState.queue.length > 0) ||
+    (appState.autoStartFavoriteGames && appState.favoriteGames.length > 0);
+  if (
+    appState.campaignSyncState === campaignSyncState &&
+    campaignSyncState.status === 'needs-session' &&
+    hasWaitingWork &&
+    !appState.isPaused &&
+    appState.lastStopReason !== 'user-stop'
+  ) {
+    void Promise.resolve()
+      .then(() => {
+        if (
+          state.appState.campaignSyncState !== campaignSyncState ||
+          state.appState.isPaused ||
+          state.appState.lastStopReason === 'user-stop'
+        )
+          return;
+        return persistence.notifyAutomation?.({
+          transitionId: `campaign-sync-needs-session:${campaignSyncState.lastSuccessAt ?? 'initial'}`,
+          event: 'sign-in-required',
+          campaignId: 'campaign-sync',
+          telegramReason: 'sign-in-required',
+          title: 'Open Twitch Drops',
+          message:
+            campaignSyncState.lastErrorKind === 'integrity'
+              ? 'Open Twitch Drops to refresh Twitch verification and resume your waiting campaigns.'
+              : 'Open Twitch Drops so DropHunter can detect your session and resume your waiting campaigns.',
+        });
+      })
+      .catch(() => logWarn('Campaign session notification delivery failed'));
+  }
 }

@@ -44,6 +44,7 @@ export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}):
     recoveryNotificationSent: false,
     lastHeartbeatAt: 0,
     lastGamesCacheRefreshAt: 0,
+    hasCurrentGenerationCampaignValidation: true,
     unverifiableRewardsByKey: {},
     ...overrides,
   };

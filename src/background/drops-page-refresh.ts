@@ -6,8 +6,10 @@ import {
   findOrOpenDropsPageTab,
   publishDropsPageRefreshState,
 } from './drops-page-tab-lifecycle.ts';
+import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/errors.ts';
 
 const DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS = 10_000;
+const DROPS_PAGE_OPERATION_TIMEOUT_MS = 60_000;
 
 export interface DropsPageRefreshResult {
   success: boolean;
@@ -16,6 +18,8 @@ export interface DropsPageRefreshResult {
   gamesCount: number;
   appState?: AppState;
   error?: string;
+  inventoryVerified?: boolean;
+  failure?: TwitchApiFailure;
 }
 
 interface OpenDropsPageRefreshOptions {
@@ -29,6 +33,14 @@ interface OpenDropsPageRefreshOptions {
 export function createDropsPageRefresher(state: DropsPageState, options: DropsPageRefreshOptions) {
   let openAndRefreshInFlight: Promise<DropsPageRefreshResult> | null = null;
   let refreshInFlight: Promise<DropsPageRefreshResult> | null = null;
+  let openIsCurrent: (() => boolean) | null = null;
+  let refreshIsCurrent: (() => boolean) | null = null;
+  const cancelledResult = (): DropsPageRefreshResult => ({
+    success: false,
+    opened: false,
+    refreshed: false,
+    gamesCount: state.appState.availableGames.length,
+  });
   const publishRefreshState = async (
     inProgress: boolean,
     stateOptions: {
@@ -46,11 +58,12 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     opened: boolean,
     isCurrent: () => boolean,
   ): Promise<DropsPageRefreshResult> => {
-    if (refreshInFlight) {
+    if (refreshInFlight && refreshIsCurrent?.()) {
       return refreshInFlight;
     }
 
-    refreshInFlight = (async () => {
+    refreshIsCurrent = isCurrent;
+    const operation = (async () => {
       let result: DropsPageRefreshResult;
       try {
         const startedAt = Date.now();
@@ -58,20 +71,24 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
           tabId,
           options.dropsPageReadyTimeoutMs ?? DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS,
         );
-        const { gamesCount, sawSession, snapshotAvailable } = await refreshDropsPageCampaigns({
-          isCurrent,
-          options,
-          publishRefreshState,
-          startedAt,
-          state,
-          tabId,
-        });
+        if (!isCurrent()) return cancelledResult();
+        const { gamesCount, sawSession, snapshotAvailable, inventoryVerified, failure } =
+          await refreshDropsPageCampaigns({
+            isCurrent,
+            options,
+            publishRefreshState,
+            startedAt,
+            state,
+            tabId,
+          });
 
         result = {
           success: snapshotAvailable,
           opened,
           refreshed: snapshotAvailable,
           gamesCount,
+          inventoryVerified,
+          ...(failure ? { failure } : {}),
         };
         if (!snapshotAvailable) {
           result.error = sawSession
@@ -85,6 +102,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
           refreshed: false,
           gamesCount: state.appState.availableGames.length,
           error: String(error),
+          failure: classifyTwitchApiFailure(error),
         };
       }
 
@@ -99,10 +117,13 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
         appState: state.appState,
       };
     })().finally(() => {
-      refreshInFlight = null;
+      if (refreshInFlight === operation) {
+        refreshInFlight = null;
+        refreshIsCurrent = null;
+      }
     });
-
-    return refreshInFlight;
+    refreshInFlight = operation;
+    return operation;
   };
 
   const openAndMaybeRefresh = async (
@@ -120,13 +141,16 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
         gamesCount: state.appState.availableGames.length,
       };
     await options.trackActivity('open-drops-page-and-refresh');
+    if (!isCurrent()) return cancelledResult();
     await options.ensureStateHydratedForCache();
+    if (!isCurrent()) return cancelledResult();
 
     const { tabId, opened } = await findOrOpenDropsPageTab(
       options,
       active,
       openIfMissing,
       waitForExistingTabMs,
+      isCurrent,
     );
     if (!isCurrent())
       return {
@@ -156,6 +180,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
       attemptAt: Date.now(),
       error: null,
     });
+    if (!isCurrent()) return cancelledResult();
 
     if (!waitForRefresh) {
       const refreshPromise = refreshFromDropsPageTab(tabId, opened, isCurrent);
@@ -178,25 +203,32 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     const active = openOptions.active !== false;
     const openIfMissing = openOptions.openIfMissing !== false;
     const waitForExistingTabMs = Math.max(0, openOptions.waitForExistingTabMs ?? 0);
-    const isCurrent = openOptions.isCurrent ?? (() => true);
+    const externalIsCurrent = openOptions.isCurrent ?? (() => true);
+    const deadline = Date.now() + DROPS_PAGE_OPERATION_TIMEOUT_MS;
+    const isCurrent = () => Date.now() < deadline && externalIsCurrent();
     if (openOptions.waitForRefresh === false) {
       return openAndMaybeRefresh(false, active, openIfMissing, waitForExistingTabMs, isCurrent);
     }
 
-    if (openAndRefreshInFlight) {
+    if (openAndRefreshInFlight && openIsCurrent?.()) {
       return openAndRefreshInFlight;
     }
 
-    openAndRefreshInFlight = openAndMaybeRefresh(
+    openIsCurrent = isCurrent;
+    const operation = openAndMaybeRefresh(
       true,
       active,
       openIfMissing,
       waitForExistingTabMs,
       isCurrent,
     ).finally(() => {
-      openAndRefreshInFlight = null;
+      if (openAndRefreshInFlight === operation) {
+        openAndRefreshInFlight = null;
+        openIsCurrent = null;
+      }
     });
-    return openAndRefreshInFlight;
+    openAndRefreshInFlight = operation;
+    return operation;
   };
 
   return { openDropsPageAndRefresh };

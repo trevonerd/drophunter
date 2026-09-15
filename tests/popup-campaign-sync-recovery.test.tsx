@@ -1,7 +1,26 @@
 import { expect, test } from 'bun:test';
+import { campaignValidationFeedback } from '../src/popup/components/campaign-sync-feedback';
 import { deriveCampaignSyncStatus } from '../src/popup/constants';
 import type { AppState } from '../src/types';
 import { appState, game, renderMainView } from './fixtures/popup-reward';
+
+test.each([
+  ['network', 'Twitch could not be reached.'],
+  ['integrity', 'Twitch verification is temporarily unavailable.'],
+  ['rate-limit', 'Twitch requested a cooldown.'],
+  ['invalid-response', 'Twitch returned incomplete campaign data.'],
+  ['auth', 'Twitch rejected the saved session.'],
+  ['session', 'The Twitch session needs refreshing.'],
+  [null, 'The last campaign check did not finish.'],
+] as const)('campaign feedback explains %s without exposing raw request errors', (lastErrorKind, message) => {
+  const sync = {
+    status: 'retry-scheduled', lastAttemptAt: 1, lastSuccessAt: null, campaignCount: 1,
+    retryAttemptCount: 4, lastErrorKind, nextRetryAt: 120_000, attemptDeadlineAt: null,
+    error: 'Raw transport failure',
+  } as const;
+  expect(campaignValidationFeedback(sync, 0)).toBe(`${message} Automatic retry in 2m.`);
+  expect(campaignValidationFeedback(sync, 120_000)).toBe(`${message} Automatic retry due now.`);
+});
 
 test('saved campaigns stay pending validation until the background has a confirmed session', () => {
   const base = {
@@ -95,7 +114,7 @@ test('a closed Twitch tab keeps saved campaigns pending validation with both rec
   expect(markup).not.toContain('offline');
 });
 
-test('repeated recovery attempts replace raw errors with a clear recovery state', () => {
+test('repeated network recovery shows the cause and next retry without asking users to sign in', () => {
   const savedCampaign = game({ campaignId: 'saved-campaign' });
   const state = {
     ...appState(savedCampaign),
@@ -114,7 +133,10 @@ test('repeated recovery attempts replace raw errors with a clear recovery state'
 
   const markup = renderMainView(state, [], { campaignSyncStatus: 'pending-validation' });
 
-  expect(markup).toContain('Campaign validation has not recovered after several retries.');
+  expect(markup).toContain('Campaign validation is delayed.');
+  expect(markup).toContain('Twitch could not be reached.');
+  expect(markup).toContain('Automatic retry in 1m.');
+  expect(markup).not.toContain('Sign in');
   expect(markup).not.toContain('offline');
 });
 
@@ -162,6 +184,48 @@ test('queue cleanup remains visible when favorite auto-start is disabled', () =>
   expect(markup).toContain('<summary');
   expect(markup).toContain('>Queue updated</summary>');
   expect(markup).toContain('Closed Campaign');
+  expect(markup).toContain('aria-label="Dismiss queue update"');
+});
+
+test('a dismissed queue cleanup stays hidden until a new update arrives', () => {
+  // Given
+  const dismissedActivity = {
+    id: 'queue-cleanup:expired:campaign:closed-campaign',
+    kind: 'queue-campaigns-removed' as const,
+    at: Date.now(),
+    message: 'Removed Closed Campaign.',
+  };
+  const dismissedState = {
+    ...appState(null),
+    automationActivity: [dismissedActivity],
+  } satisfies AppState;
+  const dismissedOverrides = {
+    runtimeMode: 'idle' as const,
+    dismissedQueueCleanupActivityId: dismissedActivity.id,
+    onDismissQueueCleanup: () => {},
+  };
+
+  // When
+  const dismissedMarkup = renderMainView(dismissedState, [], dismissedOverrides);
+  const newerMarkup = renderMainView(
+    {
+      ...dismissedState,
+      automationActivity: [
+        {
+          ...dismissedActivity,
+          id: 'queue-cleanup:expired:campaign:newly-closed-campaign',
+          message: 'Removed Newly Closed Campaign.',
+        },
+      ],
+    },
+    [],
+    dismissedOverrides,
+  );
+
+  // Then
+  expect(dismissedMarkup).not.toContain('aria-label="Queue campaign update"');
+  expect(newerMarkup).toContain('aria-label="Queue campaign update"');
+  expect(newerMarkup).toContain('Newly Closed Campaign');
 });
 
 test('unverified recovery does not show the fresh-campaign success banner', () => {

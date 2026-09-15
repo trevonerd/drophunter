@@ -1,5 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
+import type { ManagedWatchMarker } from './managed-watch-marker.ts';
 import { shouldCloseManagedTab } from './runtime-state.ts';
 import type { ServiceWorkerState } from './service-worker.ts';
 import type { WatchReleaseResult } from './watch-transport-transition.ts';
@@ -9,11 +10,13 @@ const FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX = 'farmingAutomationOwnedWatch:';
 type ManagedWatchOwnership = Extract<WatchOwnershipV1, { readonly kind: 'managed-tab' }>;
 
 export interface ManagedTabOwnershipOperations {
+  readonly managedWatchMarker?: ManagedWatchMarker;
   readonly tabs: {
     get(tabId: number): Promise<{
       readonly id?: number;
       readonly windowId?: number;
       readonly url?: string;
+      readonly pendingUrl?: string;
     } | null>;
     query(query: { readonly windowId: number }): Promise<readonly { readonly id?: number }[]>;
     update(
@@ -52,24 +55,53 @@ async function attemptOwnedTabOperation<T>(operation: () => Promise<T>): Promise
   }
 }
 
+export async function recoverManagedTabOwnership(
+  ownership: ManagedWatchOwnership,
+  operations: ManagedTabOwnershipOperations,
+  includePending = false,
+): Promise<ManagedWatchOwnership | null> {
+  const key = managedTabOwnershipKey(ownership.ownershipToken);
+  const stored = await attemptOwnedTabOperation(() => operations.sessionStorage.get(key));
+  const expectedUrl = streamerWatchUrl(ownership.expectedChannel);
+  const sessionProof = stored && isStoredOwnershipProof(stored[key], expectedUrl);
+  const tab = sessionProof
+    ? await attemptOwnedTabOperation(() => operations.tabs.get(ownership.tabId))
+    : null;
+  if (
+    tab?.id === ownership.tabId &&
+    typeof tab.windowId === 'number' &&
+    (tab.url === expectedUrl ||
+      (includePending && tab.url === 'about:blank' && tab.pendingUrl === expectedUrl))
+  )
+    return ownership;
+  const marked = await operations.managedWatchMarker
+    ?.locate(ownership.ownershipToken, expectedUrl)
+    .catch(() => null);
+  return typeof marked?.id === 'number' && marked.url === expectedUrl && typeof marked.windowId === 'number'
+    ? { ...ownership, tabId: marked.id }
+    : null;
+}
+
 export async function releaseManagedTabOwnership(
   ownership: ManagedWatchOwnership,
   operations: ManagedTabOwnershipOperations,
 ): Promise<WatchReleaseResult> {
+  const recovered = await recoverManagedTabOwnership(ownership, operations, true);
+  if (!recovered) return { kind: 'abandoned-unproven' };
   const key = managedTabOwnershipKey(ownership.ownershipToken);
-  const stored = await attemptOwnedTabOperation(() => operations.sessionStorage.get(key));
   const expectedUrl = streamerWatchUrl(ownership.expectedChannel);
-  if (!stored || !isStoredOwnershipProof(stored[key], expectedUrl)) {
+  const tab = await attemptOwnedTabOperation(() => operations.tabs.get(recovered.tabId));
+  const matchesUrl = (value: { readonly url?: string; readonly pendingUrl?: string }) =>
+    value.url === expectedUrl || (value.url === 'about:blank' && value.pendingUrl === expectedUrl);
+  if (tab?.id !== recovered.tabId || !matchesUrl(tab) || typeof tab.windowId !== 'number')
     return { kind: 'abandoned-unproven' };
-  }
-  const tab = await attemptOwnedTabOperation(() => operations.tabs.get(ownership.tabId));
-  if (tab?.id !== ownership.tabId || tab.url !== expectedUrl || typeof tab.windowId !== 'number') {
-    return { kind: 'abandoned-unproven' };
-  }
   const tabId = tab.id;
   const windowId = tab.windowId;
   const windowTabs = await attemptOwnedTabOperation(() => operations.tabs.query({ windowId }));
   if (!windowTabs) return { kind: 'abandoned-unproven' };
+  const currentTab = await attemptOwnedTabOperation(() => operations.tabs.get(tabId));
+  if (currentTab?.id !== tabId || !matchesUrl(currentTab) || currentTab.windowId !== windowId)
+    return { kind: 'abandoned-unproven' };
   const method = windowTabs.length > 1 ? 'closed' : 'neutralized';
   const released = await attemptOwnedTabOperation(async () => {
     if (method === 'closed') await operations.tabs.remove(tabId);
@@ -79,6 +111,7 @@ export async function releaseManagedTabOwnership(
   if (!released) return { kind: 'abandoned-unproven' };
   await attemptOwnedTabOperation(async () => {
     await operations.sessionStorage.remove(key);
+    await operations.managedWatchMarker?.forget?.(ownership.ownershipToken);
     return true;
   });
   return { kind: 'released', method };

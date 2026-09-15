@@ -33,6 +33,7 @@ export interface FarmingTarget {
   readonly selectionId?: string;
   readonly campaignId?: string;
   readonly categorySlug?: string;
+  readonly categoryName?: string;
   readonly channelName: string;
 }
 

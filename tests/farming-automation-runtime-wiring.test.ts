@@ -23,7 +23,7 @@ describe('farming automation runtime wiring', () => {
     chromeMocks.teardown();
   });
 
-  test('does not snooze automatic favorites when the user pauses or stops an automatic session', async () => {
+  test('snoozes automatic favorites when the user pauses or stops an automatic session', async () => {
     // Given: automatic favorites remain enabled while a session receives user transport controls.
     const calls: string[] = [];
     const handlers = createFarmingAutomationUserActionHandlers(
@@ -52,8 +52,8 @@ describe('farming automation runtime wiring', () => {
     await handlers.pauseFarming();
     await handlers.stopFarming();
 
-    // Then: they stop the current transport without suppressing the next favorite evaluation.
-    expect(calls).toEqual(['pause', 'stop']);
+    // Then: the next automatic evaluation cannot undo the explicit user action.
+    expect(calls).toEqual(['snooze:manual-pause', 'pause', 'snooze:manual-stop', 'stop']);
   });
 
   test('clears a previous manual snooze when auto-start is enabled again', async () => {

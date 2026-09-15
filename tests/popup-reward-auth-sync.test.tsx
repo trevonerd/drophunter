@@ -51,7 +51,7 @@ test('the persistent session summary maps runtime states to one operational mode
   const runningState = {
     ...appState(selectedGame),
     isRunning: true,
-    currentDrop: drop({ status: 'active', progress: 42, remainingMinutes: 18 }),
+    currentDrop: drop({ campaignId: selectedGame.campaignId, status: 'active', progress: 42, remainingMinutes: 18 }),
   } satisfies AppState;
   const runningMarkup = renderMainView(runningState, [], { runtimeMode: 'running' });
   const pausedMarkup = renderMainView({ ...runningState, isPaused: true }, [], { runtimeMode: 'paused' });
@@ -104,7 +104,10 @@ test('non-blocking Twitch retries keep cached Hidden farming linear and silent',
   expect(markup).not.toContain('Recovering');
   expect(markup).not.toContain('retry in');
   expect(markup).not.toContain('Resumed after a browser interruption');
-  expect(markup).not.toContain('Open Twitch');
+  const sessionSummary = markup.match(/<section[^>]*data-session-mode="running"[\s\S]*?<\/section>/)?.[0];
+  expect(sessionSummary).toBeDefined();
+  expect(sessionSummary).not.toContain('Open Twitch');
+  expect(markup).toContain('aria-label="Open Twitch Drops"');
 });
 
 test('popup landmarks keep global header actions and session owns farming controls', () => {
@@ -125,12 +128,13 @@ test('popup landmarks keep global header actions and session owns farming contro
   expect(idleHeader).toContain('aria-label="Open live monitor"');
   expect(idleHeader).toContain('aria-label="Open settings"');
   expect(idleHeader).not.toContain('aria-label="Mute stream audio"');
-  expect(idleHeader).not.toContain('aria-label="Open Twitch Drops"');
+  expect(idleHeader).toContain('aria-label="Open Twitch Drops"');
   expect(idleHeader).not.toContain('aria-label="Enable notifications"');
   expect(runningHeader).not.toContain('Pause farming');
   expect(runningHeader).not.toContain('Stop farming');
   expect(runningHeader).toContain('aria-label="Turn stream audio on"');
   expect(runningHeader).toContain('aria-label="Open live monitor"');
+  expect(runningHeader).toContain('aria-label="Open Twitch Drops"');
   expect(runningHeader).toContain('aria-label="Open settings"');
   const runningSummary = runningMarkup.match(/<section[^>]*data-session-mode="running"[\s\S]*?<\/section>/)?.[0];
   expect(runningSummary).toContain('>Pause<');

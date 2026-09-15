@@ -86,6 +86,49 @@ describe('saveTimingState debounce', () => {
 });
 
 describe('loadTimingState', () => {
+  for (const reason of ['no-streamers', 'directory-unavailable'] as const) {
+    test(`bounds restored ${reason} waits without changing the Twitch API cooldown`, async () => {
+      const now = Date.now();
+      const originalDeadline = now + 600_000;
+      await mocks.storage.local.set({
+        timingState: {
+          recoveryBackoffUntil: originalDeadline,
+          apiBackoffUntil: originalDeadline,
+        },
+      });
+      const state = makeState();
+      state.appState.recoveryReason = reason;
+      state.appState.recoveryBackoffUntil = originalDeadline;
+      state.appState.recoveryAttempts = 1;
+      await loadTimingState(state);
+      expect(state.recoveryBackoffUntil).toBeGreaterThanOrEqual(now + 60_000);
+      expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 60_000);
+      expect(state.appState.recoveryBackoffUntil).toBe(state.recoveryBackoffUntil);
+      expect(state.apiBackoffUntil).toBe(originalDeadline);
+      expect(state.appState.recoveryAttempts).toBe(1);
+    });
+  }
+
+  for (const [reason, delay] of [
+    ['no-streamers', 30_000],
+    ['directory-unavailable', 60_000],
+    ['stalled-progress', 600_000],
+    ['twitch-data-unavailable', 600_000],
+    ['twitch-rate-limit', 600_000],
+    ['twitch-integrity', 120_000],
+  ] as const) {
+    test(`preserves the ${delay}ms ${reason} deadline on reload`, async () => {
+      const retryAt = Date.now() + delay;
+      await mocks.storage.local.set({ timingState: { recoveryBackoffUntil: retryAt } });
+      const state = makeState();
+      state.appState.recoveryReason = reason;
+      state.appState.recoveryBackoffUntil = retryAt;
+      await loadTimingState(state);
+      expect(state.recoveryBackoffUntil).toBe(retryAt);
+      expect(state.appState.recoveryBackoffUntil).toBe(retryAt);
+    });
+  }
+
   test('restores lastHeartbeatAt from local storage', async () => {
     const ts = Date.now() - 5000;
     await mocks.storage.local.set({ timingState: { lastHeartbeatAt: ts } });

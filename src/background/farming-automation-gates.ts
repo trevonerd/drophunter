@@ -18,7 +18,7 @@ import type { AutomaticFarmingSessionTransitionRequest } from './session-lifecyc
 
 export const FARMING_AUTOMATION_INTERVAL_MS = 2 * 60_000;
 export const FARMING_AUTOMATION_MIN_WAKE_MS = 30_000;
-export const PARKED_CAMPAIGN_RETRY_MS = 5 * 60_000;
+export const PARKED_CAMPAIGN_RETRY_MS = 60_000;
 
 export type FarmingAutomationDirectoryCacheEntry = {
   readonly streamers: readonly TwitchStreamer[];
@@ -128,6 +128,7 @@ export function createFarmingAutomationPolicySnapshot(
     isRunning: state.appState.isRunning,
     selectedGame: state.appState.selectedGame ? cloneGame(state.appState.selectedGame) : null,
     manualQueueAuthorized: state.appState.manualQueueAuthorized,
+    queueAcquisitionRound: structuredClone(state.appState.queueAcquisitionRound),
     stalledCampaignBlocksByKey: structuredClone(state.appState.stalledCampaignBlocksByKey),
     campaignPriorityMode: state.appState.campaignPriorityMode,
     farmCategoryScope: state.appState.farmCategoryScope,
@@ -146,6 +147,7 @@ export function farmingAutomationStateFingerprint(state: ServiceWorkerState, gen
     sessionEpoch: currentFarmingSessionEpoch(state),
     enabled: app.autoStartFavoriteGames,
     manualQueueAuthorized: app.manualQueueAuthorized,
+    queueAcquisitionRound: app.queueAcquisitionRound,
     notifications: app.notificationsEnabled,
     sessionPresent: state.twitchSessionCache !== null,
     completionEvidence: farmingAutomationCompletionFingerprint(state),
@@ -205,7 +207,12 @@ export function cheapFarmingAutomationGate(
   hasParkedCampaigns = false,
 ): FarmingAutomationOutcome | null {
   if (snoozed) return { kind: 'unchanged', reason: 'snoozed' };
-  if (!state.appState.autoStartFavoriteGames && !hasParkedCampaigns) {
+  const authorizedParkedQueue =
+    state.appState.manualQueueAuthorized &&
+    state.appState.queue.some(
+      (game) => state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt !== undefined,
+    );
+  if (!state.appState.autoStartFavoriteGames && !hasParkedCampaigns && !authorizedParkedQueue) {
     return { kind: 'unchanged', reason: 'disabled' };
   }
   if (state.appState.isPaused && !state.appState.autoStartFavoriteGames) {

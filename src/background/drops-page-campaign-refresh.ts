@@ -1,4 +1,5 @@
 import type { DropsPageRefreshOptions, DropsPageState } from './drops-page-tab-lifecycle.ts';
+import type { TwitchApiFailure } from './twitch-api/errors.ts';
 
 const DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS = 10_000;
 const DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS = 3;
@@ -8,6 +9,8 @@ export type CampaignRefreshResult = {
   readonly gamesCount: number;
   readonly sawSession: boolean;
   readonly snapshotAvailable: boolean;
+  readonly inventoryVerified: boolean;
+  readonly failure?: TwitchApiFailure;
 };
 
 interface CampaignRefreshInput {
@@ -42,6 +45,8 @@ export async function refreshDropsPageCampaigns(input: CampaignRefreshInput): Pr
   let sawSession = false;
   let gamesCount = 0;
   let snapshotAvailable = false;
+  let inventoryVerified = false;
+  let failure: TwitchApiFailure | undefined;
   let initialSnapshotPublished = false;
 
   const publishInitialSnapshot = async () => {
@@ -75,11 +80,15 @@ export async function refreshDropsPageCampaigns(input: CampaignRefreshInput): Pr
       refreshResult.kind === 'refreshed'
         ? refreshResult.games.length
         : input.state.appState.availableGames.length;
+    failure = refreshResult.kind === 'unavailable' ? refreshResult.failure : undefined;
     if (
       refreshResult.kind === 'refreshed' &&
       (gamesCount > 0 || isFinalAttemptByCount || isFinalAttemptByTime)
     ) {
       snapshotAvailable = true;
+      inventoryVerified =
+        refreshResult.inventoryVerified === true &&
+        (gamesCount > 0 || refreshResult.authoritativeEmpty === true);
       break;
     }
     const remainingMs = deadline - Date.now();
@@ -87,5 +96,5 @@ export async function refreshDropsPageCampaigns(input: CampaignRefreshInput): Pr
     await new Promise<void>((resolve) => setTimeout(resolve, Math.min(retryDelayMs, remainingMs)));
   }
 
-  return { gamesCount, sawSession, snapshotAvailable };
+  return { gamesCount, sawSession, snapshotAvailable, inventoryVerified, ...(failure ? { failure } : {}) };
 }

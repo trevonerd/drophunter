@@ -198,6 +198,7 @@ export function registerNonDiscoveredDropsPageRefreshCases() {
       refreshed: false,
       gamesCount: 0,
       error: 'Error: session unavailable',
+      failure: { kind: 'network', message: 'session unavailable' },
       appState: state.appState,
     });
     expect(state.appState.dropsPageRefreshInProgress).toBe(false);

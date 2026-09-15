@@ -30,8 +30,8 @@ export async function applyActivationSyncOutcome(
 ): Promise<ActivationSyncResult> {
   const { attempt, now, previous, startedAt } = input;
   switch (attempt.kind) {
-    case 'synced':
-      await publishCampaignSyncState(
+    case 'synced': {
+      const publication = await publishCampaignSyncState(
         dependencies,
         {
           status: 'idle',
@@ -45,12 +45,15 @@ export async function applyActivationSyncOutcome(
         },
         () => dependencies.clearRetry?.(),
       );
+      if (!publication.statePublished) throw new TypeError('Campaign validation could not be saved.');
       return attempt;
+    }
     case 'needs-session':
       await publishCampaignSyncState(
         dependencies,
         {
           status: 'needs-session',
+          ...(previous.browserVerificationAttempted ? { browserVerificationAttempted: true } : {}),
           lastAttemptAt: startedAt,
           lastSuccessAt: previous.lastSuccessAt,
           campaignCount: previous.campaignCount,
