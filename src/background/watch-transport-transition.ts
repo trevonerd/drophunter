@@ -1,4 +1,5 @@
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
+import { prepareWatchCandidate } from './watch-candidate-preparation.ts';
 import type { FarmingTarget, WatchHealth, WatchHealthReason } from './watch-transport.ts';
 
 export type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
@@ -92,39 +93,18 @@ export function createWatchTransportTransition(
   let ownership = options.currentOwnership;
   const currentOwnership = () => (options.runtime ? options.runtime.currentOwnership() : ownership);
 
-  const prepareCandidate = async (
-    target: FarmingTarget,
-    prepare: WatchTransportTransitionOptions['prepareManaged'],
-    isCurrent: () => boolean,
-  ): Promise<{
-    readonly candidate: ProvisionalWatchCandidate | null;
-    readonly rejectedReason: WatchHealthReason | null;
-  }> => {
-    let candidate: ProvisionalWatchCandidate | null;
-    if (!isCurrent()) return { candidate: null, rejectedReason: 'error' };
-    try {
-      candidate = await prepare(target, isCurrent);
-    } catch {
-      return { candidate: null, rejectedReason: 'error' };
-    }
-    if (!candidate) return { candidate: null, rejectedReason: 'error' };
-    if (isCurrent() && candidate.health.isHealthy) return { candidate, rejectedReason: null };
-    await candidate.dispose();
-    return { candidate: null, rejectedReason: candidate.health.reason };
-  };
-
   const prepare = async (
     target: FarmingTarget,
     mode: WatchHealth['mode'],
     isCurrent = () => true,
   ): Promise<WatchPreparation> => {
-    const preferred = await prepareCandidate(
-      target,
-      mode === 'tabless' ? options.prepareTabless : options.prepareManaged,
+    const preparePreferred = mode === 'tabless' ? options.prepareTabless : options.prepareManaged;
+    const preferred = await prepareWatchCandidate({
+      prepare: () => preparePreferred(target, isCurrent),
       isCurrent,
-    );
+    });
+    if (preferred.kind === 'failed') return { kind: 'failed', reason: 'candidate-unavailable' };
     const candidate = preferred.candidate;
-    if (!candidate) return { kind: 'failed', reason: 'candidate-unavailable' };
     const fallbackReason = null;
 
     let promotion: WatchPromotion | null = null;
