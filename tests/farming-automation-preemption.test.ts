@@ -40,6 +40,7 @@ function fixture(candidateEndsAt: string, deduplicated = false, separateCategori
     updatedAt: 1_000,
   };
   const state = createServiceWorkerState();
+  state.appState.watchTransportPreference = 'managed-tab';
   state.appState.autoStartFavoriteGames = true;
   state.appState.notificationsEnabled = true;
   state.appState.campaignPriorityMode = 'priority-list-only';

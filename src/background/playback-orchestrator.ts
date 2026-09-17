@@ -54,7 +54,14 @@ export async function observeManualPlayback(
     if (context === null) return { kind: 'failed' };
     observations.push({ tab, context });
   }
-  return { kind: 'observed', tabs: observations };
+  return {
+    kind: 'observed',
+    tabs: observations.sort((left, right) => {
+      const recency = (right.tab.lastAccessed ?? 0) - (left.tab.lastAccessed ?? 0);
+      if (recency !== 0) return recency;
+      return Number(right.tab.active === true) - Number(left.tab.active === true);
+    }),
+  };
 }
 
 interface PlaybackState {

@@ -1,53 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { registerExtensionLifecycleListeners } from '../src/background/extension-lifecycle.ts';
 import {
-  registerExtensionLifecycleListeners,
-  type TabChangeInfo,
-} from '../src/background/extension-lifecycle.ts';
-
-function createEvent<TArgs extends unknown[]>() {
-  const handlers: Array<(...args: TArgs) => void> = [];
-  return {
-    addListener(handler: (...args: TArgs) => void) {
-      handlers.push(handler);
-    },
-    trigger(...args: TArgs) {
-      for (const handler of handlers) {
-        handler(...args);
-      }
-    },
-    handlers,
-  };
-}
-
-function createLifecycleApi() {
-  return {
-    runtime: {
-      onStartup: createEvent<[]>(),
-      onInstalled: createEvent<[chrome.runtime.InstalledDetails]>(),
-    },
-    alarms: {
-      onAlarm: createEvent<[chrome.alarms.Alarm]>(),
-    },
-    tabs: {
-      onRemoved: createEvent<[number]>(),
-      onUpdated: createEvent<[number, TabChangeInfo]>(),
-    },
-    windows: {
-      onRemoved: createEvent<[number]>(),
-    },
-  };
-}
-
-async function flushAsyncListeners() {
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
-const inactiveAutomation = {
-  async request() {
-    return { kind: 'unchanged', reason: 'disabled' } as const;
-  },
-};
+  createLifecycleApi,
+  flushAsyncListeners,
+  inactiveAutomation,
+} from './support/extension-lifecycle-fixture.ts';
 
 describe('extension lifecycle listeners', () => {
   test('waits for initialization before handling alarms and tab or window changes', async () => {
@@ -261,5 +218,34 @@ describe('extension lifecycle listeners', () => {
     await flushAsyncListeners();
 
     expect(navigations).toEqual(['https://example.com/']);
+  });
+
+  test('runs one manual-watch recheck when a tab closes or navigates', async () => {
+    // Given: manual watching can affect the selected farming source.
+    const api = createLifecycleApi();
+    let rechecks = 0;
+    registerExtensionLifecycleListeners({
+      api,
+      alarmName: 'dropCheck',
+      farmingAutomation: inactiveAutomation,
+      getInitPromise: () => null,
+      onExtensionUpdate: async () => {},
+      onAlarm: async () => {},
+      onManagedTabRemoved: async () => {},
+      onManagedTabNavigatedAway: async () => {},
+      onManualTabChanged: async () => {
+        rechecks += 1;
+      },
+      onMonitorWindowRemoved: async () => {},
+      logWarn: () => {},
+    });
+
+    // When: a manual tab closes and another changes its page.
+    api.tabs.onRemoved.trigger(10);
+    api.tabs.onUpdated.trigger(11, { url: 'https://www.twitch.tv/another-stream' });
+    await flushAsyncListeners();
+
+    // Then: monitoring reclassifies the source without waiting for its next alarm.
+    expect(rechecks).toBe(2);
   });
 });

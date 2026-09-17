@@ -60,6 +60,7 @@ function startFixture(
     updatedAt: 1_000,
   };
   const state = createServiceWorkerState();
+  state.appState.watchTransportPreference = 'managed-tab';
   state.appState.autoStartFavoriteGames = true;
   state.appState.notificationsEnabled = true;
   state.appState.campaignPriorityMode = 'ending-soonest';

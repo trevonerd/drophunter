@@ -51,6 +51,7 @@ function receipt(cleanup: WatchCleanupV1 = { kind: 'not-required' }): FarmingSes
 
 function createFixture(storedReceipt: FarmingSessionTransitionReceiptV1) {
   const state = createServiceWorkerState();
+  state.appState.watchTransportPreference = 'managed-tab';
   state.appState.selectedGame = gameB;
   state.appState.isRunning = true;
   state.appState.manualWatchState = 'eligible-manual';

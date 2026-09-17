@@ -3,7 +3,7 @@ import { createWatchTransportCoordinator } from '../../src/background/watch-tran
 import { createWatchTransportCoordinatorFixture } from '../fixtures/watch-transport-coordinator.ts';
 
 export function registerWatchTransportCoordinatorFailureCases() {
-  test('falls back from hidden watching after ten unhealthy heartbeats and preserves the reason', async () => {
+  test('keeps strict tabless watching after repeated unhealthy heartbeats', async () => {
     const fixture = createWatchTransportCoordinatorFixture();
     let attempts = 0;
     const coordinator = createWatchTransportCoordinator({
@@ -42,15 +42,15 @@ export function registerWatchTransportCoordinatorFailureCases() {
     }
 
     expect(attempts).toBe(11);
-    expect(fixture.counters.opens).toBe(1);
+    expect(fixture.counters.opens).toBe(0);
     expect(fixture.state.appState.watchTransportPreference).toBe('tabless');
-    expect(fixture.state.appState.watchTransportMode).toBe('managed-tab');
+    expect(fixture.state.appState.watchTransportMode).toBe('tabless');
     expect(fixture.state.appState.watchHealth).toMatchObject({
-      mode: 'managed-tab',
-      status: 'healthy',
-      shouldFallback: false,
+      mode: 'tabless',
+      status: 'failed',
+      reason: 'heartbeat-failed',
     });
-    expect(fixture.state.appState.watchFallbackReason).toBe('heartbeat-failed');
+    expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 }
 

@@ -127,6 +127,10 @@ export function createWatchTransportCoordinator(
     isCurrent: () => boolean = () => true,
   ): Promise<WatchHealth> => {
     if (!isCurrent()) return health;
+    if (state.appState.watchTransportPreference === 'tabless') {
+      await projection.apply({ kind: projectionKind, health });
+      return health;
+    }
     if (projectionKind === 'started' && health.mode === 'tabless' && !health.isHealthy) {
       return startManagedFallback(health, isCurrent);
     }

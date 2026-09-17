@@ -12,7 +12,6 @@ export interface CampaignSyncPanelProps {
   campaignSyncState: CampaignSyncState;
   blocksStartup?: boolean;
   onOpenTwitchDrops: () => void;
-  onRetry: () => void;
 }
 
 export function CampaignSyncPanel({
@@ -22,14 +21,12 @@ export function CampaignSyncPanel({
   campaignSyncState,
   blocksStartup = false,
   onOpenTwitchDrops,
-  onRetry,
 }: CampaignSyncPanelProps) {
-  if (status === 'fresh' || status === 'signed-out') {
+  if (status === 'fresh' || status === 'signed-out' || campaignSyncState.status === 'needs-session') {
     return null;
   }
 
   const isSyncing = status === 'syncing';
-  const needsSession = campaignSyncState.status === 'needs-session';
   const retryScheduled =
     campaignSyncState.status === 'retry-scheduled' && campaignSyncState.nextRetryAt > Date.now();
   const showError =
@@ -79,7 +76,7 @@ export function CampaignSyncPanel({
         <div className="min-w-0">
           {blocksStartup && (
             <h2 className="mb-1 text-xs font-semibold text-[color:var(--dh-text)]">
-              {needsSession ? 'Open Twitch to continue' : 'Waiting for campaign validation'}
+              Waiting for campaign validation
             </h2>
           )}
           <p className="text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{message}</p>
@@ -96,15 +93,6 @@ export function CampaignSyncPanel({
           <div className="spinner h-4 w-4 rounded-full border-2 border-twitch-purple border-t-transparent shrink-0 mt-0.5" />
         ) : (
           <div className="flex shrink-0 flex-wrap items-center gap-1">
-            {(status === 'pending-validation' || status === 'failed' || status === 'waiting') && (
-              <button
-                type="button"
-                onClick={onRetry}
-                className="dh-focus inline-flex min-h-7 items-center rounded-lg border border-[color:var(--dh-border-strong)] px-2 py-1 text-[11px] font-semibold text-[color:var(--dh-text)] transition-colors hover:bg-[color:var(--dh-surface-3)]"
-              >
-                Retry
-              </button>
-            )}
             <button
               type="button"
               onClick={onOpenTwitchDrops}

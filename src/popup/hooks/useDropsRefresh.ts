@@ -95,36 +95,10 @@ export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRe
     [dropsRefreshLoading, setQueueMessage, setState, state.availableGames.length],
   );
 
-  const retryCampaignSync = useCallback(async () => {
-    if (manualDropsRefreshLoading) return;
-
-    setManualDropsRefreshLoading(true);
-    setQueueMessage(null);
-    setSyncError(null);
-    setManualRefreshCampaignCount(null);
-    try {
-      const response = await sendRuntimeMessage({
-        type: 'ENSURE_GAMES_CACHE',
-        payload: { force: true },
-      }).catch((error: unknown) => ({ success: false as const, error: String(error) }));
-      const refreshedState = await loadStoredAppState().catch((error: unknown) => {
-        logPopupWarn('Unable to reload state after campaign sync retry:', error);
-        return null;
-      });
-      if (refreshedState) setState(refreshedState);
-      if (!response?.success) {
-        setSyncError(response?.error ?? 'Campaign retry could not start.');
-      }
-    } finally {
-      setManualDropsRefreshLoading(false);
-    }
-  }, [manualDropsRefreshLoading, setQueueMessage, setState]);
-
   return {
     dropsRefreshLoading,
     activeSyncError,
     manualRefreshCampaignCount,
     openDropsPage,
-    retryCampaignSync,
   };
 }

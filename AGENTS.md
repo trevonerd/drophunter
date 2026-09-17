@@ -125,7 +125,7 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - Twitch DOM/API shape changes normal. Keep code defensive, tests explicit about null/missing/duplicate/stale data.
 
 
-## vexp - Context-Aware AI Coding <!-- vexp v3.1.1 -->
+## vexp - Context-Aware AI Coding <!-- vexp v3.1.3 -->
 
 ### Context strategy: call run_pipeline ONCE at task start
 If the task already names the files/symbols to touch, SKIP vexp. Otherwise one

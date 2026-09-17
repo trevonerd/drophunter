@@ -130,20 +130,13 @@ export function registerManualWatchTransportCases(getChromeMocks: () => ChromeMo
     chromeMocks.tabs.setTabsQueryResult([]);
     currentTime = 5_000;
     await session.checkDropProgress();
+    expect(state.appState.manualWatchState).toBe('inactive');
     expect({ starts, stops, ticks, refreshes }).toEqual({
-      starts: 1,
+      starts: 2,
       stops: 1,
       ticks: 0,
       refreshes: refreshesDuringManualPlayback,
     });
-
-    currentTime = 34_000;
-    await session.checkDropProgress();
-    expect({ starts, stops, ticks }).toEqual({ starts: 1, stops: 1, ticks: 0 });
-    currentTime = 35_000;
-    await session.checkDropProgress();
-    expect(state.appState.manualWatchState).toBe('inactive');
-    expect({ starts, ticks }).toEqual({ starts: 2, ticks: 0 });
     expect(automationEvents).toEqual([
       { event: 'manual-suspended', transitionId: 'manual-suspended:campaign-1:1000' },
       { event: 'manual-resumed', transitionId: 'manual-resumed:campaign-1:5000' },

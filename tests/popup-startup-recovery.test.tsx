@@ -115,11 +115,12 @@ test('asks for Twitch only when campaign validation actually needs a session', (
   };
   // When showing the startup blocker.
   const markup = renderMainView(state, state.queue, { campaignSyncStatus: 'pending-validation' });
-  const panel = markup.match(/<section[^>]*aria-label="Campaign sync status"[\s\S]*?<\/section>/)?.[0];
-  // Then an explicit manual action replaces any automatic retry promise.
-  expect(panel).toContain('Open Twitch to continue');
-  expect(panel).toContain('Open Twitch Drops to restore the session.');
-  expect(panel).not.toContain('Automatic retry');
+  // Then one dedicated session action replaces recovery controls.
+  expect(markup).toContain('data-session-priority="twitch-required"');
+  expect(markup).toContain('>Go to Drops</button>');
+  expect(markup).not.toContain('aria-label="Campaign sync status"');
+  expect(markup).not.toContain('>Retry</button>');
+  expect(markup).toContain('data-session-priority="twitch-required"');
 });
 
 test('asks for Twitch verification without implying sign-in when silent integrity recovery is exhausted', () => {
@@ -137,6 +138,6 @@ test('asks for Twitch verification without implying sign-in when silent integrit
   // When showing the actionable startup blocker.
   const markup = renderMainView(state, state.queue, { campaignSyncStatus: 'pending-validation' });
   // Then the requested intervention concerns verification, not an unproven invalid login.
-  expect(markup).toContain('Open Twitch Drops to refresh verification.');
+  expect(markup).toContain('>Go to Drops</button>');
   expect(markup).not.toContain('Sign in');
 });

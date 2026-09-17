@@ -86,6 +86,7 @@ test('campaign refresh persists the first farmable favorite immediately', async 
     },
   });
   const state = createServiceWorkerState();
+  state.appState.watchTransportPreference = 'managed-tab';
   state.appState.autoStartFavoriteGames = true;
   state.appState.notificationsEnabled = true;
   state.appState.campaignPriorityMode = 'priority-list-only';

@@ -13,7 +13,7 @@ import {
 } from '../helpers/farming-session-transition-tabless.ts';
 
 export function registerTablessFailureCases() {
-  test('projects the hidden-watch failure reason after promoting a managed fallback', async () => {
+  test('keeps tabless failure without preparing a managed fallback', async () => {
     const state = createServiceWorkerState();
     state.appState.selectedGame = incumbent;
     state.appState.isRunning = true;
@@ -69,17 +69,17 @@ export function registerTablessFailureCases() {
       },
     );
 
-    expect(result.kind).toBe('committed');
+    expect(result).toEqual({ kind: 'failed', reason: 'candidate-preparation-failed' });
     expect(state.appState.watchTransportPreference).toBe('tabless');
-    expect(state.appState.watchTransportMode).toBe('managed-tab');
-    expect(state.appState.watchFallbackReason).toBe('heartbeat-failed');
+    expect(state.appState.watchTransportMode).toBe('tabless');
+    expect(state.appState.watchFallbackReason).toBeNull();
   });
 
   test.each([
-    ['unhealthy heartbeat', true, ['tabless', 'managed-tab'], 1],
-    ['disabled heartbeat', false, ['managed-tab'], 1],
-  ])('preserves incumbent when tabless %s and its managed fallback both fail', async (_name, enabled, expectedDisposals, expectedManagedPreparations) => {
-    // Given: incumbent A and a tabless B whose managed fallback cannot become healthy.
+    ['unhealthy heartbeat', true, ['tabless']],
+    ['disabled heartbeat', false, []],
+  ])('preserves incumbent when tabless %s fails without a managed fallback', async (_name, enabled, expectedDisposals) => {
+    // Given: incumbent A and a tabless B whose candidate cannot become healthy.
     const state = createServiceWorkerState();
     state.appState.selectedGame = incumbent;
     state.appState.isRunning = true;
@@ -113,7 +113,7 @@ export function registerTablessFailureCases() {
       release: async () => ({ kind: 'abandoned-unproven' }),
     });
 
-    // When: Session lifecycle attempts the requested tabless preparation and its fallback.
+    // When: Session lifecycle attempts the requested tabless preparation.
     const result = await transitionAutomaticFarmingSession(
       state,
       {
@@ -143,7 +143,7 @@ export function registerTablessFailureCases() {
       result: { kind: 'failed', reason: 'candidate-preparation-failed' },
       after: before,
       disposals: expectedDisposals,
-      managedPreparations: expectedManagedPreparations,
+      managedPreparations: 0,
       commitCount: 0,
     });
   });

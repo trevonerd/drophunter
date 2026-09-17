@@ -17,7 +17,7 @@ const target: TwitchGame = {
   allowedChannels: ['manual-channel'],
 };
 
-test('resumes transport only after 30 seconds without any playing personal stream', async () => {
+test('resumes transport as soon as a playing personal stream disappears', async () => {
   // Given: transport is suspended for a confirmed background personal stream.
   const state = createServiceWorkerState();
   const storage = createInMemoryFarmingAutomationStorage();
@@ -64,27 +64,17 @@ test('resumes transport only after 30 seconds without any playing personal strea
   const repeatedSuspensionAfterReconstruction = await createController().reconcileTransport(input);
   manualPlaybackActive = false;
 
-  // When: the user navigates to Drops, then leaves it there for the 30-second grace period.
+  // When: the user navigates away from the playing stream.
   currentTime = 5_000;
-  const withinTolerance = await controller.reconcileTransport({ ...input, transportSuspended: true });
-  const reconstructed = createController();
-  currentTime = 34_000;
-  const beforeConfirmedStopTolerance = await reconstructed.reconcileTransport({
-    ...input,
-    transportSuspended: true,
-  });
-  currentTime = 35_000;
-  const afterTolerance = await reconstructed.reconcileTransport({ ...input, transportSuspended: true });
+  const resumed = await controller.reconcileTransport({ ...input, transportSuspended: true });
 
-  // Then: the occurrence is durable across reconstruction and the prior channel does not keep farming paused.
+  // Then: the prior channel does not keep farming paused.
   expect(initialSuspension).toEqual({
     kind: 'suspend',
     transitionId: 'manual-suspended:campaign-1:1000',
   });
   expect(repeatedSuspensionAfterReconstruction).toEqual(initialSuspension);
-  expect(withinTolerance).toEqual({ kind: 'unchanged' });
-  expect(beforeConfirmedStopTolerance).toEqual({ kind: 'unchanged' });
-  expect(afterTolerance).toEqual({
+  expect(resumed).toEqual({
     kind: 'resume',
     transitionId: 'manual-resumed:campaign-1:5000',
   });
@@ -92,7 +82,7 @@ test('resumes transport only after 30 seconds without any playing personal strea
   // When: the user starts a later, separate viewing session for the same campaign.
   manualPlaybackActive = true;
   currentTime = 36_000;
-  const laterSuspension = await reconstructed.reconcileTransport(input);
+  const laterSuspension = await createController().reconcileTransport(input);
 
   // Then: it receives a fresh occurrence identifier and can notify again.
   expect(laterSuspension).toEqual({

@@ -123,13 +123,9 @@ export function createWatchTransportTransition(
       mode === 'tabless' ? options.prepareTabless : options.prepareManaged,
       isCurrent,
     );
-    const fallback =
-      mode === 'tabless' && !preferred.candidate
-        ? await prepareCandidate(target, options.prepareManaged, isCurrent)
-        : null;
-    const candidate = preferred.candidate ?? fallback?.candidate ?? null;
+    const candidate = preferred.candidate;
     if (!candidate) return { kind: 'failed', reason: 'candidate-unavailable' };
-    const fallbackReason = fallback?.candidate ? preferred.rejectedReason : null;
+    const fallbackReason = null;
 
     let promotion: WatchPromotion | null = null;
     let disposal: Promise<void> | null = null;

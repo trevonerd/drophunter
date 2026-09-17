@@ -141,28 +141,6 @@ export function createFarmingAutomationManualWatch(
                 if (currentWatch === null) {
                   return { kind: 'inactive' };
                 }
-                if (currentWatch.stoppedAt === null) {
-                  const recheckAt = observedAt + MANUAL_WATCH_TTL_MS;
-                  const watch: FarmingAutomationManualWatchV1 = {
-                    ...currentWatch,
-                    stoppedAt: observedAt,
-                    expiresAt: recheckAt,
-                    recheckAt,
-                  };
-                  const persisted = await persistAndReplaceDeadline({
-                    ...loaded.value,
-                    manualWatch: watch,
-                    nextEvaluationAt: withManualWatchDeadline(loaded.value, recheckAt),
-                  });
-                  if (!persisted) {
-                    return { kind: 'failed', reason: 'persistence-failed' };
-                  }
-                  return { kind: 'active', watch };
-                }
-                if (observedAt < currentWatch.expiresAt) {
-                  await options.replaceDeadline(loaded.value.nextEvaluationAt ?? currentWatch.recheckAt);
-                  return { kind: 'active', watch: currentWatch };
-                }
                 const persisted = await persistAndReplaceDeadline({
                   ...loaded.value,
                   manualWatch: null,
@@ -171,7 +149,7 @@ export function createFarmingAutomationManualWatch(
                 if (!persisted) {
                   return { kind: 'failed', reason: 'persistence-failed' };
                 }
-                return { kind: 'inactive', stoppedAt: currentWatch.stoppedAt ?? observedAt };
+                return { kind: 'inactive', stoppedAt: observedAt };
               }
               case 'eligible-manual':
               case 'automation-paused': {

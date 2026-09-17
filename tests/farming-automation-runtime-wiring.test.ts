@@ -11,6 +11,7 @@ import {
   disabledAutomation,
   game,
 } from './support/farming-automation-runtime-wiring-fixture.ts';
+import './cases/farming-automation-runtime-wiring-session-recovery.ts';
 
 describe('farming automation runtime wiring', () => {
   let chromeMocks: ChromeMocks;
@@ -82,6 +83,61 @@ describe('farming automation runtime wiring', () => {
       calls: ['clear-snooze', 'request:campaign-refresh'],
       result: { success: true, autoStartFavoriteGames: true },
       enabled: true,
+    });
+  });
+
+  test('clears a manual stop snooze for a newly added favorite when auto-start is enabled', async () => {
+    // Given: a stopped automatic session and a campaign which is not yet a favorite.
+    const state = createServiceWorkerState();
+    state.appState.autoStartFavoriteGames = true;
+    state.appState.availableGames = [game];
+    const calls: string[] = [];
+    const automation: FarmingAutomation = {
+      request: async (trigger) => {
+        calls.push(`request:${trigger}`);
+        return { kind: 'unchanged', reason: 'no-eligible-campaign' };
+      },
+      snooze: async () => 'snoozed',
+      clearSnooze: async () => {
+        calls.push('clear-snooze');
+        return 'cleared';
+      },
+    };
+    const settings = createServiceWorkerSettingsHandlers(state, createSettingsDependencies(automation));
+
+    // When: the user marks that campaign as a favorite.
+    const result = await settings.handleSetGamePreference({ game, preference: 'favorite' });
+
+    // Then: the explicit new favorite clears only the Stop gate and requests fresh planning.
+    expect({ calls, result: result.success, favoriteCount: state.appState.favoriteGames.length }).toEqual({
+      calls: ['clear-snooze', 'request:campaign-refresh'],
+      result: true,
+      favoriteCount: 1,
+    });
+  });
+
+  test('does not reconcile a newly added favorite while auto-start is disabled', async () => {
+    // Given: favorite automation is disabled, including its parked-queue recovery exception.
+    const state = createServiceWorkerState();
+    state.appState.autoStartFavoriteGames = false;
+    state.appState.availableGames = [game];
+    const calls: string[] = [];
+    const automation: FarmingAutomation = {
+      request: async (trigger) => {
+        calls.push(`request:${trigger}`);
+        return { kind: 'unchanged', reason: 'disabled' };
+      },
+      snooze: async () => 'snoozed',
+    };
+    const settings = createServiceWorkerSettingsHandlers(state, createSettingsDependencies(automation));
+
+    // When: the user favorites a campaign.
+    await settings.handleSetGamePreference({ game, preference: 'favorite' });
+
+    // Then: preference persistence changes, while the queue planner is not invoked.
+    expect({ calls, favoriteCount: state.appState.favoriteGames.length }).toEqual({
+      calls: [],
+      favoriteCount: 1,
     });
   });
 
@@ -178,72 +234,5 @@ describe('farming automation runtime wiring', () => {
     });
     expect(state.appState.hiddenGames).toHaveLength(1);
     expect(state.appState.hiddenGames[0]?.identityKeys).toContain('game-1');
-  });
-
-  test('resumes a farming session stopped by an older authentication flow', async () => {
-    const state = createServiceWorkerState();
-    state.appState.selectedGame = game;
-    state.appState.queue = [game];
-    state.appState.lastStopReason = 'sign-in-required';
-    state.apiConsecutiveFailures = 3;
-    state.apiBackoffUntil = Date.now() + 60_000;
-    let resumeCalls = 0;
-    const content = createServiceWorkerContentHandlers(
-      state,
-      createContentDependencies(disabledAutomation(), async () => {
-        resumeCalls += 1;
-        state.appState.isRunning = true;
-      }),
-    );
-    const sender: chrome.runtime.MessageSender = {
-      url: 'https://www.twitch.tv/drops/campaigns',
-    };
-
-    const result = await content.handleSyncTwitchSession(
-      {
-        oauthToken: 'fresh-token-with-enough-length',
-        userId: 'viewer-1',
-        deviceId: 'device-1',
-        uuid: 'uuid-1',
-      },
-      sender,
-    );
-
-    expect(result).toEqual({ success: true });
-    expect(resumeCalls).toBe(1);
-    expect(state.appState.isRunning).toBe(true);
-    expect(state.appState.lastStopReason).toBeNull();
-    expect(state.apiBackoffUntil).toBe(0);
-  });
-
-  test('does not resume a manually stopped session after Twitch sync', async () => {
-    const state = createServiceWorkerState();
-    state.appState.selectedGame = game;
-    state.appState.queue = [game];
-    state.appState.lastStopReason = 'user-stop';
-    let resumeCalls = 0;
-    const content = createServiceWorkerContentHandlers(
-      state,
-      createContentDependencies(disabledAutomation(), async () => {
-        resumeCalls += 1;
-      }),
-    );
-    const sender: chrome.runtime.MessageSender = {
-      url: 'https://www.twitch.tv/drops/campaigns',
-    };
-
-    const result = await content.handleSyncTwitchSession(
-      {
-        oauthToken: 'fresh-token-with-enough-length',
-        userId: 'viewer-1',
-        deviceId: 'device-1',
-        uuid: 'uuid-1',
-      },
-      sender,
-    );
-
-    expect(result).toEqual({ success: true });
-    expect(resumeCalls).toBe(0);
-    expect(state.appState.lastStopReason).toBe('user-stop');
   });
 });

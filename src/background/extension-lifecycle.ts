@@ -56,6 +56,7 @@ interface ExtensionLifecycleOptions {
   readonly onLinkRecheckAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
   readonly onManagedTabRemoved: (tabId: number) => Promise<unknown> | unknown;
   readonly onManagedTabNavigatedAway: (tabId: number, url: string) => Promise<unknown> | unknown;
+  readonly onManualTabChanged?: () => Promise<unknown> | unknown;
   readonly onMonitorWindowRemoved: (windowId: number) => Promise<unknown> | unknown;
   readonly logWarn: (...args: unknown[]) => void;
 }
@@ -215,6 +216,7 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
       (async () => {
         await awaitInitialization(options.getInitPromise);
         await options.onManagedTabRemoved(removedTabId);
+        await options.onManualTabChanged?.();
       })(),
       'tabs.onRemoved error',
       options.logWarn,
@@ -223,13 +225,14 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
 
   api.tabs.onUpdated.addListener((updatedTabId, changeInfo) => {
     const url = changeInfo.url;
-    if (!url || isTwitchPageUrl(url)) {
+    if (!url) {
       return;
     }
     reportAsyncError(
       (async () => {
         await awaitInitialization(options.getInitPromise);
-        await options.onManagedTabNavigatedAway(updatedTabId, url);
+        if (!isTwitchPageUrl(url)) await options.onManagedTabNavigatedAway(updatedTabId, url);
+        await options.onManualTabChanged?.();
       })(),
       'tabs.onUpdated error',
       options.logWarn,

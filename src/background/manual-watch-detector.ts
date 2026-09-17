@@ -9,6 +9,7 @@ import {
 export interface ManualWatchTab {
   readonly id?: number;
   readonly active?: boolean;
+  readonly lastAccessed?: number;
   readonly url?: string;
 }
 
@@ -45,6 +46,7 @@ function normalized(value: string | null | undefined): string {
 
 function toTelemetry(
   target: TwitchGame,
+  tab: ManualWatchTab,
   context: ManualStreamContext,
   automationActive: boolean,
   observedAt: number,
@@ -58,7 +60,8 @@ function toTelemetry(
   const observedCategory = normalized(context.categorySlug ?? context.category);
   return {
     observedAt,
-    isVisible: true,
+    isVisible:
+      tab.active === true || typeof tab.lastAccessed === 'number' || context.isPlaybackReady === true,
     isTwitch: true,
     isPlaybackReady: context.isPlaybackReady === true,
     channelEligible,
@@ -78,9 +81,13 @@ export async function detectManualViewing(
   } catch {
     return { kind: 'failed', reason: 'observation-unavailable' };
   }
-  let activeClassification: ManualWatchClassification | null = null;
+  const orderedTabs = [...tabs].sort((left, right) => {
+    const recency = (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0);
+    if (recency !== 0) return recency;
+    return Number(right.active === true) - Number(left.active === true);
+  });
 
-  for (const tab of tabs) {
+  for (const tab of orderedTabs) {
     if (
       typeof tab.id !== 'number' ||
       tab.id === options.managedTabId ||
@@ -95,14 +102,14 @@ export async function detectManualViewing(
       return { kind: 'failed', reason: 'observation-unavailable' };
     }
     if (context === null) return { kind: 'failed', reason: 'observation-unavailable' };
-    const telemetry = toTelemetry(options.target, context, options.automationActive, options.now);
+    if (context.isPlaybackReady !== true) continue;
+    const telemetry = toTelemetry(options.target, tab, context, options.automationActive, options.now);
     const classification = classifyManualWatch(telemetry, options.now);
     switch (classification.kind) {
       case 'eligible-manual':
         return classification;
       case 'automation-paused':
-        activeClassification ??= classification;
-        break;
+        return classification;
       case 'inactive':
         break;
       default: {
@@ -115,5 +122,5 @@ export async function detectManualViewing(
     }
   }
 
-  return activeClassification ?? classifyManualWatch(null, options.now);
+  return classifyManualWatch(null, options.now);
 }

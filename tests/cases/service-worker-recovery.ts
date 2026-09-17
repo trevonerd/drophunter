@@ -13,8 +13,16 @@ import {
   waitForAppState,
 } from '../helpers/service-worker-harness.ts';
 
+async function useManagedWatch() {
+  await dispatchMessage({
+    type: 'SET_WATCH_TRANSPORT_MODE',
+    payload: { mode: 'managed-tab' },
+  });
+}
+
 export function registerRecoveryCases() {
   test('advances queued game when the current campaign becomes terminal mid-farming', async () => {
+    await useManagedWatch();
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
     enqueueDirectoryResult('streamer-current');
     enqueueDropsSnapshot([
@@ -55,6 +63,7 @@ export function registerRecoveryCases() {
   });
 
   test('advances queued game when the current campaign completes mid-farming', async () => {
+    await useManagedWatch();
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
     enqueueDirectoryResult('streamer-current');
     enqueueDropsSnapshot([
@@ -130,6 +139,7 @@ export function registerRecoveryCases() {
   });
 
   test('does not skip the next queued game on its first empty load after advancing', async () => {
+    await useManagedWatch();
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
     enqueueDirectoryResult('streamer-current');
     enqueueDropsSnapshot([
@@ -178,6 +188,7 @@ export function registerRecoveryCases() {
   });
 
   test('retains the authorized queue when every campaign is temporarily without streamers', async () => {
+    await useManagedWatch();
     const realDateNow = Date.now;
     let now = realDateNow();
     Date.now = () => now;

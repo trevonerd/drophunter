@@ -18,3 +18,10 @@ task-*.txt
 coverage.json
 parent_workspace.json
 token-savings-report.md
+edit-hints/
+search-hints/
+read-hints/
+vexp-report.md
+daemon-job-warning
+mcp.token
+backups/

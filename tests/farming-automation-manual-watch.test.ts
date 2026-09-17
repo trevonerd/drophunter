@@ -179,7 +179,7 @@ describe('Farming automation manual watch', () => {
       });
     await createController().evaluate({ target, managedTabId: null, automationActive: true });
 
-    // When: a reconstructed controller observes the stopped stream and its 30-second grace ends.
+    // When: a reconstructed controller observes that the stream is no longer playing.
     const reconstructed = createController();
     currentTime = 30_000;
     const beforeExpiry = await reconstructed.evaluate({
@@ -194,21 +194,13 @@ describe('Farming automation manual watch', () => {
       managedTabId: null,
       automationActive: true,
     });
-    currentTime = 61_000;
-    const afterStopGrace = await reconstructed.evaluate({
-      target,
-      managedTabId: null,
-      automationActive: true,
-    });
-
-    // Then: the durable fact survives reconstruction and applies grace from the confirmed stop.
+    // Then: the durable fact survives reconstruction and clears immediately.
     expect(beforeExpiry.kind).toBe('active');
-    expect(atConfirmedStop.kind).toBe('active');
-    expect(afterStopGrace).toEqual({ kind: 'inactive', stoppedAt: 31_000 });
-    expect(observations).toBe(3);
+    expect(atConfirmedStop).toEqual({ kind: 'inactive', stoppedAt: 31_000 });
+    expect(observations).toBe(2);
     expect(state.appState.manualWatchState).toBe('inactive');
     expect(state.appState.nextAutomationCheckAt).toBeNull();
-    expect(deadlines).toEqual([31_000, 31_000, 61_000, null]);
+    expect(deadlines).toEqual([31_000, 31_000, null]);
   });
 
   test('maps candidate preparation failure and preserves suspension on observation failure', async () => {

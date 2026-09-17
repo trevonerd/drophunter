@@ -58,8 +58,30 @@ export function createServiceWorkerAutomationSettingsHandlers(
     readonly preference: GamePreference;
   }) {
     await trackActivity('set-game-favorite');
+    const wasFavorite = isFavoriteGame(payload.game, favoriteGameIdentityKeys(state.appState.favoriteGames));
     const result = setGamePreference(state.appState, payload.game, payload.preference, Date.now());
     await saveState(state);
+    const addedFavorite = payload.preference === 'favorite' && !wasFavorite;
+    if (addedFavorite && !state.appState.autoStartFavoriteGames) {
+      return {
+        success: true,
+        preference: 'favorite' as const,
+        removedQueueEntries: result.removedQueueEntries,
+        retainedQueueEntries: result.retainedQueueEntries,
+      };
+    }
+    if (addedFavorite) {
+      const snooze = await dependencies.automation.clearSnooze?.();
+      if (snooze === 'persistence-failed') {
+        return {
+          success: false,
+          preference: 'favorite' as const,
+          error: 'Automatic-farming state could not be resumed.',
+          removedQueueEntries: result.removedQueueEntries,
+          retainedQueueEntries: result.retainedQueueEntries,
+        };
+      }
+    }
     await dependencies.automation.request('campaign-refresh').catch((error: unknown) => {
       logWarn('Game preference saved, but automation refresh failed', {
         message: error instanceof Error ? error.message : String(error),

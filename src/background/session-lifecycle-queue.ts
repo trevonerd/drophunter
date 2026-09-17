@@ -3,21 +3,18 @@ import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
-import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
-import { removeQueueEntriesForGame, removeQueueEntriesForHeadGame } from './queue-operations.ts';
+import { removeQueueEntriesForGame } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
-  isKnownCompletedSelection,
   isWaitingForScheduledRewards,
   selectedFarmingCompleteGame,
   selectedGameMarkedCompleted,
 } from './session-lifecycle-completion.ts';
-import { parkCampaignForStreamerRetry, waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
-import { refreshQueueHead } from './session-lifecycle-queue-refresh.ts';
+import { parkCampaignForStreamerRetry } from './session-lifecycle-queue-parking.ts';
+import { progressFarmingQueue } from './session-lifecycle-queue-progression.ts';
 import {
   isAutomaticFavoriteSession,
   parkBlockedCampaignAtQueueTail,
-  prepareNextEligibleQueueHead,
 } from './session-lifecycle-queue-selection.ts';
 import { finalizeCompletedQueue, queueSkipCopy, resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type {
@@ -84,42 +81,14 @@ export async function advanceQueueIfCompleted(
     removeQueueEntriesForGame(state, state.appState.selectedGame);
   }
 
-  while (state.appState.queue.length > 0) {
-    const nextGame = prepareNextEligibleQueueHead(state, restrictUnauthorizedManualContinuation);
-    if (!nextGame) {
-      break;
-    }
-    await refreshQueueHead(state, options);
-    if (options?.isCurrent?.() === false) return false;
-    if (isWaitingForScheduledRewards(state)) {
-      await options?.onSaveState?.();
-      return true;
-    }
-    const nextFarmingCompleteGame = selectedFarmingCompleteGame(state);
-    const campaignExpiredNext =
-      isExpiredGame(nextGame) ||
-      haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
-    if (isKnownCompletedSelection(state, nextFarmingCompleteGame) || campaignExpiredNext) {
-      if (nextFarmingCompleteGame) {
-        terminalFarmingCompleteGame = nextFarmingCompleteGame;
-      }
-      state.previousAllDropsCount = 0;
-      removeQueueEntriesForHeadGame(state, nextGame);
-      continue;
-    }
-    if (options?.onOpenStreamer) {
-      const opened = await options.onOpenStreamer(options.isCurrent);
-      if (options.isCurrent?.() === false) return false;
-      if (opened) resetQueueAcquisitionRound(state);
-    }
-    if (options?.onSaveState) {
-      await options.onSaveState();
-    }
-    return true;
-  }
-
-  if (await waitForParkedQueue(state, restrictUnauthorizedManualContinuation, options)) return true;
-  if (options?.isCurrent?.() === false) return false;
+  const progression = await progressFarmingQueue(state, {
+    restrictUnauthorizedManualContinuation,
+    terminalFarmingCompleteGame,
+    options,
+  });
+  if (progression.kind === 'cancelled') return false;
+  if (progression.kind !== 'exhausted') return true;
+  terminalFarmingCompleteGame = progression.terminalFarmingCompleteGame;
   await finalizeCompletedQueue(
     state,
     { completedWhileNoStreamers, completedGameName, terminalFarmingCompleteGame },
@@ -157,39 +126,26 @@ export async function skipCurrentGameAndAdvanceQueue(
   }
   resetStreamTrackingState(state);
 
-  while (state.appState.queue.length > 0) {
-    const nextGame = prepareNextEligibleQueueHead(state, restrictUnauthorizedManualContinuation);
-    if (!nextGame) {
-      break;
-    }
-    await refreshQueueHead(state, options);
-    if (options?.isCurrent?.() === false) return;
-    if (isWaitingForScheduledRewards(state)) {
-      await options?.onSaveState?.();
-      return;
-    }
-    if (isExpiredGame(nextGame) || isKnownCompletedSelection(state, selectedFarmingCompleteGame(state))) {
-      removeQueueEntriesForHeadGame(state, nextGame);
-      continue;
-    }
-    const opened = await options?.onOpenStreamer?.(options.isCurrent);
-    if (options?.isCurrent?.() === false) return;
-    if (opened) resetQueueAcquisitionRound(state);
-    if (opened && state.appState.selectedGame && gameKey(state.appState.selectedGame) === gameKey(nextGame)) {
+  const progression = await progressFarmingQueue(state, {
+    restrictUnauthorizedManualContinuation,
+    terminalFarmingCompleteGame: null,
+    options,
+  });
+  if (progression.kind === 'cancelled' || progression.kind === 'waiting') return;
+  if (progression.kind === 'advanced') {
+    if (
+      progression.opened &&
+      state.appState.selectedGame &&
+      gameKey(state.appState.selectedGame) === gameKey(progression.game)
+    ) {
       await options?.onNotify?.(
         copy.skipNotificationTitle,
-        `${copy.skipMessage} Now farming ${getGameDisplayLabel(nextGame)}.`,
+        `${copy.skipMessage} Now farming ${getGameDisplayLabel(progression.game)}.`,
       );
       if (options?.isCurrent?.() === false) return;
     }
-    if (options?.onSaveState) {
-      await options.onSaveState();
-    }
     return;
   }
-
-  if (await waitForParkedQueue(state, restrictUnauthorizedManualContinuation, options)) return;
-  if (options?.isCurrent?.() === false) return;
   if (reason !== 'unverifiable-twitch') {
     state.appState.selectedGame = null;
   }

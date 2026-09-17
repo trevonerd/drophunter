@@ -94,6 +94,39 @@ describe('detectManualViewing', () => {
     expect(result).toEqual({ kind: 'eligible-manual', reason: 'eligible-channel' });
   });
 
+  test('uses the most recently focused playing stream as the manual watch source', async () => {
+    // Given: an older eligible stream and a newer playing stream for another game.
+    const result = await detectManualViewing({
+      target,
+      managedTabId: null,
+      automationActive: true,
+      now: 100,
+      queryTabs: async () => [
+        { id: 4, active: false, lastAccessed: 100, url: 'https://www.twitch.tv/eligible' },
+        { id: 5, active: true, lastAccessed: 200, url: 'https://www.twitch.tv/other-game' },
+      ],
+      getStreamContext: async (tabId) =>
+        tabId === 4
+          ? {
+              channelName: 'eligible',
+              categorySlug: 'valorant',
+              isLive: true,
+              isPlaybackReady: true,
+              hasDropsEnabled: true,
+            }
+          : {
+              channelName: 'other-game',
+              categorySlug: 'another-game',
+              isLive: true,
+              isPlaybackReady: true,
+            },
+    });
+
+    // When: the focused stream is classified.
+    // Then: its mismatched game pauses automation instead of selecting an older eligible stream.
+    expect(result).toEqual({ kind: 'automation-paused', reason: 'ineligible-manual-view' });
+  });
+
   test.each([
     ['playing tab before stopped tab', [4, 5]],
     ['stopped tab before playing tab', [5, 4]],
