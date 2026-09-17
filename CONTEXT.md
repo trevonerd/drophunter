@@ -40,6 +40,10 @@ _Avoid_: Skipped campaign, removed campaign, unfarmable campaign
 The transition from the current Twitch Drops campaign to the next authorized farmable campaign, preserving queue order while refreshing campaign evidence, waiting for scheduled rewards, and parking temporarily unavailable campaigns.
 _Avoid_: Queue loop, next-game handling
 
+**Watch handoff**:
+The prepare-then-promote transition that keeps current playback authoritative until a replacement is viable. Failed and superseded candidates are disposed without interrupting the active farm.
+_Avoid_: Player swap, transport restart, close-then-open
+
 **Confirmed progress stall**:
 The absence of authoritative watch-time progress for the configured stall window. Stream metadata such as offline status, category mismatch, or missing Drops labels is diagnostic evidence only after this condition is established.
 _Avoid_: Stream metadata mismatch, single missed poll, transport repair
