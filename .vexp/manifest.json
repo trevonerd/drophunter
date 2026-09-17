@@ -146,7 +146,7 @@
     "src/background/managed-watch-preflight.ts": "4b8f66cfc8068861bd2ecd0bc77f0a48d76b55dd9e24bbf47972cdcc06fb4110",
     "src/background/managed-watch-registry.ts": "74c245232b6e4b35014d758223c255aa5900175ec66570685a4b22c5ad9621bb",
     "src/background/managed-watch-startup.ts": "9240eb970fc2a34ff2064ddc0834dfb4105b4f3d3599517c52594977431ed38f",
-    "src/background/manual-watch-detector.ts": "455054a558a707603809f001aa6c0517e60873f9180a3e0b366696f6a200ac91",
+    "src/background/manual-watch-detector.ts": "45bfa183ecc9976136f0e3ed9827b5138f5666b1103b5f96467d707bba10a717",
     "src/background/manual-watch-policy.ts": "d74273d0b5a5b086d034aa26f2016347354102af0cf04a1658f63272e96bff98",
     "src/background/message-router.ts": "3de69a852c1ea289d682de72adcb01bc6fc4f3ccb69d6022b1d310c781b4ab82",
     "src/background/monitor-dashboard.ts": "9b50d06d10e7801603f1628dac3f48996b2fa86182e4282bd8b4b9fd55acb43e",
@@ -168,8 +168,8 @@
     "src/background/runtime-state-types.ts": "263f0ff9f1aaacb097922c2d7fd402158af13569f4e625e39553c136c4b71600",
     "src/background/runtime-state.ts": "abe2449ca7ee71bdb71bdd70826cbf20ff8095da2f5abf71feae5fdd466d9b58",
     "src/background/runtime-timing-state.ts": "7fde0cbdf1ef0c9501ac3f3fa040dd05a6a116da54e073f7a18d77bc264655a9",
-    "src/background/service-worker-activation-sync.ts": "9963f40de6468bc7fa3e4a3350a6cb1b0767a68598a014b0fe42cee99f370c7d",
-    "src/background/service-worker-automation-settings.ts": "5a458d8e14f1c6a6fb4388e54815a38bcc6b1b32c7bc7cfdef68193b0e9bb800",
+    "src/background/service-worker-activation-sync.ts": "ceb5939f473433d643664c42587ac53cf4183e16fd19948ec88c3f2755ac10df",
+    "src/background/service-worker-automation-settings.ts": "5a1acafaeea8f486546a8c5688aaf7f7739409b7c11003726ea99cbe68e3cdd1",
     "src/background/service-worker-browser-events.ts": "02c2757def00860905a410c7d2c9cb8a8cf6bf68613270790db9de26d7bda291",
     "src/background/service-worker-content-handlers.ts": "1738bab3e77c2981254e776d3210eb3d574920ff748e1bd8deaa22dac6e61d17",
     "src/background/service-worker-content-utilities.ts": "1a37143ce4e14fb694f0c1d7c816a1d8cdeff0b97cf970db7e9ef93b8bc82366",
@@ -269,7 +269,7 @@
     "src/monitor/main.tsx": "5094aedeae863392328b8f23e76eb89846e129eb0a077ec05695975dd379649a",
     "src/monitor/monitor.css": "4e532bd2507b929a83d43dac46293a9b4cc7b1ac83076ba32e9d807ede3743b8",
     "src/monitor/selected-drop.ts": "0e08e11bc25160dd78e1b74818804f7647568306452782e1139377f5c6d00789",
-    "src/popup/App.tsx": "168199f0686fc399bf6fc2115c77be73e26162701e88f2adfecc83af1fb15b7d",
+    "src/popup/App.tsx": "cbb1f0fedc909d00142f91d752af6c72a0830a0991ed65ff9a6e9b53aa2e434f",
     "src/popup/components/AutomationSummary.tsx": "fe143e81a2341b5658dcaca16477fcc9ff746195f40bcb1bdc00b288c2fb51e7",
     "src/popup/components/CampaignDetail.tsx": "7b631d30d08d2eee7c18edfb1d84fb6e08daf7395dbe8066abef11825ce7741c",
     "src/popup/components/CampaignList.tsx": "88587cabac815847d5db6803d3af749678902481aaf3281efa253fd968401fda",
@@ -797,7 +797,7 @@
     "tests/watch-transport-persistence.test.ts": "72f23287617527d4358d59b4e02ef88c34c51b276d1237edac2f1c182fb1c611",
     "tests/watch-transport-races.test.ts": "433ddb64e16233dac5bf31f16900f918a4dd402618228725a0c2be0e8f14b150",
     "tests/watch-transport-restoration.test.ts": "644fe36291c5052372f9b978e53449f68cdff11a209fbaced936295d74435357",
-    "tests/watch-transport-transition.test.ts": "2887a5807586dfc0b6c2fae16f7fefe09caa9585916b78054a56060115694975",
+    "tests/watch-transport-transition.test.ts": "a8c60aff10100beace0d84d4d04eaf4696a66b8eed04974aaf299e687c79fb71",
     "tests/watch-transport.test.ts": "6950618bf813e1e92a1b6ce593eea6d43ca3c4252805d289b6aa4d4d4754cf90",
     "tests/watchdog-timeout.test.ts": "1e457ef09fe46995cd8ef65ca89a3488e84c6064a74dae4977bf113f3acd791b",
     "video/remotion.config.ts": "905c3b233a55f12ce4220466cd8eeb1a060dcbeb0260430db132f2e97ac5f0cd",
@@ -818,8 +818,8 @@
     "video/src/timing.ts": "4cf811cbf3f39244e9c163b79beb17b2b2bc1890aa87e8a3d7365a39ae4478ec",
     "wxt.config.ts": "8f3137c1a3874254b8bb3ae861e502667443697e69bafe82bed22a3438889788"
   },
-  "indexed_at_commit": "683b6c9fb564e51b3070727a1dcaa68e131a50b3",
-  "indexed_at_timestamp": "2026-09-17T14:59:38.239694+00:00",
+  "indexed_at_commit": "d72fad7554dd7468519481881b7ddb57d84e20c8",
+  "indexed_at_timestamp": "2026-09-17T15:03:33.027289+00:00",
   "languages": {
     "bash": {
       "calls": 0,
@@ -844,7 +844,7 @@
   },
   "schema_version": 3,
   "stats": {
-    "total_edges": 6056,
+    "total_edges": 6045,
     "total_files": 817,
     "total_nodes": 2980
   },
