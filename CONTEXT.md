@@ -36,6 +36,10 @@ _Avoid_: Stalled campaign, temporarily missing campaign, offline streamer
 A still-valid campaign temporarily moved behind other queued work because no eligible streamer is currently available; it remains eligible for future refreshes and retries.
 _Avoid_: Skipped campaign, removed campaign, unfarmable campaign
 
+**Queue progression**:
+The transition from the current Twitch Drops campaign to the next authorized farmable campaign, preserving queue order while refreshing campaign evidence, waiting for scheduled rewards, and parking temporarily unavailable campaigns.
+_Avoid_: Queue loop, next-game handling
+
 **Confirmed progress stall**:
 The absence of authoritative watch-time progress for the configured stall window. Stream metadata such as offline status, category mismatch, or missing Drops labels is diagnostic evidence only after this condition is established.
 _Avoid_: Stream metadata mismatch, single missed poll, transport repair

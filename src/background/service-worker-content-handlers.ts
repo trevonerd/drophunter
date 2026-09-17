@@ -131,6 +131,12 @@ export function createServiceWorkerContentHandlers(
       clearQueueCompleteNotification: dependencies.clearQueueCompleteNotification,
       dropsPageRefresher,
       farmingSession: dependencies.farmingSession,
+      hasCompletedOnboarding: async () => {
+        const stored: Record<string, unknown> = await browser.storage.local
+          .get('onboardingCompleted')
+          .catch(() => ({}));
+        return stored.onboardingCompleted === true;
+      },
       refreshGamesCache,
       state,
     }),

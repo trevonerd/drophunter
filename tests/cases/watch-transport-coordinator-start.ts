@@ -93,7 +93,7 @@ export function registerWatchTransportCoordinatorStartCases() {
     expect(fixture.counters.opens).toBe(0);
   });
 
-  test('falls back to an inactive muted managed tab when hidden watching fails initially', async () => {
+  test('keeps strict tabless watching when the initial heartbeat fails', async () => {
     const fixture = createWatchTransportCoordinatorFixture();
     const coordinator = createWatchTransportCoordinator({
       state: fixture.state,
@@ -119,10 +119,10 @@ export function registerWatchTransportCoordinatorStartCases() {
       isLive: true,
     });
 
-    expect(fixture.counters.opens).toBe(1);
+    expect(fixture.counters.opens).toBe(0);
     expect(fixture.state.appState.watchTransportPreference).toBe('tabless');
-    expect(health).toMatchObject({ mode: 'managed-tab', status: 'healthy' });
-    expect(fixture.state.appState.watchFallbackReason).toBe('heartbeat-failed');
+    expect(health).toMatchObject({ mode: 'tabless', status: 'failed', reason: 'heartbeat-failed' });
+    expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 
   test('keeps explicit managed-tab preference unchanged', async () => {

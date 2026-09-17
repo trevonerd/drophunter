@@ -67,7 +67,7 @@ export function FarmingAutomationSettings({
               disabled={!onWatchTransportModeChange || state.isRunning}
               className="dh-input dh-setting-select min-w-[132px] shrink-0 rounded-md px-2 py-1.5 text-[11px] font-semibold disabled:opacity-70"
             >
-              <option value="tabless">No stream tab (preferred)</option>
+              <option value="tabless">No stream tab</option>
               <option value="managed-tab">Managed background tab</option>
             </select>
           </div>

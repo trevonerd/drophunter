@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "vexp": {
+      "command": "/Users/m.trevisani/.local/share/fnm/node-versions/v24.16.0/installation/lib/node_modules/vexp-cli/node_modules/@vexp/core-darwin-arm64/bin/vexp-core",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "VEXP_WORKSPACE": "/Users/m.trevisani/repos/trevonerd/drophunter"
+      }
+    }
+  }
+}

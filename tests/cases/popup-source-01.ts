@@ -39,11 +39,11 @@ test('popup delegates manual Drops opening and sync to the coordinator', () => {
   expect(source).not.toContain("type: 'OPEN_DROPS_PAGE_AND_REFRESH'");
 });
 
-test('popup reserves force cache refresh for an explicit recovery action', () => {
+test('popup does not expose a force cache-refresh retry action', () => {
   const source = readPopupSource();
 
-  expect(source).toContain("type: 'ENSURE_GAMES_CACHE'");
-  expect(source).toContain('const retryCampaignSync = useCallback');
+  expect(source).not.toContain("type: 'ENSURE_GAMES_CACHE'");
+  expect(source).not.toContain('retryCampaignSync');
   expect(source).not.toContain('fetchAvailableGames');
 });
 
@@ -79,7 +79,7 @@ test('popup uses a single campaign sync panel for cache validation and confirmed
   expect(source).toContain('function TwitchSessionGate');
   expect(source).toContain('Updating campaigns…');
   expect(source).toContain('Saved campaigns are pending validation.');
-  expect(source).toContain('onRetry={onRetryCampaignSync}');
+  expect(source).not.toContain('onRetry={onRetryCampaignSync}');
   expect(source).toContain('Campaign update failed. Showing saved data.');
   expect(source).toContain('Campaign update failed. No campaigns are available yet.');
   expect(source).toContain('hasCachedCampaigns={state.availableGames.length > 0}');

@@ -25,6 +25,7 @@ interface ActivationSyncDependencies {
   readonly farmingSession: FarmingSession;
   readonly refreshGamesCache: RefreshGamesCache;
   readonly state: ServiceWorkerState;
+  readonly hasCompletedOnboarding?: () => Promise<boolean>;
   readonly browserIntegrityTimeoutMs?: number;
 }
 
@@ -108,7 +109,13 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
       const deferValidationUntilResume = hasInterruptedQueue(dependencies.state);
       const foreground = trigger === 'manual';
       const retry = trigger === 'manual-retry';
+      const canRecoverSessionAfterOnboarding =
+        trigger === 'popup-open' ||
+        trigger === 'browser-start' ||
+        trigger === 'wake' ||
+        trigger === 'extension-update';
       let needsBrowserIntegrityVerification = false;
+      let canOpenMissingSessionTab = false;
       if (!foreground) {
         const directRefresh = await dependencies.refreshGamesCache({
           requireFreshSnapshot: true,
@@ -167,17 +174,30 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
           return transientError('Empty Twitch campaign data is awaiting confirmation.', 'invalid-response');
         }
         if (directRefresh.kind === 'unavailable' && directRefresh.failure) {
+          if (
+            !dependencies.state.twitchSessionCache &&
+            canRecoverSessionAfterOnboarding &&
+            (await dependencies.hasCompletedOnboarding?.()) === true
+          ) {
+            canOpenMissingSessionTab = true;
+          }
           if (directRefresh.failure.kind === 'auth' && !retry) {
-            return { kind: 'needs-session', errorKind: 'auth' };
+            if (!canOpenMissingSessionTab) return { kind: 'needs-session', errorKind: 'auth' };
           }
           if (directRefresh.failure.kind === 'auth') {
             // Retry now may recover a session in a hidden Drops tab. It must
             // remain distinct from the user-requested foreground Drops action.
           } else if (directRefresh.failure.kind === 'integrity') {
+            if (
+              dependencies.hasCompletedOnboarding &&
+              !dependencies.state.twitchSessionCache &&
+              !canOpenMissingSessionTab
+            )
+              return { kind: 'needs-session', errorKind: 'integrity' };
             if (dependencies.state.appState.campaignSyncState.browserVerificationAttempted && !retry)
               return unavailableVerification(directRefresh.failure);
             needsBrowserIntegrityVerification = true;
-          } else {
+          } else if (!canOpenMissingSessionTab) {
             return {
               kind: 'transient-error',
               error: directRefresh.failure.message,
@@ -188,10 +208,17 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
             };
           }
         }
+        if (
+          directRefresh.kind === 'unavailable' &&
+          !directRefresh.failure &&
+          !dependencies.state.twitchSessionCache &&
+          canRecoverSessionAfterOnboarding
+        ) {
+          canOpenMissingSessionTab = (await dependencies.hasCompletedOnboarding?.()) === true;
+        }
       }
       const waitForRestoredTab = trigger === 'browser-start' || trigger === 'wake';
-      const canOpenMissingSessionTab =
-        trigger === 'popup-open' || trigger === 'extension-update' || trigger === 'manual-retry';
+      if (retry) canOpenMissingSessionTab = true;
       const result = needsBrowserIntegrityVerification
         ? await verifyBrowserIntegrity(dependencies, execution)
         : await dependencies.dropsPageRefresher.openDropsPageAndRefresh({

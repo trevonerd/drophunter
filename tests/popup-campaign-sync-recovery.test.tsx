@@ -72,7 +72,7 @@ test('saved campaigns stay pending validation until the background has a confirm
   ).toBe('signed-out');
 });
 
-test('a closed Twitch tab keeps saved campaigns pending validation with both recovery actions', () => {
+test('a closed Twitch tab keeps saved campaigns pending validation without a manual retry action', () => {
   const savedCampaign = game({ campaignId: 'saved-campaign', isConnected: false });
   const state = {
     ...appState(savedCampaign),
@@ -104,7 +104,7 @@ test('a closed Twitch tab keeps saved campaigns pending validation with both rec
 
   expect(campaignSyncStatus).toBe('pending-validation');
   expect(markup).toContain('Saved campaigns are pending validation.');
-  expect(markup).toContain('Retry');
+  expect(markup).not.toContain('>Retry</button>');
   expect(markup).toContain('Open Twitch Drops');
   expect(markup).toContain('data-session-mode="pending-validation"');
   expect(markup).not.toContain('data-session-mode="ready"');
@@ -140,7 +140,7 @@ test('repeated network recovery shows the cause and next retry without asking us
   expect(markup).not.toContain('offline');
 });
 
-test('a retry scheduling failure remains actionable with its friendly error', () => {
+test('a retry scheduling failure remains understandable without a retry action', () => {
   const state = {
     ...appState(game()),
     campaignSyncState: {
@@ -160,7 +160,7 @@ test('a retry scheduling failure remains actionable with its friendly error', ()
 
   expect(markup).toContain('Campaign update failed. Showing saved data.');
   expect(markup).toContain('Unable to schedule another campaign check.');
-  expect(markup).toContain('Retry');
+  expect(markup).not.toContain('>Retry</button>');
   expect(markup).toContain('data-session-mode="pending-validation"');
 });
 

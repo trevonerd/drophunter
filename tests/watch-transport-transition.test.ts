@@ -70,7 +70,7 @@ describe('watch transport transition', () => {
     expect(transition.currentOwnership()).toEqual(candidate.ownership);
   });
 
-  test('prepares a managed fallback when hidden B cannot establish a healthy watch', async () => {
+  test('rejects an unhealthy tabless candidate without preparing a managed fallback', async () => {
     // Given: tabless B is unhealthy while a managed candidate is viable.
     const disposals: string[] = [];
     let managedPreparations = 0;
@@ -117,39 +117,39 @@ describe('watch transport transition', () => {
     // When: tabless preparation cannot establish a healthy watch.
     const preparation = await transition.prepare(target, 'tabless');
 
-    // Then: the rejected hidden candidate is disposed, but A remains until B is promoted.
-    expect(preparation.kind).toBe('prepared');
+    // Then: the rejected tabless candidate is disposed and no user-visible tab is prepared.
+    expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
     expect(disposals).toEqual(['tabless']);
-    expect(managedPreparations).toBe(1);
+    expect(managedPreparations).toBe(0);
     expect(transition.currentOwnership()).toEqual(incumbent);
-    if (preparation.kind !== 'prepared') throw new Error('Expected a managed fallback watch');
-    expect(preparation.watch.ownership).toMatchObject({ kind: 'managed-tab', tabId: 22 });
-    expect(preparation.watch.fallbackReason).toBe('heartbeat-failed');
   });
 
-  test('uses the bounded error reason when hidden preparation returns no candidate', async () => {
+  test('fails strict tabless preparation without opening a managed candidate', async () => {
+    let managedPreparations = 0;
     const transition = createWatchTransportTransition({
       currentOwnership: incumbent,
       prepareTabless: async () => null,
-      prepareManaged: async () => ({
-        target,
-        ownership: {
-          kind: 'managed-tab',
-          tabId: 22,
-          ownershipToken: 'candidate-token',
-          expectedChannel: 'channel-b',
-        },
-        health: healthyManagedWatch(),
-        dispose: async () => {},
-      }),
+      prepareManaged: async () => {
+        managedPreparations += 1;
+        return {
+          target,
+          ownership: {
+            kind: 'managed-tab',
+            tabId: 22,
+            ownershipToken: 'candidate-token',
+            expectedChannel: 'channel-b',
+          },
+          health: healthyManagedWatch(),
+          dispose: async () => {},
+        };
+      },
       release: async () => ({ kind: 'abandoned-unproven' }),
     });
 
     const preparation = await transition.prepare(target, 'tabless');
 
-    expect(preparation.kind).toBe('prepared');
-    if (preparation.kind !== 'prepared') throw new Error('Expected a managed fallback watch');
-    expect(preparation.watch.fallbackReason).toBe('error');
+    expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
+    expect(managedPreparations).toBe(0);
   });
 
   test('disposes a provisional watch idempotently', async () => {

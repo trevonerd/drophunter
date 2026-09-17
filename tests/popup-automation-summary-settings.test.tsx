@@ -50,7 +50,7 @@ test('automation shows one recent event only while enabled without duplicating t
 test('first-session gate directs the user to Twitch Drops', () => {
   const markup = renderToStaticMarkup(<TwitchSessionGate queueCount={0} onOpenTwitch={() => {}} />);
 
-  expect(markup).toContain('Open Twitch Drops');
+  expect(markup).toContain('Go to Drops');
   expect(markup).toContain('sync campaigns automatically');
 });
 
@@ -113,7 +113,7 @@ test('settings exposes farming automation controls without an obsolete recovery 
   expect(markup).not.toContain('Auto-start favorite games');
   expect(markup).not.toContain('Favorite games (');
   expect(markup).toContain('Watch source');
-  expect(markup).toContain('No stream tab (preferred)');
+  expect(markup).toContain('No stream tab');
   expect(markup).toContain('Managed background tab');
   expect(markup).not.toContain('Resume interrupted session');
   expect(markup).not.toContain('Resume a farming session that was already running before the browser stopped.');

@@ -41,7 +41,7 @@ test('blocked Twitch state renders a single recovery gate even with cached campa
   const markup = renderMainView(state, [savedCampaign], { campaignSyncStatus: 'signed-out' });
 
   expect(markup).toContain('data-session-priority="twitch-required"');
-  expect(markup.match(/<button[^>]*>Open Twitch Drops<\/button>/g)).toHaveLength(1);
+  expect(markup.match(/<button[^>]*>Go to Drops<\/button>/g)).toHaveLength(1);
   expect(markup).not.toContain('data-session-mode="recovering"');
 });
 

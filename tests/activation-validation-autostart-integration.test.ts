@@ -40,6 +40,7 @@ afterEach(() => {
 
 function fixture(manualAuthorized = true, availableStreamers = true) {
   const state = createServiceWorkerState();
+  state.appState.watchTransportPreference = 'managed-tab';
   const skull = createGame({
     id: 'skull',
     name: 'Skull',

@@ -169,39 +169,34 @@ test('invalidated restoration releases its late managed tab', async () => {
   expect(state.appState.watchHealth).toBeNull();
 });
 
-test('stop releases a managed fallback opened by an obsolete hidden heartbeat', async () => {
-  const opened = deferred<typeof session>();
-  const opening = deferred<void>();
+test('strict tabless health recovery never opens a managed tab', async () => {
   const { state, advance } = createWatchTransportCoordinatorFixture();
   let heartbeatCount = 0;
-  let closes = 0;
+  let opens = 0;
+  state.appState.isRunning = true;
+  state.appState.activeStreamer = streamer;
   const coordinator = createWatchTransportCoordinator({
     state,
     now: advance,
     minHeartbeatIntervalMs: 1_000,
     heartbeat: async () => ({ accepted: ++heartbeatCount === 1 }),
     managedTab: {
-      open: () => {
-        opening.resolve();
-        return opened.promise;
+      open: async () => {
+        opens += 1;
+        return session;
       },
       probe: async () => ({ accepted: true }),
-      close: async () => {
-        closes += 1;
-      },
+      close: async () => {},
     },
     persist: async () => {},
     broadcast: () => {},
   });
   await coordinator.start(streamer);
   for (let index = 0; index < 9; index += 1) await coordinator.tick();
-  const fallback = coordinator.tick();
-  await opening.promise;
+  await coordinator.tick();
   await coordinator.stop();
-  opened.resolve(session);
-  await fallback;
 
-  expect(closes).toBe(1);
+  expect(opens).toBe(0);
   expect(state.appState.watchHealth?.status).toBe('stopped');
   expect(state.appState.watchFallbackReason).toBeNull();
 });

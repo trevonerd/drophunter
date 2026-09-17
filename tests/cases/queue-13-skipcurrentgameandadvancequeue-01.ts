@@ -4,6 +4,7 @@ import { gameKey } from '../../src/shared/game-selection.ts';
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
 import './queue-13-skipcurrentgameandadvancequeue-02.ts';
+import './queue-13-skipcurrentgameandadvancequeue-03.ts';
 
 export function registerQueue13Part01() {
   describe('skipCurrentGameAndAdvanceQueue', () => {

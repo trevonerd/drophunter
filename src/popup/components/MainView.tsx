@@ -48,7 +48,6 @@ export function MainView({
   onPause,
   onResume,
   onStop,
-  onRetryCampaignSync,
   onDismissQueueCleanup,
   onAddToQueue,
   onAddAllToQueue,
@@ -80,6 +79,7 @@ export function MainView({
   const startup = startupRecovery(state, campaignSyncStatus);
   const isSignedOut =
     state.twitchSessionSyncState?.status === 'blocked' || campaignSyncStatus === 'signed-out';
+  const sessionRequired = isSignedOut || state.campaignSyncState?.status === 'needs-session';
   const favoriteGames = state.favoriteGames ?? [];
   const campaignPriorityMode = state.campaignPriorityMode ?? 'priority-list-only';
   const campaignAvailabilityByKey = state.campaignAvailabilityByKey ?? {};
@@ -125,7 +125,6 @@ export function MainView({
       campaignSyncState={state.campaignSyncState}
       blocksStartup={startup.isBlocking}
       onOpenTwitchDrops={onOpenDropsPage}
-      onRetry={onRetryCampaignSync}
     />
   );
 
@@ -140,7 +139,7 @@ export function MainView({
       />
 
       <main className="dh-page">
-        {isSignedOut ? (
+        {sessionRequired ? (
           <>
             <TwitchSessionGate queueCount={queueGames.length} onOpenTwitch={onOpenDropsPage} />
             <AutomationSummary

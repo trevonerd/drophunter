@@ -7,6 +7,7 @@ export function registerPopupActivationRecoveryCase() {
   test('ACTIVATE_POPUP recovers a missing session through a background Twitch tab', async () => {
     const chrome = chromeMocks.chrome;
     const createdActiveValues: boolean[] = [];
+    await chrome.storage.local.set({ onboardingCompleted: true });
     chromeMocks.tabs.setTabsQueryResult([]);
     chrome.tabs.create = async ({ url, active }) => {
       createdActiveValues.push(Boolean(active));
@@ -39,9 +40,9 @@ export function registerPopupActivationRecoveryCase() {
       result?: { kind?: string; campaignCount?: number };
     };
 
+    expect(createdActiveValues).toEqual([false]);
     expect(response.success).toBe(true);
     expect(response.result).toMatchObject({ kind: 'synced', campaignCount: 1 });
-    expect(createdActiveValues).toEqual([false]);
     expect(getAppStateFromStorage().availableGames).toHaveLength(1);
   });
 }

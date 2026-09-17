@@ -205,6 +205,7 @@ export function createServiceWorkerBrowserEvents(
       onLinkRecheckAlarm: registration.onLinkRecheckAlarm,
       onManagedTabRemoved: handleManagedTabRemoved,
       onManagedTabNavigatedAway: handleManagedTabNavigatedAway,
+      onManualTabChanged: registration.onMonitoringAlarm,
       onMonitorWindowRemoved: handleMonitorWindowRemoved,
       logWarn,
     });
