@@ -268,10 +268,12 @@ test('monitor reward progress exposes native progressbar semantics', () => {
   expect(html).toContain('aria-valuemax="100"');
 });
 
-test('monitor CSS keeps the approved single-layer layout contract', () => {
+test('monitor CSS keeps one document scroll owner without extra layers', () => {
   const css = readFileSync(resolve(import.meta.dir, '../src/monitor/monitor.css'), 'utf8');
 
-  expect(css).not.toContain('overflow-y: auto');
+  const bodyRule = css.match(/(?:^|\n)body\s*\{([^}]+)\}/)?.[1];
+  expect(bodyRule).toContain('overflow-y: auto');
+  expect(css.match(/overflow-y:\s*auto/g)).toHaveLength(1);
   expect(css).not.toContain('z-index:');
   expect(css).not.toContain('isolation: isolate');
   expect(css).not.toContain("-webkit-locale: 'ja'");

@@ -117,6 +117,10 @@ test('settings exposes farming automation controls without an obsolete recovery 
   expect(markup).toContain('Managed background tab');
   expect(markup).toContain('<details');
   expect(markup).toContain('Advanced settings');
+  expect(markup).toContain('aria-labelledby="advanced-rewards-heading"');
+  expect(markup).toContain('aria-labelledby="advanced-playback-heading"');
+  expect(markup.indexOf('Auto-claim Twitch Drops')).toBeLessThan(markup.indexOf('Telegram alerts'));
+  expect(markup).toMatch(/<details><summary[^>]*>Telegram alerts<\/summary>/);
   expect(markup).toContain('About DropHunter');
   expect(markup).not.toContain('Resume interrupted session');
   expect(markup).not.toContain('Resume a farming session that was already running before the browser stopped.');

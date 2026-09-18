@@ -70,7 +70,9 @@ test('paused or stopped session keeps favorite auto-start state clear to the use
     { runtimeMode: 'paused' },
   );
 
-  expect(markup).toContain('Favorite auto-start remains enabled and may resume farming at the next check.');
+  expect(markup).toContain('Favorite auto-start can restart farming after Pause or Stop.');
+  expect(markup).toContain('Turn it off to keep farming stopped.');
+  expect(markup).toContain('aria-describedby="session-auto-start-note"');
   expect(markup).not.toContain('class="dh-running-badge"');
 });
 
@@ -90,6 +92,7 @@ test('paused manual queue promises continuation only after Resume', () => {
 
   expect(markup).toContain('The started queue is saved and will continue after Resume.');
   expect(markup).not.toContain('The started queue will continue automatically');
+  expect(markup).not.toContain('session-auto-start-note');
 });
 
 test('no-streamer recovery explains manual queue continuation without an inactive transport badge', () => {
@@ -131,6 +134,7 @@ test('no-streamer recovery explains manual queue continuation without an inactiv
   );
   expect(markup).not.toContain('data-watch-transport=');
   expect(markup).not.toContain('Fallback tab');
+  expect(markup).toContain('Turn it off to keep farming stopped.');
 });
 
 test('session summary exposes exactly one effective transport indicator', () => {
