@@ -115,6 +115,9 @@ test('settings exposes farming automation controls without an obsolete recovery 
   expect(markup).toContain('Watch source');
   expect(markup).toContain('No stream tab');
   expect(markup).toContain('Managed background tab');
+  expect(markup).toContain('<details');
+  expect(markup).toContain('Advanced settings');
+  expect(markup).toContain('About DropHunter');
   expect(markup).not.toContain('Resume interrupted session');
   expect(markup).not.toContain('Resume a farming session that was already running before the browser stopped.');
 });

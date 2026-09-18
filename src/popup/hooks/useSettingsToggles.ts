@@ -1,5 +1,5 @@
 // Extracted from src/popup/App.tsx (settings toggle + select handlers).
-import { type Dispatch, type SetStateAction, useRef, useState } from 'react';
+import { type Dispatch, type SetStateAction, useLayoutEffect, useRef, useState } from 'react';
 import { browser } from '../../shared/browser-api.ts';
 import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState, FarmCategoryScope, StreamerSelectionMode, WatchTransportMode } from '../../types';
@@ -14,10 +14,11 @@ interface UseSettingsTogglesArgs {
 export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) {
   const [notificationPermissionDenied, setNotificationPermissionDenied] = useState(false);
   const stateRef = useRef(state);
-  stateRef.current = state;
-  const transactionRef = useRef<ReturnType<typeof createSettingsTransactionCoordinator> | null>(null);
-  if (transactionRef.current === null) {
-    transactionRef.current = createSettingsTransactionCoordinator({
+  useLayoutEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  const [transactions] = useState(() =>
+    createSettingsTransactionCoordinator({
       read: (key) => stateRef.current[key],
       write: (key, value) => {
         stateRef.current = { ...stateRef.current, [key]: value };
@@ -27,9 +28,8 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
         stateRef.current = { ...stateRef.current, ...values };
         setState((previous) => ({ ...previous, ...values }));
       },
-    });
-  }
-  const transactions = transactionRef.current;
+    }),
+  );
 
   type BooleanSettingKey =
     | 'monitorAutoOpen'

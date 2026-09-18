@@ -46,7 +46,7 @@ export async function hydratePopupStateStaleWhileRevalidate({
 }
 
 export function useAppState() {
-  const [state, setState] = useState<AppState>(createInitialState());
+  const [state, setState] = useState<AppState>(() => createInitialState());
   const [loading, setLoading] = useState(true);
   const [gamesLoading, setGamesLoading] = useState(true);
   useEffect(() => {
