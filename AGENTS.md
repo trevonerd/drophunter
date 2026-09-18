@@ -27,7 +27,7 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - `src/content/` inspects Twitch pages, prepares playback; keep DOM parsing defensive—Twitch markup changes often.
 - `src/popup/` = user control UI; hooks own app state, settings toggles, onboarding, recovery clocks, Drops refresh state.
 - `src/monitor/` = compact live status window. Keep status semantics aligned with popup runtime status helpers.
-- `src/shared/` = contracts across extension contexts: runtime messages, game/campaign identity, app state normalization, runtime status, browser API wrapper, drop helpers.
+- `src/shared/` = cross-context contracts: runtime messages, game/campaign identity, state normalization, browser API wrapper, drop helpers. `src/shared/user-status.ts` is the single popup/monitor session-status model; recovery copy stays concise and UI omits retry counters.
 
 ## Domain Rules
 - Twitch campaigns ≠ plain games. Prefer `campaignId` identity when available.

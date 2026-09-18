@@ -13,8 +13,6 @@ export interface TerminalStopState {
   message: string | null;
 }
 
-export const MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS = 3;
-
 export function isStreamerAcquisitionRecovery(reason: string | null | undefined): boolean {
   return (
     reason === 'no-streamers' ||
@@ -177,47 +175,36 @@ export function formatRotationReason(reason: string | null | undefined): string 
 export function formatRecoveryReason(reason: string | null | undefined): string | null {
   switch (reason) {
     case 'twitch-auth':
-      return 'Recovering Twitch session · queue preserved';
+      return 'Reconnecting to Twitch';
     case 'twitch-integrity':
-      return 'Recovering Twitch verification · queue preserved';
+      return 'Refreshing Twitch verification';
     case 'twitch-network':
-      return 'Twitch connection unavailable · queue preserved';
+      return 'Waiting for Twitch';
     case 'twitch-rate-limit':
-      return 'Twitch request limit reached · queue preserved';
+      return 'Waiting for Twitch request limit';
     case 'twitch-invalid-response':
-      return 'Twitch returned incomplete data · queue preserved';
+      return 'Refreshing Twitch campaign data';
     case 'twitch-data-unavailable':
-      return 'Twitch data refresh unavailable';
+      return 'Refreshing Twitch campaign data';
     case 'stalled-progress':
       return 'Checking stalled drop progress';
     case 'open-failed':
-      return 'Could not open stream';
+      return 'Opening another stream';
     case 'directory-unavailable':
-      return 'Twitch streamer search unavailable';
+      return 'Searching Twitch again';
     case 'no-streamers':
-      return 'No eligible streamer found yet';
+      return 'No eligible streamer yet';
     case 'drops-inactive':
-      return 'Recovering missing drops signal';
+      return 'Restoring Drops tracking';
     case 'wrong-game':
-      return 'Recovering wrong game';
+      return 'Switching streamer';
     case 'wrong-channel':
-      return 'Recovering wrong channel';
+      return 'Switching streamer';
     case 'offline':
-      return 'Recovering offline stream';
+      return 'Switching streamer';
     default:
       return reason ?? null;
   }
-}
-
-export function formatRecoveryAttemptLabel(
-  reason: string | null | undefined,
-  attempts: number | null | undefined,
-): string | null {
-  if (reason !== 'stalled-progress' || typeof attempts !== 'number' || !Number.isFinite(attempts)) {
-    return null;
-  }
-  const safeAttempts = Math.max(1, Math.min(MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS, Math.floor(attempts)));
-  return `attempt ${safeAttempts}/${MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS}`;
 }
 
 export function formatRetryLabel(timestamp?: number | null, now = Date.now()): string | null {

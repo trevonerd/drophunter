@@ -44,6 +44,10 @@ _Avoid_: Queue loop, next-game handling
 The prepare-then-promote transition that keeps current playback authoritative until a replacement is viable. Failed and superseded candidates are disposed without interrupting the active farm.
 _Avoid_: Player swap, transport restart, close-then-open
 
+**User status**:
+The single concise explanation of what farming is doing and what happens next, shared by the popup and monitor. It contains one state, one reason, and an optional retry time; internal attempt counters and transport diagnostics stay out of the user flow.
+_Avoid_: Debug status, recovery trace, polling status
+
 **Confirmed progress stall**:
 The absence of authoritative watch-time progress for the configured stall window. Stream metadata such as offline status, category mismatch, or missing Drops labels is diagnostic evidence only after this condition is established.
 _Avoid_: Stream metadata mismatch, single missed poll, transport repair

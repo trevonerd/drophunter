@@ -1,14 +1,10 @@
 import type { RuntimeMode } from '../../shared/runtime-status';
+import { createUserStatusModel, effectiveTransport, type UserStatusModel } from '../../shared/user-status';
 import type { AppState, TwitchDrop } from '../../types';
 import { CompactDropCard } from './DropCard';
 import { EyeOffIcon, MonitorIcon } from './icons';
 import { SelectedCampaignStatus } from './SelectedCampaignStatus';
 import { remainingSessionDrops } from './session-drops';
-import {
-  createSessionSummaryModel,
-  effectiveTransport,
-  type SessionSummaryModel,
-} from './session-summary-model';
 
 export interface SessionSummaryProps {
   state: AppState;
@@ -28,7 +24,7 @@ export interface SessionSummaryProps {
   onOpenTwitch: () => void;
 }
 
-const toneClasses: Record<SessionSummaryModel['tone'], string> = {
+const toneClasses: Record<UserStatusModel['tone'], string> = {
   neutral: 'border-[color:var(--dh-border)] bg-[color:var(--dh-surface-2)]',
   success: 'border-green-500/30 bg-green-500/10',
   warning: 'border-yellow-500/30 bg-yellow-500/10',
@@ -36,7 +32,7 @@ const toneClasses: Record<SessionSummaryModel['tone'], string> = {
   accent: 'border-purple-500/35 bg-purple-500/10',
 };
 
-const labelClasses: Record<SessionSummaryModel['tone'], string> = {
+const labelClasses: Record<UserStatusModel['tone'], string> = {
   neutral: 'text-[color:var(--dh-text-soft)]',
   success: 'text-green-300',
   warning: 'text-yellow-300',
@@ -45,7 +41,7 @@ const labelClasses: Record<SessionSummaryModel['tone'], string> = {
 };
 
 export function SessionSummary(props: SessionSummaryProps) {
-  const model = createSessionSummaryModel(props);
+  const model = createUserStatusModel(props);
   const transport = effectiveTransport(props.state);
   const remainingDrops = remainingSessionDrops(props.state);
   const isRunning = model.mode === 'running';

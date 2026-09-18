@@ -1,15 +1,11 @@
 import { type CSSProperties, useEffect, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
-import { getGameDisplayLabel } from '../shared/game-selection';
 import {
   deriveRuntimeMode,
   formatEtaMinutes,
   formatFarmingCompleteStatusLines,
-  formatRecoveryAttemptLabel,
-  formatRecoveryReason,
-  formatRetryLabel,
-  formatStopReason,
 } from '../shared/runtime-status';
+import { createUserStatusModel, type UserStatusMode } from '../shared/user-status';
 import { createInitialState } from '../shared/utils';
 import type { AppState, AutomationActivityEntry } from '../types';
 import { selectMonitorDrop } from './selected-drop';
@@ -25,21 +21,6 @@ function updatedLabel(timestamp: number): string {
   return `${date.toLocaleTimeString()}`;
 }
 
-function recoveryLabel(reason: string | null | undefined): string | null {
-  return formatRecoveryReason(reason);
-}
-
-function retryAtLabel(timestamp: number | null | undefined, now: number): string | null {
-  return formatRetryLabel(timestamp, now);
-}
-
-function recoveryAttemptLabel(
-  reason: string | null | undefined,
-  attempts: number | null | undefined,
-): string | null {
-  return formatRecoveryAttemptLabel(reason, attempts);
-}
-
 function getRecentAutomationActivity(activities: readonly AutomationActivityEntry[], now: number) {
   let newestActivity: AutomationActivityEntry | null = null;
   for (const entry of activities) {
@@ -51,6 +32,17 @@ function getRecentAutomationActivity(activities: readonly AutomationActivityEntr
   return newestActivity;
 }
 
+const monitorPillClasses: Record<UserStatusMode, string> = {
+  ready: 'monitor-pill monitor-pill--idle',
+  'pending-validation': 'monitor-pill monitor-pill--paused',
+  running: 'monitor-pill monitor-pill--running',
+  paused: 'monitor-pill monitor-pill--paused',
+  recovering: 'monitor-pill monitor-pill--recovering',
+  stopped: 'monitor-pill monitor-pill--stopped',
+  complete: 'monitor-pill monitor-pill--running',
+  'attention-required': 'monitor-pill monitor-pill--stopped',
+};
+
 export type MonitorViewProps = {
   readonly state: AppState;
   readonly lastUpdatedAt: number;
@@ -60,71 +52,48 @@ export type MonitorViewProps = {
 
 export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: MonitorViewProps) {
   const nearestDrop = selectMonitorDrop(state);
-  const selectedCampaignLabel = state.selectedGame ? getGameDisplayLabel(state.selectedGame) : null;
   const runtimeMode = deriveRuntimeMode(state);
+  const status = createUserStatusModel({
+    state,
+    runtimeMode,
+    currentAutomatableDrop: nearestDrop,
+    recoveryNow,
+  });
   const selectedRewardSummary = state.selectedGame?.rewardSummary;
   const statusLines =
     nearestDrop === null && selectedRewardSummary?.completion === 'farming-complete'
       ? formatFarmingCompleteStatusLines(selectedRewardSummary.remainderReasons)
       : [];
-  const terminalStopLabel =
-    statusLines.length > 0 ? formatStopReason('farming-complete') : formatStopReason(state.lastStopReason);
-  const runStateClass =
-    runtimeMode === 'recovering'
-      ? 'monitor-pill monitor-pill--recovering'
-      : runtimeMode === 'paused'
-        ? 'monitor-pill monitor-pill--paused'
-        : runtimeMode === 'running'
-          ? 'monitor-pill monitor-pill--running'
-          : runtimeMode === 'stopped-terminal'
-            ? 'monitor-pill monitor-pill--stopped'
-            : 'monitor-pill monitor-pill--idle';
-  const runStateLabel =
-    runtimeMode === 'recovering'
-      ? 'RECOVERING'
-      : runtimeMode === 'paused'
-        ? 'PAUSED'
-        : runtimeMode === 'running'
-          ? 'RUNNING'
-          : runtimeMode === 'stopped-terminal'
-            ? 'STOPPED'
-            : 'IDLE';
+  const runStateClass = monitorPillClasses[status.mode];
   const recentAutomationMessage =
     state.autoStartFavoriteGames && state.twitchSessionDetected
       ? (getRecentAutomationActivity(state.automationActivity, contextNow)?.message ?? null)
       : null;
-  const contextNotice =
-    runtimeMode === 'recovering' && state.recoveryReason
-      ? `Recovering: ${recoveryLabel(state.recoveryReason)}${
-          recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)
-            ? ` · ${recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts)}`
-            : ''
-        }${
-          retryAtLabel(state.recoveryBackoffUntil, recoveryNow)
-            ? ` · ${retryAtLabel(state.recoveryBackoffUntil, recoveryNow)}`
-            : ''
-        }`
-      : runtimeMode === 'stopped-terminal' && (state.lastStopMessage || terminalStopLabel)
-        ? `Stopped: ${terminalStopLabel ?? state.lastStopMessage}`
-        : state.manualWatchState === 'eligible-manual'
-          ? 'Manual viewing is earning progress. DropHunter will not control this tab.'
-          : state.manualWatchState === 'automation-paused'
-            ? 'Automation is waiting for manual viewing to end.'
-            : recentAutomationMessage;
+  const hasPrimaryNotice =
+    status.mode === 'recovering' ||
+    status.mode === 'attention-required' ||
+    (status.mode === 'complete' && statusLines.length === 0) ||
+    status.mode === 'pending-validation' ||
+    status.label === 'Manual viewing';
+  const contextNotice = hasPrimaryNotice && status.detail ? status.detail : recentAutomationMessage;
   const contextNoticeClass =
-    runtimeMode === 'recovering' || runtimeMode === 'stopped-terminal'
+    status.mode === 'recovering' ||
+    status.mode === 'attention-required' ||
+    status.mode === 'pending-validation'
       ? 'monitor-context-notice monitor-context-notice--warning'
       : 'monitor-context-notice';
-  const announceContextNotice = runtimeMode !== 'recovering' && runtimeMode !== 'stopped-terminal';
+  const announceContextNotice = status.mode !== 'recovering';
   return (
-    <div className="monitor-shell">
+    <main className="monitor-shell">
       <div className="monitor-card">
         <div className="monitor-header">
           <div>
             <h1 className="monitor-title">DropHunter Live</h1>
-            <p className="monitor-subtitle">{selectedCampaignLabel ?? 'No campaign selected'}</p>
+            <p className="monitor-subtitle">{status.subject}</p>
           </div>
-          <span className={runStateClass}>{runStateLabel}</span>
+          <span className={runStateClass} role="status" aria-live="polite" aria-atomic="true">
+            {status.badge}
+          </span>
         </div>
 
         <section className="monitor-body">
@@ -190,7 +159,7 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: M
           <span className="monitor-updated">Updated {updatedLabel(lastUpdatedAt)}</span>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

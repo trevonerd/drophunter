@@ -27,7 +27,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - `src/content/` inspects Twitch pages and prepares playback; keep DOM parsing defensive because Twitch markup changes often.
 - `src/popup/` is user control UI; hooks own app state, settings toggles, onboarding, recovery clocks, and Drops refresh state.
 - `src/monitor/` is the compact live status window. Keep status semantics aligned with popup runtime status helpers.
-- `src/shared/` contains contracts used across extension contexts: runtime messages, game/campaign identity, app state normalization, runtime status, browser API wrapper, drop helpers.
+- `src/shared/` contains contracts used across extension contexts: runtime messages, game/campaign identity, app state normalization, browser API wrapper, and drop helpers. `src/shared/user-status.ts` is the single user-facing session-status model for popup and monitor; keep recovery copy concise and keep retry counters out of UI surfaces.
 
 ## Domain Rules
 - Twitch campaigns are not plain games. Prefer `campaignId` identity whenever available.

@@ -125,7 +125,7 @@ test('no-streamer recovery explains manual queue continuation without an inactiv
     { runtimeMode: 'recovering', recoveryNow: 1 },
   );
 
-  expect(markup).toContain('DropHunter will search again automatically.');
+  expect(markup).toContain('No eligible streamer yet · retry in 1m');
   expect(markup).toContain(
     'The started queue will continue automatically, including campaigns added manually.',
   );
