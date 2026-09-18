@@ -122,6 +122,14 @@ test('settings exposes farming automation controls without an obsolete recovery 
   expect(markup.indexOf('Auto-claim Twitch Drops')).toBeLessThan(markup.indexOf('Telegram alerts'));
   expect(markup).toMatch(/<details><summary[^>]*>Telegram alerts<\/summary>/);
   expect(markup).toContain('About DropHunter');
+  const aboutMarkup = markup.match(
+    /<section(?=[^>]*aria-labelledby="settings-about-heading")[^>]*>([\s\S]*?)<\/section>/,
+  )?.[1];
+  expect(aboutMarkup).toBeDefined();
+  expect(aboutMarkup).not.toContain('<details');
+  expect(aboutMarkup).toContain('DropHunter');
+  expect(aboutMarkup).toContain('TREVISOFT');
+  expect(aboutMarkup).toContain('GitHub');
   expect(markup).not.toContain('Resume interrupted session');
   expect(markup).not.toContain('Resume a farming session that was already running before the browser stopped.');
 });
