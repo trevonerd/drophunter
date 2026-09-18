@@ -12,11 +12,11 @@ function extensionVersion(): string {
 
 export function SettingsAbout() {
   return (
-    <details className="dh-panel dh-contain">
-      <summary className="dh-focus cursor-pointer rounded-md px-3 py-2.5 text-xs font-semibold text-[color:var(--dh-text)]">
-        About DropHunter
-      </summary>
-      <div className="dh-group px-3 pb-2.5 pt-1">
+    <section className="dh-panel dh-contain px-3 py-2.5" aria-labelledby="settings-about-heading">
+      <div className="dh-group">
+        <h2 id="settings-about-heading" className="dh-title text-xs">
+          About DropHunter
+        </h2>
         <p className="text-sm font-bold text-[color:var(--dh-text)]">
           DropHunter <span className="text-purple-300 font-normal">v{extensionVersion()}</span>
         </p>
@@ -74,6 +74,6 @@ export function SettingsAbout() {
           </button>
         </div>
       </div>
-    </details>
+    </section>
   );
 }
