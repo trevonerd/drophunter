@@ -51,11 +51,10 @@ export function SessionSummary(props: SessionSummaryProps) {
   const needsTwitch =
     model.mode === 'attention-required' && props.state.lastStopReason === 'sign-in-required';
   const canStart = !isRunning && !isPaused && !isRecovering && !needsTwitch && !props.automaticStartPending;
-  const continuationNote = props.state.manualQueueAuthorized
-    ? isPaused
+  const continuationNote =
+    props.state.manualQueueAuthorized && isPaused
       ? 'The started queue is saved and will continue after Resume.'
-      : 'The started queue will continue automatically, including campaigns added manually.'
-    : null;
+      : null;
   const showAutoStartNote =
     props.state.autoStartFavoriteGames &&
     (isRunning || isPaused || isRecovering || props.automaticStartPending);
@@ -172,7 +171,7 @@ export function SessionSummary(props: SessionSummaryProps) {
           </button>
         )}
       </div>
-      {continuationNote && (isRunning || isPaused || isRecovering) && (
+      {continuationNote && (
         <p className="border-t border-[color:var(--dh-border)] px-3 py-1.5 text-[10px] leading-snug text-[color:var(--dh-muted)]">
           {continuationNote}
         </p>

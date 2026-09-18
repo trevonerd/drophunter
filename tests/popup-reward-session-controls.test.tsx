@@ -95,7 +95,7 @@ test('paused manual queue promises continuation only after Resume', () => {
   expect(markup).not.toContain('session-auto-start-note');
 });
 
-test('no-streamer recovery explains manual queue continuation without an inactive transport badge', () => {
+test('no-streamer recovery omits redundant queue continuation copy', () => {
   const selected = game();
   const next = game({
     id: 'next-game',
@@ -129,9 +129,7 @@ test('no-streamer recovery explains manual queue continuation without an inactiv
   );
 
   expect(markup).toContain('No eligible streamer yet · retry in 1m');
-  expect(markup).toContain(
-    'The started queue will continue automatically, including campaigns added manually.',
-  );
+  expect(markup).not.toContain('The started queue will continue automatically');
   expect(markup).not.toContain('data-watch-transport=');
   expect(markup).not.toContain('Fallback tab');
   expect(markup).toContain('Turn it off to keep farming stopped.');
