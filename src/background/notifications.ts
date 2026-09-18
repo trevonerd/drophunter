@@ -28,11 +28,6 @@ export interface AutomationNotificationPayload {
   readonly priority?: number;
 }
 
-export interface AutomationNotificationPersistence {
-  hasSeen(key: string): Promise<boolean> | boolean;
-  markSeen(key: string): Promise<void> | void;
-}
-
 export interface AutomationNotificationResult {
   readonly shown: boolean;
   readonly deduplicated: boolean;
@@ -63,7 +58,6 @@ interface NotificationControllerOptions {
   permissionsApi?: Pick<typeof chrome.permissions, 'contains'>;
   notificationsApi?: NotificationApi;
   saveState: () => Promise<unknown> | unknown;
-  automationNotificationPersistence?: AutomationNotificationPersistence;
   openDropHunter?: () => Promise<unknown> | unknown;
   openTwitchDrops?: () => Promise<unknown> | unknown;
   pauseFarming?: () => Promise<unknown> | unknown;
@@ -74,8 +68,6 @@ export function createNotificationController(
   options: NotificationControllerOptions,
 ) {
   const permissionsApi = options.permissionsApi ?? browser.permissions;
-  const seenAutomationNotifications = new Set<string>();
-  const pendingAutomationNotifications = new Map<string, Promise<AutomationNotificationResult>>();
   const resolveNotificationsApi = createNotificationApiResolver(options);
   resolveNotificationsApi();
 
@@ -183,68 +175,36 @@ export function createNotificationController(
   const notifyAutomation = async (
     payload: AutomationNotificationPayload,
   ): Promise<AutomationNotificationResult> => {
-    const key = getAutomationNotificationKey(payload.event, payload.campaignId, payload.transitionId);
-    const pending = pendingAutomationNotifications.get(key);
-    if (pending) {
-      return pending;
+    if (!state.appState.notificationsEnabled) {
+      return { shown: false, deduplicated: false };
+    }
+    if (!(await hasNotificationPermission())) {
+      state.appState.notificationsEnabled = false;
+      await options.saveState();
+      return { shown: false, deduplicated: false };
+    }
+    const notificationsApi = resolveNotificationsApi();
+    if (!notificationsApi) {
+      return { shown: false, deduplicated: false };
     }
 
-    const evaluation = (async (): Promise<AutomationNotificationResult> => {
-      if (!state.appState.notificationsEnabled) {
-        return { shown: false, deduplicated: false };
-      }
-      if (
-        seenAutomationNotifications.has(key) ||
-        (await options.automationNotificationPersistence?.hasSeen(key))
-      ) {
-        seenAutomationNotifications.add(key);
-        return { shown: false, deduplicated: true };
-      }
-      if (!(await hasNotificationPermission())) {
-        state.appState.notificationsEnabled = false;
-        await options.saveState();
-        return { shown: false, deduplicated: false };
-      }
-      const notificationsApi = resolveNotificationsApi();
-      if (!notificationsApi) {
-        return { shown: false, deduplicated: false };
-      }
-
-      const notificationId = getAutomationNotificationId(
-        payload.event,
-        payload.campaignId,
-        payload.transitionId,
-      );
-      await notificationsApi.create(notificationId, {
-        type: 'basic',
-        iconUrl: 'icons/icon128.png',
-        title: payload.title,
-        message: payload.message,
-        priority: payload.priority ?? 2,
-        buttons: [
-          { title: payload.event === 'sign-in-required' ? 'Open Twitch Drops' : 'Open DropHunter' },
-          { title: 'Pause' },
-        ],
-      });
-      seenAutomationNotifications.add(key);
-      await options.automationNotificationPersistence?.markSeen(key);
-      return { shown: true, deduplicated: false, notificationId };
-    })();
-
-    pendingAutomationNotifications.set(key, evaluation);
-    void evaluation.then(
-      () => {
-        if (pendingAutomationNotifications.get(key) === evaluation) {
-          pendingAutomationNotifications.delete(key);
-        }
-      },
-      () => {
-        if (pendingAutomationNotifications.get(key) === evaluation) {
-          pendingAutomationNotifications.delete(key);
-        }
-      },
+    const notificationId = getAutomationNotificationId(
+      payload.event,
+      payload.campaignId,
+      payload.transitionId,
     );
-    return evaluation;
+    await notificationsApi.create(notificationId, {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: payload.title,
+      message: payload.message,
+      priority: payload.priority ?? 2,
+      buttons: [
+        { title: payload.event === 'sign-in-required' ? 'Open Twitch Drops' : 'Open DropHunter' },
+        { title: 'Pause' },
+      ],
+    });
+    return { shown: true, deduplicated: false, notificationId };
   };
 
   return {

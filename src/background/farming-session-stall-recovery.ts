@@ -1,4 +1,4 @@
-import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
+import { gameKey } from '../shared/game-selection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
@@ -77,19 +77,6 @@ export function createFarmingSessionStallRecovery(
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
     });
-    if (!isCurrent()) return { kind: 'selection-changed' };
-    if (result.kind === 'retry-scheduled' && result.started && state.appState.selectedGame) {
-      const selectedGame = state.appState.selectedGame;
-      await adapters.automationNotify?.({
-        transitionId: `stall-recovery:${gameKey(selectedGame)}:${result.attempt}:${result.retryAt}`,
-        event: 'recovery',
-        campaignId: selectedGame.campaignId ?? selectedGame.id,
-        title: 'Checking stalled Drop progress',
-        message: `DropHunter is verifying progress for ${getGameDisplayLabel(selectedGame)} before changing streamer.`,
-        priority: 1,
-        telegramReason: 'recovery',
-      });
-    }
-    return result;
+    return isCurrent() ? result : { kind: 'selection-changed' };
   };
 }
