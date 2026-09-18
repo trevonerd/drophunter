@@ -515,12 +515,19 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+  .spinner {
+    animation: none;
+  }
+
+  .onboarding-pulse {
+    animation: none;
+    outline: 2px solid var(--dh-accent-strong);
+    outline-offset: 2px;
+  }
+
+  .dh-progress-fill,
+  .dh-switch__thumb,
+  [data-game-summary] .transition-transform {
+    transition: none;
   }
 }

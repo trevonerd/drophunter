@@ -165,7 +165,7 @@ Most JSX uses Tailwind spacing utilities that resolve to the same 4px rhythm: ga
 | Surface | Bounds | Fixed regions | Scroll owner |
 | --- | --- | --- | --- |
 | Popup | html { min-height: 100%; continuous viewport background }, body { width: 400px; }, body and #root { min-height: 128px; }, #root { width: 100%; }; no height cap | Header and the primary farming action remain in normal document flow above campaign discovery; settings/log headers are part of each view | Popup body owns the only primary vertical scroll (overflow-y: auto) and hides horizontal overflow. GameCampaignBrowser remains in document flow and must not create a second scrollbar. ClaimLogView retains its named fixed 440px virtualized-list scroll container because it is a separate view. |
-| Monitor | body { min-width: 320px; min-height: 270px; }, #root { width: 100%; height: 100%; } | No sticky/fixed header; one card contains the complete readout | No scroll owner: body is overflow: hidden. Content must fit the window; clipping is a failure to investigate at narrow/long-content sizes. |
+| Monitor | body { min-width: 0; min-height: 100vh; }, #root { width: 100%; height: 100%; } | No sticky/fixed header; one card contains the complete readout | The document owns vertical scrolling. Header, progress metadata, and footer wrap when enlarged; unbroken labels wrap within the card. No nested scroll pane. |
 
 dh-page is the popup vertical stack (display: flex; flex-direction: column; gap: var(--dh-space-3); padding: var(--dh-space-3)). dh-page--wide changes only inline padding to var(--dh-space-4). dh-group is a vertical stack with an 8px gap; dh-group--loose uses 12px. dh-popup-header is a two-column shell (minmax(0, 1fr) max-content) with an 8px gap. Header actions are an inline cluster. The farming queue is a full-width top-level group between SessionSummary and Campaigns, not part of the campaign search/filter cluster and not an independent scroll pane.
 
@@ -181,7 +181,7 @@ The following primitives and repeated components are the reusable surface langua
 - States: normal, loading/empty/error supplied by child panels; containment must not hide focus or status text.
 - Accessibility: preserve document order, reachable controls, and status text; no overflow on the stack itself.
 - Motion: none; child transitions only.
-- Layout/scroll: popup page participates in body scroll; monitor shell has no scrolling.
+- Layout/scroll: both surfaces participate in document scrolling; the monitor shell has no nested scrolling.
 
 ### dh-panel, dh-panel-strong, .glass, .glass-dark, and dh-subpanel
 
@@ -305,7 +305,7 @@ CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is 
 - States: running green pill, paused/recovering yellow pill, idle neutral pill, terminal stop reason, empty reward readout, updated timestamp, recovery retry countdown.
 - Accessibility: status text is visible and concise; future updates should use one polite live region around changed status rather than repeatedly announcing the entire card. Preserve readable names and percentages.
 - Motion: progress transform 400ms; recovery clock updates once per second in React while recovering; no decorative loop.
-- Layout/scroll: monitor body is overflow:hidden and the card is not scrollable. This is intentional compact-window behavior but must be stress-tested for long campaign labels.
+- Layout/scroll: monitor body allows vertical document scrolling; the card is not independently scrollable. Keep the compact default window while allowing long labels and enlarged text to remain reachable.
 
 ### Icon primitive
 
@@ -326,18 +326,15 @@ src/popup/components/icons.tsx provides small currentColor SVG icons at 12-16px.
 
 At MOTION_INTENSITY: 2, motion is restrained and state-led. Do not add scroll choreography, parallax, magnetic behavior, or decorative looping. A new status primitive should use immediate state changes or the existing 180ms feedback; a live pulse is justified only when it communicates an active state and must remain subtle.
 
-Both stylesheets include the same reduced-motion override:
-
-~~~css
-@media (prefers-reduced-motion: reduce) {
-  *, *::before { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
-}
-~~~
-
-Respect this behavior for all new states. Prefer transform/opacity for new motion even though the extracted code also transitions colors, borders, box-shadow, and (for the scrollbar) width.
+Reduced motion uses scoped alternatives, not a global duration override. Popup spinners become static arcs beside their existing loading text; onboarding uses a steady 2px outline in --dh-accent-strong, offset by 2px so the focus ring remains distinct. Progress fills, switch thumbs, and disclosure chevrons update immediately. Monitor progress updates immediately. Color, opacity, border, and focus feedback retain their existing timing. New spatial motion must supply an explicit reduced-motion alternative.
 
 ## 7. Depth & Surface
+
+### Operational clarity
+
+- Session controls explain that favorite auto-start can restart farming after Pause or Stop, and tell users to turn it off to keep farming stopped. Show this independently of manual queue continuation, using 11px soft text; Pause and Stop reference the explanation accessibly.
+- Catalog metadata names the active filter alongside the sort order. Counts use singular forms for one game or campaign.
+- Advanced settings groups Rewards and history before Playback and monitor. Telegram alerts has its own native disclosure, with existing controls inside and no new card treatment. Keep every setting and callback available.
 
 The existing strategy is mixed, led by tonal shift and 1px borders:
 
@@ -372,7 +369,7 @@ Do not add a new radius tier or mix a new soft card treatment into this control 
 - Keep meaningful image alt text (drop.name) and preserve initials fallback on image errors. SVG icons remain aria-hidden when their surrounding button has a label.
 - Queue reordering must remain keyboard operable with the existing arrow-key handler in addition to drag-and-drop. Long labels truncate inside min-w-0 regions; do not introduce horizontal scrolling to the primary popup surface.
 - Honor prefers-reduced-motion: reduce exactly as the two stylesheets do. Do not make status comprehension depend on animation, color, or a decorative dot alone.
-- Verify popup at its 400px width and monitor from its 320px minimum through long campaign/drop labels. Monitor has no scroll fallback today, so clipping must be treated as a failure to investigate.
+- Verify popup at its 400px width and monitor at 320px and 360px, plus narrower effective viewports under zoom. Long campaign/drop labels and 200% text must remain reachable through document scrolling without horizontal overflow.
 
 ### Accepted debt and boundaries
 
@@ -384,7 +381,6 @@ Do not add a new radius tier or mix a new soft card treatment into this control 
 | 3px, 6px, 10px, 0.2rem, and other non-4px spacing | Monitor CSS and compact controls | Dense monitor geometry currently uses these values. | Revisit with a measured layout pass; do not normalize during Todo 13/14. |
 | 10-12px metadata/body sizes | Popup/monitor JSX and CSS | Visual density 7 and narrow extension width require compact labels. | Contrast/zoom QA first; adjust only with a documented density decision. |
 | Color/box-shadow transitions and scrollbar width animation | src/popup/index.css | Existing tactile feedback predates the GPU-only preference; removing it would alter behavior. | New motion should prefer transform/opacity; fix existing transitions only as a dedicated motion cleanup. |
-| Monitor overflow:hidden with no nested scroll owner | src/monitor/monitor.css | The monitor is intended as a compact fixed-window readout. | Visual QA long/empty/unbroken content; introduce a named scroll owner only if product approves. |
 | Nested reward and claim-log scroll containers | RewardList.tsx, ClaimLogView.tsx | Lists are intentionally bounded (240px/440px) to keep the popup usable. | Preserve named ownership; avoid adding another scrollbar to the same region. |
 | Hand-authored SVG icon paths | src/popup/components/icons.tsx | Existing icons are small, currentColor, labeled, and visually consistent. | Replace as one icon-system migration, not piecemeal in indicator work. |
 

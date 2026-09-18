@@ -119,7 +119,9 @@ export function CampaignList({
       <div className="dh-campaign-browser-heading flex items-center justify-between gap-2">
         <h2 className="dh-title text-xs">Games and campaigns</h2>
         <span className="text-right text-[10px] text-[color:var(--dh-muted)]">
-          {groups.length} games · {visibleCampaignCount} campaigns
+          {groups.length} {groups.length === 1 ? 'game' : 'games'} · {visibleCampaignCount}{' '}
+          {visibleCampaignCount === 1 ? 'campaign' : 'campaigns'}
+          <span className="block">Showing: {filterLabel}</span>
           <span className="block">Sorted: {orderLabel}</span>
         </span>
       </div>
