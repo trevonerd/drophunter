@@ -86,7 +86,7 @@ test('popup activation checks campaign state without opening Twitch', () => {
 test('popup does not mount reward loading UI just because Drops refresh is running', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('drops={catalogDrops}');
+  expect(source).toContain('drops={model.catalogDrops}');
   expect(source).not.toContain('rewardsLoading={rewardsLoading}');
 });
 

@@ -1,23 +1,13 @@
-import {
-  dropMatchesGame,
-  favoriteGameIdentityKeys,
-  gameKey,
-  hiddenGameIdentityKeys,
-} from '../../shared/game-selection.ts';
-import { isRewardAutomatable } from '../../shared/reward-semantics';
-import type { TwitchGame } from '../../types';
-import { isCampaignFarmable } from '../format';
-import { getGameToStartFromQueue, isSameQueuedGame } from '../queue-start';
 import { AutomationSummary } from './AutomationSummary';
 import { CampaignList } from './CampaignList';
 import { CampaignQueueControls } from './CampaignQueueControls';
 import { CampaignSyncPanel } from './CampaignSyncPanel';
 import { CheckIcon } from './icons';
+import { createMainViewModel } from './main-view-model.ts';
 import type { MainViewProps } from './main-view-types';
 import { PopupHeader } from './PopupHeader';
 import { QueueCleanupNotice } from './QueueCleanupNotice';
 import { SessionSummary } from './SessionSummary';
-import { startupRecovery } from './startup-recovery';
 import { TwitchSessionGate } from './TwitchSessionGate';
 
 export type { MainViewProps } from './main-view-types';
@@ -58,72 +48,29 @@ export function MainView({
   onReorderQueue,
   onStart,
 }: MainViewProps) {
-  const selectedGame = state.selectedGame;
-  const currentAutomatableDrop =
-    state.currentDrop && isRewardAutomatable(state.currentDrop) ? state.currentDrop : null;
-  const campaignCatalogDrops = Object.values(state.campaignDropsByKey ?? {}).flat();
-  const catalogDrops =
-    campaignCatalogDrops.length > 0
-      ? campaignCatalogDrops
-      : state.allDrops.length > 0
-        ? state.allDrops
-        : [...pendingDrops, ...completedDrops];
-  const loadedCampaignKeys = new Set(Object.keys(state.campaignDropsByKey ?? {}));
-  if (loadedCampaignKeys.size === 0 && state.allDrops.length > 0) {
-    for (const game of sortedGames) {
-      if (state.allDrops.some((drop) => dropMatchesGame(drop, game))) loadedCampaignKeys.add(gameKey(game));
-    }
-  }
-  const gameToStart = getGameToStartFromQueue(selectedGame, queueGames);
-  const startDisabled = gameToStart == null || !isCampaignFarmable(gameToStart);
-  const startup = startupRecovery(state, campaignSyncStatus);
-  const isSignedOut =
-    state.twitchSessionSyncState?.status === 'blocked' || campaignSyncStatus === 'signed-out';
-  const sessionRequired = isSignedOut || state.campaignSyncState?.status === 'needs-session';
-  const favoriteGames = state.favoriteGames ?? [];
-  const campaignPriorityMode = state.campaignPriorityMode ?? 'priority-list-only';
-  const campaignAvailabilityByKey = state.campaignAvailabilityByKey ?? {};
-  const automationActivity = state.automationActivity ?? [];
-  const queueCampaignRemoval = automationActivity.find((entry) => entry.kind === 'queue-campaigns-removed');
-  const favoriteIds = favoriteGameIdentityKeys(favoriteGames);
-  const hiddenIds = hiddenGameIdentityKeys(state.hiddenGames ?? []);
-  const now = Date.now();
-  const progressForCampaign = (game: TwitchGame) => {
-    const nextReward = catalogDrops.find((drop) => dropMatchesGame(drop, game) && !drop.claimed);
-    return {
-      nextRewardName: nextReward?.benefitName ?? nextReward?.name,
-      progress: nextReward?.progress,
-      currentMinutes: nextReward?.currentMinutes,
-      requiredMinutes: nextReward?.requiredMinutes,
-      eligibleStreamerCount: campaignAvailabilityByKey[gameKey(game)]?.eligibleStreamerCount ?? null,
-    };
-  };
-  const recentFavoriteAddition = automationActivity.find(
-    (entry) => entry.kind === 'favorite-added' && now - entry.at < 5_000,
-  );
-  const highlightedGame = recentFavoriteAddition?.campaignId
-    ? sortedGames.find((game) => game.campaignId === recentFavoriteAddition.campaignId)
-    : undefined;
-  const highlightedCampaignKey = highlightedGame ? gameKey(highlightedGame) : null;
-  const hasVisibleQueue = queueGames.some(
-    (game) => !state.isRunning || !selectedGame || !isSameQueuedGame(game, selectedGame),
-  );
-  const showSelectedCampaignStatus =
-    selectedGame !== null && sortedGames.some((game) => gameKey(game) === gameKey(selectedGame));
-  const queueCampaignRemovalNotice =
-    queueCampaignRemoval && queueCampaignRemoval.id !== dismissedQueueCleanupActivityId ? (
-      <QueueCleanupNotice
-        message={queueCampaignRemoval.message}
-        onDismiss={() => onDismissQueueCleanup(queueCampaignRemoval.id)}
-      />
-    ) : null;
+  const model = createMainViewModel({
+    state,
+    campaignSyncStatus,
+    sortedGames,
+    queueGames,
+    pendingDrops,
+    completedDrops,
+    dismissedQueueCleanupActivityId,
+  });
+  const queueCleanupActivity = model.queueCleanupActivity;
+  const queueCampaignRemovalNotice = queueCleanupActivity ? (
+    <QueueCleanupNotice
+      message={queueCleanupActivity.message}
+      onDismiss={() => onDismissQueueCleanup(queueCleanupActivity.id)}
+    />
+  ) : null;
   const syncPanel = (
     <CampaignSyncPanel
       status={campaignSyncStatus}
       error={activeSyncError}
       hasCachedCampaigns={state.availableGames.length > 0}
       campaignSyncState={state.campaignSyncState}
-      blocksStartup={startup.isBlocking}
+      blocksStartup={model.startup.isBlocking}
       onOpenTwitchDrops={onOpenDropsPage}
     />
   );
@@ -139,7 +86,7 @@ export function MainView({
       />
 
       <main className="dh-page">
-        {sessionRequired ? (
+        {model.sessionRequired ? (
           <>
             <TwitchSessionGate queueCount={queueGames.length} onOpenTwitch={onOpenDropsPage} />
             <AutomationSummary
@@ -151,7 +98,7 @@ export function MainView({
           </>
         ) : (
           <>
-            {startup.isBlocking && syncPanel}
+            {model.startup.isBlocking && syncPanel}
             <AutomationSummary
               state={state}
               notificationPermissionDenied={notificationPermissionDenied}
@@ -161,12 +108,12 @@ export function MainView({
             <SessionSummary
               state={state}
               runtimeMode={runtimeMode}
-              currentAutomatableDrop={currentAutomatableDrop}
+              currentAutomatableDrop={model.currentAutomatableDrop}
               recoveryNow={recoveryNow}
               actionLoading={actionLoading}
-              startDisabled={startDisabled}
-              automaticStartPending={startup.automaticStartPending}
-              showSelectedCampaignStatus={showSelectedCampaignStatus}
+              startDisabled={model.startDisabled}
+              automaticStartPending={model.startup.automaticStartPending}
+              showSelectedCampaignStatus={model.showSelectedCampaignStatus}
               queueCount={queueGames.length}
               startHighlighted={onboardingStep === 'start'}
               onStart={onStart}
@@ -176,16 +123,16 @@ export function MainView({
               onOpenTwitch={onOpenDropsPage}
             />
 
-            {(hasVisibleQueue || queueMessage) && (
+            {(model.hasVisibleQueue || queueMessage) && (
               <section aria-label="Farming queue" className="dh-group min-w-0">
                 <CampaignQueueControls
                   selectedGame={state.selectedGame}
                   queueGames={queueGames}
                   isRunning={state.isRunning}
-                  campaignPriorityMode={campaignPriorityMode}
+                  campaignPriorityMode={model.campaignPriorityMode}
                   queueEntryMetadataByKey={state.queueEntryMetadataByKey ?? {}}
-                  favoriteGameIds={favoriteIds}
-                  now={now}
+                  favoriteGameIds={model.favoriteIds}
+                  now={model.now}
                   queueMessage={queueMessage}
                   onRemove={onRemoveFromQueue}
                   onClear={onClearQueue}
@@ -197,22 +144,22 @@ export function MainView({
             <div className={onboardingStep === 'selector' ? 'onboarding-pulse rounded-lg' : ''}>
               <CampaignList
                 campaigns={sortedGames}
-                drops={catalogDrops}
-                favoriteGameIds={favoriteIds}
-                hiddenGameIds={hiddenIds}
+                drops={model.catalogDrops}
+                favoriteGameIds={model.favoriteIds}
+                hiddenGameIds={model.hiddenIds}
                 queueGames={queueGames}
-                loadedCampaignKeys={loadedCampaignKeys}
+                loadedCampaignKeys={model.loadedCampaignKeys}
                 refreshInProgress={dropsRefreshLoading}
                 refreshStartedAt={state.lastDropsPageRefreshAttemptAt}
-                progressByCampaignKey={progressForCampaign}
-                priorityMode={campaignPriorityMode}
-                highlightedCampaignKey={highlightedCampaignKey}
+                progressByCampaignKey={model.campaignProgressByKey}
+                priorityMode={model.campaignPriorityMode}
+                highlightedCampaignKey={model.highlightedCampaignKey}
                 actionLoading={actionLoading}
-                now={now}
+                now={model.now}
                 runningGame={state.isRunning && !state.isPaused ? state.selectedGame : null}
                 beforeCatalog={
                   <>
-                    {!startup.isBlocking && syncPanel}
+                    {!model.startup.isBlocking && syncPanel}
                     {!dropsRefreshLoading &&
                       campaignSyncStatus === 'fresh' &&
                       firstSyncConfirmation &&

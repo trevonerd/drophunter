@@ -76,6 +76,10 @@ _Avoid_: Background tab, guaranteed tabless playback
 A Twitch stream playing in a user-controlled tab, including a background tab, which takes precedence over automated playback whether or not it earns Drops.
 _Avoid_: Managed farming tab, Hidden farming transport
 
+**Manual-watch decision**:
+The pure transition from the latest manual-tab classification and durable farming facts to the next manual-watch fact. Observation, storage, wake scheduling, and transport suspension are effects applied after this decision.
+_Avoid_: Manual-tab scan, transport transaction
+
 **Stalled campaign exclusion**:
 A campaign-specific block after recovery attempts are exhausted, lifted by positive progress, a newly eligible streamer, or explicit Start. A refresh or service-worker restart alone is not new evidence.
 _Avoid_: Expired campaign, unfarmable campaign, timed retry

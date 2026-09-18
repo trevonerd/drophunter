@@ -277,15 +277,15 @@ CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is 
 - Motion: progress uses transform: scaleX(--dh-progress) with 500ms popup / 400ms monitor easing; reduced-motion media rule collapses the transition.
 - Layout/scroll: reward rows are the popup's named nested scroll owner; monitor progress is contained by the card and cannot scroll.
 
-### SettingRow, dh-switch, and Telegram form controls
+### Settings disclosures, SettingRow, dh-switch, and Telegram form controls
 
-- Structure: bordered dh-panel row with title/copy and a native button role=switch; Telegram extends the pattern with labeled password/text inputs, save/test actions, disclosure guide, and status message.
-- Variants: on/off, disabled-before-configuration, warning/permission-denied, credentials saved/error, setup guide closed/open, streamer-selection pressed/unpressed.
+- Structure: the settings page keeps Farming automation visible, followed by native `Advanced settings` and `About DropHunter` disclosures. Advanced contains statistics, monitor/tab preferences, Telegram, auto-claim, streamer selection, and language. SettingRow remains a bordered dh-panel row with title/copy and a native button role=switch; Telegram extends the pattern with labeled password/text inputs, save/test actions, disclosure guide, and status message.
+- Variants: disclosure closed/open, on/off, disabled-before-configuration, warning/permission-denied, credentials saved/error, Telegram guide closed/open, streamer-selection pressed/unpressed.
 - Spacing: panel px-3 py-2.5; row gap 12px; switch has a 36×28px interactive target containing a 34×20px full-pill track and 14px thumb; form groups use 8px vertical spacing.
 - States: default, hover, active, focus-visible ring, on/off thumb transform, busy disabled, warning/error status, disclosure expanded/collapsed.
 - Accessibility: native buttons and inputs, labels above fields, role=switch plus aria-checked, aria-expanded on guide, and role=status aria-live=polite for warnings/action feedback. Never use placeholder text as the only label.
 - Motion: switch thumb translates 11px over 180ms; track background/border transition 180ms; no disclosure animation exists.
-- Layout/scroll: settings content uses popup body scroll; no nested form scroll.
+- Layout/scroll: settings content uses popup body scroll; closed disclosures keep the initial surface to farming essentials and introduce no nested scroll.
 
 ### Claim log virtualized list
 
@@ -387,7 +387,6 @@ Do not add a new radius tier or mix a new soft card treatment into this control 
 | Monitor overflow:hidden with no nested scroll owner | src/monitor/monitor.css | The monitor is intended as a compact fixed-window readout. | Visual QA long/empty/unbroken content; introduce a named scroll owner only if product approves. |
 | Nested reward and claim-log scroll containers | RewardList.tsx, ClaimLogView.tsx | Lists are intentionally bounded (240px/440px) to keep the popup usable. | Preserve named ownership; avoid adding another scrollbar to the same region. |
 | Hand-authored SVG icon paths | src/popup/components/icons.tsx | Existing icons are small, currentColor, labeled, and visually consistent. | Replace as one icon-system migration, not piecemeal in indicator work. |
-| Fallback raw #f04f4f in danger color | SettingsView.tsx | Inline fallback protects the warning when the custom var is unavailable. | Replace only when the danger token pipeline is made total. |
 
 ### Source and tooling scope
 
