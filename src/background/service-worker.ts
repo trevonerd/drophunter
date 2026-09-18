@@ -51,7 +51,6 @@ let browserEvents: ReturnType<typeof createServiceWorkerBrowserEvents>;
 
 const notificationController = createNotificationController(state, {
   saveState: () => saveState(state),
-  automationNotificationPersistence,
   openDropHunter: () => browserEvents.openMonitorDashboardWindow({ toggle: false }),
   openTwitchDrops: () => contentHandlers.openDropsAndSync(),
   pauseFarming: () =>

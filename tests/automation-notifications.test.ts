@@ -26,22 +26,13 @@ describe('automation notifications', () => {
     );
   });
 
-  test('creates a stable actionable notification for a campaign transition', async () => {
+  test('creates a stable actionable browser notification for a campaign transition', async () => {
     const state = { appState: { ...createInitialState(), notificationsEnabled: true } };
     const fakes = createAutomationNotificationFakes(true);
-    const persistedKeys: string[] = [];
     const controller = createNotificationController(state, {
       permissionsApi: fakes.permissionsApi,
       notificationsApi: fakes.notificationsApi,
       saveState: async () => {},
-      automationNotificationPersistence: {
-        async hasSeen() {
-          return false;
-        },
-        async markSeen(key) {
-          persistedKeys.push(key);
-        },
-      },
     });
 
     const result = await controller.notifyAutomation(createAutomationPayload('start'));
@@ -64,33 +55,20 @@ describe('automation notifications', () => {
         },
       },
     ]);
-    expect(persistedKeys).toEqual(['start:campaign-1:start:campaign-1:1']);
   });
 
-  test('deduplicates persisted transitions and coalesces simultaneous evaluations', async () => {
+  test('leaves transition deduplication to the shared event notifier', async () => {
     const state = { appState: { ...createInitialState(), notificationsEnabled: true } };
     const fakes = createAutomationNotificationFakes(true);
-    const seen = new Set<string>();
     const controller = createNotificationController(state, {
       permissionsApi: fakes.permissionsApi,
       notificationsApi: fakes.notificationsApi,
       saveState: async () => {},
-      automationNotificationPersistence: {
-        async hasSeen(key) {
-          return seen.has(key);
-        },
-        async markSeen(key) {
-          seen.add(key);
-        },
-      },
     });
     const payload = createAutomationPayload('discovery');
 
-    const [first, second] = await Promise.all([
-      controller.notifyAutomation(payload),
-      controller.notifyAutomation(payload),
-    ]);
-    const third = await controller.notifyAutomation(payload);
+    const first = await controller.notifyAutomation(payload);
+    const second = await controller.notifyAutomation(payload);
 
     expect(first).toEqual({
       shown: true,
@@ -98,9 +76,7 @@ describe('automation notifications', () => {
       notificationId: getAutomationNotificationId('discovery', 'campaign-1', 'discovery:campaign-1:1'),
     });
     expect(second).toEqual(first);
-    expect(third).toEqual({ shown: false, deduplicated: true });
-    expect(fakes.records).toHaveLength(1);
-    expect(seen).toEqual(new Set(['discovery:campaign-1:discovery:campaign-1:1']));
+    expect(fakes.records).toHaveLength(2);
   });
 
   test('routes notification clicks and actions to injected hooks', async () => {

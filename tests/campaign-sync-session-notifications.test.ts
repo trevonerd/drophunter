@@ -27,7 +27,6 @@ function createSubject(permissionGranted = true) {
       permissionsApi: fakes.permissionsApi,
       notificationsApi: fakes.notificationsApi,
       saveState: async () => {},
-      automationNotificationPersistence: persistence,
     });
     const notifier = createAutomationEventNotifier({
       persistence,

@@ -1,5 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
-import type { AutomationNotificationPersistence } from './notifications.ts';
+import type { AutomationNotificationPersistence } from './automation-event-notifier.ts';
 
 const AUTOMATION_NOTIFICATION_TRANSITIONS_KEY = 'automationNotificationTransitions';
 const MAX_PERSISTED_TRANSITIONS = 200;

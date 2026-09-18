@@ -48,6 +48,10 @@ _Avoid_: Player swap, transport restart, close-then-open
 The single concise explanation of what farming is doing and what happens next, shared by the popup and monitor. It contains one state, one reason, and an optional retry time; internal attempt counters and transport diagnostics stay out of the user flow.
 _Avoid_: Debug status, recovery trace, polling status
 
+**Notification event**:
+A durable farming transition delivered independently to enabled browser and Telegram channels, with one receipt per channel. Routine retries and internal recovery attempts are not notification events.
+_Avoid_: Retry log, channel-specific event, polling alert
+
 **Confirmed progress stall**:
 The absence of authoritative watch-time progress for the configured stall window. Stream metadata such as offline status, category mismatch, or missing Drops labels is diagnostic evidence only after this condition is established.
 _Avoid_: Stream metadata mismatch, single missed poll, transport repair

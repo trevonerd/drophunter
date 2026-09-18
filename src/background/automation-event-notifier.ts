@@ -1,8 +1,4 @@
-import type {
-  AutomationNotificationPayload,
-  AutomationNotificationPersistence,
-  AutomationNotificationResult,
-} from './notifications.ts';
+import type { AutomationNotificationPayload, AutomationNotificationResult } from './notifications.ts';
 import type { TelegramSystemEventReason } from './telegram-notifications.ts';
 
 export type AutomationEventNotification = AutomationNotificationPayload & {
@@ -11,6 +7,11 @@ export type AutomationEventNotification = AutomationNotificationPayload & {
 
 export interface AutomationEventNotifier {
   notify(notification: AutomationEventNotification): Promise<void>;
+}
+
+export interface AutomationNotificationPersistence {
+  hasSeen(key: string): Promise<boolean> | boolean;
+  markSeen(key: string): Promise<void> | void;
 }
 
 interface AutomationEventNotifierDependencies {
