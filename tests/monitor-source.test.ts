@@ -74,7 +74,8 @@ test('monitor explains a subscription-only farming-complete campaign', () => {
   expect(html.match(/<p class="monitor-reward-/g)).toHaveLength(1);
   expect(html).not.toContain('All rewards already claimed');
   expect(html).toContain('No automatable campaign rewards remain.');
-  expect(html).toContain('Stopped: Farming finished');
+  expect(html).toContain('>COMPLETE</span>');
+  expect(html).not.toContain('Farming finished</div>');
 });
 
 test('monitor explains an unverifiable Twitch remainder and uses shared terminal status', () => {
@@ -100,9 +101,9 @@ test('monitor explains an unverifiable Twitch remainder and uses shared terminal
   expect(html.split('Farming finished · Twitch reward acquisition could not be verified').length - 1).toBe(1);
   expect(html).not.toContain('All farmable rewards claimed');
   expect(html.match(/<p class="monitor-reward-/g)).toHaveLength(1);
-  expect(html).toContain('Stopped: Farming finished');
+  expect(html).toContain('>COMPLETE</span>');
   expect(html).not.toContain('Custom stop text should not replace the shared status.');
-  expect(html).toContain('monitor-pill--stopped');
+  expect(html).toContain('monitor-pill--running');
 });
 
 test('monitor preserves subscription-then-unverifiable explanation order', () => {
@@ -148,7 +149,8 @@ test('monitor uses shared terminal vocabulary for queue completion', () => {
   });
 
   // Then: the shared runtime label remains the monitor's terminal vocabulary.
-  expect(html).toContain('Stopped: Queue complete');
+  expect(html).toContain('>COMPLETE</span>');
+  expect(html).toContain('>Queue complete</div>');
   expect(html).not.toContain('Queue completed. No pending rewards left.');
 });
 
@@ -219,7 +221,8 @@ test('monitor shows only fresh automation transitions and preserves manual viewi
   expect(expiredAtBoundary).not.toContain('Six seconds old must not persist.');
   expect(newestFreshAutomation).toContain('Newest fresh transition.');
   expect(newestFreshAutomation).not.toContain('Older fresh transition.');
-  expect(manual).toContain('Manual viewing is earning progress. DropHunter will not control this tab.');
+  expect(manual).toContain('Twitch is tracking progress. Automation is waiting.');
+  expect(manual).toContain('>MANUAL</span>');
 });
 
 test('monitor keeps recovery notices visible without re-announcing their retry countdown', () => {
@@ -230,9 +233,10 @@ test('monitor keeps recovery notices visible without re-announcing their retry c
     recoveryBackoffUntil: 1_700_000_030_000,
   });
 
-  expect(html).toContain('Recovering: Recovering offline stream');
+  expect(html).toContain('Switching streamer · retry in 30s');
   expect(html).toContain('class="monitor-context-notice monitor-context-notice--warning"');
-  expect(html).not.toContain('aria-live="polite"');
+  expect(html).toContain('class="monitor-pill monitor-pill--recovering" role="status" aria-live="polite"');
+  expect(html).not.toContain('class="monitor-context-notice monitor-context-notice--warning" role="status"');
 });
 
 test('monitor keeps running semantics during a non-blocking Twitch retry', () => {

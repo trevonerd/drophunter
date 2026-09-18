@@ -86,7 +86,7 @@ describe('API failure recovery classification', () => {
   });
 
   test('labels unavailable Twitch data without claiming a streamer search failed', () => {
-    expect(formatRecoveryReason('twitch-data-unavailable')).toBe('Twitch data refresh unavailable');
+    expect(formatRecoveryReason('twitch-data-unavailable')).toBe('Refreshing Twitch campaign data');
   });
 
   for (const waiting of [false, true]) {

@@ -1,9 +1,14 @@
-import { getGameDisplayLabel } from '../../shared/game-selection';
-import { formatStopReason, type RuntimeMode } from '../../shared/runtime-status';
-import type { AppState, TwitchDrop } from '../../types';
-import { formatEtaMinutes, recoveryAttemptLabel, retryLabel, statusReasonLabel } from '../format';
+import type { AppState, TwitchDrop } from '../types';
+import { getGameDisplayLabel } from './game-selection';
+import {
+  formatEtaMinutes,
+  formatRecoveryReason,
+  formatRetryLabel,
+  formatStopReason,
+  type RuntimeMode,
+} from './runtime-status';
 
-export type SessionSummaryMode =
+export type UserStatusMode =
   | 'ready'
   | 'pending-validation'
   | 'running'
@@ -15,10 +20,11 @@ export type SessionSummaryMode =
 
 export type ProgressState = 'waiting' | 'tracking' | 'paused' | 'recovering' | 'complete' | 'unavailable';
 
-export type SessionSummaryModel = {
-  readonly mode: SessionSummaryMode;
+export type UserStatusModel = {
+  readonly mode: UserStatusMode;
   readonly progressState: ProgressState;
   readonly label: string;
+  readonly badge: string;
   readonly subject: string;
   readonly detail: string;
   readonly tone: 'neutral' | 'success' | 'warning' | 'danger' | 'accent';
@@ -30,7 +36,7 @@ export type EffectiveTransport = {
   readonly icon: 'eye-off' | 'monitor';
 };
 
-export type SessionSummaryModelInput = {
+export type UserStatusModelInput = {
   readonly state: AppState;
   readonly runtimeMode: RuntimeMode;
   readonly currentAutomatableDrop: TwitchDrop | null;
@@ -40,6 +46,12 @@ export type SessionSummaryModelInput = {
 
 function campaignSubject(state: AppState): string {
   return state.selectedGame ? getGameDisplayLabel(state.selectedGame) : 'No campaign selected';
+}
+
+function recoveryDetail(state: AppState, now: number): string {
+  const reason = formatRecoveryReason(state.recoveryReason) ?? 'Restoring farming';
+  const retry = formatRetryLabel(state.recoveryBackoffUntil, now);
+  return retry ? `${reason} · ${retry}` : reason;
 }
 
 export function trackedProgress(drop: TwitchDrop): number {
@@ -63,13 +75,13 @@ export function effectiveTransport(state: AppState): EffectiveTransport | null {
   }
 }
 
-export function createSessionSummaryModel({
+export function createUserStatusModel({
   state,
   runtimeMode,
   currentAutomatableDrop,
   recoveryNow,
   automaticStartPending,
-}: SessionSummaryModelInput): SessionSummaryModel {
+}: UserStatusModelInput): UserStatusModel {
   const subject = campaignSubject(state);
   const manualWatchState = state.manualWatchState ?? 'inactive';
   const campaignSyncStatus = state.campaignSyncState?.status;
@@ -79,30 +91,24 @@ export function createSessionSummaryModel({
       mode: 'ready',
       progressState: manualWatchState === 'eligible-manual' ? 'tracking' : 'waiting',
       label: 'Manual viewing',
+      badge: 'MANUAL',
       subject,
       detail:
         manualWatchState === 'eligible-manual'
-          ? 'Twitch is advancing this campaign in your open tab. Automation will wait.'
+          ? 'Twitch is tracking progress. Automation is waiting.'
           : 'Automation is waiting for manual viewing to end.',
       tone: 'neutral',
     };
   }
 
   if (runtimeMode === 'recovering') {
-    const recoveryParts = [
-      statusReasonLabel(state.recoveryReason),
-      recoveryAttemptLabel(state.recoveryReason, state.recoveryAttempts),
-      retryLabel(state.recoveryBackoffUntil, recoveryNow),
-    ].filter((value): value is string => Boolean(value));
     return {
       mode: 'recovering',
       progressState: 'recovering',
       label: 'Recovering',
+      badge: 'RECOVERING',
       subject,
-      detail:
-        state.recoveryReason === 'no-streamers'
-          ? `${recoveryParts.join(' · ') || 'No eligible streamer found yet'}. DropHunter will search again automatically.`
-          : `${recoveryParts.join(' · ') || 'Restoring the farming session'}. Farming is paused while DropHunter retries automatically.`,
+      detail: recoveryDetail(state, recoveryNow),
       tone: 'warning',
     };
   }
@@ -112,6 +118,7 @@ export function createSessionSummaryModel({
       mode: 'paused',
       progressState: 'paused',
       label: 'Paused',
+      badge: 'PAUSED',
       subject,
       detail: currentAutomatableDrop
         ? `Progress paused at ${trackedProgress(currentAutomatableDrop)}%.`
@@ -127,6 +134,7 @@ export function createSessionSummaryModel({
         mode: 'running',
         progressState: 'tracking',
         label: 'Running',
+        badge: 'RUNNING',
         subject,
         detail: `${trackedProgress(currentAutomatableDrop)}%${eta ? ` · ETA ${eta}` : ''}`,
         tone: 'success',
@@ -136,10 +144,11 @@ export function createSessionSummaryModel({
       mode: 'running',
       progressState: 'waiting',
       label: 'Running',
+      badge: 'RUNNING',
       subject,
       detail: state.activeStreamer
         ? `Watching ${state.activeStreamer.displayName}; waiting for Twitch progress.`
-        : 'Finding an eligible streamer. DropHunter will start tracking progress automatically.',
+        : 'Finding an eligible streamer.',
       tone: 'success',
     };
   }
@@ -151,6 +160,7 @@ export function createSessionSummaryModel({
         mode: 'stopped',
         progressState: 'waiting',
         label: 'Stopped',
+        badge: 'STOPPED',
         subject,
         detail: '',
         tone: 'neutral',
@@ -165,6 +175,7 @@ export function createSessionSummaryModel({
         mode: 'attention-required',
         progressState: 'unavailable',
         label: 'Attention required',
+        badge: 'ATTENTION',
         subject,
         detail: stopReason,
         tone: 'danger',
@@ -174,6 +185,7 @@ export function createSessionSummaryModel({
       mode: 'complete',
       progressState: 'complete',
       label: 'Complete',
+      badge: 'COMPLETE',
       subject,
       detail: stopReason,
       tone: 'success',
@@ -192,12 +204,13 @@ export function createSessionSummaryModel({
       mode: 'pending-validation',
       progressState: 'waiting',
       label: 'Campaigns pending validation',
+      badge: 'SYNCING',
       subject,
       detail: automaticStartPending
         ? state.manualQueueAuthorized
-          ? 'The started queue will resume automatically after campaign validation succeeds.'
-          : 'Favorite auto-start will check eligible favorites after campaign validation succeeds.'
-        : 'Saved campaign data will be confirmed when Twitch is available.',
+          ? 'The started queue will resume after validation.'
+          : 'Favorite auto-start will run after validation.'
+        : 'Confirming saved campaigns with Twitch.',
       tone: 'warning',
     };
   }
@@ -206,6 +219,7 @@ export function createSessionSummaryModel({
     mode: 'ready',
     progressState: 'waiting',
     label: 'Ready',
+    badge: 'IDLE',
     subject,
     detail: state.selectedGame ? '' : 'Choose a campaign below.',
     tone: 'neutral',

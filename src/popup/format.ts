@@ -1,12 +1,6 @@
 // Extracted from src/popup/App.tsx (presentation formatting helpers).
 import { getGameDisplayLabel, isSameGameIdentity } from '../shared/game-selection';
-import {
-  formatEtaMinutes,
-  formatFarmingCompleteStatusLine,
-  formatRecoveryAttemptLabel,
-  formatRecoveryReason,
-  formatRetryLabel,
-} from '../shared/runtime-status';
+import { formatEtaMinutes, formatFarmingCompleteStatusLine } from '../shared/runtime-status';
 
 export { formatEtaMinutes };
 
@@ -181,19 +175,4 @@ export function formatClaimedAt(timestamp: number): string {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-export function statusReasonLabel(reason: string | null | undefined): string | null {
-  return formatRecoveryReason(reason);
-}
-
-export function retryLabel(timestamp: number | null | undefined, now: number): string | null {
-  return formatRetryLabel(timestamp, now);
-}
-
-export function recoveryAttemptLabel(
-  reason: string | null | undefined,
-  attempts: number | null | undefined,
-): string | null {
-  return formatRecoveryAttemptLabel(reason, attempts);
 }
