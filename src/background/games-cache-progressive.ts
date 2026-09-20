@@ -1,4 +1,4 @@
-import { dropMatchesGame, gameKey } from '../shared/game-selection.ts';
+import { dedupeGamesByIdentity, dropMatchesGame, gameKey } from '../shared/game-selection.ts';
 import type { DropsSnapshot } from '../types/index.ts';
 import { preserveAcquiredCampaigns, rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
 import { reconcileUnverifiableRewardMarkers } from './drops-projection.ts';
@@ -20,7 +20,9 @@ export async function applyProgressiveCampaignSnapshot(
     ...(state.appState.selectedGame ? [state.appState.selectedGame] : []),
     ...snapshot.games,
   ]);
-  const mergedGames = deps.replaceAvailableGames([...state.appState.availableGames, ...snapshot.games]);
+  const mergedGames = deps.replaceAvailableGames(
+    dedupeGamesByIdentity([...state.appState.availableGames, ...snapshot.games]),
+  );
   const mergedSnapshot: DropsSnapshot = {
     games: mergedGames,
     drops: mergeUniqueDrops(state.cachedDropsSnapshot, snapshot.drops),

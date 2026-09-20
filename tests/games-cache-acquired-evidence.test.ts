@@ -61,6 +61,17 @@ describe('games cache acquired campaign evidence', () => {
     expect(state.appState.acquiredCampaignIds).toContain('terminal-campaign');
   });
 
+  test('progressive publication does not accumulate duplicate campaign rows', async () => {
+    const state = createServiceWorkerState();
+    const deps = makeGamesCacheDeps(weaker, { count: 0 });
+
+    await applyProgressiveCampaignSnapshot(state, weaker, deps, () => true);
+    await applyProgressiveCampaignSnapshot(state, weaker, deps, () => true);
+    await applyProgressiveCampaignSnapshot(state, weaker, deps, () => true);
+
+    expect(state.appState.availableGames.map((game) => game.campaignId)).toEqual(['terminal-campaign']);
+  });
+
   test('preserves ledger evidence when acquired campaign returns after an empty directory', async () => {
     const state = stateWithAcquisition();
     const empty: DropsSnapshot = {
