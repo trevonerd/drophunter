@@ -176,7 +176,7 @@ export async function migrateExtensionStorage(
   ]);
   const storedVersion = normalizeStoredSchemaVersion(stored[STORAGE_SCHEMA_VERSION_KEY]);
 
-  if (isLegacyUpgrade(stored[EXTENSION_VERSION_STORAGE_KEY], Object.hasOwn(stored, 'appState'))) {
+  if (isLegacyUpgrade(stored[EXTENSION_VERSION_STORAGE_KEY], Reflect.has(stored, 'appState'))) {
     await migrateLegacyStorage(currentVersion, stored.appState);
     return;
   }
