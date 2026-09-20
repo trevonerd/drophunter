@@ -62,22 +62,25 @@ export async function discoverFarmingAutomationCandidates(
     });
     return false;
   });
-  let directoryResponses: readonly {
-    readonly game: ReturnType<typeof cloneFarmingAutomationGame>;
-    readonly directory: Awaited<ReturnType<typeof twitch.fetchDirectory>>;
-  }[];
-  try {
-    directoryResponses = await Promise.all(
-      farmableGames.map(async (normalized) => {
-        const game = cloneFarmingAutomationGame(normalized);
-        return { game, directory: await twitch.fetchDirectory(game, language) };
-      }),
-    );
-  } catch (error) {
-    if (!(error instanceof Error)) throw error;
-    return { kind: 'failed', reason: 'drops-refresh-failed' };
-  }
+  const directoryResponses = await Promise.all(
+    farmableGames.map(async (normalized) => {
+      const game = cloneFarmingAutomationGame(normalized);
+      try {
+        return { game, directory: await twitch.fetchDirectory(game, language) } as const;
+      } catch (error) {
+        logDebug('Campaign directory lookup failed; isolating candidate', {
+          campaignKey: gameKey(game),
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return { game, directory: null } as const;
+      }
+    }),
+  );
   for (const { game, directory } of directoryResponses) {
+    if (directory === null) {
+      availability[gameKey(game)] = { eligibleStreamerCount: 0, updatedAt: now };
+      continue;
+    }
     if (directory.kind === 'session-missing') {
       return { kind: 'failed', reason: 'twitch-session-missing' };
     }

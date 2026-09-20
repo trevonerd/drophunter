@@ -68,6 +68,7 @@ const TRIGGER_PRIORITY: Record<ActivationTrigger, number> = {
   'extension-update': 6,
   'manual-retry': 7,
   manual: 8,
+  'favorite-change': 9,
 };
 const CACHE_AWARE_TRIGGERS = new Set<ActivationTrigger>(['popup-open', 'periodic-campaign']);
 

@@ -150,3 +150,53 @@ test('starts farmable directory lookups concurrently after the authoritative ref
   secondDirectory.resolve(undefined);
   await expect(pending).resolves.toMatchObject({ kind: 'ready' });
 });
+
+test('isolates an unrelated directory failure from a valid favorite candidate', async () => {
+  // Given: two farmable campaigns whose directory requests have independent outcomes.
+  const failed = campaign('failed', 'farmable');
+  const valid = campaign('valid', 'farmable');
+  const snapshot: FarmingAutomationTwitchSnapshot = {
+    games: [failed, valid],
+    drops: [],
+    campaignDropsByKey: {},
+    campaignChannelsMap: {},
+    updatedAt: 1_000,
+  };
+  const twitch: FarmingAutomationTwitchAdapter = {
+    refresh: async () => ({
+      kind: 'ready',
+      snapshot,
+      refreshPatch: {
+        availableGames: snapshot.games,
+        allDrops: snapshot.drops,
+        campaignDropsByKey: snapshot.campaignDropsByKey,
+        campaignChannelsMap: snapshot.campaignChannelsMap,
+      },
+    }),
+    fetchDirectory: async (game) => {
+      if (game.campaignId === 'failed') throw new Error('unrelated directory outage');
+      return {
+        kind: 'ready',
+        target: {
+          campaignKey: gameKey(game),
+          campaignId: game.campaignId ?? null,
+          gameId: game.id,
+          gameName: game.name,
+          categoryId: null,
+          categorySlug: 'marvel-rivals',
+        },
+        streamers: [{ id: 'valid-streamer', name: 'valid-streamer', displayName: 'Valid', isLive: true }],
+        languageFilterApplied: false,
+      };
+    },
+  };
+
+  // When: discovery evaluates both campaigns.
+  const result = await discoverFarmingAutomationCandidates(twitch, '', 2_000);
+
+  // Then: the valid campaign remains available for queue/start planning.
+  expect(result.kind).toBe('ready');
+  if (result.kind !== 'ready') return;
+  expect(result.availability[gameKey(valid)]?.eligibleStreamerCount).toBe(1);
+  expect(result.availability[gameKey(failed)]?.eligibleStreamerCount).toBe(0);
+});

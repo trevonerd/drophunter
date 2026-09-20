@@ -1,4 +1,4 @@
-import { gameKey } from '../shared/game-selection.ts';
+import { favoriteGameIdentityKeys, gameKey, isFavoriteGame } from '../shared/game-selection.ts';
 import { rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
 import {
   decideFarmingAutomationTransition,
@@ -28,6 +28,7 @@ import {
   factsWithFarmingAutomationManualWatch,
   farmingAutomationFingerprint,
   farmingAutomationStateFingerprint,
+  PARKED_CAMPAIGN_RETRY_MS,
 } from './farming-automation-gates.ts';
 import { reconcileParkedCampaigns } from './farming-automation-parked-campaigns.ts';
 import { rehabilitateCampaignsWithNewStreamers } from './farming-automation-stall-rehabilitation.ts';
@@ -138,17 +139,56 @@ export function createFarmingAutomationEvaluator(
       },
       now,
     );
+    const availabilityRetryAt = now + PARKED_CAMPAIGN_RETRY_MS;
+    const retryMetadata = { ...plan.queue.queueEntryMetadataByKey };
+    let needsAvailabilityRetry = false;
+    for (const game of plan.queue.queue) {
+      const key = gameKey(game);
+      const metadata = retryMetadata[key];
+      if (metadata?.source !== 'favorite-auto') continue;
+      if ((discovery.availability[key]?.eligibleStreamerCount ?? 0) > 0) continue;
+      needsAvailabilityRetry = true;
+      retryMetadata[key] = {
+        ...metadata,
+        streamerRetryAt:
+          metadata.streamerRetryAt !== undefined && metadata.streamerRetryAt > now
+            ? metadata.streamerRetryAt
+            : availabilityRetryAt,
+        streamerRetryReason: 'no-streamers',
+        streamerRetryAttempts: (metadata.streamerRetryAttempts ?? 0) + 1,
+      };
+    }
+    const incompleteFavorite = discovery.snapshot.games.some(
+      (game) =>
+        game.rewardSummary === undefined &&
+        isFavoriteGame(
+          cloneFarmingAutomationGame(game),
+          favoriteGameIdentityKeys(dependencies.state.appState.favoriteGames),
+        ),
+    );
+    if (incompleteFavorite) needsAvailabilityRetry = true;
+    const plannedQueue =
+      needsAvailabilityRetry ||
+      Object.keys(retryMetadata).length !== Object.keys(plan.queue.queueEntryMetadataByKey).length
+        ? { ...plan.queue, queueEntryMetadataByKey: retryMetadata }
+        : plan.queue;
     if (
       !(await persistFarmingAutomationPlan({
         state: dependencies.state,
         persistence: dependencies.persistence,
-        queuePlan: plan.queue,
+        queuePlan: plannedQueue,
         availability: discovery.availability,
         now,
         automationNotify: dependencies.automationNotify,
       }))
     ) {
       return { kind: 'failed', reason: 'persistence-failed' };
+    }
+    if (needsAvailabilityRetry) {
+      facts = {
+        ...facts,
+        nextEvaluationAt: Math.min(facts.nextEvaluationAt ?? Number.POSITIVE_INFINITY, availabilityRetryAt),
+      };
     }
     const beforeObservation = currentStateFingerprint();
     let observed: Awaited<ReturnType<typeof dependencies.manualWatch.evaluate>>;
@@ -175,6 +215,7 @@ export function createFarmingAutomationEvaluator(
       ...Object.values(dependencies.state.appState.queueEntryMetadataByKey).flatMap((entry) =>
         entry.streamerRetryAt !== undefined && entry.streamerRetryAt > now ? [entry.streamerRetryAt] : [],
       ),
+      needsAvailabilityRetry ? availabilityRetryAt : Number.POSITIVE_INFINITY,
     );
     facts = { ...facts, nextEvaluationAt: Math.min(facts.nextEvaluationAt ?? Infinity, parkedRetryAt) };
     if (observed.kind === 'active') {

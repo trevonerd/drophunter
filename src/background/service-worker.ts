@@ -160,6 +160,7 @@ contentHandlers = createServiceWorkerContentHandlers(state, {
 const settingsHandlers = createServiceWorkerSettingsHandlers(state, {
   automation: farmingAutomationRuntime.automation,
   browserEvents,
+  requestActivationSync: contentHandlers.requestActivationSync,
   notificationController,
   stateLifecycle,
   telegramNotifier,

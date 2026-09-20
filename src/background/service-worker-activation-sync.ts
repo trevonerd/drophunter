@@ -113,7 +113,8 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
         trigger === 'popup-open' ||
         trigger === 'browser-start' ||
         trigger === 'wake' ||
-        trigger === 'extension-update';
+        trigger === 'extension-update' ||
+        trigger === 'favorite-change';
       let needsBrowserIntegrityVerification = false;
       let canOpenMissingSessionTab = false;
       if (!foreground) {

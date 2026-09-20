@@ -73,6 +73,18 @@ export type StreamerSelectionMode = 'low-view' | 'random' | 'top-viewers';
 export type CampaignPriorityMode = 'ending-soonest' | 'lowest-availability' | 'priority-list-only';
 export type FarmCategoryScope = 'all' | 'favorites-only';
 export type GamePreference = 'normal' | 'favorite' | 'hidden';
+export type FavoriteAutoStartDispositionStatus = 'started' | 'queued' | 'waiting' | 'disabled';
+export type FavoriteAutoStartDispositionReason =
+  | 'session'
+  | 'campaign-data'
+  | 'streamer'
+  | 'manual-watch'
+  | 'refresh-failed';
+export interface FavoriteAutoStartDisposition {
+  readonly status: FavoriteAutoStartDispositionStatus;
+  readonly reason?: FavoriteAutoStartDispositionReason;
+  readonly retryAt?: number;
+}
 export type QueueEntrySource = 'manual' | 'favorite-auto';
 export type FarmingSessionOrigin = 'manual' | 'automatic';
 export type WatchTransportMode = 'managed-tab' | 'tabless';

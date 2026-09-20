@@ -144,6 +144,29 @@ export function usePopupActions({
       setQueueMessage('Unable to update game preference.');
       return false;
     }
+    if (preference === 'favorite' && response.autoStart) {
+      if (response.autoStart?.status === 'started') {
+        setQueueMessage('Favorite saved. Farming started automatically.');
+      } else if (response.autoStart?.status === 'waiting') {
+        setQueueMessage(
+          response.autoStart.reason === 'session'
+            ? 'Favorite saved. Open Twitch Drops to restore the session.'
+            : response.autoStart.reason === 'refresh-failed'
+              ? 'Favorite saved. Twitch refresh failed; DropHunter will retry.'
+              : 'Favorite saved. Waiting for authoritative campaign data; DropHunter will retry.',
+        );
+      } else if (response.autoStart?.status === 'queued') {
+        setQueueMessage(
+          response.autoStart.reason === 'manual-watch'
+            ? 'Favorite saved. Manual Twitch viewing is active; farming will wait.'
+            : response.autoStart.reason === 'streamer'
+              ? 'Favorite saved. Waiting for an eligible streamer; DropHunter will retry.'
+              : 'Favorite saved. Campaign queued for automatic farming.',
+        );
+      } else {
+        setQueueMessage('Favorite saved. Automatic farming is disabled.');
+      }
+    }
     return true;
   };
 
