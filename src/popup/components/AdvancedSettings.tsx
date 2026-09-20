@@ -1,13 +1,11 @@
 import { STREAMER_LANGUAGE_OPTIONS, STREAMER_SELECTION_OPTIONS } from '../constants.ts';
 import { SettingRow } from './SettingRow.tsx';
-import { SettingsStatistics } from './SettingsStatistics.tsx';
 import type { SettingsViewProps } from './settings-view-types.ts';
 import { TelegramSettingsSection } from './TelegramSettingsSection.tsx';
 
 type AdvancedSettingsProps = Pick<
   SettingsViewProps,
   | 'state'
-  | 'onOpenClaimLog'
   | 'onMonitorAutoOpenToggle'
   | 'onMuteFarmingTabToggle'
   | 'onTelegramAlertsToggle'
@@ -23,7 +21,6 @@ type AdvancedSettingsProps = Pick<
 
 export function AdvancedSettings({
   state,
-  onOpenClaimLog,
   onMonitorAutoOpenToggle,
   onMuteFarmingTabToggle,
   onTelegramAlertsToggle,
@@ -46,11 +43,6 @@ export function AdvancedSettings({
           <h2 id="advanced-rewards-heading" className="dh-title text-xs">
             Rewards and history
           </h2>
-          <SettingsStatistics
-            dropsClaimed={state.totalDropsClaimed}
-            channelPointsClaimed={state.totalChannelPointsClaimed}
-            onOpenClaimLog={onOpenClaimLog}
-          />
           <SettingRow
             title="Auto-claim Twitch Drops"
             description="Automatically claim completed Drops across all campaigns."

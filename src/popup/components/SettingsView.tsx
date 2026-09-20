@@ -2,6 +2,7 @@ import { AdvancedSettings } from './AdvancedSettings.tsx';
 import { FarmingAutomationSettings } from './FarmingAutomationSettings.tsx';
 import { BackIcon } from './icons.tsx';
 import { SettingsAbout } from './SettingsAbout.tsx';
+import { SettingsStatistics } from './SettingsStatistics.tsx';
 import type { SettingsViewProps } from './settings-view-types.ts';
 
 export type { SettingsViewProps } from './settings-view-types.ts';
@@ -10,6 +11,7 @@ export function SettingsView(props: SettingsViewProps) {
   const {
     state,
     onBack,
+    onOpenClaimLog,
     onNotificationsEnabledToggle,
     notificationPermissionDenied,
     onFarmCategoryScopeChange,
@@ -37,6 +39,11 @@ export function SettingsView(props: SettingsViewProps) {
       </header>
 
       <main className="dh-view dh-page dh-page--wide">
+        <SettingsStatistics
+          dropsClaimed={state.totalDropsClaimed}
+          channelPointsClaimed={state.totalChannelPointsClaimed}
+          onOpenClaimLog={onOpenClaimLog}
+        />
         <FarmingAutomationSettings
           state={state}
           notificationPermissionDenied={notificationPermissionDenied}

@@ -108,6 +108,10 @@ test('settings exposes farming automation controls without an obsolete recovery 
   );
 
   expect(markup).toContain('Farming automation');
+  expect(markup).toContain('Statistics');
+  expect(markup).toContain('aria-label="View drop claim log"');
+  expect(markup.indexOf('Statistics')).toBeLessThan(markup.indexOf('Farming automation'));
+  expect(markup.indexOf('Statistics')).toBeLessThan(markup.indexOf('Advanced settings'));
   expect(markup).toContain('Campaign scope');
   expect(markup).not.toContain('Campaign priority');
   expect(markup).not.toContain('Auto-start favorite games');
