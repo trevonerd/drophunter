@@ -8,12 +8,13 @@ import {
   FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
 } from './farming-automation-contracts.ts';
 import { normalizeFarmingSessionTransitionReceipt } from './farming-automation-facts.ts';
+import { transformLegacyAppState } from './legacy-state-migration.ts';
 import { managedWatchMarker } from './managed-watch-marker.ts';
 import { listManagedWatches } from './managed-watch-registry.ts';
 import { releaseManagedTabOwnership } from './tab-management.ts';
 
 export const STORAGE_SCHEMA_VERSION_KEY = 'storageSchemaVersion';
-export const STORAGE_SCHEMA_VERSION = 2;
+export const STORAGE_SCHEMA_VERSION = 3;
 export const EXTENSION_VERSION_STORAGE_KEY = 'lastInitializedExtensionVersion';
 
 const FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX = 'farmingAutomationOwnedWatch:';
@@ -53,6 +54,10 @@ const UPDATE_RESET_LOCAL_KEYS = [
   'automationNotificationTransitions',
   'lastActivityAt',
 ] as const;
+
+const LEGACY_UPGRADE_LOCAL_KEYS = [...LOCAL_SCHEMA_V1_TRANSIENT_KEYS, ...UPDATE_RESET_LOCAL_KEYS] as const;
+
+export { transformLegacyAppState };
 
 export async function clearExtensionRuntimeStorage(): Promise<void> {
   const sessionState = await browser.storage.session.get(null);
@@ -124,6 +129,39 @@ async function resetStorageForExtensionVersion(currentVersion: string): Promise<
   });
 }
 
+function isModernExtensionVersion(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    (/^4\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value) || /^3\.99\.0\.\d+$/.test(value))
+  );
+}
+
+function isLegacyUpgrade(previousVersion: unknown, hasStoredAppState: boolean): boolean {
+  return hasStoredAppState && !isModernExtensionVersion(previousVersion);
+}
+
+async function migrateLegacyStorage(currentVersion: string, appState: unknown): Promise<void> {
+  await releasePersistedManagedWatches();
+  await Promise.all([
+    browser.storage.local.remove([...LEGACY_UPGRADE_LOCAL_KEYS]),
+    browser.storage.sync.remove([...LEGACY_TWITCH_SESSION_KEYS]),
+    browser.storage.session.remove([
+      TIMING_STATE_KEY,
+      FARMING_AUTOMATION_SNOOZE_STORAGE_KEY,
+      ...(await browser.storage.session
+        .get(null)
+        .then((sessionState) =>
+          Object.keys(sessionState).filter((key) => key.startsWith(FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX)),
+        )),
+    ]),
+  ]);
+  await browser.storage.local.set({
+    appState: transformLegacyAppState(appState),
+    [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
+    [EXTENSION_VERSION_STORAGE_KEY]: currentVersion,
+  });
+}
+
 function normalizeStoredSchemaVersion(value: unknown): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
 }
@@ -131,8 +169,17 @@ function normalizeStoredSchemaVersion(value: unknown): number {
 export async function migrateExtensionStorage(
   currentVersion = browser.runtime.getManifest().version,
 ): Promise<void> {
-  const stored = await browser.storage.local.get([STORAGE_SCHEMA_VERSION_KEY]);
+  const stored = await browser.storage.local.get([
+    STORAGE_SCHEMA_VERSION_KEY,
+    EXTENSION_VERSION_STORAGE_KEY,
+    'appState',
+  ]);
   const storedVersion = normalizeStoredSchemaVersion(stored[STORAGE_SCHEMA_VERSION_KEY]);
+
+  if (isLegacyUpgrade(stored[EXTENSION_VERSION_STORAGE_KEY], Object.hasOwn(stored, 'appState'))) {
+    await migrateLegacyStorage(currentVersion, stored.appState);
+    return;
+  }
 
   if (storedVersion < 1) {
     await Promise.all([
@@ -151,10 +198,10 @@ export async function migrateExtensionStorage(
       });
     }
   }
+  await resetStorageForExtensionVersion(currentVersion);
   if (storedVersion < STORAGE_SCHEMA_VERSION) {
     await browser.storage.local.set({ [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION });
   }
-  await resetStorageForExtensionVersion(currentVersion);
 }
 
 export async function initializeAfterStorageMigration(
