@@ -144,10 +144,14 @@ describe('temporarily unavailable campaign queue', () => {
   test('restores valid retry metadata and discards malformed timers without losing manual provenance', () => {
     const metadata = { source: 'manual', reason: 'user-added', addedAt: 123 };
     const restored = normalizeQueueMetadata({
-      good: { ...metadata, streamerRetryAt: now + 60_000 },
-      bad: { ...metadata, streamerRetryAt: 'tomorrow' },
+      good: { ...metadata, streamerRetryAt: now + 60_000, streamerRetryCycles: 2 },
+      bad: { ...metadata, streamerRetryAt: 'tomorrow', streamerRetryCycles: -1 },
     });
-    expect(restored.good).toEqual({ ...metadata, streamerRetryAt: now + 60_000 });
+    expect(restored.good).toEqual({
+      ...metadata,
+      streamerRetryAt: now + 60_000,
+      streamerRetryCycles: 2,
+    });
     expect(restored.bad).toEqual(metadata);
   });
 });

@@ -187,10 +187,10 @@ export function queueSkipCopy(reason: QueueSkipReason, gameName: string): QueueS
         logMessage: 'Parking campaign because no eligible Drops streamer was found',
         skipNotificationTitle: 'Campaign queued: waiting for streamers',
         skipMessage: `Kept ${gameName} queued for retry — no eligible streamer was found for its Drops.`,
-        terminalNotificationTitle: 'Queue completed',
-        terminalMessage: `Queue completed. No eligible streamer was found for ${gameName}.`,
-        terminalNotificationMessage: `No eligible streamer was found for the Drops in ${gameName}. DropHunter has stopped.`,
-        stopReason: 'queue-complete',
+        terminalNotificationTitle: 'Farming stopped: no eligible streamers',
+        terminalMessage: `Farming stopped after repeated attempts because no eligible streamer was found for ${gameName}, and no other campaign can be farmed right now.`,
+        terminalNotificationMessage: `No eligible streamer was found for the Drops in ${gameName} after repeated attempts. DropHunter has stopped.`,
+        stopReason: 'queue-retries-exhausted',
       };
     case 'directory-unavailable':
       return {

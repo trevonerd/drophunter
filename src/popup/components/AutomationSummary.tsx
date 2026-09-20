@@ -12,9 +12,13 @@ interface AutomationSummaryProps {
 
 export function AutomationSummary({ state, onToggle }: AutomationSummaryProps) {
   const latestActivity = state.automationActivity?.[0] ?? null;
+  const isQueueActivity =
+    latestActivity?.kind === 'queue-campaigns-removed' ||
+    latestActivity?.kind === 'queue-campaign-skipped' ||
+    latestActivity?.kind === 'queue-retries-exhausted';
   const canShowActivity =
     latestActivity?.kind === 'campaign-unfarmable' ||
-    (state.autoStartFavoriteGames && state.twitchSessionDetected);
+    (!isQueueActivity && state.autoStartFavoriteGames && state.twitchSessionDetected);
   const activityTtlMs =
     latestActivity?.kind === 'campaign-unfarmable'
       ? CAMPAIGN_UNFARMABLE_WARNING_TTL_MS

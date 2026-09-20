@@ -10,8 +10,8 @@ export function registerQueue13Part01() {
   describe('skipCurrentGameAndAdvanceQueue', () => {
     test('retains no-streamers game and opens the next queued game', async () => {
       const mocks = setupChromeMocks();
-      const current = createGame({ id: 'game-1', name: 'No Live Game' });
-      const next = createGame({ id: 'game-2', name: 'Live Game' });
+      const current = createGame({ id: 'game-1', campaignId: 'campaign-1', name: 'No Live Game' });
+      const next = createGame({ id: 'game-2', campaignId: 'campaign-2', name: 'Live Game' });
       const state = createMinimalState();
       state.appState.selectedGame = current;
       state.appState.queue = [current, next];
@@ -36,8 +36,8 @@ export function registerQueue13Part01() {
 
     test('uses no-streamers-specific skip notification when moving to the next game', async () => {
       const mocks = setupChromeMocks();
-      const current = createGame({ id: 'game-1', name: 'No Live Game' });
-      const next = createGame({ id: 'game-2', name: 'Live Game' });
+      const current = createGame({ id: 'game-1', campaignId: 'campaign-1', name: 'No Live Game' });
+      const next = createGame({ id: 'game-2', campaignId: 'campaign-2', name: 'Live Game' });
       const state = createMinimalState();
       state.appState.selectedGame = current;
       state.appState.queue = [current, next];
@@ -57,6 +57,11 @@ export function registerQueue13Part01() {
         expect(notification?.message).toContain('Kept No Live Game queued for retry');
         expect(notification?.message).toContain('no eligible streamer was found for its Drops');
         expect(notification?.message).not.toContain('drop progress');
+        expect(state.appState.automationActivity[0]).toMatchObject({
+          kind: 'queue-campaign-skipped',
+          campaignId: current.campaignId,
+          message: expect.stringMatching(/no eligible streamer.*moved to Live Game/iu),
+        });
         expect(mocks.notifications._notifications).toEqual([]);
       } finally {
         mocks.teardown();
@@ -65,8 +70,8 @@ export function registerQueue13Part01() {
 
     test('uses stalled-progress-specific skip notification when moving to the next game', async () => {
       const mocks = setupChromeMocks();
-      const current = createGame({ id: 'game-1', name: 'Stalled Game' });
-      const next = createGame({ id: 'game-2', name: 'Live Game' });
+      const current = createGame({ id: 'game-1', campaignId: 'campaign-1', name: 'Stalled Game' });
+      const next = createGame({ id: 'game-2', campaignId: 'campaign-2', name: 'Live Game' });
       const state = createMinimalState();
       state.appState.selectedGame = current;
       state.appState.queue = [current, next];
@@ -86,6 +91,11 @@ export function registerQueue13Part01() {
         expect(notification?.message).toContain('Skipped Stalled Game');
         expect(notification?.message).toContain('stream opened but drop progress did not resume');
         expect(notification?.message).not.toContain('no eligible streamer');
+        expect(state.appState.automationActivity[0]).toMatchObject({
+          kind: 'queue-campaign-skipped',
+          campaignId: current.campaignId,
+          message: expect.stringMatching(/drop progress did not resume.*moved to Live Game/iu),
+        });
         expect(mocks.notifications._notifications).toEqual([]);
       } finally {
         mocks.teardown();
@@ -210,6 +220,61 @@ export function registerQueue13Part01() {
       expect(stopMessage).toBeNull();
       expect(state.appState.queue).toEqual([current]);
       expect(state.appState.recoveryReason).toBe('no-streamers');
+      expect(state.appState.queueEntryMetadataByKey[gameKey(current)]?.streamerRetryCycles).toBe(1);
+    });
+
+    test('stops after the final campaign exhausts its parked retry cycles', async () => {
+      // Given: the only queued campaign has already completed two parked retry cycles.
+      const current = createGame({
+        id: 'game-1',
+        campaignId: 'campaign-1',
+        name: 'No Live Game',
+      });
+      const state = createMinimalState();
+      state.appState.isRunning = true;
+      state.appState.autoStartFavoriteGames = true;
+      state.appState.manualQueueAuthorized = true;
+      state.appState.selectedGame = current;
+      state.appState.queue = [current];
+      state.appState.queueEntryMetadataByKey[gameKey(current)] = {
+        source: 'manual',
+        reason: 'user-added',
+        addedAt: 1,
+        streamerRetryCycles: 2,
+      };
+
+      let stopReason: string | null = null;
+      let stopMessage: string | null = null;
+      // When: another no-streamer result would otherwise park the campaign forever.
+      await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
+        onStopFarmingSession: async (options) => {
+          stopReason = options.stopReason;
+          stopMessage = options.stopMessage;
+        },
+      });
+
+      // Then: farming stops without deleting the campaign or turning the stop into a manual one.
+      expect({
+        stopReason,
+        stopMessage,
+        queue: state.appState.queue.map(gameKey),
+        manualQueueAuthorized: state.appState.manualQueueAuthorized,
+        autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
+        activity: state.appState.automationActivity[0],
+      }).toEqual({
+        stopReason: 'queue-retries-exhausted',
+        stopMessage: expect.stringMatching(/repeated attempts.*no other campaign/iu),
+        queue: [gameKey(current)],
+        manualQueueAuthorized: false,
+        autoStartFavoriteGames: true,
+        activity: {
+          id: expect.stringContaining(`queue-recovery:no-streamers:${gameKey(current)}:`),
+          kind: 'queue-retries-exhausted',
+          at: expect.any(Number),
+          campaignId: current.campaignId,
+          message: expect.stringMatching(/no eligible streamer.*favorite auto-start/iu),
+        },
+      });
     });
 
     test('replaces stale stalled recovery with a bounded streamer retry when all campaigns wait', async () => {

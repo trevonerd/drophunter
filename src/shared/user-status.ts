@@ -169,6 +169,7 @@ export function createUserStatusModel({
     if (
       state.lastStopReason === 'sign-in-required' ||
       state.lastStopReason === 'stall-skipped' ||
+      state.lastStopReason === 'queue-retries-exhausted' ||
       state.lastStopReason === 'no-active-campaigns'
     ) {
       return {

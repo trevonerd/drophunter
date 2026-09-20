@@ -183,6 +183,29 @@ function fixture(failure: PostCommitFailure = null) {
 }
 
 describe('Farming automation ordered effects', () => {
+  test('starts a newly available favorite after queue retry exhaustion stopped farming', async () => {
+    // Given: a non-manual stop left the extension idle and retained its dismissible queue update.
+    const subject = fixture();
+    subject.state.appState.automationActivity = [
+      {
+        id: 'queue-recovery:no-streamers:campaign:old:1000',
+        kind: 'queue-retries-exhausted',
+        at: 1_000,
+        campaignId: 'old',
+        message: 'Farming stopped after repeated attempts.',
+      },
+    ];
+
+    // When: automation discovers an eligible favorite campaign.
+    const outcome = await subject.automation.request('campaign-refresh');
+
+    // Then: the recovery stop is not a manual snooze and normal favorite auto-start still runs.
+    expect({ outcome, running: subject.state.appState.isRunning }).toEqual({
+      outcome: { kind: 'started', campaignKey: gameKey(subject.candidate), transition: 'start' },
+      running: true,
+    });
+  });
+
   test('resolves after durable state and broadcasts before notification', async () => {
     // Given: an idle extension and a healthy favorite candidate B.
     const subject = fixture();

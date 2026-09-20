@@ -63,7 +63,10 @@ export function createMainViewModel({
   const startup = startupRecovery(state, campaignSyncStatus);
   const automationActivity = state.automationActivity ?? [];
   const latestQueueCleanupActivity = automationActivity.find(
-    (entry) => entry.kind === 'queue-campaigns-removed',
+    (entry) =>
+      entry.kind === 'queue-campaigns-removed' ||
+      entry.kind === 'queue-campaign-skipped' ||
+      entry.kind === 'queue-retries-exhausted',
   );
   const queueCleanupActivity =
     latestQueueCleanupActivity?.id === dismissedQueueCleanupActivityId

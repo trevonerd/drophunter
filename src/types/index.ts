@@ -138,6 +138,7 @@ export interface QueueEntryMetadata {
   readonly streamerRetryAt?: number;
   readonly streamerRetryReason?: 'no-streamers' | 'directory-unavailable';
   readonly streamerRetryAttempts?: number;
+  readonly streamerRetryCycles?: number;
 }
 
 export interface QueueAcquisitionRound {
@@ -154,6 +155,8 @@ export type AutomationActivityKind =
   | 'preempted'
   | 'auto-start-skipped'
   | 'campaign-unfarmable'
+  | 'queue-campaign-skipped'
+  | 'queue-retries-exhausted'
   | 'queue-campaigns-removed';
 
 export interface AutomationActivityEntry {

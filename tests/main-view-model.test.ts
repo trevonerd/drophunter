@@ -80,3 +80,33 @@ test('main view model owns popup campaign, queue, and transient activity project
   expect(dismissed.queueCleanupActivity).toBeUndefined();
   expect(dismissed.sessionRequired).toBe(true);
 });
+
+test('main view model exposes and dismisses a queue recovery update', () => {
+  const activity = {
+    id: 'queue-recovery:no-streamers:campaign:campaign-1:1000',
+    kind: 'queue-retries-exhausted' as const,
+    at: 1_000,
+    campaignId: campaign.campaignId,
+    message: 'No eligible streamer was found. DropHunter stopped.',
+  };
+  const state = { ...createInitialState(), automationActivity: [activity] };
+  const input = {
+    state,
+    campaignSyncStatus: 'fresh' as const,
+    sortedGames: [campaign],
+    queueGames: [campaign],
+    pendingDrops: [],
+    completedDrops: [],
+    now: 1_000,
+  };
+
+  expect(
+    createMainViewModel({ ...input, dismissedQueueCleanupActivityId: null }).queueCleanupActivity,
+  ).toEqual(activity);
+  expect(
+    createMainViewModel({
+      ...input,
+      dismissedQueueCleanupActivityId: activity.id,
+    }).queueCleanupActivity,
+  ).toBeUndefined();
+});

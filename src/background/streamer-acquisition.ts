@@ -117,6 +117,7 @@ async function acquireStreamer(
         streamerRetryAt: _retryAt,
         streamerRetryReason: _retryReason,
         streamerRetryAttempts: _attempts,
+        streamerRetryCycles: _cycles,
         ...retainedMetadata
       } = metadata;
       state.appState.queueEntryMetadataByKey[selectedKey] = retainedMetadata;
