@@ -201,7 +201,6 @@ const cases: readonly (readonly [FailureStage, FarmingAutomationOutcome])[] = [
   ['session', { kind: 'failed', reason: 'twitch-session-missing', retryAt: 122_000 }],
   ['refresh', { kind: 'failed', reason: 'drops-refresh-failed', retryAt: 122_000 }],
   ['directory-session', { kind: 'failed', reason: 'twitch-session-missing', retryAt: 122_000 }],
-  ['directory', { kind: 'failed', reason: 'drops-refresh-failed', retryAt: 122_000 }],
   ['observation', { kind: 'failed', reason: 'candidate-preparation-failed', retryAt: 122_000 }],
   ['preparation', { kind: 'failed', reason: 'candidate-preparation-failed', retryAt: 122_000 }],
   ['commit', { kind: 'failed', reason: 'transition-commit-failed', retryAt: 122_000 }],
@@ -230,6 +229,35 @@ describe('Farming automation operational failures', () => {
         ? null
         : { kind: 'managed-tab', tabId: 10, ownershipToken: 'owned-a', expectedChannel: 'incumbent' },
       disposals: stage === 'commit' ? 1 : 0,
+    });
+  });
+
+  test('isolates directory failures, preserves the stable session, and schedules availability retry', async () => {
+    const subject = fixture('directory');
+
+    const outcome = await subject.automation.request('periodic');
+
+    expect({
+      outcome,
+      selected: subject.state.appState.selectedGame,
+      ownership: subject.watch.currentOwnership(),
+      nextCheck: subject.state.appState.nextAutomationCheckAt,
+      availability: Object.values(subject.state.appState.campaignAvailabilityByKey).map(
+        ({ eligibleStreamerCount }) => eligibleStreamerCount,
+      ),
+      disposals: subject.disposals(),
+    }).toEqual({
+      outcome: { kind: 'unchanged', reason: 'no-eligible-campaign' },
+      selected: subject.incumbent,
+      ownership: {
+        kind: 'managed-tab',
+        tabId: 10,
+        ownershipToken: 'owned-a',
+        expectedChannel: 'incumbent',
+      },
+      nextCheck: 62_000,
+      availability: [0, 0],
+      disposals: 0,
     });
   });
 
