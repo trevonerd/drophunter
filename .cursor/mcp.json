@@ -1,12 +1,12 @@
 {
   "mcpServers": {
     "vexp": {
-      "command": "/Users/m.trevisani/.local/share/fnm/node-versions/v24.16.0/installation/lib/node_modules/vexp-cli/node_modules/@vexp/core-darwin-arm64/bin/vexp-core",
+      "command": "/opt/homebrew/Cellar/node/25.9.0_2/bin/node",
       "args": [
-        "mcp"
+        "/opt/homebrew/lib/node_modules/vexp-cli/mcp/mcp-server.cjs"
       ],
       "env": {
-        "VEXP_WORKSPACE": "/Users/m.trevisani/repos/trevonerd/drophunter"
+        "VEXP_WORKSPACE": "/Users/djtrevo/repos/drophunter"
       }
     }
   }
