@@ -77,6 +77,7 @@ function fixture(candidateEndsAt: string, deduplicated = false, separateCategori
     },
   };
   let preparations = 0;
+  let monitoringStarts = 0;
   let now = 2_000;
   const watch = createWatchTransportTransition({
     currentOwnership: {
@@ -140,6 +141,9 @@ function fixture(candidateEndsAt: string, deduplicated = false, separateCategori
         languageFilterApplied: false,
       }),
     },
+    onStarted: () => {
+      monitoringStarts += 1;
+    },
     now: () => now,
     random: () => 0,
   });
@@ -148,6 +152,7 @@ function fixture(candidateEndsAt: string, deduplicated = false, separateCategori
     candidate,
     commits: () => commits,
     incumbent,
+    monitoringStarts: () => monitoringStarts,
     preparations: () => preparations,
     setNow: (value: number) => {
       now = value;
@@ -181,6 +186,24 @@ describe('Farming automation running-session preservation', () => {
       selected: gameKey(subject.candidate),
       commits: 1,
       preparations: 1,
+    });
+  });
+
+  test('rearms progress monitoring after a successful preemption', async () => {
+    // Given: an update cleared the periodic progress alarm while a session remained active.
+    const subject = fixture('2030-08-03T12:00:00.000Z');
+
+    // When: automation preempts the incumbent for the earlier-expiring favorite.
+    const outcome = await subject.automation.request('campaign-refresh');
+
+    // Then: the successful transition ensures progress polling is active again.
+    expect({ outcome, monitoringStarts: subject.monitoringStarts() }).toEqual({
+      outcome: {
+        kind: 'started',
+        campaignKey: gameKey(subject.candidate),
+        transition: 'preemption',
+      },
+      monitoringStarts: 1,
     });
   });
 

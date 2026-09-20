@@ -250,7 +250,9 @@ export function createFarmingAutomationEvaluator(
       now,
       automationNotify: dependencies.automationNotify,
     });
-    if (receipt.transition === 'start') dependencies.onStarted?.();
+    // A preemption also leaves a running farming session behind. Re-arm progress
+    // monitoring in case an extension update or recovery cleared its alarm.
+    dependencies.onStarted?.();
     return { kind: 'started', campaignKey: receipt.toCampaignKey, transition: receipt.transition };
   };
 }
