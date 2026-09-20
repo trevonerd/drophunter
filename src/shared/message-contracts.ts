@@ -5,6 +5,7 @@ import type {
   CampaignPriorityMode,
   ClaimLogEntry,
   FarmCategoryScope,
+  FavoriteAutoStartDisposition,
   GamePreference,
   PlaybackPrepResult,
   StreamerSelectionMode,
@@ -164,6 +165,7 @@ export type RuntimeResponseByType = BooleanToggleResponseByType &
       preference?: GamePreference;
       removedQueueEntries?: number;
       retainedQueueEntries?: number;
+      autoStart?: FavoriteAutoStartDisposition;
     };
     SET_CAMPAIGN_PRIORITY_MODE: BasicResponse & { campaignPriorityMode?: CampaignPriorityMode };
     SET_FARM_CATEGORY_SCOPE: BasicResponse & { farmCategoryScope?: FarmCategoryScope };

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   type ActivationSyncAttempt,
+  type ActivationSyncExecution,
   type CampaignSyncState,
   createActivationSyncCoordinator,
 } from '../src/background/activation-sync-coordinator.ts';
@@ -40,6 +41,39 @@ describe('ActivationSyncCoordinator', () => {
 
     expect(result).toEqual({ kind: 'cache-fresh', campaignCount: 4 });
     expect(attempts).toEqual([]);
+  });
+
+  test('favorite changes bypass a fresh cache and outrank an in-flight routine sync', async () => {
+    const clock = createTestClock(1_500_000);
+    let syncState = idleState();
+    const attempts: string[] = [];
+    const firstAttempt = createDeferred<ActivationSyncAttempt>();
+    let firstExecution: ActivationSyncExecution | null = null;
+    const coordinator = createActivationSyncCoordinator({
+      now: clock.now,
+      getCampaignSyncState: () => syncState,
+      setCampaignSyncState: async (next) => {
+        syncState = next;
+      },
+      performSync: async (trigger, execution) => {
+        attempts.push(trigger);
+        if (trigger === 'periodic-campaign') {
+          firstExecution = execution;
+          return firstAttempt.promise;
+        }
+        return { kind: 'synced', campaignCount: 2 };
+      },
+    });
+
+    const periodic = coordinator.request('periodic-campaign');
+    await flushMicrotasks();
+    const favorite = coordinator.request('favorite-change');
+    expect(firstExecution?.signal.aborted).toBe(true);
+    firstAttempt.resolve({ kind: 'synced', campaignCount: 1 });
+
+    expect(await periodic).toEqual({ kind: 'not-needed' });
+    expect(await favorite).toEqual({ kind: 'synced', campaignCount: 2 });
+    expect(attempts).toEqual(['periodic-campaign', 'favorite-change']);
   });
 
   test('runs a stronger trigger immediately after an in-flight weaker request', async () => {

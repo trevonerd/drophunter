@@ -7,6 +7,7 @@ export type ActivationTrigger =
   | 'periodic-campaign'
   | 'auth-recovered'
   | 'manual-retry'
+  | 'favorite-change'
   | 'manual';
 
 export const ACTIVATION_SYNC_ERROR_KINDS = {

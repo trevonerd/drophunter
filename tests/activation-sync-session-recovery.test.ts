@@ -79,3 +79,16 @@ test('opens Twitch Drops in the background after wake once onboarding is complet
   expect(openedWith).toHaveLength(1);
   expect(openedWith[0]).toMatchObject({ active: false, openIfMissing: true, waitForExistingTabMs: 10_000 });
 });
+
+test('opens Twitch Drops in the background for a newly starred favorite after onboarding', async () => {
+  const { openedWith, performSync, controller } = createSessionRecoveryAttempt(true);
+
+  const result = await performSync('favorite-change', {
+    signal: controller.signal,
+    isCurrent: () => true,
+  });
+
+  expect(result).toEqual({ kind: 'synced', campaignCount: 1 });
+  expect(openedWith).toHaveLength(1);
+  expect(openedWith[0]).toMatchObject({ active: false, openIfMissing: true, waitForExistingTabMs: 0 });
+});

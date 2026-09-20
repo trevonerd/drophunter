@@ -53,16 +53,21 @@ export interface QueueFixtureOptions {
   readonly automationNotify?: AutomationEventNotifier;
   readonly favoriteEndsAt?: string;
   readonly favorite?: boolean;
+  readonly favoriteInState?: boolean;
   readonly favoriteGame?: 'favorite' | 'manual';
   readonly manual?: boolean;
+  readonly manualActive?: () => boolean;
   readonly dropsPageOpen?: boolean;
   readonly queue?: readonly TwitchGame[];
   readonly running?: TwitchGame;
+  readonly eligibleStreamers?: readonly TwitchStreamer[];
+  readonly incompleteFavorite?: boolean;
 }
 
 export function fixture(mode: CampaignPriorityMode, options: QueueFixtureOptions = {}) {
   const manual = campaign('manual', '2030-08-04T12:00:00.000Z');
-  const favorite = campaign('favorite', options.favoriteEndsAt ?? '2030-08-03T12:00:00.000Z');
+  const favoriteBase = campaign('favorite', options.favoriteEndsAt ?? '2030-08-03T12:00:00.000Z');
+  const favorite = options.incompleteFavorite ? { ...favoriteBase, rewardSummary: undefined } : favoriteBase;
   const hasFavorite = options.favorite !== false;
   const manualDrop = reward(manual);
   const favoriteDrop = reward(favorite);
@@ -81,13 +86,14 @@ export function fixture(mode: CampaignPriorityMode, options: QueueFixtureOptions
   state.appState.autoStartFavoriteGames = true;
   state.appState.notificationsEnabled = true;
   state.appState.campaignPriorityMode = mode;
-  state.appState.favoriteGames = hasFavorite
-    ? [
-        options.favoriteGame === 'manual'
-          ? { gameId: manual.id, lastKnownName: manual.name, addedAt: 1 }
-          : { gameId: favorite.id, lastKnownName: favorite.name, addedAt: 1 },
-      ]
-    : [];
+  state.appState.favoriteGames =
+    hasFavorite && options.favoriteInState !== false
+      ? [
+          options.favoriteGame === 'manual'
+            ? { gameId: manual.id, lastKnownName: manual.name, addedAt: 1 }
+            : { gameId: favorite.id, lastKnownName: favorite.name, addedAt: 1 },
+        ]
+      : [];
   state.appState.isRunning = options.running !== undefined;
   state.appState.selectedGame = options.running ?? null;
   state.appState.queue = [...(options.queue ?? [manual])];
@@ -147,20 +153,21 @@ export function fixture(mode: CampaignPriorityMode, options: QueueFixtureOptions
           )
         : {
             kind: 'observed',
-            tabs: options.manual
-              ? [
-                  {
-                    tab: { id: 91, active: true, url: 'https://www.twitch.tv/manual-channel' },
-                    context: {
-                      channelName: 'manual-channel',
-                      categorySlug: favorite.categorySlug,
-                      isLive: true,
-                      isPlaybackReady: true,
-                      hasDropsSignal: true,
+            tabs:
+              (options.manualActive?.() ?? options.manual)
+                ? [
+                    {
+                      tab: { id: 91, active: true, url: 'https://www.twitch.tv/manual-channel' },
+                      context: {
+                        channelName: 'manual-channel',
+                        categorySlug: favorite.categorySlug,
+                        isLive: true,
+                        isPlaybackReady: true,
+                        hasDropsSignal: true,
+                      },
                     },
-                  },
-                ]
-              : [],
+                  ]
+                : [],
           },
     replaceDeadlineAlarm: async () => 'scheduled',
     schedulePeriodicAlarm: async () => 'scheduled',
@@ -189,7 +196,7 @@ export function fixture(mode: CampaignPriorityMode, options: QueueFixtureOptions
           categoryId: null,
           categorySlug: game.name,
         },
-        streamers: [streamer],
+        streamers: options.eligibleStreamers ?? [streamer],
         languageFilterApplied: false,
       }),
     },

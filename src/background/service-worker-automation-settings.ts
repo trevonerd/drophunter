@@ -1,10 +1,19 @@
 import {
   favoriteGameIdentityKeys,
+  gameCategoryIdentityKeys,
+  gameKey,
   hiddenGameIdentityKeys,
   isFavoriteGame,
   isHiddenGame,
 } from '../shared/game-selection.ts';
-import type { GamePreference, TwitchGame, WatchTransportMode } from '../types/index.ts';
+import type {
+  ActivationSyncResult,
+  ActivationTrigger,
+  FavoriteAutoStartDisposition,
+  GamePreference,
+  TwitchGame,
+  WatchTransportMode,
+} from '../types/index.ts';
 import type { FarmingAutomation, FarmingAutomationOutcome } from './farming-automation.ts';
 import { setGamePreference } from './favorite-games.ts';
 import { logWarn } from './logging.ts';
@@ -18,8 +27,62 @@ type StateLifecycle = Pick<ReturnType<typeof createServiceWorkerStateLifecycle>,
 
 export interface ServiceWorkerAutomationSettingsDependencies {
   readonly automation: FarmingAutomation;
+  readonly requestActivationSync?: (trigger: ActivationTrigger) => Promise<ActivationSyncResult>;
   readonly browserEvents: BrowserEvents;
   readonly stateLifecycle: StateLifecycle;
+}
+
+function favoriteAutoStartDisposition(
+  result: ActivationSyncResult,
+  state: ServiceWorkerState,
+  targetCategoryIds: ReadonlySet<string>,
+): FavoriteAutoStartDisposition {
+  const retryAt = state.appState.nextAutomationCheckAt ?? undefined;
+  if (
+    state.appState.isRunning &&
+    !state.appState.isPaused &&
+    state.appState.selectedGame &&
+    isFavoriteGame(state.appState.selectedGame, targetCategoryIds)
+  )
+    return { status: 'started' };
+  if (result.kind === 'needs-session') return { status: 'waiting', reason: 'session' };
+  if (result.kind === 'retry-scheduled') {
+    return { status: 'waiting', reason: 'refresh-failed', retryAt: result.retryAt };
+  }
+  if (result.kind === 'retry-failed') return { status: 'waiting', reason: 'refresh-failed' };
+  const authoritativeTargets = state.appState.availableGames.filter((entry) =>
+    isFavoriteGame(entry, targetCategoryIds),
+  );
+  if (authoritativeTargets.length === 0 || authoritativeTargets.some((entry) => !entry.rewardSummary)) {
+    return {
+      status: 'waiting',
+      reason: 'campaign-data',
+      ...(retryAt === undefined ? {} : { retryAt }),
+    };
+  }
+  const queuedTargets = state.appState.queue.filter((entry) => isFavoriteGame(entry, targetCategoryIds));
+  if (queuedTargets.length > 0) {
+    const hasEligibleStreamer = queuedTargets.some(
+      (entry) => (state.appState.campaignAvailabilityByKey[gameKey(entry)]?.eligibleStreamerCount ?? 0) > 0,
+    );
+    return {
+      status: 'queued',
+      ...(state.appState.manualWatchState === 'eligible-manual'
+        ? { reason: 'manual-watch' as const }
+        : hasEligibleStreamer
+          ? {}
+          : { reason: 'streamer' as const }),
+      ...(retryAt === undefined ? {} : { retryAt }),
+    };
+  }
+  if (result.kind === 'synced' || result.kind === 'cache-fresh') {
+    return {
+      status: 'waiting',
+      reason: 'campaign-data',
+      ...(retryAt === undefined ? {} : { retryAt }),
+    };
+  }
+  return { status: 'waiting', reason: 'campaign-data' };
 }
 
 function mapExplicitAutomationOutcome(outcome: FarmingAutomationOutcome) {
@@ -68,25 +131,37 @@ export function createServiceWorkerAutomationSettingsHandlers(
         preference: 'favorite' as const,
         removedQueueEntries: result.removedQueueEntries,
         retainedQueueEntries: result.retainedQueueEntries,
+        autoStart: { status: 'disabled' as const },
       };
     }
     if (addedFavorite) {
       const snooze = await dependencies.automation.clearSnooze?.();
       if (snooze === 'persistence-failed') {
-        return {
-          success: false,
-          preference: 'favorite' as const,
-          error: 'Automatic-farming state could not be resumed.',
-          removedQueueEntries: result.removedQueueEntries,
-          retainedQueueEntries: result.retainedQueueEntries,
-        };
+        logWarn('Favorite saved, but the automatic-farming snooze could not be persisted');
       }
     }
-    await dependencies.automation.request('campaign-refresh').catch((error: unknown) => {
-      logWarn('Game preference saved, but automation refresh failed', {
-        message: error instanceof Error ? error.message : String(error),
+    let autoStart: FavoriteAutoStartDisposition | undefined;
+    if (addedFavorite && state.appState.autoStartFavoriteGames && dependencies.requestActivationSync) {
+      try {
+        const syncResult = await dependencies.requestActivationSync('favorite-change');
+        autoStart = favoriteAutoStartDisposition(
+          syncResult,
+          state,
+          new Set(gameCategoryIdentityKeys(payload.game)),
+        );
+      } catch (error: unknown) {
+        autoStart = { status: 'waiting', reason: 'refresh-failed' };
+        logWarn('Game preference saved, but authoritative favorite sync failed', {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } else {
+      await dependencies.automation.request('campaign-refresh').catch((error: unknown) => {
+        logWarn('Game preference saved, but automation refresh failed', {
+          message: error instanceof Error ? error.message : String(error),
+        });
       });
-    });
+    }
     return {
       success: true,
       preference: isHiddenGame(payload.game, hiddenGameIdentityKeys(state.appState.hiddenGames))
@@ -96,6 +171,7 @@ export function createServiceWorkerAutomationSettingsHandlers(
           : 'normal',
       removedQueueEntries: result.removedQueueEntries,
       retainedQueueEntries: result.retainedQueueEntries,
+      ...(autoStart ? { autoStart } : {}),
     };
   }
 

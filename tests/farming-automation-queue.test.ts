@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { gameKey } from '../src/shared/game-selection.ts';
+import type { TwitchStreamer } from '../src/types/index.ts';
 import { campaign, fixture } from './support/farming-automation-queue-fixture.ts';
 
 describe('Farming automation queue policy', () => {
@@ -104,6 +105,68 @@ describe('Farming automation queue policy', () => {
       },
       activity: ['favorite-added'],
       deadline: 32_000,
+    });
+  });
+
+  test('parks a favorite with no eligible streamer and schedules a bounded retry', async () => {
+    // Given: an authoritative farmable favorite whose directory currently has no live streamer.
+    const subject = fixture('priority-list-only', { eligibleStreamers: [] });
+
+    // When: automatic evaluation discovers the favorite.
+    const outcome = await subject.automation.request('campaign-refresh');
+
+    // Then: it remains queued for automation and wakes again shortly instead of failing permanently.
+    expect({
+      outcome,
+      queue: subject.state.appState.queue.map(gameKey),
+      retryAt: subject.state.appState.queueEntryMetadataByKey[gameKey(subject.favorite)]?.streamerRetryAt,
+      nextCheck: subject.state.appState.nextAutomationCheckAt,
+    }).toEqual({
+      outcome: { kind: 'unchanged', reason: 'no-eligible-campaign' },
+      queue: [gameKey(subject.favorite), gameKey(subject.manual)],
+      retryAt: 62_000,
+      nextCheck: 62_000,
+    });
+  });
+
+  test('starts the queued favorite on the scheduled retry when a streamer becomes eligible', async () => {
+    let now = 2_000;
+    const eligibleStreamers: TwitchStreamer[] = [];
+    const subject = fixture('priority-list-only', { eligibleStreamers, now: () => now });
+
+    const waiting = await subject.automation.request('campaign-refresh');
+    now = subject.state.appState.nextAutomationCheckAt ?? 62_000;
+    eligibleStreamers.push({
+      id: 'streamer',
+      name: 'channel',
+      displayName: 'Channel',
+      isLive: true,
+      viewerCount: 1,
+    });
+    const started = await subject.automation.request('periodic');
+
+    expect({
+      waiting,
+      started,
+      selected: subject.state.appState.selectedGame ? gameKey(subject.state.appState.selectedGame) : null,
+    }).toEqual({
+      waiting: { kind: 'unchanged', reason: 'no-eligible-campaign' },
+      started: { kind: 'started', campaignKey: gameKey(subject.favorite), transition: 'start' },
+      selected: gameKey(subject.favorite),
+    });
+  });
+
+  test('waits for an incomplete favorite catalog with a bounded retry', async () => {
+    // Given: the authoritative campaign snapshot has not classified the favorite rewards yet.
+    const subject = fixture('priority-list-only', { incompleteFavorite: true });
+
+    // When: automatic evaluation sees the incomplete catalog.
+    const outcome = await subject.automation.request('campaign-refresh');
+
+    // Then: no campaign starts, but the evaluator schedules a short follow-up check.
+    expect({ outcome, nextCheck: subject.state.appState.nextAutomationCheckAt }).toEqual({
+      outcome: { kind: 'unchanged', reason: 'no-eligible-campaign' },
+      nextCheck: 62_000,
     });
   });
 

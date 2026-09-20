@@ -61,6 +61,19 @@ test('popup preference updates use the same category aliases as durable storage'
   expect(source).toContain('[entry.gameId, ...(entry.identityKeys ?? [])]');
 });
 
+test('popup gives aria-live feedback for favorite auto-start disposition', () => {
+  const source = readPopupSource();
+
+  expect(source).toContain("response.autoStart?.status === 'started'");
+  expect(source).toContain("response.autoStart?.status === 'waiting'");
+  expect(source).toContain('Waiting for an eligible streamer');
+  expect(source).toContain('Manual Twitch viewing is active');
+  expect(source).toContain('Waiting for authoritative campaign data');
+  expect(source).toContain('Twitch refresh failed');
+  expect(source).toContain('Automatic farming is disabled');
+  expect(source).toContain('setQueueMessage');
+});
+
 test('popup campaign catalog and queue use campaign-aware identities', () => {
   const source = readPopupSource();
 
