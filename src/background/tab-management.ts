@@ -133,7 +133,7 @@ export async function applyBestEffortAlwaysOnTop(windowId: number) {
     .catch(() => browser.windows.update(windowId, { focused: true }).catch(() => undefined));
 }
 
-export async function createManagedTab(url: string, active = false): Promise<chrome.tabs.Tab | null> {
+export async function createManagedTab(url: string, active = false): Promise<Browser.tabs.Tab | null> {
   if (active) {
     const currentActiveTab =
       (await browser.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []))[0] ?? null;
@@ -226,7 +226,7 @@ export async function waitForTabComplete(tabId: number, timeoutMs = 12_000): Pro
       resolve();
     };
 
-    const onUpdated = (updatedTabId: number, info: chrome.tabs.OnUpdatedInfo) => {
+    const onUpdated = (updatedTabId: number, info: Browser.tabs.OnUpdatedInfo) => {
       if (updatedTabId === tabId && info.status === 'complete') {
         finish();
       }

@@ -84,9 +84,9 @@ function playBeep(kind: 'drop-complete' | 'all-complete') {
 
 export function handleRuntimeMessage(
   message: unknown,
-  _sender: chrome.runtime.MessageSender,
+  _sender: Browser.runtime.MessageSender,
   sendResponse: (response?: unknown) => void,
-) {
+): true {
   if (!isRuntimeRequest(message)) {
     sendResponse({ success: false, error: 'Invalid message payload' });
     return true;
