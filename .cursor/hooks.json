@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": "/opt/homebrew/lib/node_modules/vexp-cli/node_modules/@vexp/core-darwin-arm64/bin/vexp-core read-hint --protocol cursor",
+        "matcher": "Read"
+      },
+      {
+        "command": "/opt/homebrew/lib/node_modules/vexp-cli/node_modules/@vexp/core-darwin-arm64/bin/vexp-core bash-cap --protocol cursor",
+        "matcher": "Bash"
+      }
+    ]
+  },
+  "version": 1
+}

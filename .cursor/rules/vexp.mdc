@@ -3,7 +3,7 @@ description: vexp code-graph orientation for this workspace
 alwaysApply: true
 ---
 
-## vexp rules for Cursor <!-- vexp v3.1.3 -->
+## vexp rules for Cursor <!-- vexp v3.2.4 -->
 
 ### Context strategy: call run_pipeline ONCE at task start
 If the task already names the files/symbols to touch, SKIP vexp. Otherwise one

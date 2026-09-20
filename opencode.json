@@ -3,11 +3,11 @@
     "vexp": {
       "type": "local",
       "command": [
-        "node",
-        "/Users/m.trevisani/.local/share/fnm/node-versions/v24.18.1/installation/lib/node_modules/vexp-cli/mcp/mcp-server.cjs"
+        "/opt/homebrew/Cellar/node/25.9.0_2/bin/node",
+        "/opt/homebrew/lib/node_modules/vexp-cli/mcp/mcp-server.cjs"
       ],
       "env": {
-        "VEXP_WORKSPACE": "/Users/m.trevisani/repos/trevonerd/drophunter"
+        "VEXP_WORKSPACE": "/Users/djtrevo/repos/drophunter"
       },
       "enabled": true
     }
