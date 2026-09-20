@@ -187,6 +187,31 @@ test('queue cleanup remains visible when favorite auto-start is disabled', () =>
   expect(markup).toContain('aria-label="Dismiss queue update"');
 });
 
+test('retry exhaustion is shown as a dismissible queue disclosure', () => {
+  const state = {
+    ...appState(null),
+    autoStartFavoriteGames: true,
+    automationActivity: [
+      {
+        id: 'queue-recovery:no-streamers:campaign:last-campaign:1000',
+        kind: 'queue-retries-exhausted',
+        at: Date.now(),
+        campaignId: 'last-campaign',
+        message:
+          'No eligible streamer was found for Last Campaign after repeated attempts. DropHunter stopped because no other campaign can be farmed right now. Favorite auto-start remains available when enabled.',
+      },
+    ],
+  } satisfies AppState;
+
+  const markup = renderMainView(state);
+
+  expect(markup).toContain('aria-label="Queue campaign update"');
+  expect(markup).toContain('<details');
+  expect(markup).toContain('>Farming stopped</summary>');
+  expect(markup).toContain('Favorite auto-start remains available');
+  expect(markup).toContain('aria-label="Dismiss queue update"');
+});
+
 test('a dismissed queue cleanup stays hidden until a new update arrives', () => {
   // Given
   const dismissedActivity = {

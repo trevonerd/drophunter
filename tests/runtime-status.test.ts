@@ -158,6 +158,7 @@ describe('runtime status formatting', () => {
       ['farming-complete', 'Farming finished'],
       ['sign-in-required', 'Twitch sign-in required'],
       ['stall-skipped', 'Stopped after repeated stalls'],
+      ['queue-retries-exhausted', 'Stopped after repeated attempts'],
       ['user-stop', 'Stopped'],
     ] as const;
 

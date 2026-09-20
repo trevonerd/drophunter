@@ -48,3 +48,22 @@ test('presents completed queues as completion instead of a generic stop', () => 
     detail: 'Queue complete',
   });
 });
+
+test('presents exhausted queue retries as an attention state', () => {
+  const state = createInitialState();
+  state.lastStopReason = 'queue-retries-exhausted';
+
+  const status = createUserStatusModel({
+    state,
+    runtimeMode: 'stopped-terminal',
+    currentAutomatableDrop: null,
+    recoveryNow: 0,
+  });
+
+  expect(status).toMatchObject({
+    mode: 'attention-required',
+    label: 'Attention required',
+    badge: 'ATTENTION',
+    detail: 'Stopped after repeated attempts',
+  });
+});

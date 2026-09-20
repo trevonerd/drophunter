@@ -78,7 +78,13 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
         );
       })
       .map(([key, metadata]) => {
-        const { streamerRetryAt, streamerRetryReason, streamerRetryAttempts, ...provenance } = metadata;
+        const {
+          streamerRetryAt,
+          streamerRetryReason,
+          streamerRetryAttempts,
+          streamerRetryCycles,
+          ...provenance
+        } = metadata;
         const validRetry =
           typeof streamerRetryAt === 'number' && Number.isFinite(streamerRetryAt) && streamerRetryAt > 0;
         return [
@@ -87,6 +93,11 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
             ...provenance,
             ...(Number.isInteger(streamerRetryAttempts) && streamerRetryAttempts === 1
               ? { streamerRetryAttempts }
+              : {}),
+            ...(Number.isInteger(streamerRetryCycles) &&
+            typeof streamerRetryCycles === 'number' &&
+            streamerRetryCycles >= 0
+              ? { streamerRetryCycles }
               : {}),
             ...(validRetry ? { streamerRetryAt } : {}),
             ...(validRetry &&
@@ -156,6 +167,8 @@ export function normalizeAutomationActivity(value: unknown): AppState['automatio
         entry.kind === 'preempted' ||
         entry.kind === 'auto-start-skipped' ||
         entry.kind === 'campaign-unfarmable' ||
+        entry.kind === 'queue-campaign-skipped' ||
+        entry.kind === 'queue-retries-exhausted' ||
         entry.kind === 'queue-campaigns-removed') &&
       Number.isFinite(entry.at) &&
       typeof entry.message === 'string' &&

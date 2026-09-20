@@ -11,6 +11,7 @@ import { isCampaignStallBlocked } from './stalled-campaign-block.ts';
 import { MAX_NO_STREAMERS_RETRIES } from './stream-rotation.ts';
 
 const PARKED_QUEUE_RETRY_MS = 60_000;
+export const MAX_PARKED_QUEUE_RETRY_CYCLES = 3;
 
 export function parkCampaignForStreamerRetry(
   state: ServiceWorkerState,
@@ -18,10 +19,11 @@ export function parkCampaignForStreamerRetry(
   reason: 'no-streamers' | 'directory-unavailable',
 ): void {
   const key = gameKey(game);
+  const previousMetadata = state.appState.queueEntryMetadataByKey[key];
   markQueueCampaignAttempted(state, game);
   if (!state.appState.queue.some((queued) => gameKey(queued) === key)) state.appState.queue.push(game);
   state.appState.queueEntryMetadataByKey[key] = {
-    ...(state.appState.queueEntryMetadataByKey[key] ?? {
+    ...(previousMetadata ?? {
       source: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-auto' : 'manual',
       reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
       addedAt: Date.now(),
@@ -29,6 +31,9 @@ export function parkCampaignForStreamerRetry(
     streamerRetryAt: Date.now() + PARKED_QUEUE_RETRY_MS,
     streamerRetryReason: reason,
     streamerRetryAttempts: undefined,
+    ...(reason === 'no-streamers'
+      ? { streamerRetryCycles: (previousMetadata?.streamerRetryCycles ?? 0) + 1 }
+      : {}),
   };
 }
 
@@ -47,7 +52,9 @@ export async function waitForParkedQueue(
           (state.appState.queueAcquisitionRound?.nextRoundAt ?? 0) > now) &&
         (!restrictUnauthorizedManualContinuation || metadata?.source === 'favorite-auto') &&
         !isExpiredGame(game) &&
-        !isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, game)
+        !isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, game) &&
+        (metadata?.streamerRetryReason !== 'no-streamers' ||
+          (metadata.streamerRetryCycles ?? 0) < MAX_PARKED_QUEUE_RETRY_CYCLES)
       );
     })
     .sort((left, right) => {

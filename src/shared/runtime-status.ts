@@ -117,6 +117,8 @@ export function formatStopReason(reason: string | null | undefined): string | nu
       return 'Twitch sign-in required';
     case 'stall-skipped':
       return 'Stopped after repeated stalls';
+    case 'queue-retries-exhausted':
+      return 'Stopped after repeated attempts';
     case 'unverifiable-twitch':
       return 'Farming finished · Twitch reward acquisition could not be verified';
     case 'user-stop':

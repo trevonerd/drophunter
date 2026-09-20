@@ -60,6 +60,13 @@ export function MainView({
   const queueCleanupActivity = model.queueCleanupActivity;
   const queueCampaignRemovalNotice = queueCleanupActivity ? (
     <QueueCleanupNotice
+      summary={
+        queueCleanupActivity.kind === 'queue-retries-exhausted'
+          ? 'Farming stopped'
+          : queueCleanupActivity.kind === 'queue-campaign-skipped'
+            ? 'Campaign skipped'
+            : 'Queue updated'
+      }
       message={queueCleanupActivity.message}
       onDismiss={() => onDismissQueueCleanup(queueCleanupActivity.id)}
     />

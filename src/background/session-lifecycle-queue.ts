@@ -4,6 +4,7 @@ import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
 import { removeQueueEntriesForGame } from './queue-operations.ts';
+import { isQueueRecoveryReason, recordQueueRecoveryActivity } from './queue-recovery-activity.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   isWaitingForScheduledRewards,
@@ -133,6 +134,14 @@ export async function skipCurrentGameAndAdvanceQueue(
   });
   if (progression.kind === 'cancelled' || progression.kind === 'waiting') return;
   if (progression.kind === 'advanced') {
+    if (skippedGame && isQueueRecoveryReason(reason)) {
+      recordQueueRecoveryActivity(state, skippedGame, reason, {
+        kind: 'advanced',
+        nextGame: progression.game,
+      });
+      await options?.onSaveState?.();
+      if (options?.isCurrent?.() === false) return;
+    }
     if (
       progression.opened &&
       state.appState.selectedGame &&
@@ -150,6 +159,9 @@ export async function skipCurrentGameAndAdvanceQueue(
     state.appState.selectedGame = null;
   }
   state.appState.manualQueueAuthorized = false;
+  if (skippedGame && isQueueRecoveryReason(reason)) {
+    recordQueueRecoveryActivity(state, skippedGame, reason, { kind: 'stopped' });
+  }
   if (options?.onStopFarmingSession) {
     await options.onStopFarmingSession({
       stopReason: copy.stopReason,
