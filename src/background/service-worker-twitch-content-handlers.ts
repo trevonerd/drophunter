@@ -27,7 +27,7 @@ interface ContentHandlerDependencies {
   recordChannelPointsBonusClaimed: (channelName?: string | null) => Promise<void>;
 }
 
-function isTrustedTwitchSender(sender: chrome.runtime.MessageSender): boolean {
+function isTrustedTwitchSender(sender: Browser.runtime.MessageSender): boolean {
   const url = sender.tab?.url ?? sender.url ?? '';
   if (getFarmableTwitchChannelNameFromUrl(url) !== null) return true;
   try {
@@ -49,7 +49,7 @@ export function createServiceWorkerTwitchContentHandlers(
   state: ServiceWorkerState,
   dependencies: ContentHandlerDependencies,
 ) {
-  async function handleSyncTwitchSession(payload: unknown, sender: chrome.runtime.MessageSender) {
+  async function handleSyncTwitchSession(payload: unknown, sender: Browser.runtime.MessageSender) {
     if (!isTrustedTwitchSender(sender)) return { success: false, error: 'Untrusted message sender' };
     const epoch = currentFarmingSessionEpoch(state);
     const isCurrent = () => currentFarmingSessionEpoch(state) === epoch;
@@ -83,7 +83,7 @@ export function createServiceWorkerTwitchContentHandlers(
     payload:
       | { readonly token?: string; readonly expiration?: number; readonly request_id?: string }
       | undefined,
-    sender: chrome.runtime.MessageSender | undefined,
+    sender: Browser.runtime.MessageSender | undefined,
   ) {
     if (!sender || !isTrustedTwitchSender(sender))
       return { success: false, error: 'Untrusted message sender' };
@@ -104,7 +104,7 @@ export function createServiceWorkerTwitchContentHandlers(
 
   async function handleChannelPointsBonusClaimed(
     payload: { readonly channelName?: string | null } | undefined,
-    sender: chrome.runtime.MessageSender,
+    sender: Browser.runtime.MessageSender,
   ) {
     if (!isTrustedTwitchSender(sender)) return { success: false, error: 'Untrusted message sender' };
     logDebug('Channel points bonus claimed by content script', { tabId: sender.tab?.id });

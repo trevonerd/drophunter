@@ -8,13 +8,13 @@ import {
 } from '../shared/messages.ts';
 
 type MaybePromise<T> = T | Promise<T>;
-type RuntimeSender = chrome.runtime.MessageSender;
+type RuntimeSender = Browser.runtime.MessageSender;
 type RuntimeSendResponse = (response?: unknown) => void;
 type RuntimeMessageListener = (
   message: unknown,
   sender: RuntimeSender,
   sendResponse: RuntimeSendResponse,
-) => boolean | undefined;
+) => true | undefined;
 
 type RuntimeMessageHandler<T extends RuntimeRequest['type']> = (
   message: Extract<RuntimeRequest, { type: T }>,
@@ -71,7 +71,7 @@ export interface RuntimeMessageHandlers {
   clearClaimLog: RuntimeMessageHandler<'CLEAR_CLAIM_LOG'>;
 }
 
-function respondAsync(handler: () => MaybePromise<unknown>, sendResponse: RuntimeSendResponse) {
+function respondAsync(handler: () => MaybePromise<unknown>, sendResponse: RuntimeSendResponse): true {
   try {
     Promise.resolve(handler())
       .then((result) => sendResponse(result))
@@ -82,7 +82,7 @@ function respondAsync(handler: () => MaybePromise<unknown>, sendResponse: Runtim
   return true;
 }
 
-function unsupportedTarget(sendResponse: RuntimeSendResponse) {
+function unsupportedTarget(sendResponse: RuntimeSendResponse): true {
   sendResponse({ success: false, error: 'Unsupported message target' });
   return true;
 }
