@@ -69,7 +69,9 @@ export async function refreshDropsPageCampaigns(input: CampaignRefreshInput): Pr
     if (!input.isCurrent()) break;
     sawSession = sawSession || Boolean(sessionFromTab);
     const refreshResult = await input.options.refreshGamesCacheFromHiddenFetch({
-      forceSessionRefresh: !sessionFromTab,
+      // A missed page read is not evidence that the cached OAuth session is invalid.
+      // The normal session resolver still checks cache, persisted state, and open tabs.
+      forceSessionRefresh: false,
       acceptAuthoritativeEmpty: isFinalAttemptByCount || isFinalAttemptByTime,
       requireFreshSnapshot: true,
       isCurrent: input.isCurrent,

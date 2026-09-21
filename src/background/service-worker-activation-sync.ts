@@ -88,8 +88,7 @@ async function verifyBrowserIntegrity(
 }
 
 function unavailableVerification(failure: TwitchApiFailure | undefined): ActivationSyncAttempt {
-  if (failure?.kind === 'integrity' || failure?.kind === 'auth')
-    return { kind: 'needs-session', errorKind: failure.kind };
+  if (failure?.kind === 'auth') return { kind: 'needs-session', errorKind: failure.kind };
   return {
     kind: 'transient-error',
     error: failure?.message ?? 'Twitch browser verification could not complete.',

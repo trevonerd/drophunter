@@ -38,6 +38,13 @@ export interface DropsPageRefreshOptions {
 export const waitForDropsDelay = (delayMs: number) =>
   delayMs <= 0 ? Promise.resolve() : new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 
+const TWITCH_DROPS_TAB_PATTERNS = [
+  'https://www.twitch.tv/drops/campaigns*',
+  'https://twitch.tv/drops/campaigns*',
+  'https://www.twitch.tv/drops/inventory*',
+  'https://twitch.tv/drops/inventory*',
+];
+
 export async function findOrOpenDropsPageTab(
   options: DropsPageRefreshOptions,
   active: boolean,
@@ -51,7 +58,7 @@ export async function findOrOpenDropsPageTab(
   do {
     const tabs = await tabsApi
       .query({
-        url: ['https://www.twitch.tv/drops/campaigns*', 'https://twitch.tv/drops/campaigns*'],
+        url: TWITCH_DROPS_TAB_PATTERNS,
       })
       .catch(() => []);
     if (!isCurrent()) return { tabId: null, opened: false };
