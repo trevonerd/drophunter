@@ -35,12 +35,12 @@ No Co-Authored-By. No Generated-with. No AI/tool attribution.
 
 ### Issue tracker
 
-Issues live as GitHub issues in `trevonerd/drophunter` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live as GitHub issues in `trevonerd/drophunter` via the `gh` CLI.
 
 ### Triage labels
 
-Five canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+Five canonical labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`.
 
 ### Domain docs
 
-Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+The root `CONTEXT.md` is the shared domain vocabulary and decision boundary.

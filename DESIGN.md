@@ -248,9 +248,9 @@ The following primitives and repeated components are the reusable surface langua
 - Motion: onboarding pulse-glow is a 2s infinite attention cue; disclosure/action feedback uses the existing 180ms easing and transform/opacity only. Reduced-motion collapses it to an immediate state change.
 - Layout/scroll: the browser remains in popup document flow. Neither the game list nor expanded campaign/Drop detail owns a scrollbar; the popup body is the sole discovery scroll owner.
 
-### CampaignSyncPanel, OtherDropsDisclosure, and planned CampaignStatusIndicators
+### CampaignSyncPanel, OtherDropsDisclosure, and campaign status indicators
 
-CampaignSyncPanel is the current sync-status panel. CampaignStatusIndicators is the planned semantic primitive for Todo 13/14 and must be expressible with this existing system only.
+CampaignSyncPanel is the current sync-status panel. Campaign status indicators must remain expressible with this existing system only.
 
 - Structure: CampaignSyncPanel appears once at the top of the popup body when validation or session recovery prevents startup, ahead of the automation toggle, session summary, and queue. Nonblocking refreshes during farming remain inline inside Campaigns. Its existing status surface uses a concise heading and wraps recovery actions onto a separate row when needed. OtherDropsDisclosure remains a closed disclosure after normal results for unmatched rewards.
 - Variants: fresh (sync row omitted), syncing, pending validation, waiting, stale, failed, and empty; a confirmed needs-session or signed-out state uses the dedicated priority TwitchSessionGate before AutomationSummary and suppresses SessionSummary and Campaigns. Saved campaigns remain visible as pending validation until a session-backed refresh confirms them. Scheduled retries remain automatic; the UI exposes no Retry action. The session gate provides the single Go to Drops action. Planned reward variants remain pending, active, claimable, claimed, subscription-gated, and unverifiable Twitch-native.
@@ -378,7 +378,7 @@ Do not add a new radius tier or mix a new soft card treatment into this control 
 | Dark-only theme; no light tokens | src/popup/index.css, src/monitor/monitor.css | Existing browser-extension language is dark violet and both roots explicitly set color-scheme: dark. | Add a light contract only if product scope requests it; UI worker must not infer one. |
 | Duplicate token names with different alpha values | Both stylesheets | Popup and monitor were tuned separately; consolidation could change contrast/materiality. | Consolidate only in an approved token cleanup after visual comparison. |
 | Raw OKLCH literals and Tailwind semantic aliases beside custom vars | Both stylesheets and popup JSX | Existing states predate a full semantic-token migration; changing them risks status contrast and snapshot drift. | Keep new work on listed vars/aliases; schedule migration separately. |
-| 3px, 6px, 10px, 0.2rem, and other non-4px spacing | Monitor CSS and compact controls | Dense monitor geometry currently uses these values. | Revisit with a measured layout pass; do not normalize during Todo 13/14. |
+| 3px, 6px, 10px, 0.2rem, and other non-4px spacing | Monitor CSS and compact controls | Dense monitor geometry currently uses these values. | Revisit only in a measured, dedicated layout pass. |
 | 10-12px metadata/body sizes | Popup/monitor JSX and CSS | Visual density 7 and narrow extension width require compact labels. | Contrast/zoom QA first; adjust only with a documented density decision. |
 | Color/box-shadow transitions and scrollbar width animation | src/popup/index.css | Existing tactile feedback predates the GPU-only preference; removing it would alter behavior. | New motion should prefer transform/opacity; fix existing transitions only as a dedicated motion cleanup. |
 | Nested reward and claim-log scroll containers | RewardList.tsx, ClaimLogView.tsx | Lists are intentionally bounded (240px/440px) to keep the popup usable. | Preserve named ownership; avoid adding another scrollbar to the same region. |
@@ -386,4 +386,4 @@ Do not add a new radius tier or mix a new soft card treatment into this control 
 
 ### Source and tooling scope
 
-This document intentionally does not install React tooling, add dependencies, change CSS, or consolidate tokens. The frontend reference requested references/design/perfection/README.md, but that path is absent in the installed skill package; the available canonical file references/perfection/README.md was read instead. Visual QA and dependency-tooling work are outside this extraction-only change and remain opt-in for the later UI implementation.
+This document describes the shipped UI contract. Dependency upgrades, token consolidation, and broad visual redesigns require their own scoped change and visual QA; do not mix them into routine popup or monitor maintenance.

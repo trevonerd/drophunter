@@ -117,8 +117,8 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
   - `bun audit`
 - Preferred release gate: `bun run release:check`; runs TypeScript, Biome, tests, build, generated manifest checks.
 - Regenerate release zips with `bun run release:zip`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
-- Store readiness: read `docs/chrome-web-store-checklist.md`.
-- Long-run farming changes: use `docs/soak-test-checklist.md` for manual QA.
+- Stable store handoff: verify `README.md`, `PRIVACY.md`, screenshots, permission justifications, listing copy against exact production artifacts.
+- Long-run farming changes: exercise real eligible campaign progress, worker restart, sleep/wake, hidden→managed fallback, manual viewing, notifications, recovery.
 - Touching video/promotional assets: also run `cd video && bun audit` and relevant `video:*` commands.
 
 ## Stability Hotspots
