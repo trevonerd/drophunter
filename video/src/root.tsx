@@ -1,5 +1,6 @@
 import React from "react";
-import { AbsoluteFill, Audio, Composition, interpolate, staticFile } from "remotion";
+import { Audio } from "@remotion/media";
+import { AbsoluteFill, Composition, interpolate, staticFile } from "remotion";
 import { TransitionSeries, linearTiming } from "@remotion/transitions";
 import { fade } from "@remotion/transitions/fade";
 import { IntroScene } from "./scenes/IntroScene";
@@ -14,6 +15,9 @@ import { ChannelPointsScene } from "./scenes/ChannelPointsScene";
 import { RecoveryScene } from "./scenes/RecoveryScene";
 import { TrustScene } from "./scenes/TrustScene";
 import { CtaScene } from "./scenes/CtaScene";
+import { AlertsScene } from "./scenes/AlertsScene";
+import { FavoritesScene } from "./scenes/FavoritesScene";
+import { WatchModesScene } from "./scenes/WatchModesScene";
 import {
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
@@ -33,12 +37,15 @@ const MUSIC_FADE_OUT_FRAMES = secondsToFrames(2);
 const SCENES = {
   intro: baseFramesToOutputFrames(96),
   refresh: baseFramesToOutputFrames(132),
+  favorites: baseFramesToOutputFrames(168),
   control: baseFramesToOutputFrames(126),
   settings: baseFramesToOutputFrames(150),
   queue: baseFramesToOutputFrames(150),
+  watchModes: baseFramesToOutputFrames(168),
   monitor: baseFramesToOutputFrames(180),
   rotation: baseFramesToOutputFrames(150),
   claim: baseFramesToOutputFrames(150),
+  alerts: baseFramesToOutputFrames(168),
   channelPoints: baseFramesToOutputFrames(150),
   recovery: baseFramesToOutputFrames(150),
   trust: baseFramesToOutputFrames(150),
@@ -46,7 +53,8 @@ const SCENES = {
 };
 
 const TOTAL =
-  Object.values(SCENES).reduce((sum, duration) => sum + duration, 0) - 11 * TRANSITION;
+  Object.values(SCENES).reduce((sum, duration) => sum + duration, 0) -
+  (Object.keys(SCENES).length - 1) * TRANSITION;
 
 const ScaleToOutput: React.FC<{ children: React.ReactNode; scale: number }> = ({
   children,
@@ -71,84 +79,105 @@ const ScaleToOutput: React.FC<{ children: React.ReactNode; scale: number }> = ({
 
 const PromoTimeline: React.FC = () => (
   <TransitionSeries>
-    <TransitionSeries.Sequence durationInFrames={SCENES.intro}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.intro} premountFor={secondsToFrames(1)}>
       <IntroScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.refresh}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.refresh} premountFor={secondsToFrames(1)}>
       <RefreshScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.control}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.favorites} premountFor={secondsToFrames(1)}>
+      <FavoritesScene />
+    </TransitionSeries.Sequence>
+    <TransitionSeries.Transition
+      presentation={fade()}
+      timing={linearTiming({ durationInFrames: TRANSITION })}
+    />
+    <TransitionSeries.Sequence durationInFrames={SCENES.control} premountFor={secondsToFrames(1)}>
       <ControlScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.settings}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.settings} premountFor={secondsToFrames(1)}>
       <SettingsScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.queue}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.queue} premountFor={secondsToFrames(1)}>
       <QueueScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.monitor}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.watchModes} premountFor={secondsToFrames(1)}>
+      <WatchModesScene />
+    </TransitionSeries.Sequence>
+    <TransitionSeries.Transition
+      presentation={fade()}
+      timing={linearTiming({ durationInFrames: TRANSITION })}
+    />
+    <TransitionSeries.Sequence durationInFrames={SCENES.monitor} premountFor={secondsToFrames(1)}>
       <MonitorScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.rotation}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.rotation} premountFor={secondsToFrames(1)}>
       <RotationScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.claim}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.claim} premountFor={secondsToFrames(1)}>
       <ClaimScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.channelPoints}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.alerts} premountFor={secondsToFrames(1)}>
+      <AlertsScene />
+    </TransitionSeries.Sequence>
+    <TransitionSeries.Transition
+      presentation={fade()}
+      timing={linearTiming({ durationInFrames: TRANSITION })}
+    />
+    <TransitionSeries.Sequence durationInFrames={SCENES.channelPoints} premountFor={secondsToFrames(1)}>
       <ChannelPointsScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.recovery}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.recovery} premountFor={secondsToFrames(1)}>
       <RecoveryScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.trust}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.trust} premountFor={secondsToFrames(1)}>
       <TrustScene />
     </TransitionSeries.Sequence>
     <TransitionSeries.Transition
       presentation={fade()}
       timing={linearTiming({ durationInFrames: TRANSITION })}
     />
-    <TransitionSeries.Sequence durationInFrames={SCENES.cta}>
+    <TransitionSeries.Sequence durationInFrames={SCENES.cta} premountFor={secondsToFrames(1)}>
       <CtaScene />
     </TransitionSeries.Sequence>
   </TransitionSeries>
