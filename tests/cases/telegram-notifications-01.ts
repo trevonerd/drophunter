@@ -41,13 +41,13 @@ describe('telegram notification helpers', () => {
 
   test('formats English claim notification HTML', () => {
     const message = formatClaimNotificationMessage(sampleEntry, {
-      selectedGameLabel: 'Marvel Rivals · Winter Campaign',
       activeStreamerName: 'StreamerOne',
     });
 
     expect(message).toContain('Drop claimed');
     expect(message).toContain('<b>Exclusive Skin</b>');
     expect(message).toContain('Marvel Rivals · Winter Campaign');
+    expect(message).not.toContain('Farming:');
     expect(message).toContain('Reward: Winter Bundle');
     expect(message).toContain('Streamer: StreamerOne');
   });

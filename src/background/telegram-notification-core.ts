@@ -11,7 +11,6 @@ export interface TelegramCredentials {
   chatId: string;
 }
 export interface TelegramNotifyContext {
-  selectedGameLabel?: string | null;
   activeStreamerName?: string | null;
 }
 export interface TelegramNotifierState {
@@ -118,7 +117,6 @@ export function formatClaimNotificationMessage(
   ];
   if (entry.benefitName) lines.push(`▸ Reward: ${escapeHtml(entry.benefitName)}`);
   lines.push(`▸ Claimed: ${escapeHtml(claimedAt)}`);
-  if (context.selectedGameLabel) lines.push(`▸ Farming: ${escapeHtml(context.selectedGameLabel)}`);
   if (context.activeStreamerName) lines.push(`▸ Streamer: ${escapeHtml(context.activeStreamerName)}`);
   return lines.join('\n');
 }

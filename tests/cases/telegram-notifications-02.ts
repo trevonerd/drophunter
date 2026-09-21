@@ -65,6 +65,46 @@ describe('telegram notifier', () => {
     expect(String(bodies[0]?.caption)).toContain('Drop claimed');
   });
 
+  test('uses the claimed campaign instead of a different currently selected campaign', async () => {
+    const state = {
+      appState: {
+        ...createInitialState(),
+        telegramAlertsEnabled: true,
+        selectedGame: {
+          id: 'smite-2',
+          name: 'SMITE 2',
+          displayName: 'SMITE 2 · Sept Week 3!',
+          imageUrl: '',
+          campaignId: 'smite-sept-week-3',
+        },
+      },
+    };
+    const bodies: Array<Record<string, unknown>> = [];
+    const notifier = createTelegramNotifier(state, {
+      saveState: async () => undefined,
+      loadCredentials: async () => ({ botToken: '123:abc', chatId: '999' }),
+      saveCredentials: async () => undefined,
+      permissionsApi: { contains: async () => true, request: async () => true },
+      fetchApi: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    });
+    const deltaForceEntry = {
+      ...sampleEntry,
+      gameId: 'delta-force',
+      gameName: 'Delta Force',
+      campaignId: 'delta-force-anniversary',
+      campaignLabel: 'Delta Force · 2NDANNIVERSARY-WARFARE',
+    };
+
+    await notifier.notifyClaimedDrops([deltaForceEntry]);
+
+    const caption = String(bodies[0]?.caption);
+    expect(caption).toContain('Delta Force · 2NDANNIVERSARY-WARFARE');
+    expect(caption).not.toContain('SMITE 2');
+  });
+
   test('falls back to sendMessage without imageUrl', async () => {
     const state = { appState: { ...createInitialState(), telegramAlertsEnabled: true } };
     const urls: string[] = [];
