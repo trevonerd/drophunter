@@ -10,13 +10,17 @@ export interface TabsApiHarness {
   readonly activated: number[];
   readonly updated: Array<{ tabId: number; properties: { active?: boolean; url?: string } }>;
   setQueryResult(tabs: Array<{ id?: number; discarded?: boolean }>): void;
-  query(): Promise<Array<{ id?: number; discarded?: boolean }>>;
+  setQueryHandler(
+    handler: (queryInfo: { url: string[] }) => Array<{ id?: number; discarded?: boolean }>,
+  ): void;
+  query(queryInfo: { url: string[] }): Promise<Array<{ id?: number; discarded?: boolean }>>;
   update(tabId: number, properties?: { active?: boolean; url?: string }): Promise<{ id: number }>;
   create(createData: { url: string; active: boolean }): Promise<{ id: number }>;
 }
 
 export function createTabsApi(): TabsApiHarness {
   let queryResult: Array<{ id?: number; discarded?: boolean }> = [];
+  let queryHandler: ((queryInfo: { url: string[] }) => typeof queryResult) | null = null;
   const created: string[] = [];
   const createdActive: boolean[] = [];
   const activated: number[] = [];
@@ -30,8 +34,11 @@ export function createTabsApi(): TabsApiHarness {
     setQueryResult(tabs) {
       queryResult = tabs;
     },
-    async query() {
-      return queryResult;
+    setQueryHandler(handler) {
+      queryHandler = handler;
+    },
+    async query(queryInfo) {
+      return queryHandler?.(queryInfo) ?? queryResult;
     },
     async update(tabId, properties = {}) {
       updated.push({ tabId, properties });

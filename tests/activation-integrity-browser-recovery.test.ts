@@ -3,7 +3,6 @@ import { createActivationSyncCoordinator } from '../src/background/activation-sy
 import type { FarmingAutomation } from '../src/background/farming-automation.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createServiceWorkerActivationSync } from '../src/background/service-worker-activation-sync.ts';
-import { normalizeCampaignSyncState } from '../src/shared/app-state-runtime-normalizers.ts';
 
 function fixture(
   hiddenSuccess: boolean,
@@ -108,26 +107,21 @@ test('hung silent browser verification retries globally and invalidates late bro
   expect(run.pageOptions).toHaveLength(2);
 });
 
-test('failed silent integrity verification requests action once across alarms and coordinator restart', async () => {
+test('failed silent integrity verification keeps retrying without requiring session action', async () => {
   const run = fixture(false);
   const coordinator = run.makeCoordinator();
-  expect((await coordinator.request('worker-start')).kind).toBe('needs-session');
+  expect((await coordinator.request('worker-start')).kind).toBe('retry-scheduled');
   expect(run.state.appState.campaignSyncState).toMatchObject({
-    status: 'needs-session',
+    status: 'retry-scheduled',
     lastErrorKind: 'integrity',
-    nextRetryAt: null,
   });
-  await coordinator.request('periodic-campaign');
-  run.state.appState.campaignSyncState = normalizeCampaignSyncState({
-    campaignSyncState: run.state.appState.campaignSyncState,
-  });
-  expect(run.state.appState.campaignSyncState.browserVerificationAttempted).toBe(true);
-  await run.makeCoordinator().request('worker-start');
   expect(run.pageOptions).toHaveLength(1);
   expect(run.evaluations()).toBe(0);
   run.recover();
-  expect((await coordinator.request('manual')).kind).toBe('synced');
-  expect(run.pageOptions.at(-1)?.active).toBe(true);
+  run.advanceToRetry();
+  expect((await run.makeCoordinator().request('periodic-campaign')).kind).toBe('synced');
+  expect(run.pageOptions).toHaveLength(2);
+  expect(run.pageOptions.every((options) => options.active === false)).toBe(true);
   expect(run.evaluations()).toBe(1);
 });
 

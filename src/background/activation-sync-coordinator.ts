@@ -126,12 +126,6 @@ export function createActivationSyncCoordinator(
     const previous = dependencies.getCampaignSyncState();
     let browserVerificationAttempted = previous.browserVerificationAttempted;
     if (
-      previous.status === 'needs-session' &&
-      previous.lastErrorKind === 'integrity' &&
-      shouldRespectActivationSyncRetry(trigger)
-    )
-      return { kind: 'needs-session' };
-    if (
       trigger === 'periodic-campaign' &&
       dependencies.shouldRunPeriodicSync &&
       !dependencies.shouldRunPeriodicSync()

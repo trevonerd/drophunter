@@ -151,6 +151,24 @@ export function registerDiscoveredDropsPageRefreshCases() {
     expect(result.error).toBeUndefined();
   });
 
+  test('does not invalidate a cached session when the Drops page read is temporarily empty', async () => {
+    const state = createDropsPageState();
+    setDiscoveredGame(state);
+    const forceSessionRefreshValues: Array<boolean | undefined> = [];
+    const refresher = createTestRefresher(state, createTabsApi(), {
+      persistSessionFromDropsPage: async () => null,
+      refreshGamesCacheFromHiddenFetch: async (options) => {
+        forceSessionRefreshValues.push(options.forceSessionRefresh);
+        return { kind: 'refreshed', games: state.appState.availableGames };
+      },
+    });
+
+    const result = await refresher.openDropsPageAndRefresh();
+
+    expect(result.success).toBe(true);
+    expect(forceSessionRefreshValues).toEqual([false]);
+  });
+
   test('shares concurrent refresh work to avoid duplicate Twitch tabs', async () => {
     const state = createDropsPageState();
     setDiscoveredGame(state);
@@ -205,6 +223,25 @@ export function registerDiscoveredDropsPageRefreshCases() {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Open Twitch Drops');
+    expect(tabsApi.created).toEqual([]);
+  });
+
+  test('automatic sync reuses an already-open Twitch Drops inventory tab', async () => {
+    const state = createDropsPageState();
+    setDiscoveredGame(state);
+    const tabsApi = createTabsApi();
+    const inventoryTab = { id: 12 };
+    tabsApi.setQueryHandler((queryInfo) =>
+      queryInfo.url.some((pattern) => pattern.includes('/drops/inventory')) ? [inventoryTab] : [],
+    );
+
+    const result = await createTestRefresher(state, tabsApi).openDropsPageAndRefresh({
+      active: false,
+      openIfMissing: false,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.opened).toBe(false);
     expect(tabsApi.created).toEqual([]);
   });
 
