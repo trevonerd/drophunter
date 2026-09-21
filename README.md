@@ -164,6 +164,19 @@ Third-party names and logos are the property of their respective owners.
 
 You are responsible for using this software in compliance with Twitch's terms, platform rules, and applicable laws.
 
-## Chrome Web Store Readiness
+## Release Readiness
 
-Before submitting a release, verify the privacy policy, screenshots, permission justifications, and store description all match the shipped behavior. A release checklist is available in [`docs/chrome-web-store-checklist.md`](docs/chrome-web-store-checklist.md).
+Beta builds are GitHub prereleases for unpacked/local testing only. Do not upload a
+`4.0.0-beta.N` archive to Chrome Web Store or Microsoft Edge Add-ons; the first
+4.x store package is the stable `4.0.0` build.
+
+Before publishing a beta or handing off a stable store build:
+
+1. Run `bun run release:check`, `bun audit`, and `cd video && bun audit` when video sources changed.
+2. Confirm Chrome and Edge manifests, archive names, package version, tag, and release all agree.
+3. Load the freshly generated Chrome and Edge artifacts and check connection, campaign discovery, favorites, manual queue start, pause/resume/stop, hidden and managed watching, progress, auto-claim, monitor, recovery, and optional notifications.
+4. Verify `PRIVACY.md`, screenshots, permission justifications, and store copy still match the shipped behavior.
+5. For long-running farming changes, exercise a real eligible campaign across progress, a service-worker restart, sleep/wake, hidden-to-managed fallback, manual Twitch viewing, and recovery.
+
+The release gate produces `.output/drophunter-<version>-chrome.zip` and
+`.output/drophunter-<version>-edge.zip`.

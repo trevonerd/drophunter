@@ -117,8 +117,8 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
   - `bun audit`
 - Preferred release gate is `bun run release:check`; it runs TypeScript, Biome, tests, build, and generated manifest checks.
 - Regenerate release zips with `bun run release:zip`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
-- For store readiness, read `docs/chrome-web-store-checklist.md`.
-- For long-run farming changes, use `docs/soak-test-checklist.md` as manual QA guidance.
+- Before a stable store handoff, verify `README.md`, `PRIVACY.md`, screenshots, permission justifications, and listing copy against the exact production artifacts.
+- For long-run farming changes, exercise a real eligible campaign across progress, service-worker restart, sleep/wake, hidden-to-managed fallback, manual Twitch viewing, notifications, and recovery.
 - If touching video/promotional assets, also run `cd video && bun audit` and relevant `video:*` commands.
 
 ## Stability Hotspots
