@@ -53,10 +53,17 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
     state.appState.telegramAlertsEnabled = false;
     await options.saveState();
   };
-  const buildNotifyContext = (): TelegramNotifyContext => ({
-    selectedGameLabel: state.appState.selectedGame?.displayName ?? state.appState.selectedGame?.name ?? null,
-    activeStreamerName: state.appState.activeStreamer?.displayName ?? null,
-  });
+  const buildNotifyContext = (entry: ClaimLogEntry): TelegramNotifyContext => {
+    const selectedGame = state.appState.selectedGame;
+    const matchesClaimedCampaign = entry.campaignId
+      ? selectedGame?.campaignId === entry.campaignId
+      : Boolean(entry.gameId) && selectedGame?.id === entry.gameId;
+    return {
+      activeStreamerName: matchesClaimedCampaign
+        ? (state.appState.activeStreamer?.displayName ?? null)
+        : null,
+    };
+  };
   const sendMessage = async (credentials: TelegramCredentials, text: string, photoUrl?: string) => {
     if (photoUrl) {
       await callTelegramApi(
@@ -97,10 +104,13 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
     if (entries.length === 0) return;
     const credentials = await ensureReadyToSend();
     if (!credentials) return;
-    const context = buildNotifyContext();
     for (const entry of entries) {
       try {
-        await sendMessage(credentials, formatClaimNotificationMessage(entry, context), entry.imageUrl);
+        await sendMessage(
+          credentials,
+          formatClaimNotificationMessage(entry, buildNotifyContext(entry)),
+          entry.imageUrl,
+        );
       } catch (error) {
         logWarn('Telegram claim alert failed:', String(error));
       }
