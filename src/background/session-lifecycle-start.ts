@@ -113,6 +113,8 @@ export async function handleStartFarming(
   if (!options?.preserveQueueContext) {
     state.appState.manualQueueAuthorized = true;
     state.appState.farmingSessionOrigin = 'manual';
+    state.appState.queueResumeOnAvailability = false;
+    state.appState.forcedCampaignKey = null;
   }
   if (!options?.preserveQueueContext) {
     state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(

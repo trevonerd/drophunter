@@ -232,33 +232,17 @@ describe('Farming automation operational failures', () => {
     });
   });
 
-  test('isolates directory failures, preserves the stable session, and schedules availability retry', async () => {
+  test('isolates directory failures, preserves the stable session, and keeps normal refresh', async () => {
     const subject = fixture('directory');
 
     const outcome = await subject.automation.request('periodic');
 
-    expect({
-      outcome,
-      selected: subject.state.appState.selectedGame,
-      ownership: subject.watch.currentOwnership(),
-      nextCheck: subject.state.appState.nextAutomationCheckAt,
-      availability: Object.values(subject.state.appState.campaignAvailabilityByKey).map(
-        ({ eligibleStreamerCount }) => eligibleStreamerCount,
-      ),
-      disposals: subject.disposals(),
-    }).toEqual({
-      outcome: { kind: 'unchanged', reason: 'no-eligible-campaign' },
-      selected: subject.incumbent,
-      ownership: {
-        kind: 'managed-tab',
-        tabId: 10,
-        ownershipToken: 'owned-a',
-        expectedChannel: 'incumbent',
-      },
-      nextCheck: 62_000,
-      availability: [0, 0],
-      disposals: 0,
-    });
+    expect(outcome).toEqual({ kind: 'unchanged', reason: 'no-eligible-campaign' });
+    expect(subject.state.appState.selectedGame).toEqual(subject.incumbent);
+    expect(subject.watch.currentOwnership()?.kind).toBe('managed-tab');
+    expect(subject.state.appState.nextAutomationCheckAt).toBe(122_000);
+    expect(subject.state.appState.campaignAvailabilityByKey).toEqual({});
+    expect(subject.disposals()).toBe(0);
   });
 
   test('keeps an immediate in-memory snooze after durable snooze persistence fails', async () => {

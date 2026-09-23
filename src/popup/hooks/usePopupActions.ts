@@ -7,6 +7,7 @@ import { formatFarmingCompleteQueueMessage } from '../format';
 import { logPopupWarn } from '../logging';
 import { INITIAL_QUEUE_FEEDBACK_STATE, publishQueueFeedback } from '../queue-feedback';
 import { getGameToStartFromQueue } from '../queue-start';
+import { reorderQueueAction, startQueuedCampaignAction } from './queue-command-actions.ts';
 import { useQueueCleanupDismissal } from './useQueueCleanupDismissal';
 
 const QUEUE_MESSAGE_DISMISS_MS = 6_000;
@@ -196,17 +197,12 @@ export function usePopupActions({
     }
   };
 
-  const handleReorderQueue = async (fromIndex: number, toIndex: number) => {
-    try {
-      const response = await sendRuntimeMessage({
-        type: 'REORDER_QUEUE',
-        payload: { fromIndex, toIndex },
-      });
-      if (!response?.success) setQueueMessage(response?.error ?? 'Unable to reorder queue.');
-    } catch (error: unknown) {
-      logPopupWarn('REORDER_QUEUE failed:', error instanceof Error ? error : String(error));
-      setQueueMessage('Unable to reorder queue.');
-    }
+  const handleReorderQueue = (fromIndex: number, toIndex: number) =>
+    reorderQueueAction(fromIndex, toIndex, setQueueMessage);
+
+  const handleStartQueuedCampaign = (game: TwitchGame) => {
+    if (actionLoading) return;
+    return startQueuedCampaignAction(game, setQueueMessage, setActionLoading);
   };
 
   const runFarmingControl = useCallback(
@@ -259,6 +255,7 @@ export function usePopupActions({
     handleRemoveFromQueue,
     handleClearQueue,
     handleReorderQueue,
+    handleStartQueuedCampaign,
     handleStart,
     handlePause: useCallback(() => runFarmingControl('PAUSE_FARMING'), [runFarmingControl]),
     handleResume: useCallback(() => runFarmingControl('RESUME_FARMING'), [runFarmingControl]),

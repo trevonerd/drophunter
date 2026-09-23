@@ -2,12 +2,7 @@
 import { gameKey } from '../shared/game-selection';
 import type { AddToQueueReason } from '../shared/messages.ts';
 import type { TwitchDrop, TwitchGame } from '../types';
-import {
-  markQueueEntryManual,
-  queueContainsGame,
-  queueEntryMatchesGame,
-  reorderQueue,
-} from './queue-operations';
+import { pushGameToQueue, queueContainsGame, queueEntryMatchesGame, reorderQueue } from './queue-operations';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 function assertNever(value: never): never {
@@ -76,8 +71,7 @@ export async function handleAddToQueue(
       return assertNever(completion);
   }
 
-  state.appState.queue.push(targetGame);
-  markQueueEntryManual(state, targetGame);
+  pushGameToQueue(state, targetGame);
   await callbacks.onSaveState(state);
   return { success: true, added: true, game: targetGame, queueLength: state.appState.queue.length };
 }
@@ -140,6 +134,7 @@ export async function handleRemoveFromQueue(
   }
 
   const removed = Math.max(0, before - state.appState.queue.length);
+  if (state.appState.queue.length === 0) state.appState.queueResumeOnAvailability = false;
   const selectedGame = state.appState.selectedGame;
   if (
     selectedGame &&

@@ -19,6 +19,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onRefreshDropsData: refreshDropsData,
     onStopFarmingSession: stop,
     onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
+    onStopMonitoring: () => stopMonitoring(),
   });
   const {
     acquireStreamerForSelectedGame,

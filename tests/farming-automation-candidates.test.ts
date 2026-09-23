@@ -41,6 +41,33 @@ function favoriteSnapshot(
 }
 
 describe('farming automation candidate policy', () => {
+  test('manual queue order decides the next start while an earlier favorite can still preempt', () => {
+    const incumbent = game('incumbent', '2030-08-05T12:00:00.000Z', 'incumbent-game');
+    const manualFirst = game('manual-first', '2030-08-04T12:00:00.000Z', 'manual-game');
+    const favorite = game('favorite', '2030-08-02T12:00:00.000Z');
+    const snapshot = favoriteSnapshot([incumbent, manualFirst, favorite], {
+      favoriteGames: [{ gameId: favorite.id, lastKnownName: favorite.name, addedAt: 1 }],
+      manualQueueAuthorized: true,
+      queue: [incumbent, manualFirst, favorite],
+      queueEntryMetadataByKey: Object.fromEntries(
+        [incumbent, manualFirst, favorite].map((entry) => [
+          gameKey(entry),
+          { source: 'manual', reason: 'user-added', addedAt: 1 } satisfies QueueEntryMetadata,
+        ]),
+      ),
+    });
+    const ranked = rankFarmingAutomationCandidates(snapshot, deriveFarmingAutomationCandidates(snapshot));
+    expect(ranked.map((entry) => entry.game.campaignId)).toEqual(['incumbent', 'manual-first', 'favorite']);
+    expect(
+      decideFarmingAutomationTransition({
+        isRunning: true,
+        selectedGame: incumbent,
+        rankedCandidates: ranked,
+        lastPreemption: null,
+      }),
+    ).toEqual({ kind: 'preemption', campaign: favorite, fromCampaignKey: gameKey(incumbent) });
+  });
+
   test('unclassified campaigns stay ineligible even when a pending reward is visible', () => {
     // Given: an unclassified campaign with a pending watch-time reward and an available streamer.
     const loading: TwitchGame = {

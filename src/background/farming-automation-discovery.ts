@@ -21,6 +21,7 @@ export type FarmingAutomationDiscoveryResult =
       readonly snapshot: FarmingAutomationTwitchSnapshot;
       readonly directories: ReadonlyMap<string, FarmingAutomationDirectoryCacheEntry>;
       readonly availability: Readonly<Record<string, CampaignAvailability>>;
+      readonly directoryFailures: ReadonlySet<string>;
     }
   | {
       readonly kind: 'failed';
@@ -50,6 +51,7 @@ export async function discoverFarmingAutomationCandidates(
   const snapshot = state ? reconcileFarmingAutomationSnapshot(refreshed.snapshot, state) : refreshed.snapshot;
   const directories = new Map<string, FarmingAutomationDirectoryCacheEntry>();
   const availability: Record<string, CampaignAvailability> = {};
+  const directoryFailures = new Set<string>();
   const farmableGames = snapshot.games.filter((game) => {
     const rejectionReason =
       campaignRejectionReason(cloneFarmingAutomationGame(game), now) ??
@@ -78,7 +80,7 @@ export async function discoverFarmingAutomationCandidates(
   );
   for (const { game, directory } of directoryResponses) {
     if (directory === null) {
-      availability[gameKey(game)] = { eligibleStreamerCount: 0, updatedAt: now };
+      directoryFailures.add(gameKey(game));
       continue;
     }
     if (directory.kind === 'session-missing') {
@@ -91,5 +93,5 @@ export async function discoverFarmingAutomationCandidates(
     });
     availability[gameKey(game)] = { eligibleStreamerCount: streamers.length, updatedAt: now };
   }
-  return { kind: 'ready', snapshot, directories, availability };
+  return { kind: 'ready', snapshot, directories, availability, directoryFailures };
 }

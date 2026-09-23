@@ -1,9 +1,6 @@
-import { favoriteGameIdentityKeys, gameKey, isFavoriteGame } from '../shared/game-selection.ts';
+import { gameKey } from '../shared/game-selection.ts';
 import { rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
-import {
-  decideFarmingAutomationTransition,
-  planFarmingAutomationPolicy,
-} from './farming-automation-candidates.ts';
+import { decideFarmingAutomationTransition } from './farming-automation-candidates.ts';
 import type {
   FarmingAutomationFailureReason,
   FarmingAutomationOutcome,
@@ -21,17 +18,18 @@ import { shouldRefreshAvailabilityOnly } from './farming-automation-evaluator-ga
 import {
   cheapFarmingAutomationGate,
   cloneFarmingAutomationGame,
-  createFarmingAutomationPolicySnapshot,
   createFarmingAutomationTransitionRequest,
   deriveFarmingAutomationDeadline,
   expireFarmingAutomationManualWatch,
   factsWithFarmingAutomationManualWatch,
   farmingAutomationFingerprint,
   farmingAutomationStateFingerprint,
-  PARKED_CAMPAIGN_RETRY_MS,
 } from './farming-automation-gates.ts';
 import { reconcileParkedCampaigns } from './farming-automation-parked-campaigns.ts';
-import { rehabilitateCampaignsWithNewStreamers } from './farming-automation-stall-rehabilitation.ts';
+import {
+  buildFarmingAutomationQueuePlan,
+  resumeQueuedCampaignsWithAvailableStreamers,
+} from './farming-automation-queue-planning.ts';
 import { transitionAutomaticFarmingSession } from './session-lifecycle-transition.ts';
 import { pickStreamerForPreferences } from './streamer-selection.ts';
 
@@ -113,70 +111,24 @@ export function createFarmingAutomationEvaluator(
         : { kind: 'failed', reason: 'persistence-failed' };
     }
 
-    rehabilitateCampaignsWithNewStreamers(
-      dependencies.state,
-      discovery.snapshot.games.map(cloneFarmingAutomationGame),
-      discovery.directories,
-    );
+    resumeQueuedCampaignsWithAvailableStreamers(dependencies.state, discovery);
 
     const parked = reconcileParkedCampaigns(facts, discovery.availability, now);
     if (parked.changed) {
       facts = parked.facts;
       if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
     }
-    const parkedKeys = parked.parkedKeys;
-    const policySnapshot = createFarmingAutomationPolicySnapshot(
+    const { plan, queuePlan, availabilityRetryAt, needsAvailabilityRetry } = buildFarmingAutomationQueuePlan(
       dependencies.state,
-      discovery.snapshot,
-      discovery.availability,
-    );
-    const plan = planFarmingAutomationPolicy(
-      {
-        ...policySnapshot,
-        candidateFactsByKey: Object.fromEntries(
-          [...parkedKeys].map((key) => [key, { hasFarmableReward: false, isActive: false }]),
-        ),
-      },
+      discovery,
+      parked.parkedKeys,
       now,
     );
-    const availabilityRetryAt = now + PARKED_CAMPAIGN_RETRY_MS;
-    const retryMetadata = { ...plan.queue.queueEntryMetadataByKey };
-    let needsAvailabilityRetry = false;
-    for (const game of plan.queue.queue) {
-      const key = gameKey(game);
-      const metadata = retryMetadata[key];
-      if (metadata?.source !== 'favorite-auto') continue;
-      if ((discovery.availability[key]?.eligibleStreamerCount ?? 0) > 0) continue;
-      needsAvailabilityRetry = true;
-      retryMetadata[key] = {
-        ...metadata,
-        streamerRetryAt:
-          metadata.streamerRetryAt !== undefined && metadata.streamerRetryAt > now
-            ? metadata.streamerRetryAt
-            : availabilityRetryAt,
-        streamerRetryReason: 'no-streamers',
-        streamerRetryAttempts: (metadata.streamerRetryAttempts ?? 0) + 1,
-      };
-    }
-    const incompleteFavorite = discovery.snapshot.games.some(
-      (game) =>
-        game.rewardSummary === undefined &&
-        isFavoriteGame(
-          cloneFarmingAutomationGame(game),
-          favoriteGameIdentityKeys(dependencies.state.appState.favoriteGames),
-        ),
-    );
-    if (incompleteFavorite) needsAvailabilityRetry = true;
-    const plannedQueue =
-      needsAvailabilityRetry ||
-      Object.keys(retryMetadata).length !== Object.keys(plan.queue.queueEntryMetadataByKey).length
-        ? { ...plan.queue, queueEntryMetadataByKey: retryMetadata }
-        : plan.queue;
     if (
       !(await persistFarmingAutomationPlan({
         state: dependencies.state,
         persistence: dependencies.persistence,
-        queuePlan: plannedQueue,
+        queuePlan,
         availability: discovery.availability,
         now,
         automationNotify: dependencies.automationNotify,
@@ -223,6 +175,14 @@ export function createFarmingAutomationEvaluator(
       return { kind: 'unchanged', reason: 'manual-watch-active' };
     }
 
+    if (
+      dependencies.state.appState.isRunning &&
+      dependencies.state.appState.selectedGame &&
+      dependencies.state.appState.forcedCampaignKey === gameKey(dependencies.state.appState.selectedGame)
+    ) {
+      if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
+      return { kind: 'unchanged', reason: 'already-farming-best-campaign' };
+    }
     const decision = decideFarmingAutomationTransition({
       isRunning: dependencies.state.appState.isRunning && !dependencies.state.appState.isPaused,
       selectedGame: dependencies.state.appState.selectedGame,

@@ -46,6 +46,7 @@ export function MainView({
   onRemoveFromQueue,
   onClearQueue,
   onReorderQueue,
+  onStartQueuedCampaign,
   onStart,
 }: MainViewProps) {
   const model = createMainViewModel({
@@ -144,6 +145,8 @@ export function MainView({
                   onRemove={onRemoveFromQueue}
                   onClear={onClearQueue}
                   onReorder={onReorderQueue}
+                  onStartQueuedCampaign={onStartQueuedCampaign}
+                  actionLoading={actionLoading}
                 />
               </section>
             )}

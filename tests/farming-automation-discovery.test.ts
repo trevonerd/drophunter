@@ -198,5 +198,6 @@ test('isolates an unrelated directory failure from a valid favorite candidate', 
   expect(result.kind).toBe('ready');
   if (result.kind !== 'ready') return;
   expect(result.availability[gameKey(valid)]?.eligibleStreamerCount).toBe(1);
-  expect(result.availability[gameKey(failed)]?.eligibleStreamerCount).toBe(0);
+  expect(result.availability[gameKey(failed)]).toBeUndefined();
+  expect(result.directoryFailures.has(gameKey(failed))).toBe(true);
 });

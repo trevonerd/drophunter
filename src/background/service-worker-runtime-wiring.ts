@@ -95,6 +95,11 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
       reorderQueue: (message) => farmingSession.handleReorderQueue(message.payload),
       clearQueue: farmingSession.handleClearQueue,
       startFarming: (message) => farmingSession.handleStartFarming(message.payload),
+      startQueuedCampaign: (message) =>
+        dependencies.automation.startQueuedCampaign?.(message.payload.campaignKey) ?? {
+          success: false,
+          error: 'Queued campaign start is unavailable.',
+        },
       setSelectedGame: (message) => farmingSession.handleSetSelectedGame(message.payload),
       pauseFarming: userActions.pauseFarming,
       setAutoResumeOnStartup: (message) => settingsHandlers.handleSetAutoResumeOnStartup(message.payload),

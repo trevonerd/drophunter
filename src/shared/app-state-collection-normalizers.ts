@@ -83,6 +83,7 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
           streamerRetryReason,
           streamerRetryAttempts,
           streamerRetryCycles,
+          streamerWaitState,
           ...provenance
         } = metadata;
         const validRetry =
@@ -104,6 +105,7 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
             (streamerRetryReason === 'no-streamers' || streamerRetryReason === 'directory-unavailable')
               ? { streamerRetryReason }
               : {}),
+            ...(streamerWaitState === 'availability' ? { streamerWaitState } : {}),
           },
         ];
       }),

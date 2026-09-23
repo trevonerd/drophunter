@@ -31,6 +31,16 @@ export function createServiceWorkerFarmingAutomationRuntime(
   let initialization: Promise<void> | null = null;
 
   const publicAutomation: FarmingAutomation = {
+    async startQueuedCampaign(campaignKey) {
+      const result = await ready;
+      if (result.kind === 'failed') throw result.error;
+      return (
+        result.automation.startQueuedCampaign?.(campaignKey) ?? {
+          success: false,
+          error: 'Queued campaign start is unavailable.',
+        }
+      );
+    },
     async request(trigger) {
       const result = await ready;
       if (result.kind === 'failed') throw result.error;

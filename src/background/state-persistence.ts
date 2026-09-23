@@ -211,6 +211,8 @@ export async function resetStateForInactivity(
     isRunning: savedState.isRunning,
     isPaused: savedState.isPaused,
     manualQueueAuthorized: savedState.manualQueueAuthorized,
+    queueResumeOnAvailability: savedState.queueResumeOnAvailability,
+    forcedCampaignKey: savedState.forcedCampaignKey,
     farmingSessionOrigin: savedState.farmingSessionOrigin,
     lastStopReason: savedState.lastStopReason,
     lastStopMessage: savedState.lastStopMessage,

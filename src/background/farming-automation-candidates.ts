@@ -17,7 +17,12 @@ import type {
   TwitchDrop,
   TwitchGame,
 } from '../types/index.ts';
-import { type CampaignPriorityCandidate, expiryTime, orderCampaignCandidates } from './campaign-priority.ts';
+import {
+  type CampaignPriorityCandidate,
+  compareCampaignDeadlines,
+  expiryTime,
+  orderCampaignCandidates,
+} from './campaign-priority.ts';
 import type { FarmingAutomationLastPreemptionV1 } from './farming-automation-contracts.ts';
 import {
   type FavoriteCampaignQueuePlan,
@@ -167,15 +172,13 @@ export function rankFarmingAutomationCandidates(
     return candidate ? [candidate] : [];
   });
   if (!snapshot.manualQueueAuthorized) return favorites;
-  const manual = snapshot.queue.flatMap((game) => {
+  const queued = snapshot.queue.flatMap((game) => {
     const candidate = candidateByKey.get(gameKey(game));
-    return candidate && snapshot.queueEntryMetadataByKey[gameKey(game)]?.source === 'manual'
-      ? [candidate]
-      : [];
+    return candidate ? [candidate] : [];
   });
   return [
-    ...new Map([...favorites, ...manual].map((candidate) => [gameKey(candidate.game), candidate])).values(),
-  ].sort((left, right) => expiryTime(left.game) - expiryTime(right.game));
+    ...new Map([...queued, ...favorites].map((candidate) => [gameKey(candidate.game), candidate])).values(),
+  ];
 }
 
 export function planFarmingAutomationPolicy(
@@ -208,17 +211,28 @@ export function decideFarmingAutomationTransition(
   }
 
   const incumbent = input.selectedGame;
-  if (!incumbent || gameKey(incumbent) === gameKey(candidate.game)) {
+  if (!incumbent) {
     return { kind: 'unchanged', reason: 'already-running', campaign: candidate.game };
   }
 
   const incumbentExpiry = incumbent.endsAt ? Date.parse(incumbent.endsAt) : Number.NaN;
-  const candidateExpiry = candidate.game.endsAt ? Date.parse(candidate.game.endsAt) : Number.NaN;
+  const preemptingFavorite = input.rankedCandidates
+    .filter(
+      (entry) =>
+        entry.isFavorite &&
+        entry.eligibleStreamerCount > 0 &&
+        gameKey(entry.game) !== gameKey(incumbent) &&
+        Number.isFinite(incumbentExpiry) &&
+        expiryTime(entry.game) < incumbentExpiry,
+    )
+    .sort((left, right) => compareCampaignDeadlines(left.game, right.game))[0];
+  const candidateExpiry = preemptingFavorite
+    ? expiryTime(preemptingFavorite.game)
+    : expiryTime(candidate.game);
   const fromCampaignKey = gameKey(incumbent);
-  const toCampaignKey = gameKey(candidate.game);
+  const toCampaignKey = gameKey(preemptingFavorite?.game ?? candidate.game);
   const canPreempt =
-    candidate.isFavorite &&
-    candidate.eligibleStreamerCount > 0 &&
+    preemptingFavorite !== undefined &&
     Number.isFinite(incumbentExpiry) &&
     Number.isFinite(candidateExpiry) &&
     candidateExpiry < incumbentExpiry;
@@ -232,5 +246,5 @@ export function decideFarmingAutomationTransition(
     return { kind: 'unchanged', reason: 'preemption-already-applied', campaign: candidate.game };
   }
 
-  return { kind: 'preemption', campaign: candidate.game, fromCampaignKey };
+  return { kind: 'preemption', campaign: preemptingFavorite?.game ?? candidate.game, fromCampaignKey };
 }

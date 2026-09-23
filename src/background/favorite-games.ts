@@ -1,10 +1,5 @@
 import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
-import {
-  compareGamesForDisplayOrder,
-  gameCategoryIdentityKeys,
-  gameCategoryKey,
-  gameKey,
-} from '../shared/game-selection.ts';
+import { gameCategoryIdentityKeys, gameCategoryKey, gameKey } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import type {
   AppState,
@@ -16,11 +11,10 @@ import type {
   TwitchDrop,
   TwitchGame,
 } from '../types/index.ts';
-import { insertFavoriteCampaignByDeadline } from './campaign-priority.ts';
+import { compareCampaignDeadlines, insertCampaignByDeadline } from './campaign-priority.ts';
 import {
   automaticFavoriteQueueMetadata,
   categoryAliases,
-  favoriteDeadline,
   matchingFavoriteKey,
   planQueueMetadata,
   preferenceEntryMatches,
@@ -65,7 +59,7 @@ export function planFavoriteCampaignQueue(
   );
   const originalMetadata = planQueueMetadata(input.queue, input.queueEntryMetadataByKey, now);
   const canonical = new Map(input.availableGames.map((game) => [gameKey(game), game]));
-  const queue = input.queue
+  const retainedQueue = input.queue
     .map((game) => canonical.get(gameKey(game)) ?? game)
     .filter(
       (game) =>
@@ -73,6 +67,13 @@ export function planFavoriteCampaignQueue(
         (originalMetadata[gameKey(game)]?.source !== 'favorite-auto' ||
           gameCategoryIdentityKeys(game).some((key) => hiddenIds.has(key))),
     );
+  const selectedKey = input.isRunning && input.selectedGame ? gameKey(input.selectedGame) : null;
+  const active = selectedKey ? retainedQueue.find((game) => gameKey(game) === selectedKey) : undefined;
+  const retainedWithoutActive = retainedQueue.filter((game) => gameKey(game) !== selectedKey);
+  const queue =
+    input.campaignPriorityMode === 'priority-list-only'
+      ? [...retainedQueue]
+      : [...(active ? [active] : []), ...retainedWithoutActive.sort(compareCampaignDeadlines)];
   const queueEntryMetadataByKey = planQueueMetadata(queue, originalMetadata, now);
   for (const game of queue) {
     const key = gameKey(game);
@@ -101,17 +102,14 @@ export function planFavoriteCampaignQueue(
         ? [game]
         : [];
     })
-    .sort(
-      (left, right) =>
-        favoriteDeadline(left) - favoriteDeadline(right) || compareGamesForDisplayOrder(left, right),
-    );
+    .sort(compareCampaignDeadlines);
 
   const added: FavoriteCampaignAddition[] = [];
-  const automaticQueue: TwitchGame[] = [];
+  let plannedQueue = queue;
   for (const game of candidates) {
     if (queuedKeys.has(gameKey(game))) continue;
-    const insertion = insertFavoriteCampaignByDeadline(automaticQueue, game);
-    automaticQueue.splice(0, automaticQueue.length, ...insertion.queue);
+    const insertion = insertCampaignByDeadline(plannedQueue, game, active ? 1 : 0);
+    plannedQueue = insertion.queue;
     const key = gameKey(game);
     queueEntryMetadataByKey[key] = originalMetadata[key] ?? automaticFavoriteQueueMetadata(now);
     queuedKeys.add(key);
@@ -120,11 +118,6 @@ export function planFavoriteCampaignQueue(
     }
   }
 
-  const plannedQueue = [...automaticQueue, ...queue];
-  const selectedKey =
-    input.isRunning && input.selectedGame !== null && input.selectedGame !== undefined
-      ? gameKey(input.selectedGame)
-      : null;
   const activeCampaign = selectedKey
     ? (plannedQueue.find((campaign) => gameKey(campaign) === selectedKey) ?? input.selectedGame)
     : null;

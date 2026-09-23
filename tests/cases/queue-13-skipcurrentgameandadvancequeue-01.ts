@@ -223,60 +223,6 @@ export function registerQueue13Part01() {
       expect(state.appState.queueEntryMetadataByKey[gameKey(current)]?.streamerRetryCycles).toBe(1);
     });
 
-    test('stops after the final campaign exhausts its parked retry cycles', async () => {
-      // Given: the only queued campaign has already completed two parked retry cycles.
-      const current = createGame({
-        id: 'game-1',
-        campaignId: 'campaign-1',
-        name: 'No Live Game',
-      });
-      const state = createMinimalState();
-      state.appState.isRunning = true;
-      state.appState.autoStartFavoriteGames = true;
-      state.appState.manualQueueAuthorized = true;
-      state.appState.selectedGame = current;
-      state.appState.queue = [current];
-      state.appState.queueEntryMetadataByKey[gameKey(current)] = {
-        source: 'manual',
-        reason: 'user-added',
-        addedAt: 1,
-        streamerRetryCycles: 2,
-      };
-
-      let stopReason: string | null = null;
-      let stopMessage: string | null = null;
-      // When: another no-streamer result would otherwise park the campaign forever.
-      await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-        onStopFarmingSession: async (options) => {
-          stopReason = options.stopReason;
-          stopMessage = options.stopMessage;
-        },
-      });
-
-      // Then: farming stops without deleting the campaign or turning the stop into a manual one.
-      expect({
-        stopReason,
-        stopMessage,
-        queue: state.appState.queue.map(gameKey),
-        manualQueueAuthorized: state.appState.manualQueueAuthorized,
-        autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
-        activity: state.appState.automationActivity[0],
-      }).toEqual({
-        stopReason: 'queue-retries-exhausted',
-        stopMessage: expect.stringMatching(/repeated attempts.*no other campaign/iu),
-        queue: [gameKey(current)],
-        manualQueueAuthorized: false,
-        autoStartFavoriteGames: true,
-        activity: {
-          id: expect.stringContaining(`queue-recovery:no-streamers:${gameKey(current)}:`),
-          kind: 'queue-retries-exhausted',
-          at: expect.any(Number),
-          campaignId: current.campaignId,
-          message: expect.stringMatching(/no eligible streamer.*favorite auto-start/iu),
-        },
-      });
-    });
-
     test('replaces stale stalled recovery with a bounded streamer retry when all campaigns wait', async () => {
       const current = createGame({ id: 'game-1', name: 'No Live Game' });
       const state = createMinimalState({

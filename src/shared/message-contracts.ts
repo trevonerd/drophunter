@@ -46,6 +46,7 @@ export const RUNTIME_MESSAGE_TYPES = [
   'REORDER_QUEUE',
   'CLEAR_QUEUE',
   'START_FARMING',
+  'START_QUEUED_CAMPAIGN',
   'SET_SELECTED_GAME',
   'PAUSE_FARMING',
   'RESUME_FARMING',
@@ -136,6 +137,7 @@ export type RuntimeRequest =
   | { type: 'REMOVE_FROM_QUEUE'; payload: { game?: TwitchGame; gameId?: string; campaignId?: string } }
   | { type: 'REORDER_QUEUE'; payload: { fromIndex: number; toIndex: number } }
   | { type: 'START_FARMING'; payload: { game?: TwitchGame } }
+  | { type: 'START_QUEUED_CAMPAIGN'; payload: { campaignKey: string } }
   | { type: 'SET_SELECTED_GAME'; payload: { game: TwitchGame } }
   | { type: 'UPDATE_STATE'; payload: AppState }
   | { type: 'ENSURE_GAMES_CACHE'; payload?: { force?: boolean } }
@@ -175,6 +177,7 @@ export type RuntimeResponseByType = BooleanToggleResponseByType &
     REMOVE_FROM_QUEUE: BasicResponse & { removed?: number; queueLength?: number };
     REORDER_QUEUE: BasicResponse & { reordered?: boolean };
     START_FARMING: BasicResponse;
+    START_QUEUED_CAMPAIGN: BasicResponse;
     SET_SELECTED_GAME: BasicResponse & { selectedGame?: TwitchGame | null };
     UPDATE_STATE: BasicResponse;
     ACTIVATE_POPUP: BasicResponse & { result?: ActivationSyncResult; appState?: AppState };

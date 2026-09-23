@@ -206,6 +206,13 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
   switch (type) {
     case 'START_FARMING':
       return hasGamePayload(payload, true);
+    case 'START_QUEUED_CAMPAIGN':
+      return (
+        isRecord(payload) &&
+        typeof payload.campaignKey === 'string' &&
+        payload.campaignKey.trim().length > 0 &&
+        payload.campaignKey.length <= 512
+      );
     case 'ADD_TO_QUEUE':
       return hasGamePayload(payload);
     case 'SET_SELECTED_GAME':

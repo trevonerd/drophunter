@@ -6,6 +6,7 @@ import {
 } from '../shared/game-selection';
 import { normalizeToken } from '../shared/matching';
 import { TwitchGame } from '../types';
+import { compareCampaignDeadlines, insertCampaignByDeadline } from './campaign-priority.ts';
 import { CRASH_RECOVERY_GRACE_MS, QUEUE_MISSING_CONFIRM_THRESHOLD } from './constants';
 import { logDebug } from './logging';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -88,6 +89,8 @@ export function removeQueueEntriesForGame(state: ServiceWorkerState, game: Twitc
     (queuedGame) => !queueEntryMatchesGame(state, queuedGame, game),
   );
   deleteQueueEntryMetadata(state, removedGames);
+  if (state.appState.forcedCampaignKey === gameKey(game)) state.appState.forcedCampaignKey = null;
+  if (state.appState.queue.length === 0) state.appState.queueResumeOnAvailability = false;
   return before - state.appState.queue.length;
 }
 
@@ -131,6 +134,8 @@ export function normalizeQueueSelection(
     state.appState.queue = [];
     state.appState.queueEntryMetadataByKey = {};
     state.appState.queueAcquisitionRound = null;
+    state.appState.queueResumeOnAvailability = false;
+    state.appState.forcedCampaignKey = null;
     state.queueMissingStreak.clear();
     return;
   }
@@ -181,6 +186,10 @@ export function normalizeQueueSelection(
 
   state.appState.queue = normalized;
   reconcileQueueMetadata(state);
+  if (normalized.length === 0) {
+    state.appState.queueResumeOnAvailability = false;
+    state.appState.forcedCampaignKey = null;
+  }
   if (state.appState.isRunning && !state.appState.selectedGame && normalized.length > 0) {
     state.appState.selectedGame = normalized[0] ?? null;
   }
@@ -238,10 +247,22 @@ export function resolveGameFromState(state: ServiceWorkerState, game: TwitchGame
 }
 
 export function pushGameToQueue(state: ServiceWorkerState, game: TwitchGame) {
-  if (queueContainsGame(state, game)) {
-    return;
-  }
-  state.appState.queue = [...state.appState.queue, game];
+  if (queueContainsGame(state, game)) return;
+  const active = state.appState.queue.find(
+    (entry) =>
+      state.appState.isRunning &&
+      state.appState.selectedGame !== null &&
+      isSameQueueIdentity(entry, state.appState.selectedGame),
+  );
+  const queue = [
+    ...(active ? [active] : []),
+    ...state.appState.queue.filter((entry) => entry !== active).sort(compareCampaignDeadlines),
+  ];
+  const existingQueue =
+    state.appState.campaignPriorityMode === 'priority-list-only'
+      ? [...(active ? [active] : []), ...state.appState.queue.filter((entry) => entry !== active)]
+      : queue;
+  state.appState.queue = insertCampaignByDeadline(existingQueue, game, active ? 1 : 0).queue;
   markQueueEntryManual(state, game);
 }
 

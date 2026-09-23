@@ -13,6 +13,19 @@ type IsExact<A, B> =
     : never;
 
 describe('runtime message protocol', () => {
+  test('accepts only a bounded campaign identity for START_QUEUED_CAMPAIGN', () => {
+    expect(
+      isRuntimeRequest({
+        type: 'START_QUEUED_CAMPAIGN',
+        payload: { campaignKey: 'campaign:one' },
+      }),
+    ).toBe(true);
+    for (const campaignKey of ['', '   ', 'x'.repeat(513), 1, null]) {
+      expect(isRuntimeRequest({ type: 'START_QUEUED_CAMPAIGN', payload: { campaignKey } })).toBe(false);
+    }
+    expect(isRuntimeRequest({ type: 'START_QUEUED_CAMPAIGN', payload: {} })).toBe(false);
+  });
+
   test('validates REORDER_QUEUE payload', () => {
     expect(
       isRuntimeRequest({

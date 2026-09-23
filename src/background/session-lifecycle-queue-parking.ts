@@ -20,6 +20,8 @@ export function parkCampaignForStreamerRetry(
 ): void {
   const key = gameKey(game);
   const previousMetadata = state.appState.queueEntryMetadataByKey[key];
+  const cycles = reason === 'no-streamers' ? (previousMetadata?.streamerRetryCycles ?? 0) + 1 : 0;
+  const awaitingAvailability = reason === 'no-streamers' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES;
   markQueueCampaignAttempted(state, game);
   if (!state.appState.queue.some((queued) => gameKey(queued) === key)) state.appState.queue.push(game);
   state.appState.queueEntryMetadataByKey[key] = {
@@ -28,12 +30,11 @@ export function parkCampaignForStreamerRetry(
       reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
       addedAt: Date.now(),
     }),
-    streamerRetryAt: Date.now() + PARKED_QUEUE_RETRY_MS,
-    streamerRetryReason: reason,
+    streamerRetryAt: awaitingAvailability ? undefined : Date.now() + PARKED_QUEUE_RETRY_MS,
+    streamerRetryReason: awaitingAvailability ? undefined : reason,
     streamerRetryAttempts: undefined,
-    ...(reason === 'no-streamers'
-      ? { streamerRetryCycles: (previousMetadata?.streamerRetryCycles ?? 0) + 1 }
-      : {}),
+    streamerRetryCycles: reason === 'no-streamers' ? cycles : previousMetadata?.streamerRetryCycles,
+    streamerWaitState: awaitingAvailability ? 'availability' : undefined,
   };
 }
 
@@ -53,6 +54,7 @@ export async function waitForParkedQueue(
         (!restrictUnauthorizedManualContinuation || metadata?.source === 'favorite-auto') &&
         !isExpiredGame(game) &&
         !isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, game) &&
+        metadata?.streamerWaitState !== 'availability' &&
         (metadata?.streamerRetryReason !== 'no-streamers' ||
           (metadata.streamerRetryCycles ?? 0) < MAX_PARKED_QUEUE_RETRY_CYCLES)
       );
@@ -85,6 +87,33 @@ export async function waitForParkedQueue(
   );
   await options?.onSaveState?.();
   if (options?.isCurrent?.() === false) return true;
+  await options?.onSaveTimingState?.(state);
+  return true;
+}
+
+export async function suspendQueueUntilStreamerAvailable(
+  state: ServiceWorkerState,
+  options?: QueueProgressOptions,
+): Promise<boolean> {
+  if (
+    !state.appState.queue.some(
+      (game) => state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerWaitState === 'availability',
+    )
+  )
+    return false;
+  if (options?.isCurrent?.() === false) return false;
+  resetStreamTrackingState(state);
+  await options?.onStopMonitoring?.();
+  await options?.onCloseManagedTabIfSafe?.(state.appState.tabId);
+  if (options?.isCurrent?.() === false) return true;
+  state.appState.isRunning = false;
+  state.appState.isPaused = false;
+  state.appState.selectedGame = null;
+  state.appState.activeStreamer = null;
+  state.appState.tabId = null;
+  state.appState.queueResumeOnAvailability = true;
+  state.appState.forcedCampaignKey = null;
+  await options?.onSaveState?.();
   await options?.onSaveTimingState?.(state);
   return true;
 }

@@ -9,7 +9,7 @@ import {
   isWaitingForScheduledRewards,
   selectedFarmingCompleteGame,
 } from './session-lifecycle-completion.ts';
-import { waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
+import { suspendQueueUntilStreamerAvailable, waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
 import { refreshQueueHead } from './session-lifecycle-queue-refresh.ts';
 import { prepareNextEligibleQueueHead } from './session-lifecycle-queue-selection.ts';
 import type { QueueProgressOptions } from './session-lifecycle-types.ts';
@@ -67,6 +67,7 @@ export async function progressFarmingQueue(
   if (await waitForParkedQueue(state, request.restrictUnauthorizedManualContinuation, request.options)) {
     return { kind: 'waiting' };
   }
+  if (await suspendQueueUntilStreamerAvailable(state, request.options)) return { kind: 'waiting' };
   if (request.options?.isCurrent?.() === false) return { kind: 'cancelled' };
   return { kind: 'exhausted', terminalFarmingCompleteGame };
 }

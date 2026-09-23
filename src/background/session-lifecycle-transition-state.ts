@@ -69,7 +69,10 @@ export function candidateWorkingState(
   now: number,
 ): { readonly state: ServiceWorkerState; readonly candidate: TwitchGame } | null {
   const candidateKey = gameKey(request.candidate);
-  const incumbent = state.appState.selectedGame ? structuredClone(state.appState.selectedGame) : null;
+  const incumbent =
+    state.appState.isRunning && state.appState.selectedGame
+      ? structuredClone(state.appState.selectedGame)
+      : null;
   const games = request.snapshot.games.map(cloneGame);
   const candidate = games.find((game) => gameKey(game) === candidateKey);
   if (!candidate) return null;
@@ -101,7 +104,13 @@ export function candidateWorkingState(
   }
   working.appState.isRunning = true;
   working.appState.isPaused = false;
-  working.appState.farmingSessionOrigin = 'automatic';
+  working.appState.farmingSessionOrigin = request.manualOverride
+    ? 'manual'
+    : state.appState.queueResumeOnAvailability
+      ? (state.appState.farmingSessionOrigin ?? 'manual')
+      : 'automatic';
+  working.appState.queueResumeOnAvailability = false;
+  working.appState.forcedCampaignKey = request.manualOverride ? candidateKey : null;
   working.appState.activeStreamer = null;
   working.appState.completionNotified = false;
   working.appState.lastRotationReason = null;
@@ -111,8 +120,8 @@ export function candidateWorkingState(
   working.dropClaimRetryAtById.clear();
   working.dropClaimInFlight = false;
   working.monitorTickInFlight = false;
-  if (request.transition === 'preemption' && incumbent) {
-    const incumbentKey = gameKey(incumbent);
+  {
+    const incumbentKey = incumbent ? gameKey(incumbent) : null;
     const refreshedIncumbent = games.find((game) => gameKey(game) === incumbentKey) ?? incumbent;
     const projectedIncumbent =
       working.appState.availableGames.find((game) => gameKey(game) === incumbentKey) ?? refreshedIncumbent;
@@ -121,6 +130,9 @@ export function candidateWorkingState(
       return key !== candidateKey && key !== incumbentKey;
     });
     const retainedIncumbent =
+      incumbent &&
+      refreshedIncumbent &&
+      projectedIncumbent &&
       campaignRejectionReason(incumbent, now) === null &&
       campaignRejectionReason(projectedIncumbent, now) === null
         ? [refreshedIncumbent]
@@ -140,6 +152,19 @@ export function candidateWorkingState(
       }),
     );
   }
+  const selectedMetadata = working.appState.queueEntryMetadataByKey[candidateKey];
+  if (selectedMetadata) {
+    const {
+      streamerRetryAt: _retryAt,
+      streamerRetryReason: _retryReason,
+      streamerRetryAttempts: _attempts,
+      streamerRetryCycles: _cycles,
+      streamerWaitState: _waitState,
+      ...readyMetadata
+    } = selectedMetadata;
+    working.appState.queueEntryMetadataByKey[candidateKey] = readyMetadata;
+  }
+  if (request.manualOverride) working.appState.manualQueueAuthorized = true;
   working.tickGeneration += 1;
   return { state: working, candidate: selected };
 }

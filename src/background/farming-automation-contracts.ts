@@ -182,6 +182,7 @@ export type FarmingAutomationOutcome =
 
 export interface FarmingAutomation {
   request(trigger: FarmingAutomationTrigger): Promise<FarmingAutomationOutcome>;
+  startQueuedCampaign?(campaignKey: string): Promise<{ readonly success: boolean; readonly error?: string }>;
   /** Invalidates an in-flight evaluation before it can commit a later transition. */
   invalidate?(): void;
   snooze(reason: 'manual-pause' | 'manual-stop'): Promise<'snoozed' | 'persistence-failed'>;

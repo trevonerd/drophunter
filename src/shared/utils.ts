@@ -52,6 +52,8 @@ export const createInitialState = (): AppState => ({
   farmCategoryScope: 'all',
   autoStartFavoriteGames: true,
   manualQueueAuthorized: false,
+  queueResumeOnAvailability: false,
+  forcedCampaignKey: null,
   farmingSessionOrigin: null,
   queueEntryMetadataByKey: {},
   queueAcquisitionRound: null,
