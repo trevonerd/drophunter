@@ -93,19 +93,41 @@ export function orderCampaignCandidates(
     .map((candidate) => ({ ...candidate, positionReason: reasonFor(candidate, options.mode) }));
 }
 
-export function insertFavoriteCampaignByDeadline(
+export function compareCampaignDeadlines(left: TwitchGame, right: TwitchGame): number {
+  return expiryTime(left) - expiryTime(right) || gameKey(left).localeCompare(gameKey(right));
+}
+
+export function insertCampaignByDeadline(
   queue: readonly TwitchGame[],
-  favoriteCampaign: TwitchGame,
+  campaign: TwitchGame,
+  minimumIndex = 0,
 ): { readonly queue: TwitchGame[]; readonly position: number } {
-  const existingIndex = queue.findIndex((entry) => gameKey(entry) === gameKey(favoriteCampaign));
+  const existingIndex = queue.findIndex((entry) => gameKey(entry) === gameKey(campaign));
   if (existingIndex >= 0) {
     return { queue: [...queue], position: existingIndex + 1 };
   }
 
-  const favoriteExpiry = expiryTime(favoriteCampaign);
-  const insertionIndex = queue.findIndex((entry) => expiryTime(entry) > favoriteExpiry);
-  const index = insertionIndex >= 0 ? insertionIndex : queue.length;
+  const start = Math.max(0, Math.min(minimumIndex, queue.length));
+  let index = start;
+  let fewestInversions = Number.POSITIVE_INFINITY;
+  for (let candidateIndex = start; candidateIndex <= queue.length; candidateIndex += 1) {
+    let inversions = 0;
+    for (let existingIndex = start; existingIndex < queue.length; existingIndex += 1) {
+      const existing = queue[existingIndex];
+      if (!existing) continue;
+      const order = compareCampaignDeadlines(existing, campaign);
+      if ((existingIndex < candidateIndex && order > 0) || (existingIndex >= candidateIndex && order < 0)) {
+        inversions += 1;
+      }
+    }
+    if (inversions < fewestInversions) {
+      fewestInversions = inversions;
+      index = candidateIndex;
+    }
+  }
   const result = [...queue];
-  result.splice(index, 0, favoriteCampaign);
+  result.splice(index, 0, campaign);
   return { queue: result, position: index + 1 };
 }
+
+export const insertFavoriteCampaignByDeadline = insertCampaignByDeadline;

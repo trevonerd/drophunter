@@ -16,6 +16,8 @@ export type QueueProgressOptions = {
   readonly onRefreshDropsData?: (options: LifecycleRefreshOptions) => Promise<void>;
   readonly onSaveState?: () => Promise<void>;
   readonly onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
+  readonly onStopMonitoring?: () => void | Promise<void>;
+  readonly onCloseManagedTabIfSafe?: (tabId: number | null) => Promise<boolean>;
 };
 
 export type StopFarmingSessionOptions = {
@@ -42,8 +44,6 @@ export type AdvanceQueueOptions = QueueProgressOptions & {
   readonly onSendAlert?: (kind: 'drop-complete' | 'all-complete', message: string) => Promise<void>;
   readonly onQueueCompleteNotification?: (title: string, message: string) => Promise<void>;
   readonly isCampaignValidationCurrent?: () => boolean;
-  readonly onStopMonitoring?: () => void;
-  readonly onCloseManagedTabIfSafe?: (tabId: number | null) => Promise<boolean>;
   readonly onClearManagedTabOwnership?: () => void;
   readonly onApplyStopState?: (state: ServiceWorkerState, reason: string, message: string | null) => void;
   readonly onNotify?: (title: string, message: string) => Promise<void>;

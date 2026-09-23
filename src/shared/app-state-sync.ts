@@ -40,7 +40,10 @@ export function normalizeStoredAppState(value: unknown): AppState {
       (entry) => ![entry.gameId, ...(entry.identityKeys ?? [])].some((key) => hiddenIdentityKeys.has(key)),
     ),
     hiddenGames,
-    campaignPriorityMode: 'ending-soonest',
+    campaignPriorityMode:
+      value.campaignPriorityMode === 'ending-soonest' || value.campaignPriorityMode === 'priority-list-only'
+        ? value.campaignPriorityMode
+        : defaults.campaignPriorityMode,
     farmCategoryScope:
       value.farmCategoryScope === 'all' || value.farmCategoryScope === 'favorites-only'
         ? value.farmCategoryScope
@@ -50,6 +53,11 @@ export function normalizeStoredAppState(value: unknown): AppState {
         ? value.autoStartFavoriteGames
         : defaults.autoStartFavoriteGames,
     manualQueueAuthorized: value.manualQueueAuthorized === true,
+    queueResumeOnAvailability: value.queueResumeOnAvailability === true,
+    forcedCampaignKey:
+      typeof value.forcedCampaignKey === 'string' && value.forcedCampaignKey.trim().length > 0
+        ? value.forcedCampaignKey
+        : null,
     farmingSessionOrigin:
       value.farmingSessionOrigin === 'manual' || value.farmingSessionOrigin === 'automatic'
         ? value.farmingSessionOrigin

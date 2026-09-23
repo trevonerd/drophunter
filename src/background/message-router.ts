@@ -37,6 +37,7 @@ export interface RuntimeMessageHandlers {
   reorderQueue: RuntimeMessageHandler<'REORDER_QUEUE'>;
   clearQueue: RuntimeMessageHandler<'CLEAR_QUEUE'>;
   startFarming: RuntimeMessageHandler<'START_FARMING'>;
+  startQueuedCampaign: RuntimeMessageHandler<'START_QUEUED_CAMPAIGN'>;
   setSelectedGame: RuntimeMessageHandler<'SET_SELECTED_GAME'>;
   pauseFarming: RuntimeMessageHandler<'PAUSE_FARMING'>;
   setAutoResumeOnStartup: RuntimeMessageHandler<'SET_AUTO_RESUME_ON_STARTUP'>;
@@ -142,6 +143,8 @@ export function createRuntimeMessageListener(
         return respond(() => handlers.clearQueue(message, sender));
       case 'START_FARMING':
         return respond(() => handlers.startFarming(message, sender));
+      case 'START_QUEUED_CAMPAIGN':
+        return respond(() => handlers.startQueuedCampaign(message, sender));
       case 'SET_SELECTED_GAME':
         return respond(() => handlers.setSelectedGame(message, sender));
       case 'PAUSE_FARMING':

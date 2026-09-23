@@ -147,6 +147,8 @@ export function farmingAutomationStateFingerprint(state: ServiceWorkerState, gen
     sessionEpoch: currentFarmingSessionEpoch(state),
     enabled: app.autoStartFavoriteGames,
     manualQueueAuthorized: app.manualQueueAuthorized,
+    queueResumeOnAvailability: app.queueResumeOnAvailability,
+    forcedCampaignKey: app.forcedCampaignKey,
     queueAcquisitionRound: app.queueAcquisitionRound,
     notifications: app.notificationsEnabled,
     sessionPresent: state.twitchSessionCache !== null,
@@ -212,7 +214,12 @@ export function cheapFarmingAutomationGate(
     state.appState.queue.some(
       (game) => state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt !== undefined,
     );
-  if (!state.appState.autoStartFavoriteGames && !hasParkedCampaigns && !authorizedParkedQueue) {
+  if (
+    !state.appState.autoStartFavoriteGames &&
+    !hasParkedCampaigns &&
+    !authorizedParkedQueue &&
+    !state.appState.queueResumeOnAvailability
+  ) {
     return { kind: 'unchanged', reason: 'disabled' };
   }
   if (state.appState.isPaused && !state.appState.autoStartFavoriteGames) {

@@ -181,6 +181,8 @@ export function createFarmingSessionQueue(
     state.appState.queue = [];
     state.appState.queueEntryMetadataByKey = {};
     state.appState.queueAcquisitionRound = null;
+    state.appState.queueResumeOnAvailability = false;
+    state.appState.forcedCampaignKey = null;
     if (!state.appState.isRunning) {
       state.appState.selectedGame = null;
       state.appState.currentDrop = null;

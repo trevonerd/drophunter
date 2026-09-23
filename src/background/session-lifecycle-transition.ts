@@ -32,6 +32,7 @@ type TransitionBase = {
   readonly snapshot: FarmingAutomationTwitchSnapshot;
   readonly watchMode: WatchTransportMode;
   readonly expectedFingerprint: string;
+  readonly manualOverride?: boolean;
 };
 
 export type AutomaticFarmingSessionTransitionRequest = TransitionBase &

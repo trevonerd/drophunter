@@ -6,7 +6,7 @@ import type { CampaignPriorityMode, QueueEntryMetadata, TwitchGame } from '../..
 import { useQueueDragReorder } from '../hooks/useQueueDragReorder';
 import { isSameQueuedGame, queueGameIdentity } from '../queue-start';
 import { CampaignStatusIndicators } from './CampaignStatusIndicators';
-import { CloseIcon, GripIcon } from './icons';
+import { CloseIcon, GripIcon, PlayIcon } from './icons';
 
 const CLEAR_CONFIRM_TIMEOUT_MS = 3000;
 
@@ -21,6 +21,8 @@ export interface QueueChipsProps {
   onRemove: (game: TwitchGame) => void;
   onClear: () => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
+  onStartQueuedCampaign?: (game: TwitchGame) => void;
+  actionLoading?: boolean;
 }
 
 export function QueueChips({
@@ -33,6 +35,8 @@ export function QueueChips({
   onRemove,
   onClear,
   onReorder,
+  onStartQueuedCampaign,
+  actionLoading,
 }: QueueChipsProps) {
   const visibleQueueGames =
     isRunning && selectedGame
@@ -91,6 +95,15 @@ export function QueueChips({
     return metadata?.source === 'favorite-auto' ? 'Favorite · Added automatically' : 'Added manually';
   };
 
+  const availabilityLabel = (game: TwitchGame): string | null => {
+    const metadata = queueEntryMetadataByKey[gameKey(game)];
+    if (metadata?.streamerWaitState === 'availability') return 'Waiting for eligible streamer';
+    if (metadata?.streamerRetryAt && metadata.streamerRetryAt > now) {
+      return `Retry in ${Math.max(1, Math.ceil((metadata.streamerRetryAt - now) / 60_000))}m`;
+    }
+    return null;
+  };
+
   return (
     <section className="dh-group" aria-labelledby="queued-campaigns-heading">
       <div className="flex min-h-7 items-center justify-between gap-2">
@@ -119,11 +132,11 @@ export function QueueChips({
               key={queueGameIdentity(game)}
               onDragOver={canReorder ? handleDragOver(index) : undefined}
               onDrop={canReorder ? handleDrop(index) : undefined}
-              className={`grid min-h-11 w-full grid-cols-[1.5rem_minmax(0,1fr)_auto_1.5rem] items-center gap-1.5 rounded-lg border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] px-2 py-1.5 text-[11px] text-[color:var(--dh-text-soft)] ${
+              className={`grid min-h-11 w-full grid-cols-[1.5rem_minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] px-2 py-1.5 text-[11px] text-[color:var(--dh-text-soft)] ${
                 isDragging ? 'opacity-60' : ''
               } ${isDropTarget ? 'ring-1 ring-[color:var(--dh-accent)]' : ''}`}
               data-queue-item="campaign"
-              aria-label={`Queue position ${index + 1}: ${label}. ${provenanceLabel(game)}. ${formatEndsIn(game)}`}
+              aria-label={`Queue position ${index + 1}: ${label}. ${provenanceLabel(game)}. ${formatEndsIn(game)}${availabilityLabel(game) ? `. ${availabilityLabel(game)}` : ''}`}
             >
               {canReorder ? (
                 <button
@@ -161,7 +174,7 @@ export function QueueChips({
                   {label}
                 </span>
                 <span className="block truncate text-[10px] leading-snug text-[color:var(--dh-muted)]">
-                  {provenanceLabel(game)} · {formatEndsIn(game)}
+                  {provenanceLabel(game)} · {availabilityLabel(game) ?? formatEndsIn(game)}
                 </span>
               </span>
               <span className="flex min-w-0 items-center justify-end gap-1 overflow-hidden">
@@ -172,14 +185,26 @@ export function QueueChips({
                 )}
                 <CampaignStatusIndicators game={game} />
               </span>
-              <button
-                type="button"
-                onClick={() => onRemove(game)}
-                className="dh-focus inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--dh-muted)] hover:text-[color:var(--dh-text)]"
-                aria-label={`Remove ${label} from queue`}
-              >
-                <CloseIcon />
-              </button>
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onStartQueuedCampaign?.(game)}
+                  disabled={actionLoading || !onStartQueuedCampaign}
+                  className="dh-focus inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--dh-accent-strong)] hover:bg-[color:var(--dh-surface-2)] disabled:opacity-55"
+                  aria-label={`Start ${label} now`}
+                  title={`Start ${label} now`}
+                >
+                  <PlayIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemove(game)}
+                  className="dh-focus inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--dh-muted)] hover:text-[color:var(--dh-text)]"
+                  aria-label={`Remove ${label} from queue`}
+                >
+                  <CloseIcon />
+                </button>
+              </span>
             </li>
           );
         })}

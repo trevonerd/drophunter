@@ -232,6 +232,7 @@ The following primitives and repeated components are the reusable surface langua
 - Spacing: selector cluster gap 6px; control padding 8px/6px; queue rows use a consistent compact height, 8px rhythm, 8px radius, and one-line truncating text regions.
 - States: default, hover border, focus ring, action loading, queue message, drag target ring, clear confirmation. Queue feedback remains visible for six seconds; a newer message replaces it and restarts dismissal. Future rows remain reorderable and removable while farming; only the current campaign is immutable.
 - Accessibility: select has aria-label=Campaign; queue/remove/clear/reorder controls have explicit labels; reorder also supports arrow keys; queueMessage is role=status aria-live=polite aria-atomic=true.
+- A queued row may show `Retry in Xm` or `Waiting for eligible streamer` as plain metadata. Its compact Play icon is a separate 24px action with an explicit `Start ... now` label, uses the existing focus ring, and reports failures through queueMessage. The label describes observed availability without claiming to know the event schedule.
 - Queue cleanup notice: the compact disclosure keeps its warning surface and adds the existing 28px `CloseIcon` action. Dismissal is stored by activity ID across popup openings; a newer cleanup ID appears normally. The live status content excludes the interactive close button, whose accessible name is `Dismiss queue update`; the control uses the existing icon-button hover, press, focus, and reduced-motion behavior.
 
 ### Farming actions and GameCampaignBrowser

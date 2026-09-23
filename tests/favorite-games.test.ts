@@ -102,7 +102,7 @@ describe('favorite games', () => {
       metadata: state.queueEntryMetadataByKey,
       added: discovery.added.map((entry) => entry.game.campaignId),
     }).toEqual({
-      queue: ['campaign-next', 'campaign-auto', 'campaign-manual'],
+      queue: ['campaign-next', 'campaign-manual', 'campaign-auto'],
       metadata: {
         [gameKey(redundantAuto)]: { source: 'favorite-auto', addedAt: 12, reason: 'favorite-discovered' },
         [gameKey(nextAuto)]: { source: 'favorite-auto', addedAt: 200, reason: 'favorite-discovered' },

@@ -36,5 +36,6 @@ export interface MainViewProps {
   onRemoveFromQueue: (game: TwitchGame) => void;
   onClearQueue: () => void;
   onReorderQueue: (fromIndex: number, toIndex: number) => void;
+  onStartQueuedCampaign: (game: TwitchGame) => void;
   onStart: () => void;
 }

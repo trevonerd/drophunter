@@ -28,6 +28,7 @@ type FarmingSessionStreamingDependencies = {
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<RefreshDropsOutcome>;
   readonly onStopFarmingSession: (options: StopFarmingSessionRequest) => Promise<void>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
+  readonly onStopMonitoring: () => void;
 };
 
 export type FarmingSessionStreaming = {
@@ -101,6 +102,11 @@ export function createFarmingSessionStreaming(
       onOpenStreamer: acquireStreamerForSelectedGame,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
+      onStopMonitoring: async () => {
+        dependencies.onStopMonitoring();
+        await adapters.watchTransport?.stop();
+      },
+      onCloseManagedTabIfSafe: adapters.closeManagedTabIfSafe,
       onStopFarmingSession: dependencies.onStopFarmingSession,
       onNotify: adapters.notify,
     });

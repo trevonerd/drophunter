@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueueChips } from '../src/popup/components/QueueChips';
+import { gameKey } from '../src/shared/game-selection.ts';
 import { campaign } from './fixtures/popup-automation';
 
 test('queue chips show provenance and allow direct reorder from automatic modes', () => {
@@ -73,5 +74,36 @@ test('priority list mode keeps keyboard and drag reorder affordances', () => {
   );
 
   expect(markup).toContain('draggable="true"');
+  expect(markup).toContain('Use arrow keys to move.');
+});
+
+test('queued campaign shows bounded retry and availability wait with an accessible start control', () => {
+  const cooling = campaign({ campaignId: 'cooling', campaignName: 'Cooling' });
+  const waiting = campaign({ campaignId: 'waiting', campaignName: 'Waiting' });
+  const now = Date.parse('2030-08-03T10:00:00.000Z');
+  const markup = renderToStaticMarkup(
+    <QueueChips
+      selectedGame={null}
+      queueGames={[cooling, waiting]}
+      isRunning={false}
+      now={now}
+      queueEntryMetadataByKey={{
+        [gameKey(cooling)]: {
+          source: 'manual', reason: 'user-added', addedAt: 1, streamerRetryAt: now + 60_000,
+        },
+        [gameKey(waiting)]: {
+          source: 'manual', reason: 'user-added', addedAt: 1, streamerWaitState: 'availability',
+        },
+      }}
+      onRemove={() => {}}
+      onClear={() => {}}
+      onReorder={() => {}}
+      onStartQueuedCampaign={() => {}}
+    />,
+  );
+  expect(markup).toContain('Retry in 1m');
+  expect(markup).toContain('Waiting for eligible streamer');
+  expect(markup).toContain('Start Cyberpunk 2077 · Cooling now');
+  expect(markup).toContain('Start Cyberpunk 2077 · Waiting now');
   expect(markup).toContain('Use arrow keys to move.');
 });

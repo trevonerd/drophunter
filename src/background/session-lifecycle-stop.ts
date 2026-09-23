@@ -38,6 +38,22 @@ export async function stopFarmingSession(
   if (!preserveQueueContext) {
     resetQueueAcquisitionRound(state);
     state.appState.manualQueueAuthorized = false;
+    state.appState.queueResumeOnAvailability = false;
+    state.appState.forcedCampaignKey = null;
+    state.appState.queueEntryMetadataByKey = Object.fromEntries(
+      Object.entries(state.appState.queueEntryMetadataByKey).map(([key, metadata]) => {
+        if (metadata.streamerWaitState !== 'availability') return [key, metadata];
+        const {
+          streamerWaitState: _waitState,
+          streamerRetryCycles: _cycles,
+          streamerRetryAt: _retryAt,
+          streamerRetryReason: _retryReason,
+          streamerRetryAttempts: _attempts,
+          ...ready
+        } = metadata;
+        return [key, ready];
+      }),
+    );
   }
   if (options?.onStopMonitoring) {
     options.onStopMonitoring();
@@ -120,6 +136,8 @@ export async function finalizeCompletedQueue(
   state.appState.isRunning = false;
   state.appState.isPaused = false;
   state.appState.manualQueueAuthorized = false;
+  state.appState.queueResumeOnAvailability = false;
+  state.appState.forcedCampaignKey = null;
   state.appState.farmingSessionOrigin = null;
   state.appState.selectedGame = context.terminalFarmingCompleteGame;
   state.appState.completionNotified = false;

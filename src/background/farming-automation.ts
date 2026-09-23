@@ -11,6 +11,7 @@ import {
   type FarmingAutomationManualWatchController,
 } from './farming-automation-manual-watch.ts';
 import { createFarmingAutomationNotificationBatch } from './farming-automation-notifications.ts';
+import { startQueuedCampaign } from './farming-automation-queued-start.ts';
 import {
   createFarmingAutomationScheduler,
   type FarmingAutomationEvaluateBatch,
@@ -114,6 +115,11 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
   const scheduler = createFarmingAutomationScheduler(evaluateBatch);
   return {
     request: scheduler.request,
+    async startQueuedCampaign(campaignKey) {
+      runtime.generation += 1;
+      scheduler.invalidate();
+      return startQueuedCampaign(dependencies, runtime, campaignKey);
+    },
     invalidate: () => {
       runtime.generation += 1;
       scheduler.invalidate();

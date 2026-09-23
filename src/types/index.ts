@@ -1,4 +1,14 @@
+import type { QueueAcquisitionRound, QueueEntryMetadata } from './queue.ts';
 import type { StalledCampaignBlock } from './stalled-campaign';
+
+export type {
+  FavoriteAutoStartDisposition,
+  FavoriteAutoStartDispositionReason,
+  FavoriteAutoStartDispositionStatus,
+  QueueAcquisitionRound,
+  QueueEntryMetadata,
+  QueueEntrySource,
+} from './queue.ts';
 
 export type RewardAcquisitionMethod = 'watch-time' | 'subscription' | 'other-event' | 'unknown';
 export type RewardKind = 'in-game' | 'twitch-badge' | 'twitch-emote' | 'unknown';
@@ -73,19 +83,6 @@ export type StreamerSelectionMode = 'low-view' | 'random' | 'top-viewers';
 export type CampaignPriorityMode = 'ending-soonest' | 'lowest-availability' | 'priority-list-only';
 export type FarmCategoryScope = 'all' | 'favorites-only';
 export type GamePreference = 'normal' | 'favorite' | 'hidden';
-export type FavoriteAutoStartDispositionStatus = 'started' | 'queued' | 'waiting' | 'disabled';
-export type FavoriteAutoStartDispositionReason =
-  | 'session'
-  | 'campaign-data'
-  | 'streamer'
-  | 'manual-watch'
-  | 'refresh-failed';
-export interface FavoriteAutoStartDisposition {
-  readonly status: FavoriteAutoStartDispositionStatus;
-  readonly reason?: FavoriteAutoStartDispositionReason;
-  readonly retryAt?: number;
-}
-export type QueueEntrySource = 'manual' | 'favorite-auto';
 export type FarmingSessionOrigin = 'manual' | 'automatic';
 export type WatchTransportMode = 'managed-tab' | 'tabless';
 export type TwitchSessionSyncState =
@@ -141,21 +138,6 @@ export interface HiddenGame {
   readonly lastKnownName: string;
   readonly hiddenAt: number;
   readonly identityKeys?: readonly string[];
-}
-
-export interface QueueEntryMetadata {
-  readonly source: QueueEntrySource;
-  readonly addedAt: number;
-  readonly reason: 'user-added' | 'favorite-discovered' | 'retained-after-hide';
-  readonly streamerRetryAt?: number;
-  readonly streamerRetryReason?: 'no-streamers' | 'directory-unavailable';
-  readonly streamerRetryAttempts?: number;
-  readonly streamerRetryCycles?: number;
-}
-
-export interface QueueAcquisitionRound {
-  readonly attemptedCampaignKeys: readonly string[];
-  readonly nextRoundAt: number | null;
 }
 
 export type { StalledCampaignBlock } from './stalled-campaign';
@@ -236,6 +218,8 @@ export interface AppState {
   farmCategoryScope: FarmCategoryScope;
   autoStartFavoriteGames: boolean;
   manualQueueAuthorized: boolean;
+  queueResumeOnAvailability: boolean;
+  forcedCampaignKey: string | null;
   farmingSessionOrigin: FarmingSessionOrigin | null;
   queueEntryMetadataByKey: Record<string, QueueEntryMetadata>;
   queueAcquisitionRound: QueueAcquisitionRound | null;

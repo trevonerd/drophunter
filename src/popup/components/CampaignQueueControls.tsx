@@ -13,6 +13,8 @@ export function CampaignQueueControls({
   onRemove,
   onClear,
   onReorder,
+  onStartQueuedCampaign,
+  actionLoading,
 }: {
   readonly selectedGame: TwitchGame | null;
   readonly queueGames: TwitchGame[];
@@ -25,6 +27,8 @@ export function CampaignQueueControls({
   readonly onRemove: (game: TwitchGame) => void;
   readonly onClear: () => void;
   readonly onReorder: (fromIndex: number, toIndex: number) => void;
+  readonly onStartQueuedCampaign: (game: TwitchGame) => void;
+  readonly actionLoading: boolean;
 }) {
   return (
     <>
@@ -44,6 +48,8 @@ export function CampaignQueueControls({
         onRemove={onRemove}
         onClear={onClear}
         onReorder={onReorder}
+        onStartQueuedCampaign={onStartQueuedCampaign}
+        actionLoading={actionLoading}
       />
     </>
   );

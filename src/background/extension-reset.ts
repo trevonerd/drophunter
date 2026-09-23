@@ -6,6 +6,8 @@ interface ExtensionUpdateIntent {
   readonly wasRunning: boolean;
   readonly isPaused: boolean;
   readonly manualQueueAuthorized: AppState['manualQueueAuthorized'];
+  readonly queueResumeOnAvailability: AppState['queueResumeOnAvailability'];
+  readonly forcedCampaignKey: AppState['forcedCampaignKey'];
   readonly farmingSessionOrigin: AppState['farmingSessionOrigin'];
   readonly lastStopReason: AppState['lastStopReason'];
   readonly lastStopMessage: AppState['lastStopMessage'];
@@ -26,6 +28,8 @@ export function captureExtensionUpdateIntent(appState: AppState): ExtensionUpdat
       (appState.isRunning || appState.wasRunning),
     isPaused: appState.isPaused,
     manualQueueAuthorized: appState.manualQueueAuthorized,
+    queueResumeOnAvailability: appState.queueResumeOnAvailability,
+    forcedCampaignKey: appState.forcedCampaignKey,
     farmingSessionOrigin: appState.farmingSessionOrigin,
     lastStopReason: appState.lastStopReason,
     lastStopMessage: appState.lastStopMessage,
@@ -67,6 +71,8 @@ export function createExtensionUpdateAppState(
     selectedGame: intent.selectedGame,
     queueEntryMetadataByKey: intent.queueEntryMetadataByKey,
     manualQueueAuthorized: intent.manualQueueAuthorized,
+    queueResumeOnAvailability: intent.queueResumeOnAvailability,
+    forcedCampaignKey: intent.forcedCampaignKey,
     farmingSessionOrigin: intent.farmingSessionOrigin,
     isPaused: intent.isPaused,
     isRunning: intent.isPaused,

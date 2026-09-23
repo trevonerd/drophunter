@@ -47,6 +47,7 @@ export function prepareNextEligibleQueueHead(
     const metadata = state.appState.queueEntryMetadataByKey[gameKey(game)];
     return (
       (!restrictUnauthorizedManualContinuation || metadata?.source === 'favorite-auto') &&
+      metadata?.streamerWaitState !== 'availability' &&
       !isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, game)
     );
   });

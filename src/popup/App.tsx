@@ -104,6 +104,7 @@ function App() {
         onRemoveFromQueue: (game) => void actions.handleRemoveFromQueue(game),
         onClearQueue: () => void actions.handleClearQueue(),
         onReorderQueue: (fromIndex, toIndex) => void actions.handleReorderQueue(fromIndex, toIndex),
+        onStartQueuedCampaign: (game) => void actions.handleStartQueuedCampaign(game),
         onStart: actions.handleStart,
       }}
       settingsViewProps={{
