@@ -58,8 +58,8 @@ describe('manifest permissions', () => {
 
     expect(releaseVersion).toEqual({
       channel: 'beta',
-      manifestVersion: '3.99.0.38',
-      versionName: '4.0.0-beta.38',
+      manifestVersion: '3.99.0.39',
+      versionName: '4.0.0-beta.39',
     });
   });
 
