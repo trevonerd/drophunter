@@ -10,11 +10,13 @@ import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
 import { createFarmingSessionStallRecovery } from './farming-session-stall-recovery.ts';
 import { createPersistentRecoveryHandler } from './persistent-recovery-notification.ts';
+import { clearRecoveryState } from './recovery-state.ts';
 import { skipCurrentGameAndAdvanceQueue, skipCurrentGameDueToStall } from './session-lifecycle.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StopFarmingSessionRequest } from './session-lifecycle-types.ts';
 import { blockSelectedCampaignForStall } from './stalled-campaign-blocking.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
+import type { StreamRotationReason } from './stream-rotation.ts';
 import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from './stream-rotation.ts';
 import {
   acquireStreamerForSelectedGame as acquireStreamer,
@@ -43,6 +45,10 @@ export type FarmingSessionStreaming = {
     isCurrent?: () => boolean,
   ) => Promise<StalledProgressRecoveryResult>;
   readonly rotateStreamerIfInvalid: (isCurrent?: () => boolean) => Promise<void>;
+  readonly rotateStreamerForTransportFailure: (
+    reason: StreamRotationReason,
+    isCurrent?: () => boolean,
+  ) => Promise<void>;
 };
 
 export function createFarmingSessionStreaming(
@@ -236,6 +242,21 @@ export function createFarmingSessionStreaming(
     });
   }
 
+  async function rotateStreamerForTransportFailure(
+    reason: StreamRotationReason,
+    isCurrent: () => boolean = () => true,
+  ): Promise<void> {
+    if (state.appState.recoveryReason === 'stalled-progress') clearRecoveryState(state);
+    await rotateStreamer(state, reason, {
+      isCurrent,
+      onOpenStreamer: acquireStreamerForSelectedGame,
+      onSaveState: () => adapters.saveState(state),
+      onSaveTimingState: adapters.saveTimingState,
+      onEnterPersistentRecovery: enterPersistentRecovery,
+      onSkipCurrentGame: handleRecoverySkip,
+    });
+  }
+
   return {
     acquireStreamerForSelectedGame,
     ensureWorkspaceForSelectedGame,
@@ -243,5 +264,6 @@ export function createFarmingSessionStreaming(
     handleRecoverySkip,
     recoverStalledProgress,
     rotateStreamerIfInvalid,
+    rotateStreamerForTransportFailure,
   };
 }

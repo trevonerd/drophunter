@@ -118,6 +118,7 @@ describe('farming monitoring recovery', () => {
       ),
       {
         onRotateStreamerIfInvalid: async () => {},
+        onRotateStreamerForTransportFailure: async () => {},
         onAcquireStreamerForSelectedGame: async () => {
           acquisitions += 1;
           return true;
@@ -131,6 +132,62 @@ describe('farming monitoring recovery', () => {
     expect(state.appState.selectedGame?.campaignId).toBe('campaign');
     expect(state.appState.queue).toHaveLength(1);
   });
+
+  for (const reason of [
+    'stream-offline',
+    'wrong-channel',
+    'wrong-game',
+    'drops-inactive',
+    'playback-inactive',
+  ] as const) {
+    test(`replaces the Hidden streamer after a confirmed ${reason} heartbeat`, async () => {
+      const state = runningState();
+      const currentStreamer = {
+        id: 'streamer-a',
+        name: 'streamer-a',
+        displayName: 'Streamer A',
+        isLive: true,
+      };
+      const replacementStreamer = {
+        id: 'streamer-b',
+        name: 'streamer-b',
+        displayName: 'Streamer B',
+        isLive: true,
+      };
+      state.appState.activeStreamer = currentStreamer;
+      state.appState.watchTransportMode = 'tabless';
+      const failedHealth = createWatchHealth('tabless', 'failed', reason, Date.now, {
+        consecutiveFailures: 10,
+        shouldFallback: true,
+      });
+      const healthyHealth = createWatchHealth('tabless', 'healthy', 'started', Date.now);
+      const starts: string[] = [];
+      const session = createFarmingSession(
+        state,
+        createFarmingSessionAdapters({
+          fetchDirectoryStreamersFromApi: async () =>
+            Object.assign([currentStreamer, replacementStreamer], { languageFilterApplied: true }),
+          watchTransport: {
+            start: async (streamer) => {
+              starts.push(streamer.name);
+              return healthyHealth;
+            },
+            tick: async () => failedHealth,
+            stop: async () => {},
+            setPreference: async () => {},
+          },
+        }),
+      );
+
+      await session.checkDropProgress();
+
+      expect(starts).toEqual(['streamer-b']);
+      expect(state.appState.activeStreamer?.name).toBe('streamer-b');
+      expect(state.appState.lastRotationReason).toBe(
+        reason === 'stream-offline' ? 'offline' : reason === 'playback-inactive' ? 'open-failed' : reason,
+      );
+    });
+  }
 
   test('reacquires when a restored Hidden session has neither a watcher nor a streamer', async () => {
     const state = runningState();

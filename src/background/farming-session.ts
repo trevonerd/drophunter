@@ -27,9 +27,11 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     handleAuthoritativeCampaignUnavailable,
     recoverStalledProgress,
     rotateStreamerIfInvalid,
+    rotateStreamerForTransportFailure,
   } = streaming;
   const monitoring = createFarmingSessionMonitoring(context, {
     onRotateStreamerIfInvalid: rotateStreamerIfInvalid,
+    onRotateStreamerForTransportFailure: rotateStreamerForTransportFailure,
     onAcquireStreamerForSelectedGame: acquireStreamerForSelectedGame,
     onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
     onRecoverStalledProgress: recoverStalledProgress,

@@ -14,9 +14,14 @@ import { queueCleanupNotification } from './queue-availability-cleanup-activity.
 import { normalizeQueueSelection } from './queue-operations.ts';
 import { applyApiBackoffRecoveryState } from './recovery-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
+import type { StreamRotationReason } from './stream-rotation.ts';
 
 type FarmingSessionMonitoringDependencies = {
   readonly onRotateStreamerIfInvalid: (isCurrent?: () => boolean) => Promise<void>;
+  readonly onRotateStreamerForTransportFailure: (
+    reason: StreamRotationReason,
+    isCurrent?: () => boolean,
+  ) => Promise<void>;
   readonly onAcquireStreamerForSelectedGame: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
   readonly onRecoverStalledProgress: (
@@ -24,6 +29,23 @@ type FarmingSessionMonitoringDependencies = {
     isCurrent?: () => boolean,
   ) => Promise<StalledProgressRecoveryResult>;
 };
+
+function tablessTransportRotationReason(
+  reason: import('../types/index.ts').WatchHealthReason,
+): StreamRotationReason | null {
+  switch (reason) {
+    case 'stream-offline':
+      return 'offline';
+    case 'wrong-channel':
+    case 'wrong-game':
+    case 'drops-inactive':
+      return reason;
+    case 'playback-inactive':
+      return 'open-failed';
+    default:
+      return null;
+  }
+}
 
 export type FarmingSessionMonitoring = {
   readonly checkDropProgress: () => Promise<void>;
@@ -105,10 +127,21 @@ export function createFarmingSessionMonitoring(
       state.appState.recoveryReason === 'stalled-progress' && context.now() >= state.recoveryBackoffUntil;
     const tablessStallDetected =
       health?.mode === 'tabless' && health.reason === 'stalled-progress' && health.shouldFallback;
+    const tablessRotationReason =
+      health?.mode === 'tabless' && health.shouldFallback
+        ? tablessTransportRotationReason(health.reason)
+        : null;
     const tablessRecoveryDue =
       stalledRecoveryDue &&
       state.appState.tabId === null &&
       (health?.mode === 'tabless' || state.appState.watchTransportMode === 'tabless');
+    if (tablessRotationReason) {
+      const previousCampaignKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+      await dependencies.onRotateStreamerForTransportFailure(tablessRotationReason, isCurrent);
+      return (
+        previousCampaignKey !== (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null)
+      );
+    }
     if (tablessStallDetected || tablessRecoveryDue) {
       const result = await dependencies.onRecoverStalledProgress({ kind: 'tabless' }, isCurrent);
       return result.kind === 'selection-changed';
