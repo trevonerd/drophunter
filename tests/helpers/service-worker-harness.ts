@@ -18,6 +18,9 @@ const originalFetch = globalThis.fetch;
 export const chromeMocks = setupChromeMocks();
 const defaultQueryTabs = chromeMocks.chrome.tabs.query;
 const defaultExecuteScript = chromeMocks.chrome.scripting.executeScript;
+const closedManagedTabIds = new Set<number>();
+let nextManagedTabId = 999;
+let activeManagedPages: ReturnType<typeof installManagedWatchPages> | null = null;
 setTimingSaveDebounceMsForTests(0);
 
 export const serviceWorkerModule = await import('../../src/background/service-worker.ts');
@@ -25,16 +28,17 @@ serviceWorkerModule.startServiceWorker();
 
 export function installActiveTabMocks() {
   const pages = installManagedWatchPages(chromeMocks);
+  activeManagedPages = pages;
   const executePageScript = chromeMocks.chrome.scripting.executeScript;
   const getPage = chromeMocks.chrome.tabs.get;
-  let nextTabId = 999;
   chromeMocks.chrome.tabs.query = defaultQueryTabs;
   chromeMocks.chrome.tabs.create = async ({ url }) =>
-    pages.add(url ?? 'https://www.twitch.tv/test-streamer', nextTabId++);
-  chromeMocks.chrome.tabs.get = async (tabId) =>
-    pages.pages.has(tabId)
-      ? getPage(tabId)
-      : { id: tabId, windowId: 1, url: 'https://www.twitch.tv/test-streamer', status: 'complete' };
+    pages.add(url ?? 'https://www.twitch.tv/test-streamer', nextManagedTabId++);
+  chromeMocks.chrome.tabs.get = async (tabId) => {
+    if (pages.pages.has(tabId)) return getPage(tabId);
+    if (closedManagedTabIds.has(tabId)) throw new Error(`tab ${tabId} was closed`);
+    return { id: tabId, windowId: 1, url: 'https://www.twitch.tv/test-streamer', status: 'complete' };
+  };
   chromeMocks.chrome.scripting.executeScript = async (options) => {
     if (options.func === writeManagedWatchMarkerInPage || options.func === readManagedWatchMarkerInPage)
       return executePageScript(options);
@@ -105,7 +109,21 @@ export async function beforeEachServiceWorkerTest() {
   await resetWorkerState();
 }
 
-export function afterEachServiceWorkerTest() {
+export async function afterEachServiceWorkerTest() {
+  const pages = activeManagedPages;
+  activeManagedPages = null;
+  if (pages) {
+    const closedTabIds = [...pages.pages.keys()];
+    for (const tabId of closedTabIds) {
+      pages.pages.delete(tabId);
+      closedManagedTabIds.add(tabId);
+    }
+    await Promise.all(
+      closedTabIds.flatMap((tabId) =>
+        chromeMocks.chrome.tabs.onRemoved._handlers.map((handler) => Promise.resolve(handler(tabId))),
+      ),
+    );
+  }
   chromeMocks.storage.session._store.clear();
 }
 

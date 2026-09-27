@@ -3,7 +3,7 @@ import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createWatchTransportCoordinator } from '../src/background/watch-transport-coordinator.ts';
 
 describe('watch transport restoration', () => {
-  test('releases a persisted managed fallback when the preference is tabless', async () => {
+  test('retains a persisted managed fallback tab when the preference is tabless', async () => {
     const state = createServiceWorkerState();
     state.appState.isRunning = true;
     state.appState.selectedGame = {
@@ -51,7 +51,7 @@ describe('watch transport restoration', () => {
     });
 
     expect(restored).toBe(true);
-    expect(closes).toBe(1);
+    expect(closes).toBe(0);
     expect(opens).toBe(0);
     expect(state.appState.tabId).toBeNull();
     expect(state.appState.watchTransportMode).toBe('tabless');

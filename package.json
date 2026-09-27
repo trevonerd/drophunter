@@ -72,7 +72,7 @@
     "@vitejs/plugin-react": "6.1.1",
     "autoprefixer": "10.6.1",
     "husky": "9.1.7",
-    "lint-staged": "17.5.1",
+    "lint-staged": "17.6.0",
     "postcss": "8.5.28",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
