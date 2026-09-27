@@ -20,22 +20,28 @@ const managedSession: ManagedTabSession = {
 };
 
 describe('ManagedTabTransport', () => {
-  test('starts inactive without focusing and delegates only to the managed tab adapter', async () => {
+  test('starts inactive and keeps the managed tab available after transport stop', async () => {
     const calls: string[] = [];
+    const ownership = {
+      kind: 'managed-tab' as const,
+      tabId: managedSession.tabId,
+      ownershipToken: 'managed-token',
+      expectedChannel: target.channelName,
+    };
     let startOptions: { active: false; focus: false } | null = null;
     const transport = new ManagedTabTransport({
       open: async (_target, options) => {
         startOptions = options;
         calls.push('open');
-        return managedSession;
+        return { ...managedSession, ownership };
       },
       probe: async (session) => {
-        expect(session).toBe(managedSession);
+        expect(session.tabId).toBe(managedSession.tabId);
         calls.push('probe');
         return { accepted: true, progress: 12 };
       },
       close: async (session) => {
-        expect(session).toBe(managedSession);
+        expect(session.tabId).toBe(managedSession.tabId);
         calls.push('close');
       },
       now: () => 1_000,
@@ -46,7 +52,8 @@ describe('ManagedTabTransport', () => {
     await transport.stop();
 
     expect(startOptions).toEqual({ active: false, focus: false });
-    expect(calls).toEqual(['open', 'probe', 'close']);
+    expect(calls).toEqual(['open', 'probe']);
+    expect(transport.currentOwnership()).toEqual(ownership);
     expect(started).toMatchObject({
       mode: 'managed-tab',
       isHealthy: true,

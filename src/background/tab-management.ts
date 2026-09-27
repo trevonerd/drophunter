@@ -82,6 +82,69 @@ export async function recoverManagedTabOwnership(
     : null;
 }
 
+export type ReusedManagedTab = {
+  readonly id: number;
+  readonly restorePrevious: () => Promise<void>;
+};
+
+export async function retireManagedTabOwnership(
+  ownership: ManagedWatchOwnership,
+  operations: ManagedTabOwnershipOperations,
+): Promise<void> {
+  await attemptOwnedTabOperation(async () => {
+    await operations.sessionStorage.remove(managedTabOwnershipKey(ownership.ownershipToken));
+    return true;
+  });
+  await attemptOwnedTabOperation(async () => {
+    await operations.managedWatchMarker?.forget?.(ownership.ownershipToken);
+    return true;
+  });
+}
+
+export async function reuseManagedTabOwnership(
+  ownership: ManagedWatchOwnership,
+  expectedUrl: string,
+  operations: ManagedTabOwnershipOperations,
+  waitForComplete: (tabId: number, timeoutMs: number) => Promise<void>,
+  isCurrent: () => boolean = () => true,
+): Promise<ReusedManagedTab | null> {
+  const recovered = await recoverManagedTabOwnership(ownership, operations, true);
+  if (!recovered || !isCurrent()) return null;
+  const previousUrl = streamerWatchUrl(ownership.expectedChannel);
+  const navigated = await attemptOwnedTabOperation(async () => {
+    await operations.tabs.update(recovered.tabId, { url: expectedUrl, active: false, muted: true });
+    return true;
+  });
+  if (!navigated) return null;
+
+  const restorePrevious = async (): Promise<void> => {
+    const current = await attemptOwnedTabOperation(() => operations.tabs.get(recovered.tabId));
+    const stillOnReplacement =
+      current?.id === recovered.tabId &&
+      (current.url === expectedUrl || (current.url === 'about:blank' && current.pendingUrl === expectedUrl));
+    if (!stillOnReplacement) return;
+    const restored = await attemptOwnedTabOperation(async () => {
+      await operations.tabs.update(recovered.tabId, {
+        url: previousUrl,
+        active: false,
+        muted: true,
+      });
+      return true;
+    });
+    if (!restored) return;
+    await waitForComplete(recovered.tabId, 15_000).catch(() => undefined);
+    await operations.managedWatchMarker
+      ?.write(recovered.tabId, ownership.ownershipToken, previousUrl)
+      .catch(() => false);
+  };
+
+  if (!isCurrent()) {
+    await restorePrevious();
+    return null;
+  }
+  return { id: recovered.tabId, restorePrevious };
+}
+
 export async function releaseManagedTabOwnership(
   ownership: ManagedWatchOwnership,
   operations: ManagedTabOwnershipOperations,

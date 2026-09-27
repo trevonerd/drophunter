@@ -23,10 +23,11 @@ import { broadcastStateUpdate, saveState } from './state-persistence.ts';
 import {
   applyBestEffortAlwaysOnTop,
   clearManagedTabOwnership,
-  closeManagedTabIfSafe,
   ensureManagedTab,
+  type ManagedTabOwnershipOperations,
   monitorDashboardUrl,
   releaseManagedTabOwnership,
+  retireManagedTabOwnership,
   shouldMuteManagedFarmingTab,
   streamerWatchUrl,
   waitForTabComplete,
@@ -75,21 +76,27 @@ export function createServiceWorkerBrowserEvents(
     streamerWatchUrl,
   });
 
-  const watchTransport = createWatchTransportCoordinator({
+  let watchTransport: ReturnType<typeof createWatchTransportCoordinator>;
+  watchTransport = createWatchTransportCoordinator({
     state,
     enabled: true,
     heartbeat: dependencies.heartbeat,
     managedTab: {
       open: (target) =>
-        openOwnedManagedWatch(state, target, async (tabId, isCurrent) => {
-          playbackAttention.beginAttempt();
-          const prepared = await playbackOrchestrator.prepareStreamPlayback(tabId, {
-            unmuteTab: false,
-            muteAfterPrep: true,
-          });
-          if (isCurrent()) await playbackAttention.notifyIfNeeded(prepared);
-          return prepared;
-        }),
+        openOwnedManagedWatch(
+          state,
+          target,
+          async (tabId, isCurrent) => {
+            playbackAttention.beginAttempt();
+            const prepared = await playbackOrchestrator.prepareStreamPlayback(tabId, {
+              unmuteTab: false,
+              muteAfterPrep: true,
+            });
+            if (isCurrent()) await playbackAttention.notifyIfNeeded(prepared);
+            return prepared;
+          },
+          () => watchTransport.currentOwnership(),
+        ),
       probe: async (session, target) => {
         const context = await dependencies.fetchStreamContext(session.tabId);
         const sameChannel = context?.channelName.toLowerCase() === target.channelName.toLowerCase();
@@ -113,8 +120,14 @@ export function createServiceWorkerBrowserEvents(
         };
       },
       close: async (session) => {
+        const current = watchTransport.currentOwnership();
+        const tabWasReused =
+          session.ownership?.kind === 'managed-tab' &&
+          current?.kind === 'managed-tab' &&
+          current.tabId === session.tabId &&
+          current.ownershipToken !== session.ownership.ownershipToken;
         if (session.ownership) {
-          await releaseManagedTabOwnership(session.ownership, {
+          const operations: ManagedTabOwnershipOperations = {
             managedWatchMarker,
             tabs: {
               get: (tabId) => browser.tabs.get(tabId),
@@ -126,11 +139,11 @@ export function createServiceWorkerBrowserEvents(
               get: (key) => browser.storage.session.get(key),
               remove: async (key) => void (await browser.storage.session.remove(key)),
             },
-          });
-        } else {
-          await closeManagedTabIfSafe(session.tabId);
+          };
+          if (tabWasReused) await retireManagedTabOwnership(session.ownership, operations);
+          else await releaseManagedTabOwnership(session.ownership, operations);
         }
-        if (state.appState.tabId === session.tabId) state.appState.tabId = null;
+        if (!tabWasReused && state.appState.tabId === session.tabId) state.appState.tabId = null;
       },
     },
     persist: () => saveState(state),
@@ -215,7 +228,7 @@ export function createServiceWorkerBrowserEvents(
     attemptPlaybackSelfHeal: playbackOrchestrator.attemptPlaybackSelfHeal,
     clearQueueCompleteNotification: dependencies.clearQueueCompleteNotification,
     clearManagedTabOwnership: () => clearManagedTabOwnership(state),
-    closeManagedTabIfSafe,
+    closeManagedTabIfSafe: async () => false,
     enforcePlaybackPolicyOnStreamTab: playbackOrchestrator.enforcePlaybackPolicyOnStreamTab,
     openForegroundChannel: playbackOrchestrator.openForegroundChannel,
     openMonitorDashboardWindow,

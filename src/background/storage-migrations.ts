@@ -7,11 +7,7 @@ import {
   FARMING_AUTOMATION_SNOOZE_STORAGE_KEY,
   FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
 } from './farming-automation-contracts.ts';
-import { normalizeFarmingSessionTransitionReceipt } from './farming-automation-facts.ts';
 import { transformLegacyAppState } from './legacy-state-migration.ts';
-import { managedWatchMarker } from './managed-watch-marker.ts';
-import { listManagedWatches } from './managed-watch-registry.ts';
-import { releaseManagedTabOwnership } from './tab-management.ts';
 
 export const STORAGE_SCHEMA_VERSION_KEY = 'storageSchemaVersion';
 export const STORAGE_SCHEMA_VERSION = 3;
@@ -74,38 +70,6 @@ export async function clearExtensionRuntimeStorage(): Promise<void> {
   ]);
 }
 
-async function releasePersistedManagedWatches(): Promise<void> {
-  const stored = await browser.storage.local.get([FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY]);
-  const normalized = normalizeFarmingSessionTransitionReceipt(
-    stored[FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY],
-  );
-  const receipt = normalized.kind === 'unsupported' ? null : normalized.value;
-  const candidates = [
-    ...(await listManagedWatches()),
-    receipt?.fromWatch,
-    receipt?.toWatch,
-    receipt?.cleanup.kind === 'pending' ? receipt.cleanup.obsolete : null,
-  ].filter((ownership) => ownership?.kind === 'managed-tab');
-  const uniqueManagedWatches = Array.from(
-    new Map(candidates.map((ownership) => [ownership.ownershipToken, ownership])).values(),
-  );
-  for (const ownership of uniqueManagedWatches) {
-    await releaseManagedTabOwnership(ownership, {
-      managedWatchMarker,
-      tabs: {
-        get: (tabId) => browser.tabs.get(tabId),
-        query: (query) => browser.tabs.query(query),
-        update: async (tabId, properties) => void (await browser.tabs.update(tabId, properties)),
-        remove: async (tabId) => void (await browser.tabs.remove(tabId)),
-      },
-      sessionStorage: {
-        get: (key) => browser.storage.session.get(key),
-        remove: async (key) => void (await browser.storage.session.remove(key)),
-      },
-    }).catch(() => ({ kind: 'abandoned-unproven' as const }));
-  }
-}
-
 async function resetStorageForExtensionVersion(currentVersion: string): Promise<void> {
   const stored = await browser.storage.local.get([EXTENSION_VERSION_STORAGE_KEY, 'appState']);
   const previousVersion = stored[EXTENSION_VERSION_STORAGE_KEY];
@@ -121,7 +85,6 @@ async function resetStorageForExtensionVersion(currentVersion: string): Promise<
   }
 
   const resetAppState = createExtensionUpdateAppState(normalizeStoredAppState(stored.appState));
-  await releasePersistedManagedWatches();
   await clearExtensionRuntimeStorage();
   await browser.storage.local.set({
     appState: resetAppState,
@@ -141,7 +104,6 @@ function isLegacyUpgrade(previousVersion: unknown, hasStoredAppState: boolean): 
 }
 
 async function migrateLegacyStorage(currentVersion: string, appState: unknown): Promise<void> {
-  await releasePersistedManagedWatches();
   await Promise.all([
     browser.storage.local.remove([...LEGACY_UPGRADE_LOCAL_KEYS]),
     browser.storage.sync.remove([...LEGACY_TWITCH_SESSION_KEYS]),

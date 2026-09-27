@@ -36,7 +36,10 @@ export interface ManagedProvisionalWatchOperations {
   readonly createOwnershipToken: () => string;
   readonly persistOwnership: (token: string, expectedUrl: string) => Promise<boolean>;
   readonly discardOwnership: (token: string) => Promise<void>;
-  readonly openTab: (expectedUrl: string) => Promise<{ readonly id?: number } | null>;
+  readonly openTab: (expectedUrl: string) => Promise<{
+    readonly id?: number;
+    readonly restorePrevious?: () => Promise<void>;
+  } | null>;
   readonly waitForTabComplete: (tabId: number, timeoutMs: number) => Promise<void>;
   readonly preparePlayback: (
     tabId: number,
@@ -72,6 +75,14 @@ export async function prepareManagedProvisionalWatch(
     ownershipToken,
     expectedChannel: target.channelName,
   };
+  const dispose = async (): Promise<void> => {
+    if (tab.restorePrevious) {
+      await operations.discardOwnership(ownershipToken);
+      await tab.restorePrevious();
+      return;
+    }
+    await operations.release(ownership);
+  };
   let probe: WatchProbeResult = { accepted: false, reason: 'error' };
   let prepared = false;
   try {
@@ -85,7 +96,7 @@ export async function prepareManagedProvisionalWatch(
         target,
         ownership,
         health: createWatchHealth('managed-tab', 'failed', 'error', operations.now),
-        dispose: () => operations.release(ownership).then(() => undefined),
+        dispose,
       };
     }
     if (isCurrent())
@@ -110,9 +121,7 @@ export async function prepareManagedProvisionalWatch(
     target,
     ownership,
     health,
-    dispose: async () => {
-      await operations.release(ownership);
-    },
+    dispose,
   };
 }
 
@@ -151,11 +160,13 @@ export class ManagedTabTransport implements WatchTransport {
   }
 
   async start(target: FarmingTarget): Promise<WatchHealth> {
-    if (this.session) await this.stop();
+    const previousSession = this.session;
+    const previousTarget = this.target;
     const session = await this.operations.open(target, { active: false, focus: false });
     if (!isManagedSession(session)) {
-      this.target = target;
-      this.session = null;
+      if (!previousSession) this.target = target;
+      else this.target = previousTarget;
+      this.session = previousSession;
       return createWatchHealth(this.mode, 'failed', 'managed-tab-unavailable', this.now, {
         shouldFallback: true,
       });
@@ -200,11 +211,8 @@ export class ManagedTabTransport implements WatchTransport {
   }
 
   async stop(): Promise<void> {
-    const session = this.session;
-    this.session = null;
     this.target = null;
     this.consecutiveFailures = 0;
     this.progress = null;
-    if (session) await this.operations.close(session);
   }
 }

@@ -154,7 +154,7 @@ describe('extension storage migration', () => {
     expect(mocks.storage.local._store.get(STORAGE_SCHEMA_VERSION_KEY)).toBe(STORAGE_SCHEMA_VERSION);
   });
 
-  test('resets volatile extension state while preserving the cached Twitch session across versions', async () => {
+  test('resets volatile extension state while preserving the managed tab and Twitch session across versions', async () => {
     const releasedTabs: number[] = [];
     mocks.chrome.tabs.setTabsGetResult({
       id: 91,
@@ -255,6 +255,6 @@ describe('extension storage migration', () => {
     expect(mocks.storage.session._store.has('timingState')).toBe(false);
     expect(mocks.storage.session._store.has('autoStartSnoozedForBrowserSession')).toBe(false);
     expect(mocks.storage.session._store.has('farmingAutomationOwnedWatch:legacy-token')).toBe(false);
-    expect(releasedTabs).toEqual([91]);
+    expect(releasedTabs).toEqual([]);
   });
 });

@@ -224,7 +224,16 @@ export function createWatchTransportCoordinator(
   };
 
   const restore = async (ownership: WatchOwnershipV1): Promise<boolean> => {
-    const streamer = state.appState.activeStreamer;
+    const streamer =
+      state.appState.activeStreamer ??
+      (ownership.kind === 'managed-tab'
+        ? {
+            id: ownership.expectedChannel,
+            name: ownership.expectedChannel,
+            displayName: ownership.expectedChannel,
+            isLive: true,
+          }
+        : null);
     if (!streamer) return false;
     const restoredTarget = createFarmingTarget(state, streamer);
     if (!restoredTarget) return false;
@@ -238,6 +247,10 @@ export function createWatchTransportCoordinator(
             now(),
           );
     adopt({ target: restoredTarget, ownership, health, obsolete: null });
+    if (state.appState.isRunning || state.appState.isPaused) {
+      state.appState.tabId = ownership.kind === 'managed-tab' ? ownership.tabId : null;
+    }
+    if (!state.appState.isRunning || state.appState.isPaused) return true;
     if (ownership.kind === 'managed-tab' && state.appState.watchTransportPreference === 'tabless') {
       const restartedHealth = await start(streamer);
       return restartedHealth.mode === 'tabless';
