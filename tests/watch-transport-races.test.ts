@@ -50,7 +50,7 @@ test('restored transport cannot open a surviving tab or overwrite health after s
   opened.resolve(session);
   await tick;
 
-  expect(closes).toBe(1);
+  expect(closes).toBe(0);
   expect(state.appState.watchHealth?.status).toBe('stopped');
 });
 
@@ -144,7 +144,7 @@ test('invalidated monitoring tick cannot publish its late transport probe', asyn
   expect(state.appState.watchHealth).toBe(startedHealth);
 });
 
-test('invalidated restoration releases its late managed tab', async () => {
+test('invalidated restoration retains its late managed tab', async () => {
   const opened = deferred<typeof session>();
   const opening = deferred<void>();
   let current = true;
@@ -165,7 +165,7 @@ test('invalidated restoration releases its late managed tab', async () => {
   opened.resolve(session);
   await tick;
 
-  expect(closes).toBe(1);
+  expect(closes).toBe(0);
   expect(state.appState.watchHealth).toBeNull();
 });
 
@@ -201,29 +201,29 @@ test('strict tabless health recovery never opens a managed tab', async () => {
   expect(state.appState.watchFallbackReason).toBeNull();
 });
 
-test.each([
-  'start',
-  'restore',
-] as const)('%s retains the managed tab registered by playback', async (action) => {
-  const ownership = {
-    kind: 'managed-tab',
-    tabId: session.tabId,
-    ownershipToken: 'managed-open-token',
-    expectedChannel: streamer.name,
-  } as const;
-  const { state, coordinator } = setup({
-    open: async () => {
-      state.appState.tabId = session.tabId;
-      return { ...session, ownership };
-    },
-    probe: async () => ({ accepted: true }),
-    close: async () => {},
-  });
+test.each(['start', 'restore'] as const)(
+  '%s retains the managed tab registered by playback',
+  async (action) => {
+    const ownership = {
+      kind: 'managed-tab',
+      tabId: session.tabId,
+      ownershipToken: 'managed-open-token',
+      expectedChannel: streamer.name,
+    } as const;
+    const { state, coordinator } = setup({
+      open: async () => {
+        state.appState.tabId = session.tabId;
+        return { ...session, ownership };
+      },
+      probe: async () => ({ accepted: true }),
+      close: async () => {},
+    });
 
-  if (action === 'start') await coordinator.start(streamer);
-  else await coordinator.tick();
+    if (action === 'start') await coordinator.start(streamer);
+    else await coordinator.tick();
 
-  expect(state.appState.tabId).toBe(session.tabId);
-  expect(coordinator.currentOwnership()).toEqual(ownership);
-  expect(state.appState.watchHealth?.mode).toBe('managed-tab');
-});
+    expect(state.appState.tabId).toBe(session.tabId);
+    expect(coordinator.currentOwnership()).toEqual(ownership);
+    expect(state.appState.watchHealth?.mode).toBe('managed-tab');
+  },
+);

@@ -7,7 +7,7 @@ import {
 import { createDeferred } from './support/farming-automation-fixtures.ts';
 
 describe('watch transport cancellation', () => {
-  test('releases a managed candidate without publishing it when cancellation occurs during open', async () => {
+  test('retains a managed candidate without publishing it when cancellation occurs during open', async () => {
     const state = createServiceWorkerState();
     state.appState.selectedGame = {
       id: 'game-1',
@@ -53,7 +53,7 @@ describe('watch transport cancellation', () => {
     opened.resolve({ owner: 'drophunter', tabId: 42 });
 
     await expect(start).resolves.toMatchObject({ mode: 'managed-tab', status: 'healthy' });
-    expect(closes).toBe(1);
+    expect(closes).toBe(0);
     expect(state.appState.activeStreamer).toBeNull();
     expect(state.appState.watchHealth).toBeNull();
     expect(persists).toBe(0);

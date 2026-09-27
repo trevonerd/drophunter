@@ -209,7 +209,7 @@ export function registerWatchTransportCoordinatorStartCases() {
     const health = await coordinator.start(streamer);
 
     expect(opens).toBe(1);
-    expect(closes).toBe(1);
+    expect(closes).toBe(0);
     expect(heartbeats).toBe(1);
     expect(health.mode).toBe('tabless');
     expect(state.appState.tabId).toBeNull();
