@@ -14,6 +14,14 @@ const MAX_PURE_LOC = 250;
 const TYPESCRIPT_EXTENSIONS = new Set(['.cts', '.mts', '.ts', '.tsx']);
 const SCOPED_DIRECTORIES = ['scripts', 'src', 'tests'] as const;
 
+function gitCommandEnvironment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  for (const key of Object.keys(environment)) {
+    if (key.startsWith('GIT_')) delete environment[key];
+  }
+  return environment;
+}
+
 type RuleId =
   | 'no-any-annotation'
   | 'no-any-assertion'
@@ -50,7 +58,12 @@ export type CommandResult = {
 };
 
 function runGit(root: string, args: readonly string[]): string {
-  const result = Bun.spawnSync({ cmd: ['git', '-C', root, ...args], stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync({
+    cmd: ['git', '-C', root, ...args],
+    env: gitCommandEnvironment(),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   const stderr = new TextDecoder().decode(result.stderr);
   if (!result.success) {
     throw new Error(`git ${args.join(' ')} failed: ${stderr.trim()}`);

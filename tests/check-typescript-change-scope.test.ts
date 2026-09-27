@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import process from 'node:process';
 import { runCheckerAt } from '../scripts/check-typescript-change-scope';
 
 type CommandResult = {
@@ -13,8 +14,22 @@ type CommandResult = {
 const fixtureDirectories: string[] = [];
 const TEST_TIMEOUT_MS = 30_000;
 
+function gitCommandEnvironment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  for (const key of Object.keys(environment)) {
+    if (key.startsWith('GIT_')) delete environment[key];
+  }
+  return environment;
+}
+
 function run(command: readonly string[], cwd: string): CommandResult {
-  const result = Bun.spawnSync({ cmd: [...command], cwd, stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync({
+    cmd: [...command],
+    cwd,
+    env: gitCommandEnvironment(),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   return {
     exitCode: result.success ? 0 : (result.exitCode ?? 1),
     stdout: new TextDecoder().decode(result.stdout),
