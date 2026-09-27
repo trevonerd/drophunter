@@ -246,6 +246,7 @@ export function createFarmingSessionStreaming(
     reason: StreamRotationReason,
     isCurrent: () => boolean = () => true,
   ): Promise<void> {
+    if (!isCurrent()) return;
     if (state.appState.recoveryReason === 'stalled-progress') clearRecoveryState(state);
     await rotateStreamer(state, reason, {
       isCurrent,

@@ -30,7 +30,7 @@ type FarmingSessionMonitoringDependencies = {
   ) => Promise<StalledProgressRecoveryResult>;
 };
 
-function tablessTransportRotationReason(
+function transportRotationReason(
   reason: import('../types/index.ts').WatchHealthReason,
 ): StreamRotationReason | null {
   switch (reason) {
@@ -41,6 +41,10 @@ function tablessTransportRotationReason(
     case 'drops-inactive':
       return reason;
     case 'playback-inactive':
+    case 'heartbeat-failed':
+    case 'error':
+    case 'managed-tab-unavailable':
+    case 'transport-disabled':
       return 'open-failed';
     default:
       return null;
@@ -127,17 +131,15 @@ export function createFarmingSessionMonitoring(
       state.appState.recoveryReason === 'stalled-progress' && context.now() >= state.recoveryBackoffUntil;
     const tablessStallDetected =
       health?.mode === 'tabless' && health.reason === 'stalled-progress' && health.shouldFallback;
-    const tablessRotationReason =
-      health?.mode === 'tabless' && health.shouldFallback
-        ? tablessTransportRotationReason(health.reason)
-        : null;
+    const failedTransportRotationReason =
+      health?.shouldFallback === true ? transportRotationReason(health.reason) : null;
     const tablessRecoveryDue =
       stalledRecoveryDue &&
       state.appState.tabId === null &&
       (health?.mode === 'tabless' || state.appState.watchTransportMode === 'tabless');
-    if (tablessRotationReason) {
+    if (failedTransportRotationReason) {
       const previousCampaignKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
-      await dependencies.onRotateStreamerForTransportFailure(tablessRotationReason, isCurrent);
+      await dependencies.onRotateStreamerForTransportFailure(failedTransportRotationReason, isCurrent);
       return (
         previousCampaignKey !== (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null)
       );

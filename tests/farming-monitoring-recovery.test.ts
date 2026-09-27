@@ -104,6 +104,7 @@ describe('farming monitoring recovery', () => {
       shouldFallback: true,
     });
     let acquisitions = 0;
+    let rotations = 0;
     const monitoring = createFarmingSessionMonitoring(
       createFarmingSessionContext(
         state,
@@ -118,7 +119,9 @@ describe('farming monitoring recovery', () => {
       ),
       {
         onRotateStreamerIfInvalid: async () => {},
-        onRotateStreamerForTransportFailure: async () => {},
+        onRotateStreamerForTransportFailure: async () => {
+          rotations += 1;
+        },
         onAcquireStreamerForSelectedGame: async () => {
           acquisitions += 1;
           return true;
@@ -128,9 +131,71 @@ describe('farming monitoring recovery', () => {
       },
     );
     await monitoring.checkDropProgress();
-    expect(acquisitions).toBe(1);
+    expect(rotations).toBe(1);
+    expect(acquisitions).toBe(0);
     expect(state.appState.selectedGame?.campaignId).toBe('campaign');
     expect(state.appState.queue).toHaveLength(1);
+  });
+
+  test('replaces rather than reopens the failed managed streamer', async () => {
+    const state = runningState();
+    const currentStreamer = {
+      id: 'streamer-a',
+      name: 'streamer-a',
+      displayName: 'Streamer A',
+      isLive: true,
+      viewerCount: 1,
+    };
+    const replacementStreamer = {
+      id: 'streamer-b',
+      name: 'streamer-b',
+      displayName: 'Streamer B',
+      isLive: true,
+      viewerCount: 100,
+    };
+    state.appState.activeStreamer = currentStreamer;
+    state.appState.watchTransportMode = 'managed-tab';
+    state.appState.tabId = 123;
+    chrome.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer-a' });
+    const failedHealth = createWatchHealth('managed-tab', 'failed', 'playback-inactive', Date.now, {
+      consecutiveFailures: 3,
+      shouldFallback: true,
+    });
+    const healthyHealth = createWatchHealth('managed-tab', 'healthy', 'started', Date.now);
+    const starts: string[] = [];
+    const session = createFarmingSession(
+      state,
+      createFarmingSessionAdapters({
+        fetchDirectoryStreamersFromApi: async () =>
+          Object.assign([currentStreamer, replacementStreamer], { languageFilterApplied: true }),
+        fetchStreamContext: async () => ({
+          channelName: state.appState.activeStreamer?.name ?? '',
+          categorySlug: state.appState.selectedGame?.categorySlug ?? '',
+          categoryLabel: state.appState.selectedGame?.name ?? '',
+          streamTitle: 'Drops',
+          titleContainsDrops: true,
+          hasDropsSignal: true,
+          isLive: true,
+          isPlaybackReady: true,
+          pageUrl: `https://twitch.tv/${state.appState.activeStreamer?.name ?? ''}`,
+        }),
+        watchTransport: {
+          start: async (streamer) => {
+            starts.push(streamer.name);
+            return healthyHealth;
+          },
+          tick: async () => failedHealth,
+          stop: async () => {},
+          setPreference: async () => {},
+        },
+      }),
+    );
+
+    await session.checkDropProgress();
+
+    expect(starts).toEqual(['streamer-b']);
+    expect(state.appState.activeStreamer?.name).toBe('streamer-b');
+    expect(state.appState.lastRotationReason).toBe('open-failed');
   });
 
   for (const reason of [
@@ -139,6 +204,8 @@ describe('farming monitoring recovery', () => {
     'wrong-game',
     'drops-inactive',
     'playback-inactive',
+    'heartbeat-failed',
+    'error',
   ] as const) {
     test(`replaces the Hidden streamer after a confirmed ${reason} heartbeat`, async () => {
       const state = runningState();
@@ -184,7 +251,11 @@ describe('farming monitoring recovery', () => {
       expect(starts).toEqual(['streamer-b']);
       expect(state.appState.activeStreamer?.name).toBe('streamer-b');
       expect(state.appState.lastRotationReason).toBe(
-        reason === 'stream-offline' ? 'offline' : reason === 'playback-inactive' ? 'open-failed' : reason,
+        reason === 'stream-offline'
+          ? 'offline'
+          : ['playback-inactive', 'heartbeat-failed', 'error'].includes(reason)
+            ? 'open-failed'
+            : reason,
       );
     });
   }
