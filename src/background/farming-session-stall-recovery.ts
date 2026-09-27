@@ -64,7 +64,7 @@ export function createFarmingSessionStallRecovery(
         }
         await dependencies.onAcquireStreamer(current);
       },
-      onRotateManagedStreamer: async (current = isCurrent) => {
+      onRotateStreamer: async (current = isCurrent) => {
         await rotateStreamer(state, 'stalled-progress', {
           isCurrent: current,
           onOpenStreamer: dependencies.onAcquireStreamer,

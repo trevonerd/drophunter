@@ -29,7 +29,7 @@ export interface StalledProgressRecoveryDependencies {
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
   readonly onAttemptPlaybackSelfHeal: (tabId: number, isCurrent?: () => boolean) => Promise<void>;
   readonly onRestartTablessWatcher: (isCurrent?: () => boolean) => Promise<void>;
-  readonly onRotateManagedStreamer: (isCurrent?: () => boolean) => Promise<void>;
+  readonly onRotateStreamer: (isCurrent?: () => boolean) => Promise<void>;
   readonly onSkipCurrentGame: () => Promise<void>;
   readonly onSaveState: () => Promise<void>;
   readonly onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
@@ -110,12 +110,14 @@ export async function recoverStalledProgress(
   state.invalidStreamChecks = 0;
   applyRecoveryState(state, 'stalled-progress', retryAt);
 
-  if (source.kind === 'tabless') {
-    await dependencies.onRestartTablessWatcher(isCurrent);
-  } else if (attempt === 1) {
-    await dependencies.onAttemptPlaybackSelfHeal(source.tabId, isCurrent);
+  if (attempt === 1) {
+    if (source.kind === 'tabless') {
+      await dependencies.onRestartTablessWatcher(isCurrent);
+    } else {
+      await dependencies.onAttemptPlaybackSelfHeal(source.tabId, isCurrent);
+    }
   } else {
-    await dependencies.onRotateManagedStreamer(isCurrent);
+    await dependencies.onRotateStreamer(isCurrent);
   }
 
   if (!isCurrent()) {

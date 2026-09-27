@@ -26,6 +26,13 @@ const streamer: TwitchStreamer = {
   isLive: true,
 };
 
+const replacementStreamer: TwitchStreamer = {
+  id: 'channel-2',
+  name: 'channel-2',
+  displayName: 'Channel 2',
+  isLive: true,
+};
+
 const nextGame: TwitchGame = {
   ...game,
   id: 'game-2',
@@ -116,6 +123,73 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
 }
 
 describe('farming session watch transport integration', () => {
+  test('a second Hidden stall attempt replaces the current streamer', async () => {
+    const realDateNow = Date.now;
+    let now = 3_500_000;
+    Date.now = () => now;
+    const state = createState();
+    const currentDrop = fixtureDrop(game);
+    state.appState.selectedGame = game;
+    state.appState.queue = [game];
+    state.appState.isRunning = true;
+    state.appState.activeStreamer = streamer;
+    state.appState.watchTransportMode = 'tabless';
+    const starts: string[] = [];
+    let ticks = 0;
+    const stalledHealth: WatchHealth = {
+      ...createHealth('tabless'),
+      isHealthy: false,
+      status: 'stalled',
+      reason: 'stalled-progress',
+      consecutiveStalls: 10,
+      shouldFallback: true,
+    };
+
+    try {
+      const session = createFarmingSession(
+        state,
+        createAdapters({
+          fetchDropsSnapshotFromApi: async () => ({
+            games: [game],
+            drops: [currentDrop],
+            updatedAt: now,
+          }),
+          fetchInventorySnapshotFromApi: async (drops) => ({
+            games: [game],
+            drops,
+            updatedAt: now,
+          }),
+          fetchDirectoryStreamersFromApi: async () =>
+            Object.assign([streamer, replacementStreamer], { languageFilterApplied: true }),
+          watchTransport: {
+            start: async (candidate) => {
+              starts.push(candidate.name);
+              return createHealth('tabless');
+            },
+            tick: async () => {
+              ticks += 1;
+              return ticks === 1 ? stalledHealth : createHealth('tabless');
+            },
+            stop: async () => {},
+            setPreference: async () => {},
+          },
+        }),
+      );
+
+      await session.checkDropProgress();
+      expect(starts).toEqual(['channel-1']);
+
+      now += STALLED_PROGRESS_RETRY_MS;
+      await session.checkDropProgress();
+
+      expect(starts).toEqual(['channel-1', 'channel-2']);
+      expect(state.appState.activeStreamer?.name).toBe('channel-2');
+      expect(state.stalledRecoveryAttempts).toBe(2);
+    } finally {
+      Date.now = realDateNow;
+    }
+  });
+
   test('three backoff-spaced Hidden attempts park the blocked campaign behind the next campaign', async () => {
     const realDateNow = Date.now;
     let now = 4_000_000;
