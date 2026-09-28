@@ -59,6 +59,13 @@ export function MainView({
     dismissedQueueCleanupActivityId,
   });
   const queueCleanupActivity = model.queueCleanupActivity;
+  const routineAutomaticStartup =
+    model.startup.automaticStartPending &&
+    (state.campaignSyncState.status === 'syncing' ||
+      state.campaignSyncState.status === 'idle' ||
+      (state.campaignSyncState.status === 'retry-scheduled' &&
+        state.campaignSyncState.retryAttemptCount < 3));
+  const showStartupSyncPanel = model.startup.isBlocking && !routineAutomaticStartup;
   const queueCampaignRemovalNotice = queueCleanupActivity ? (
     <QueueCleanupNotice
       summary={
@@ -106,7 +113,7 @@ export function MainView({
           </>
         ) : (
           <>
-            {model.startup.isBlocking && syncPanel}
+            {showStartupSyncPanel && syncPanel}
             <AutomationSummary
               state={state}
               notificationPermissionDenied={notificationPermissionDenied}

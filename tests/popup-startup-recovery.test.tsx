@@ -45,6 +45,26 @@ test('replaces a redundant Start action with Stop when an authorized queue await
   expect(markup).toContain('data-startup-continuation="automatic"');
 });
 
+test('keeps automatic startup validation silent while Twitch data is still refreshing', () => {
+  // Given a previously started queue that will continue as soon as startup validation completes.
+  const pending = pendingState();
+  const state = {
+    ...pending,
+    manualQueueAuthorized: true,
+    wasRunning: true,
+    campaignSyncState: { ...pending.campaignSyncState, retryAttemptCount: 1 },
+  };
+  // When the popup opens during the internal startup refresh/retry window.
+  const markup = renderMainView(state, state.queue, { campaignSyncStatus: 'pending-validation' });
+  // Then transient orchestration is not presented as a user-facing warning or error.
+  expect(markup).not.toContain('aria-label="Campaign sync status"');
+  expect(markup).not.toContain('Waiting for Twitch');
+  expect(markup).not.toContain('waiting for scheduled retry');
+  expect(markup).not.toContain('border-yellow-500/30');
+  expect(markup).not.toContain('Campaigns pending validation');
+  expect(markup).toContain('>Starting ');
+});
+
 test('keeps manual Start available when the queue has not been authorized', () => {
   // Given a manually populated queue and no automatic favorites.
   const state = { ...pendingState(), manualQueueAuthorized: false, autoStartFavoriteGames: true };

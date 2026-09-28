@@ -169,6 +169,37 @@ describe('extension lifecycle listeners', () => {
     expect(ticks).toBe(1);
   });
 
+  test('runs a due campaign retry immediately instead of as a gated periodic refresh', async () => {
+    // Given a one-shot retry scheduled while an interrupted queue is not currently running.
+    const api = createLifecycleApi();
+    const triggers: string[] = [];
+    registerExtensionLifecycleListeners({
+      api,
+      alarmName: 'dropCheck',
+      campaignSyncAlarmName: 'campaignSync',
+      campaignSyncRetryAlarmName: 'campaignSyncRetry',
+      farmingAutomation: inactiveAutomation,
+      getInitPromise: () => null,
+      onExtensionUpdate: async () => {},
+      onAlarm: async () => {},
+      onActivationSync: async (trigger) => {
+        triggers.push(trigger);
+      },
+      onManagedTabRemoved: async () => {},
+      onManagedTabNavigatedAway: async () => {},
+      onMonitorWindowRemoved: async () => {},
+      logWarn: () => {},
+    });
+
+    // When the periodic alarm and the due one-shot retry alarm fire.
+    api.alarms.onAlarm.trigger({ name: 'campaignSync', scheduledTime: 1 });
+    api.alarms.onAlarm.trigger({ name: 'campaignSyncRetry', scheduledTime: 2 });
+    await flushAsyncListeners();
+
+    // Then only the periodic alarm uses the gate; the due retry resumes validation immediately.
+    expect(triggers).toEqual(['periodic-campaign', 'manual-retry']);
+  });
+
   test('refreshes linked campaigns only for the configured recheck alarm prefix', async () => {
     const api = createLifecycleApi();
     const names: string[] = [];

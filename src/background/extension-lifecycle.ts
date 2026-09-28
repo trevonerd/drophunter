@@ -177,8 +177,9 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
 
   api.alarms.onAlarm.addListener((alarm) => {
     const isMonitoringAlarm = alarm.name === options.alarmName;
-    const isCampaignSyncAlarm =
-      alarm.name === options.campaignSyncAlarmName || alarm.name === options.campaignSyncRetryAlarmName;
+    const isCampaignPeriodicAlarm = alarm.name === options.campaignSyncAlarmName;
+    const isCampaignRetryAlarm = alarm.name === options.campaignSyncRetryAlarmName;
+    const isCampaignSyncAlarm = isCampaignPeriodicAlarm || isCampaignRetryAlarm;
     const isAutomationAlarm =
       (options.automationPeriodicAlarmName !== undefined &&
         alarm.name === options.automationPeriodicAlarmName) ||
@@ -199,7 +200,8 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
           if (options.onActivationSync) await options.onActivationSync('periodic-campaign');
           await options.onAlarm(alarm);
         } else if (isCampaignSyncAlarm) {
-          if (options.onActivationSync) await options.onActivationSync('periodic-campaign');
+          if (options.onActivationSync)
+            await options.onActivationSync(isCampaignRetryAlarm ? 'manual-retry' : 'periodic-campaign');
         } else if (isAutomationAlarm) {
           await options.farmingAutomation.request('periodic');
         } else {

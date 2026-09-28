@@ -193,8 +193,26 @@ export function createUserStatusModel({
     };
   }
 
+  const routineAutomaticStartup =
+    automaticStartPending &&
+    (campaignSyncStatus === 'syncing' ||
+      campaignSyncStatus === 'idle' ||
+      (campaignSyncStatus === 'retry-scheduled' && state.campaignSyncState.retryAttemptCount < 3));
+  if (routineAutomaticStartup) {
+    return {
+      mode: 'pending-validation',
+      progressState: 'waiting',
+      label: 'Starting',
+      badge: 'STARTING',
+      subject,
+      detail: state.manualQueueAuthorized
+        ? 'Refreshing Twitch data before resuming the queue.'
+        : 'Refreshing Twitch data before starting a favorite campaign.',
+      tone: 'neutral',
+    };
+  }
+
   if (
-    automaticStartPending ||
     !state.twitchSessionDetected ||
     campaignSyncStatus === 'syncing' ||
     campaignSyncStatus === 'needs-session' ||
@@ -207,11 +225,7 @@ export function createUserStatusModel({
       label: 'Campaigns pending validation',
       badge: 'SYNCING',
       subject,
-      detail: automaticStartPending
-        ? state.manualQueueAuthorized
-          ? 'The started queue will resume after validation.'
-          : 'Favorite auto-start will run after validation.'
-        : 'Confirming saved campaigns with Twitch.',
+      detail: 'Confirming saved campaigns with Twitch.',
       tone: 'warning',
     };
   }
