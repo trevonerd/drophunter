@@ -255,6 +255,7 @@ export interface AppState {
   recoveryReason?: string | null;
   recoveryBackoffUntil?: number | null;
   recoveryAttempts?: number | null;
+  recoverySchedulerUnavailable?: boolean;
   resumedFromCrash?: number | null;
   lastStopReason?: string | null;
   lastStopMessage?: string | null;

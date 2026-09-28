@@ -129,6 +129,7 @@ describe('runtime message protocol', () => {
       'CLEAR_QUEUE',
       'PAUSE_FARMING',
       'RESUME_FARMING',
+      'RETRY_FARMING',
       'STOP_FARMING',
       'REFRESH_DROPS',
     ] as const satisfies readonly RuntimeRequest['type'][];
@@ -141,6 +142,7 @@ describe('runtime message protocol', () => {
       CLEAR_QUEUE: true,
       PAUSE_FARMING: true,
       RESUME_FARMING: true,
+      RETRY_FARMING: true,
       STOP_FARMING: true,
       REFRESH_DROPS: true,
     } satisfies {

@@ -138,7 +138,12 @@ export function createActivationSyncCoordinator(
     ) {
       return { kind: 'retry-scheduled', retryAt: previous.nextRetryAt, error: previous.error };
     }
-    if (shouldRespectActivationSyncRetry(trigger) && previous.status === 'retry-failed') {
+    if (
+      shouldRespectActivationSyncRetry(trigger) &&
+      previous.status === 'retry-failed' &&
+      previous.lastAttemptAt !== null &&
+      startedAt - previous.lastAttemptAt < 600_000
+    ) {
       return { kind: 'retry-failed', error: previous.error };
     }
     if (CACHE_AWARE_TRIGGERS.has(trigger) && isCampaignSyncFresh(previous, startedAt))

@@ -115,7 +115,10 @@ export async function skipCurrentGameAndAdvanceQueue(
   });
   if (skippedGame) {
     if (state.appState.forcedCampaignKey === gameKey(skippedGame)) state.appState.forcedCampaignKey = null;
-    if ((reason === 'no-streamers' || reason === 'directory-unavailable') && !isExpiredGame(skippedGame)) {
+    if (
+      (reason === 'no-streamers' || reason === 'directory-unavailable' || reason === 'open-failed') &&
+      !isExpiredGame(skippedGame)
+    ) {
       parkCampaignForStreamerRetry(state, skippedGame, reason);
     } else if (
       reason === 'stalled-progress' &&

@@ -4,6 +4,50 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+export function normalizeStoredDrops(value: unknown): TwitchDrop[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): TwitchDrop[] => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.id !== 'string' ||
+      !entry.id.trim() ||
+      typeof entry.gameId !== 'string' ||
+      !entry.gameId.trim()
+    )
+      return [];
+    const method = entry.acquisitionMethod;
+    const kind = entry.rewardKind;
+    const verification = entry.verificationState;
+    return [
+      {
+        ...entry,
+        id: entry.id,
+        gameId: entry.gameId,
+        name: typeof entry.name === 'string' ? entry.name : entry.id,
+        gameName: typeof entry.gameName === 'string' ? entry.gameName : entry.gameId,
+        imageUrl: typeof entry.imageUrl === 'string' ? entry.imageUrl : '',
+        progress:
+          typeof entry.progress === 'number' && Number.isFinite(entry.progress)
+            ? Math.max(0, Math.min(100, entry.progress))
+            : 0,
+        currentMinutes:
+          typeof entry.currentMinutes === 'number' && Number.isFinite(entry.currentMinutes)
+            ? Math.max(0, entry.currentMinutes)
+            : 0,
+        claimed: entry.claimed === true,
+        acquisitionMethod:
+          method === 'watch-time' || method === 'subscription' || method === 'other-event'
+            ? method
+            : 'unknown',
+        rewardKind:
+          kind === 'in-game' || kind === 'twitch-badge' || kind === 'twitch-emote' ? kind : 'unknown',
+        verificationState:
+          verification === 'verified' || verification === 'unverifiable' ? verification : 'unassessed',
+      } as TwitchDrop,
+    ];
+  });
+}
+
 export function normalizeFavoriteGames(value: unknown): AppState['favoriteGames'] {
   if (!Array.isArray(value)) return [];
   return value
@@ -92,17 +136,22 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
           key,
           {
             ...provenance,
-            ...(Number.isInteger(streamerRetryAttempts) && streamerRetryAttempts === 1
+            ...(typeof streamerRetryAttempts === 'number' &&
+            Number.isInteger(streamerRetryAttempts) &&
+            streamerRetryAttempts >= 1 &&
+            streamerRetryAttempts <= 3
               ? { streamerRetryAttempts }
               : {}),
             ...(Number.isInteger(streamerRetryCycles) &&
             typeof streamerRetryCycles === 'number' &&
             streamerRetryCycles >= 0
-              ? { streamerRetryCycles }
+              ? { streamerRetryCycles: Math.min(streamerRetryCycles, 3) }
               : {}),
-            ...(validRetry ? { streamerRetryAt } : {}),
+            ...(validRetry ? { streamerRetryAt: Math.min(streamerRetryAt, Date.now() + 600_000) } : {}),
             ...(validRetry &&
-            (streamerRetryReason === 'no-streamers' || streamerRetryReason === 'directory-unavailable')
+            (streamerRetryReason === 'no-streamers' ||
+              streamerRetryReason === 'directory-unavailable' ||
+              streamerRetryReason === 'open-failed')
               ? { streamerRetryReason }
               : {}),
             ...(streamerWaitState === 'availability' ? { streamerWaitState } : {}),

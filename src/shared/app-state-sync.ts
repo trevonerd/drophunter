@@ -1,4 +1,4 @@
-import type { AppState } from '../types/index.ts';
+import type { AppState, TwitchGame, TwitchStreamer } from '../types/index.ts';
 import {
   normalizeAutomationActivity,
   normalizeCampaignAvailability,
@@ -7,6 +7,7 @@ import {
   normalizeHiddenGames,
   normalizeQueueMetadata,
   normalizeStalledCampaignBlocks,
+  normalizeStoredDrops,
 } from './app-state-collection-normalizers.ts';
 import {
   normalizeCampaignSyncState,
@@ -14,6 +15,7 @@ import {
   normalizeWatchHealth,
 } from './app-state-runtime-normalizers.ts';
 import { browser } from './browser-api.ts';
+import { isTwitchGameLike } from './message-validation.ts';
 import { isRuntimeRequest } from './messages.ts';
 import { normalizeQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { createInitialState } from './utils.ts';
@@ -22,12 +24,90 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function normalizeStoredGame(value: unknown): TwitchGame | null {
+  if (!isRecord(value)) return null;
+  // Older snapshots can carry a stale boolean alongside an authoritative reward summary.
+  // Repair the redundant boolean instead of deleting the campaign and its queue position.
+  const completion = isRecord(value.rewardSummary) ? value.rewardSummary.completion : undefined;
+  const candidate =
+    completion === 'all-acquired' || completion === 'farmable' || completion === 'farming-complete'
+      ? { ...value, allDropsCompleted: completion === 'all-acquired' }
+      : value;
+  return isTwitchGameLike(candidate) ? candidate : null;
+}
+
+function normalizeStoredGames(value: unknown): TwitchGame[] {
+  return Array.isArray(value)
+    ? value.map(normalizeStoredGame).filter((game): game is TwitchGame => game !== null)
+    : [];
+}
+
+function normalizeStoredStreamer(value: unknown): TwitchStreamer | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.displayName !== 'string' ||
+    typeof value.isLive !== 'boolean'
+  )
+    return null;
+  return {
+    id: value.id,
+    name: value.name,
+    displayName: value.displayName,
+    isLive: value.isLive,
+    ...(typeof value.viewerCount === 'number' && Number.isFinite(value.viewerCount)
+      ? { viewerCount: value.viewerCount }
+      : {}),
+    ...(typeof value.broadcasterLanguage === 'string'
+      ? { broadcasterLanguage: value.broadcasterLanguage }
+      : {}),
+  };
+}
+
+const RECOVERY_REASONS = new Set([
+  'twitch-auth',
+  'twitch-integrity',
+  'twitch-network',
+  'twitch-rate-limit',
+  'twitch-invalid-response',
+  'twitch-data-unavailable',
+  'stalled-progress',
+  'open-failed',
+  'directory-unavailable',
+  'no-streamers',
+  'drops-inactive',
+  'wrong-game',
+  'wrong-channel',
+  'offline',
+]);
+const STOP_REASONS = new Set([
+  'user-stop',
+  'queue-complete',
+  'farming-complete',
+  'sign-in-required',
+  'stall-skipped',
+  'queue-retries-exhausted',
+  'no-active-campaigns',
+  'unverifiable-twitch',
+]);
+
 export function normalizeStoredAppState(value: unknown): AppState {
   if (!isRecord(value)) {
     return createInitialState();
   }
   const defaults = createInitialState();
   const migratesLegacyAuthRecovery = value.isRunning === true && value.recoveryReason === 'sign-in-required';
+  const recoveryReason =
+    !migratesLegacyAuthRecovery &&
+    typeof value.recoveryReason === 'string' &&
+    RECOVERY_REASONS.has(value.recoveryReason)
+      ? value.recoveryReason
+      : null;
+  const lastStopReason =
+    typeof value.lastStopReason === 'string' && STOP_REASONS.has(value.lastStopReason)
+      ? value.lastStopReason
+      : null;
   const hiddenGames = normalizeHiddenGames(value.hiddenGames);
   const hiddenIdentityKeys = new Set(
     hiddenGames.flatMap((entry) => [entry.gameId, ...(entry.identityKeys ?? [])]),
@@ -35,7 +115,28 @@ export function normalizeStoredAppState(value: unknown): AppState {
   const storedState: AppState = {
     ...createInitialState(),
     ...value,
-    queue: Array.isArray(value.queue) ? (value.queue as AppState['queue']) : defaults.queue,
+    queue: normalizeStoredGames(value.queue),
+    selectedGame: normalizeStoredGame(value.selectedGame),
+    availableGames: normalizeStoredGames(value.availableGames),
+    allDrops: normalizeStoredDrops(value.allDrops),
+    pendingDrops: normalizeStoredDrops(value.pendingDrops),
+    completedDrops: normalizeStoredDrops(value.completedDrops),
+    currentDrop: normalizeStoredDrops([value.currentDrop])[0] ?? null,
+    isRunning:
+      (value.isRunning === true || (value.isPaused === true && value.manualQueueAuthorized === true)) &&
+      lastStopReason !== 'user-stop',
+    isPaused: value.isPaused === true,
+    wasRunning: value.wasRunning === true,
+    tabId:
+      typeof value.tabId === 'number' && Number.isInteger(value.tabId) && value.tabId > 0
+        ? value.tabId
+        : null,
+    activeStreamer: normalizeStoredStreamer(value.activeStreamer),
+    lastStopReason,
+    lastStopMessage:
+      lastStopReason && typeof value.lastStopMessage === 'string'
+        ? value.lastStopMessage.slice(0, 500)
+        : null,
     favoriteGames: normalizeFavoriteGames(value.favoriteGames).filter(
       (entry) => ![entry.gameId, ...(entry.identityKeys ?? [])].some((key) => hiddenIdentityKeys.has(key)),
     ),
@@ -105,20 +206,23 @@ export function normalizeStoredAppState(value: unknown): AppState {
     watchFallbackReason: typeof value.watchFallbackReason === 'string' ? value.watchFallbackReason : null,
     campaignSyncState: normalizeCampaignSyncState(value),
     twitchSessionSyncState: normalizeTwitchSessionSyncState(value),
-    recoveryReason:
-      migratesLegacyAuthRecovery || typeof value.recoveryReason !== 'string' ? null : value.recoveryReason,
+    recoveryReason,
     recoveryBackoffUntil:
-      migratesLegacyAuthRecovery ||
+      !recoveryReason ||
       typeof value.recoveryBackoffUntil !== 'number' ||
       !Number.isFinite(value.recoveryBackoffUntil)
         ? null
-        : value.recoveryBackoffUntil,
+        : ['open-failed', 'no-streamers', 'directory-unavailable'].includes(recoveryReason)
+          ? Math.min(value.recoveryBackoffUntil, Date.now() + 600_000)
+          : Math.min(value.recoveryBackoffUntil, Date.now() + 24 * 60 * 60_000),
     recoveryAttempts:
-      migratesLegacyAuthRecovery ||
+      !recoveryReason ||
       typeof value.recoveryAttempts !== 'number' ||
-      !Number.isFinite(value.recoveryAttempts)
+      !Number.isSafeInteger(value.recoveryAttempts) ||
+      value.recoveryAttempts < 0
         ? null
-        : value.recoveryAttempts,
+        : Math.min(value.recoveryAttempts, 100),
+    recoverySchedulerUnavailable: value.recoverySchedulerUnavailable === true,
   };
   if (storedState.isRunning && !storedState.selectedGame && storedState.queue.length > 0) {
     storedState.selectedGame = storedState.queue[0] ?? null;

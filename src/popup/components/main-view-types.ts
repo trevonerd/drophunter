@@ -38,4 +38,5 @@ export interface MainViewProps {
   onReorderQueue: (fromIndex: number, toIndex: number) => void;
   onStartQueuedCampaign: (game: TwitchGame) => void;
   onStart: () => void;
+  onRetry: () => void;
 }

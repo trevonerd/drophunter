@@ -84,7 +84,11 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: M
       : 'monitor-context-notice';
   const announceContextNotice = status.mode !== 'recovering';
   return (
-    <main className="monitor-shell">
+    <main
+      className="monitor-shell"
+      data-recovery-phase={status.recovery?.phase}
+      data-recovery-operation={status.recovery?.operation}
+    >
       <div className="monitor-card">
         <div className="monitor-header">
           <div>

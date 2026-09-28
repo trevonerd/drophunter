@@ -84,6 +84,7 @@ function renderRunningPopup(currentDrop: TwitchDrop, pendingDrops: TwitchDrop[])
       onReorderQueue={() => {}}
       onStartQueuedCampaign={() => {}}
       onStart={() => {}}
+      onRetry={() => {}}
     />,
   );
 }

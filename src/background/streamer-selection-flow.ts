@@ -1,9 +1,24 @@
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import { logDebug, logInfo, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import type { OpenBestStreamerCallbacks } from './streamer-acquisition-contracts.ts';
+import type { OpenBestStreamerCallbacks, WatchStartResult } from './streamer-acquisition-contracts.ts';
 import type { PickStreamerResult, StreamerSelectionPreferences } from './streamer-selection.ts';
-import { TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
+import type { WatchHealth } from './watch-transport.ts';
+
+export class WatchPlaybackUnavailableError extends Error {
+  readonly name = 'WatchPlaybackUnavailableError';
+  constructor(readonly health: WatchHealth | null) {
+    super('An eligible Twitch streamer was found, but playback could not start.');
+  }
+}
+
+function watchStartResult(value: WatchStartResult | boolean): WatchStartResult {
+  return typeof value === 'boolean'
+    ? value
+      ? { kind: 'started', health: null }
+      : { kind: 'failed', health: null }
+    : value;
+}
 
 function filterStreamersByAllowedChannels(
   streamers: TwitchStreamer[],
@@ -156,14 +171,7 @@ export async function openBestStreamerForSelectedGame(
     );
     if (withoutAvoided.length > 0 && withoutAvoided.length < candidates.length) candidates = withoutAvoided;
   }
-  const selection = deps.pickStreamerForPreferences(
-    candidates,
-    preferences,
-    Math.random,
-    languageFilterApplied,
-  );
-  const streamer = selection.streamer;
-  if (!streamer) {
+  if (candidates.length === 0) {
     logWarn('No streamer found for selected game', {
       game: deps.getGameDisplayLabel(selectedGame),
       categorySlug: selectedGame.categorySlug ?? null,
@@ -171,35 +179,55 @@ export async function openBestStreamerForSelectedGame(
     state.appState.activeStreamer = null;
     return false;
   }
-  logInfo('Opening selected streamer', {
-    game: deps.getGameDisplayLabel(selectedGame),
-    selectionMode: preferences.mode,
-    preferredLanguage: deps.normalizePreferredStreamerLanguage(preferences.preferredLanguage),
-    preferredLanguageApplied: selection.preferredLanguageApplied,
-    preferredLanguageMatches: selection.preferredLanguageMatches,
-    activePoolSize: selection.activePoolSize,
-    serverLanguageFilterApplied: languageFilterApplied,
-    streamer: streamer.name,
-    viewers: streamer.viewerCount ?? null,
-    broadcasterLanguage: streamer.broadcasterLanguage ?? null,
-    candidates: candidates.length,
-  });
-  state.avoidStreamerName = null;
-  if (!isCurrent()) return false;
-  if (callbacks.onOpenWatchTransport) {
-    let opened: boolean;
-    try {
-      opened = await callbacks.onOpenWatchTransport(streamer);
-    } catch (error) {
-      throw new TwitchDirectoryUnavailableError(error);
-    }
+  let remaining = candidates;
+  let lastFailure: WatchHealth | null = null;
+  for (let attempt = 0; attempt < Math.min(3, candidates.length); attempt += 1) {
     if (!isCurrent()) return false;
-    if (!opened)
-      throw new TwitchDirectoryUnavailableError(new Error('Watch transport could not start playback'));
-    if (opened && isCurrent()) state.appState.activeStreamer = streamer;
-    return opened;
+    const selection = deps.pickStreamerForPreferences(
+      remaining,
+      preferences,
+      Math.random,
+      languageFilterApplied,
+    );
+    const streamer = selection.streamer;
+    if (!streamer) break;
+    remaining = remaining.filter((candidate) => candidate.name.toLowerCase() !== streamer.name.toLowerCase());
+    logInfo('Opening selected streamer', {
+      game: deps.getGameDisplayLabel(selectedGame),
+      selectionMode: preferences.mode,
+      preferredLanguage: deps.normalizePreferredStreamerLanguage(preferences.preferredLanguage),
+      preferredLanguageApplied: selection.preferredLanguageApplied,
+      preferredLanguageMatches: selection.preferredLanguageMatches,
+      activePoolSize: selection.activePoolSize,
+      serverLanguageFilterApplied: languageFilterApplied,
+      streamer: streamer.name,
+      viewers: streamer.viewerCount ?? null,
+      broadcasterLanguage: streamer.broadcasterLanguage ?? null,
+      candidates: candidates.length,
+    });
+    if (callbacks.onOpenWatchTransport) {
+      let result: WatchStartResult;
+      try {
+        state.streamerAcquisitionPhase = 'playback';
+        result = watchStartResult(await callbacks.onOpenWatchTransport(streamer));
+      } catch (error) {
+        if (!isCurrent()) return false;
+        logWarn('Watch transport failed after streamer selection', { error: String(error) });
+        result = { kind: 'failed', health: null };
+      }
+      if (!isCurrent() || result.kind === 'cancelled') return false;
+      if (result.kind === 'failed') {
+        lastFailure = result.health;
+        continue;
+      }
+    } else {
+      state.streamerAcquisitionPhase = 'playback';
+      await callbacks.onOpenForegroundChannel(streamer);
+      if (!isCurrent()) return false;
+    }
+    state.avoidStreamerName = null;
+    state.appState.activeStreamer = streamer;
+    return true;
   }
-  if (!isCurrent()) return false;
-  await callbacks.onOpenForegroundChannel(streamer);
-  return isCurrent();
+  throw new WatchPlaybackUnavailableError(lastFailure);
 }

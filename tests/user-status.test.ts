@@ -23,8 +23,23 @@ test('reduces recovery status to the reason and next retry', () => {
     mode: 'recovering',
     label: 'Recovering',
     badge: 'RECOVERING',
-    detail: 'Waiting for Twitch · retry in 30s',
+    detail: 'Twitch request failed; checking connection · retry in 30s',
   });
+});
+
+test('explains when the alarm failed and periodic checks remain available', () => {
+  const state = createInitialState();
+  state.isRunning = true;
+  state.recoveryReason = 'open-failed';
+  state.recoveryBackoffUntil = 30_000;
+  state.recoverySchedulerUnavailable = true;
+  const status = createUserStatusModel({
+    state,
+    runtimeMode: 'recovering',
+    currentAutomatableDrop: null,
+    recoveryNow: 0,
+  });
+  expect(status.detail).toContain('Retry reminder unavailable; periodic checks continue.');
 });
 
 test('presents completed queues as completion instead of a generic stop', () => {

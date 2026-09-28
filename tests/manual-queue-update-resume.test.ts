@@ -93,8 +93,7 @@ for (const legacyToggle of [false, true]) {
         expect(state.appState.manualQueueAuthorized).toBe(status !== 'stopped');
         expect(state.appState.queue.map(gameKey)).toEqual([gameKey(game)]);
         expect(state.appState.wasRunning).toBe(false);
-        if (status !== 'stopped')
-          expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).toEqual(['campaign:earlier']);
+        if (status !== 'stopped') expect(state.appState.queueAcquisitionRound).toBeNull();
         if (status === 'stopped') expect(state.appState.lastStopReason).toBe('user-stop');
       },
     );

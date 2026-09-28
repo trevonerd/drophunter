@@ -68,7 +68,6 @@ describe('loadTimingState / saveTimingState', () => {
       apiBackoffUntil: 7777,
       integrityFallbackActive: true,
       integrityFallbackActiveUntil: futureTime,
-      recoveryBackoffUntil: futureTime,
       lastRecoveryAttemptAt: 101010,
       stalledRecoveryAttempts: 2,
       recoveryNotificationSent: false,
@@ -78,6 +77,8 @@ describe('loadTimingState / saveTimingState', () => {
         '["campaign","reward"]': { progress: 88, currentMinutes: 44, markedAt: 123_456 },
       },
     });
+    expect(state.recoveryBackoffUntil).toBeGreaterThan(Date.now());
+    expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 10 * 60_000);
     expect(state.dropClaimRetryAtById).toEqual(
       new Map([
         ['dropA', 4444],

@@ -4,6 +4,7 @@ import { pickNearestDrop } from '../shared/drop-order.ts';
 import { dropMatchesGame } from '../shared/game-selection.ts';
 import type { AppState, TwitchDrop } from '../types';
 import { DROPS_SNAPSHOT_CACHE_KEY, GAMES_CACHE_TTL_MS, LAST_ACTIVITY_AT_KEY } from './constants';
+import { reconcileFarmingRecoveryAlarm } from './farming-recovery-alarm.ts';
 import { logDebug, logWarn } from './logging';
 import { recordRuntimeDiagnostic } from './runtime-diagnostics.ts';
 import { pickDurablePreferences } from './runtime-state';
@@ -89,6 +90,7 @@ export function resetSaveStateBroadcastCacheForTests() {
 }
 
 export async function saveState(state: ServiceWorkerState) {
+  await reconcileFarmingRecoveryAlarm(state.appState);
   await browser.storage.local.set({
     appState: state.appState,
     [DROPS_SNAPSHOT_CACHE_KEY]: state.cachedDropsSnapshot,
@@ -132,6 +134,7 @@ export async function loadState(
     ]);
     if (result.appState) {
       state.appState = normalizeStoredAppState(result.appState);
+      await reconcileFarmingRecoveryAlarm(state.appState);
       if (!Array.isArray(state.appState.queue)) {
         state.appState.queue = [];
       }
@@ -163,6 +166,9 @@ export async function loadState(
     }
   } catch (error) {
     logWarn('Error loading state:', String(error));
+    // Abort startup instead of running from defaults and later overwriting a
+    // durable queue when storage is temporarily unavailable.
+    throw error;
   }
 }
 

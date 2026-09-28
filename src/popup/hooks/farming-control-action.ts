@@ -1,10 +1,11 @@
 import { logPopupWarn } from '../logging';
 
-export type FarmingControlType = 'PAUSE_FARMING' | 'RESUME_FARMING' | 'STOP_FARMING';
+export type FarmingControlType = 'PAUSE_FARMING' | 'RESUME_FARMING' | 'RETRY_FARMING' | 'STOP_FARMING';
 
 const FARMING_CONTROL_FAILURE: Record<FarmingControlType, string> = {
   PAUSE_FARMING: 'Unable to pause farming.',
   RESUME_FARMING: 'Unable to resume farming.',
+  RETRY_FARMING: 'Unable to retry farming.',
   STOP_FARMING: 'Unable to stop farming.',
 };
 

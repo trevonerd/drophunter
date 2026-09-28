@@ -44,6 +44,7 @@ interface ExtensionLifecycleOptions {
   readonly alarmName: string;
   readonly campaignSyncAlarmName?: string;
   readonly campaignSyncRetryAlarmName?: string;
+  readonly farmingRecoveryRetryAlarmName?: string;
   readonly automationPeriodicAlarmName?: string;
   readonly automationDeadlineAlarmName?: string;
   readonly farmingAutomation: Pick<FarmingAutomation, 'request'>;
@@ -52,6 +53,7 @@ interface ExtensionLifecycleOptions {
   readonly onExtensionUpdate: (details: chrome.runtime.InstalledDetails) => Promise<unknown> | unknown;
   readonly onExtensionStorageCleared?: () => Promise<unknown> | unknown;
   readonly onAlarm: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
+  readonly onFarmingRecoveryAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
   readonly onActivationSync?: (trigger: ActivationTrigger) => Promise<unknown> | unknown;
   readonly onLinkRecheckAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
   readonly onManagedTabRemoved: (tabId: number) => Promise<unknown> | unknown;
@@ -180,6 +182,7 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
     const isCampaignPeriodicAlarm = alarm.name === options.campaignSyncAlarmName;
     const isCampaignRetryAlarm = alarm.name === options.campaignSyncRetryAlarmName;
     const isCampaignSyncAlarm = isCampaignPeriodicAlarm || isCampaignRetryAlarm;
+    const isFarmingRecoveryAlarm = alarm.name === options.farmingRecoveryRetryAlarmName;
     const isAutomationAlarm =
       (options.automationPeriodicAlarmName !== undefined &&
         alarm.name === options.automationPeriodicAlarmName) ||
@@ -187,18 +190,26 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
         alarm.name === options.automationDeadlineAlarmName);
     const isLinkRecheckAlarm =
       options.linkRecheckAlarmPrefix !== undefined && alarm.name.startsWith(options.linkRecheckAlarmPrefix);
-    if (!isMonitoringAlarm && !isCampaignSyncAlarm && !isAutomationAlarm && !isLinkRecheckAlarm) {
+    if (
+      !isMonitoringAlarm &&
+      !isFarmingRecoveryAlarm &&
+      !isCampaignSyncAlarm &&
+      !isAutomationAlarm &&
+      !isLinkRecheckAlarm
+    ) {
       return;
     }
     reportAsyncError(
       (async () => {
         await awaitInitialization(options.getInitPromise);
-        if (isMonitoringAlarm) {
+        if (isFarmingRecoveryAlarm) {
+          await (options.onFarmingRecoveryAlarm ?? options.onAlarm)(alarm);
+        } else if (isMonitoringAlarm) {
           // A normal progress alarm only performs a cache-aware activation check.
           // requestActivationSync promotes it to `wake` after a persisted lifecycle
           // gap, while routine 60-second ticks never force a campaign refresh.
-          if (options.onActivationSync) await options.onActivationSync('periodic-campaign');
           await options.onAlarm(alarm);
+          if (options.onActivationSync) await options.onActivationSync('periodic-campaign');
         } else if (isCampaignSyncAlarm) {
           if (options.onActivationSync)
             await options.onActivationSync(isCampaignRetryAlarm ? 'manual-retry' : 'periodic-campaign');

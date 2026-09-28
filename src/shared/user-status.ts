@@ -1,5 +1,6 @@
 import type { AppState, TwitchDrop } from '../types';
 import { getGameDisplayLabel } from './game-selection';
+import { getRecoveryPresentation, type RecoveryPresentation } from './recovery-presentation.ts';
 import {
   formatEtaMinutes,
   formatRecoveryReason,
@@ -29,6 +30,7 @@ export type UserStatusModel = {
   readonly subject: string;
   readonly detail: string;
   readonly tone: 'neutral' | 'success' | 'warning' | 'danger' | 'accent';
+  readonly recovery?: RecoveryPresentation;
 };
 
 export type EffectiveTransport = {
@@ -50,9 +52,13 @@ function campaignSubject(state: AppState): string {
 }
 
 function recoveryDetail(state: AppState, now: number): string {
+  const recovery = getRecoveryPresentation(state, now);
   const reason = formatRecoveryReason(state.recoveryReason) ?? 'Restoring farming';
-  const retry = formatRetryLabel(state.recoveryBackoffUntil, now);
-  return retry ? `${reason} · ${retry}` : reason;
+  const retry = formatRetryLabel(recovery?.nextRetryAt, now);
+  const detail = retry ? `${reason} · ${retry}` : reason;
+  return state.recoverySchedulerUnavailable
+    ? `${detail} · Retry reminder unavailable; periodic checks continue.`
+    : detail;
 }
 
 export function trackedProgress(drop: TwitchDrop): number {
@@ -110,6 +116,7 @@ export function createUserStatusModel({
       badge: 'RECOVERING',
       subject,
       detail: recoveryDetail(state, recoveryNow),
+      recovery: getRecoveryPresentation(state, recoveryNow) ?? undefined,
       tone: 'warning',
     };
   }

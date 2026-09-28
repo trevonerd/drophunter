@@ -11,10 +11,6 @@ interface ExtensionUpdateIntent {
   readonly farmingSessionOrigin: AppState['farmingSessionOrigin'];
   readonly lastStopReason: AppState['lastStopReason'];
   readonly lastStopMessage: AppState['lastStopMessage'];
-  readonly queueAcquisitionRound: AppState['queueAcquisitionRound'];
-  readonly recoveryReason: AppState['recoveryReason'];
-  readonly recoveryBackoffUntil: AppState['recoveryBackoffUntil'];
-  readonly recoveryAttempts: AppState['recoveryAttempts'];
   readonly queue: AppState['queue'];
   readonly selectedGame: AppState['selectedGame'];
   readonly queueEntryMetadataByKey: AppState['queueEntryMetadataByKey'];
@@ -33,13 +29,21 @@ export function captureExtensionUpdateIntent(appState: AppState): ExtensionUpdat
     farmingSessionOrigin: appState.farmingSessionOrigin,
     lastStopReason: appState.lastStopReason,
     lastStopMessage: appState.lastStopMessage,
-    queueAcquisitionRound: appState.queueAcquisitionRound,
-    recoveryReason: appState.recoveryReason,
-    recoveryBackoffUntil: appState.recoveryBackoffUntil,
-    recoveryAttempts: appState.recoveryAttempts,
     queue: appState.queue.slice(),
     selectedGame: appState.selectedGame,
-    queueEntryMetadataByKey: { ...appState.queueEntryMetadataByKey },
+    queueEntryMetadataByKey: Object.fromEntries(
+      Object.entries(appState.queueEntryMetadataByKey).map(([key, metadata]) => {
+        const {
+          streamerRetryAt: _retryAt,
+          streamerRetryReason: _retryReason,
+          streamerRetryAttempts: _retryAttempts,
+          streamerRetryCycles: _retryCycles,
+          streamerWaitState: _waitState,
+          ...provenance
+        } = metadata;
+        return [key, provenance];
+      }),
+    ),
   };
 }
 
@@ -78,12 +82,12 @@ export function createExtensionUpdateAppState(
     isRunning: intent.isPaused,
     lastStopReason: intent.lastStopReason,
     lastStopMessage: intent.lastStopMessage,
-    queueAcquisitionRound: intent.queueAcquisitionRound,
-    recoveryReason: intent.recoveryReason,
-    recoveryBackoffUntil: intent.recoveryBackoffUntil,
-    recoveryAttempts: intent.recoveryAttempts,
-    campaignSyncState: appState.campaignSyncState,
-    twitchSessionSyncState: appState.twitchSessionSyncState,
+    recoveryReason: null,
+    recoveryBackoffUntil: null,
+    recoveryAttempts: null,
+    recoverySchedulerUnavailable: false,
+    campaignSyncState: createInitialState().campaignSyncState,
+    twitchSessionSyncState: createInitialState().twitchSessionSyncState,
     availableGames: appState.availableGames,
     campaignDropsByKey: appState.campaignDropsByKey,
     campaignEvidenceUserId: appState.campaignEvidenceUserId,

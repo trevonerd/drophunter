@@ -220,6 +220,16 @@ export function queueSkipCopy(reason: QueueSkipReason, gameName: string): QueueS
         terminalNotificationMessage: 'No active campaigns remain in the queue.',
         stopReason: 'no-active-campaigns',
       };
+    case 'open-failed':
+      return {
+        logMessage: 'Parking campaign because eligible stream playback could not start',
+        skipNotificationTitle: 'Campaign queued: playback unavailable',
+        skipMessage: `Kept ${gameName} queued for retry — eligible stream playback could not start.`,
+        terminalNotificationTitle: 'Playback needs attention',
+        terminalMessage: `Playback could not start for ${gameName}. DropHunter will keep checking the queue.`,
+        terminalNotificationMessage: `Playback could not start for ${gameName}. DropHunter will retry.`,
+        stopReason: 'queue-retries-exhausted',
+      };
     case 'unverifiable-twitch':
       return {
         logMessage: 'Finishing campaign because Twitch reward acquisition could not be verified',

@@ -49,6 +49,7 @@ export function MainView({
   onReorderQueue,
   onStartQueuedCampaign,
   onStart,
+  onRetry,
 }: MainViewProps) {
   const model = createMainViewModel({
     state,
@@ -133,6 +134,7 @@ export function MainView({
               queueCount={queueGames.length}
               startHighlighted={onboardingStep === 'start'}
               onStart={onStart}
+              onRetry={onRetry}
               onPause={onPause}
               onResume={onResume}
               onStop={onStop}

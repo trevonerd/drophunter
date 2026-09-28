@@ -313,9 +313,10 @@ test('completes the first queued campaign and reuses its managed tab for the nex
 });
 
 test('shows a failed Pause response in the popup status region', async () => {
-  const profile = await createExtensionProfile();
+  const seedProfile = await createExtensionProfile();
+  let profile = seedProfile;
   try {
-    await seedAppState(profile, {
+    await seedAppState(seedProfile, {
       selectedGame: games[0],
       availableGames: games,
       queue: games,
@@ -325,7 +326,7 @@ test('shows a failed Pause response in the popup status region', async () => {
       isRunning: true,
       isPaused: false,
       wasRunning: true,
-      autoResumeOnStartup: false,
+      autoResumeOnStartup: true,
       autoStartFavoriteGames: false,
       manualQueueAuthorized: true,
       farmingSessionOrigin: 'manual',
@@ -334,7 +335,11 @@ test('shows a failed Pause response in the popup status region', async () => {
       lastStopReason: null,
       lastStopMessage: null,
     });
+    await seedProfile.shutdown();
+    profile = await createExtensionProfile(seedProfile.userDataDir);
     const popup = await openPopup(profile);
+    const ready = await runtimeMessage<{ readonly success: boolean }>(popup, { type: 'GET_CLAIM_LOG' });
+    expect(ready.success).toBe(true);
     const worker = await getExtensionWorker(profile.context);
     await worker.evaluate(() => {
       const storage = chrome.storage.local;
@@ -353,6 +358,7 @@ test('shows a failed Pause response in the popup status region', async () => {
     await popup.getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(popup.getByRole('status').filter({ hasText: 'local fixture persistence failure' })).toBeVisible();
   } finally {
-    await profile.close();
+    await profile.shutdown().catch(() => undefined);
+    await seedProfile.close();
   }
 });

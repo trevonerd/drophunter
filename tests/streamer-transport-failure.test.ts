@@ -9,7 +9,7 @@ import {
   createStreamer,
 } from './fixtures/queue-management.ts';
 
-test('failed tabless playback preserves the campaign and enters global recovery', async () => {
+test('failed tabless playback preserves the campaign and enters local playback recovery', async () => {
   const state = createServiceWorkerState();
   const game = createGame();
   const drop = createDrop({ gameId: game.id });
@@ -42,7 +42,8 @@ test('failed tabless playback preserves the campaign and enters global recovery'
     }),
   );
   expect(await session.acquireStreamerForSelectedGame()).toBe(false);
-  expect(state.appState.recoveryReason).toBe('twitch-network');
+  expect(state.appState.recoveryReason).toBe('open-failed');
+  expect(state.apiBackoffUntil).toBe(0);
   expect(state.appState.activeStreamer).toBeNull();
   expect(state.appState.selectedGame?.id).toBe(game.id);
   expect(state.appState.queue).toEqual([game]);

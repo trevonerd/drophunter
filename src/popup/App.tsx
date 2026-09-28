@@ -106,6 +106,7 @@ function App() {
         onReorderQueue: (fromIndex, toIndex) => void actions.handleReorderQueue(fromIndex, toIndex),
         onStartQueuedCampaign: (game) => void actions.handleStartQueuedCampaign(game),
         onStart: actions.handleStart,
+        onRetry: actions.handleRetry,
       }}
       settingsViewProps={{
         state,

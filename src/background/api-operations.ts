@@ -3,6 +3,7 @@ import { toSlug } from '../shared/utils.ts';
 import type { DropsSnapshot, TwitchGame, TwitchStreamer } from '../types';
 import { INTEGRITY_FALLBACK_TTL_MS, PROGRESS_POLL_MS } from './constants.ts';
 import { logDebug } from './logging.ts';
+import { recordTwitchApiDiagnostic } from './runtime-diagnostics.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { ensureSessionIntegrity as ensureSessionIntegrityExt } from './session-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
@@ -31,19 +32,29 @@ export function clearLastTwitchApiFailure(state: ServiceWorkerState): void {
   latestTwitchApiFailureByState.delete(state);
 }
 
-function recordTwitchApiFailure(state: ServiceWorkerState, error: unknown): TwitchApiFailure {
+function recordTwitchApiFailure(
+  state: ServiceWorkerState,
+  error: unknown,
+  operation: 'campaign' | 'inventory' | 'directory',
+): TwitchApiFailure {
   const failure = classifyTwitchApiFailure(error);
   latestTwitchApiFailureByState.set(state, failure);
+  recordTwitchApiDiagnostic(state.appState, operation, error);
   return failure;
 }
 
 export function applyApiBackoff(state: ServiceWorkerState, retryAfterMs?: number) {
   state.apiConsecutiveFailures += 1;
+  const now = Date.now();
+  const validRetryAfter =
+    typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0;
+  const boundedRetryAfter = validRetryAfter ? Math.min(retryAfterMs, 24 * 60 * 60_000) : 0;
+  state.apiRetryAfterVerifiedAt = validRetryAfter ? now : 0;
   const calculatedDelay = Math.min(
     2 ** Math.max(0, state.apiConsecutiveFailures - 1) * PROGRESS_POLL_MS,
     10 * 60_000,
   );
-  state.apiBackoffUntil = Date.now() + Math.max(calculatedDelay, retryAfterMs ?? 0);
+  state.apiBackoffUntil = now + Math.max(calculatedDelay, boundedRetryAfter);
 }
 
 export function clearSignInRequiredStop(state: ServiceWorkerState) {
@@ -57,6 +68,7 @@ async function fetchSnapshotWithIntegrityRetry(
   state: ServiceWorkerState,
   session: TwitchSession,
   fetchSnapshot: (client: TwitchApiClient) => Promise<DropsSnapshot>,
+  operation: 'campaign' | 'inventory',
 ): Promise<DropsSnapshot | null> {
   clearLastTwitchApiFailure(state);
   const sessionWithIntegrity =
@@ -102,7 +114,7 @@ async function fetchSnapshotWithIntegrityRetry(
         logDebug('No-integrity fallback fetch also failed', { error: String(fallbackError) });
       }
     }
-    const failure = recordTwitchApiFailure(state, error);
+    const failure = recordTwitchApiFailure(state, error, operation);
     if (failure.kind === 'auth') throw error;
     applyApiBackoff(state, failure.retryAfterMs);
     return null;
@@ -114,7 +126,12 @@ export async function fetchDropsSnapshotFromApi(
   session: TwitchSession,
   options: FetchDropsSnapshotOptions = {},
 ): Promise<DropsSnapshot | null> {
-  return fetchSnapshotWithIntegrityRetry(state, session, (client) => client.fetchDropsSnapshot(options));
+  return fetchSnapshotWithIntegrityRetry(
+    state,
+    session,
+    (client) => client.fetchDropsSnapshot(options),
+    'campaign',
+  );
 }
 
 export async function fetchInventorySnapshotFromApi(
@@ -123,8 +140,11 @@ export async function fetchInventorySnapshotFromApi(
   baseDrops: DropsSnapshot['drops'],
 ): Promise<DropsSnapshot | null> {
   if (baseDrops.length === 0) return null;
-  const snapshot = await fetchSnapshotWithIntegrityRetry(state, session, (client) =>
-    client.fetchInventorySnapshot(baseDrops),
+  const snapshot = await fetchSnapshotWithIntegrityRetry(
+    state,
+    session,
+    (client) => client.fetchInventorySnapshot(baseDrops),
+    'inventory',
   );
   return snapshot && snapshot.drops.length > 0 ? snapshot : null;
 }
@@ -158,7 +178,7 @@ export async function fetchDirectoryStreamersFromApi(
     return streamers;
   } catch (error) {
     if (isCurrent()) {
-      const failure = recordTwitchApiFailure(state, error);
+      const failure = recordTwitchApiFailure(state, error, 'directory');
       applyApiBackoff(state, failure.retryAfterMs);
     }
     throw error;

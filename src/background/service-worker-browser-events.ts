@@ -8,6 +8,7 @@ import {
   FARMING_AUTOMATION_DEADLINE_ALARM,
   FARMING_AUTOMATION_PERIODIC_ALARM,
 } from './farming-automation-browser.ts';
+import { FARMING_RECOVERY_RETRY_ALARM_NAME } from './farming-recovery-alarm.ts';
 import type { StreamContext } from './farming-session.ts';
 import { logInfo, logWarn } from './logging.ts';
 import { managedWatchMarker } from './managed-watch-marker.ts';
@@ -52,6 +53,7 @@ interface ServiceWorkerBrowserRegistration {
   readonly onExtensionUpdate: () => Promise<unknown>;
   readonly onExtensionStorageCleared: () => Promise<unknown>;
   readonly onMonitoringAlarm: () => Promise<unknown>;
+  readonly onFarmingRecoveryAlarm: () => Promise<unknown>;
   readonly onActivationSync: (trigger: ActivationTrigger) => Promise<unknown>;
   readonly onLinkRecheckAlarm: () => Promise<unknown>;
 }
@@ -206,6 +208,7 @@ export function createServiceWorkerBrowserEvents(
       alarmName: ALARM_NAME,
       campaignSyncAlarmName: 'campaignSync',
       campaignSyncRetryAlarmName: CAMPAIGN_SYNC_RETRY_ALARM_NAME,
+      farmingRecoveryRetryAlarmName: FARMING_RECOVERY_RETRY_ALARM_NAME,
       automationPeriodicAlarmName: FARMING_AUTOMATION_PERIODIC_ALARM,
       automationDeadlineAlarmName: FARMING_AUTOMATION_DEADLINE_ALARM,
       farmingAutomation: registration.farmingAutomation,
@@ -214,6 +217,7 @@ export function createServiceWorkerBrowserEvents(
       onExtensionUpdate: registration.onExtensionUpdate,
       onExtensionStorageCleared: registration.onExtensionStorageCleared,
       onAlarm: registration.onMonitoringAlarm,
+      onFarmingRecoveryAlarm: registration.onFarmingRecoveryAlarm,
       onActivationSync: registration.onActivationSync,
       onLinkRecheckAlarm: registration.onLinkRecheckAlarm,
       onManagedTabRemoved: handleManagedTabRemoved,

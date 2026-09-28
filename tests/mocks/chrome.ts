@@ -56,11 +56,17 @@ export function setupChromeMocks(): ChromeMocks {
   };
 
   const createdAlarms: Array<{ name: string; info: AlarmInfo }> = [];
+  const activeAlarms = new Map<string, Alarm>();
   const alarms = {
     create(name: string, info: AlarmInfo) {
       createdAlarms.push({ name, info });
+      activeAlarms.set(name, {
+        name,
+        scheduledTime: info.when ?? Date.now() + (info.delayInMinutes ?? info.periodInMinutes ?? 1) * 60_000,
+      });
     },
-    clear: (_name: string): Promise<boolean | undefined> => Promise.resolve(true),
+    get: (name: string) => Promise.resolve(activeAlarms.get(name)),
+    clear: (name: string): Promise<boolean | undefined> => Promise.resolve(activeAlarms.delete(name)),
     onAlarm: createListenerMock<Alarm>(),
     _created: createdAlarms,
   };

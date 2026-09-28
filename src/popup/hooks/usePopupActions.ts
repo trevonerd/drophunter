@@ -266,6 +266,7 @@ export function usePopupActions({
     handleStart,
     handlePause: useCallback(() => runFarmingControl('PAUSE_FARMING'), [runFarmingControl]),
     handleResume: useCallback(() => runFarmingControl('RESUME_FARMING'), [runFarmingControl]),
+    handleRetry: useCallback(() => runFarmingControl('RETRY_FARMING'), [runFarmingControl]),
     handleStop: useCallback(() => runFarmingControl('STOP_FARMING'), [runFarmingControl]),
   };
 }

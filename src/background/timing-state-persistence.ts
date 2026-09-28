@@ -47,6 +47,7 @@ function createTimingState(state: ServiceWorkerState): TimingState {
     lastTrackedDropKey: state.lastTrackedDropKey,
     apiConsecutiveFailures: state.apiConsecutiveFailures,
     apiBackoffUntil: state.apiBackoffUntil,
+    apiRetryAfterVerifiedAt: state.apiRetryAfterVerifiedAt ?? 0,
     integrityFallbackActive: state.integrityFallbackActive,
     integrityFallbackActiveUntil: state.integrityFallbackActiveUntil,
     recoveryBackoffUntil: state.recoveryBackoffUntil,
@@ -99,6 +100,7 @@ export async function loadTimingState(state: ServiceWorkerState) {
       lastTrackedDropKey: saved.lastTrackedDropKey,
       apiConsecutiveFailures: saved.apiConsecutiveFailures,
       apiBackoffUntil: saved.apiBackoffUntil,
+      apiRetryAfterVerifiedAt: saved.apiRetryAfterVerifiedAt,
       integrityFallbackActive: saved.integrityFallbackActive,
       integrityFallbackActiveUntil: saved.integrityFallbackActiveUntil,
       recoveryBackoffUntil: saved.recoveryBackoffUntil,
@@ -116,9 +118,13 @@ export async function loadTimingState(state: ServiceWorkerState) {
     if (isStreamerAcquisitionRecovery(state.appState.recoveryReason)) {
       const localRecovery =
         state.appState.recoveryReason === 'no-streamers' ||
-        state.appState.recoveryReason === 'directory-unavailable';
+        state.appState.recoveryReason === 'directory-unavailable' ||
+        state.appState.recoveryReason === 'open-failed';
       state.recoveryBackoffUntil = localRecovery
-        ? Math.min(state.recoveryBackoffUntil, Date.now() + 60_000)
+        ? Math.min(
+            state.recoveryBackoffUntil,
+            Date.now() + (state.appState.recoveryReason === 'open-failed' ? 600_000 : 60_000),
+          )
         : Math.max(state.recoveryBackoffUntil, state.apiBackoffUntil);
       state.appState.recoveryBackoffUntil = state.recoveryBackoffUntil;
     }

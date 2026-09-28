@@ -122,6 +122,20 @@ export function applyNoStreamersRecoveryState(state: ServiceWorkerState, retryAt
   });
 }
 
+export function applyPlaybackStartRecoveryState(
+  state: ServiceWorkerState,
+  retryAt: number,
+  attempts: number,
+) {
+  state.recoveryBackoffUntil = retryAt;
+  state.lastRecoveryAttemptAt = Date.now();
+  state.appState = applyRecoveryStatus(state.appState, {
+    reason: 'open-failed',
+    retryAt,
+    attempts,
+  });
+}
+
 export function applyTwitchSessionRetryState(state: ServiceWorkerState, retryAt: number, attempts: number) {
   markTwitchSessionRetrying(state, retryAt, attempts);
 }

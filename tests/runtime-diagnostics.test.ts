@@ -4,8 +4,10 @@ import {
   appendRuntimeDiagnosticEvent,
   flushRuntimeDiagnosticsForTests,
   type RuntimeDiagnosticEvent,
+  recordTwitchApiDiagnostic,
 } from '../src/background/runtime-diagnostics.ts';
 import { saveState } from '../src/background/state-persistence.ts';
+import { TwitchHttpError } from '../src/background/twitch-api/errors.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
 import { getRecoveryState, isStreamerAcquisitionRecovery } from '../src/shared/runtime-status.ts';
 import { createAppState, createMinimalState } from './fixtures/state-persistence.ts';
@@ -63,6 +65,15 @@ describe('runtime diagnostics persistence', () => {
   afterEach(async () => {
     await flushRuntimeDiagnosticsForTests();
     mocks.teardown();
+  });
+
+  test('records only operation and HTTP status for a Twitch failure', async () => {
+    const state = createAppState({ selectedGame: { id: 'game-1', name: 'Private', imageUrl: '' } });
+    recordTwitchApiDiagnostic(state, 'directory', new TwitchHttpError('gql', 503));
+    await flushRuntimeDiagnosticsForTests();
+    const events = mocks.storage.local._store.get('runtimeDiagnostics');
+    expect(events).toMatchObject([{ operation: 'directory', httpStatus: 503 }]);
+    expect(JSON.stringify(events)).not.toContain('Private');
   });
 
   test('records recovery metadata when saving a runtime transition without copying error text or credentials', async () => {

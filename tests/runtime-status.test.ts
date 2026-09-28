@@ -192,7 +192,7 @@ describe('runtime status formatting', () => {
     expect(formatRotationReason('open-failed')).toBe('Could not open stream');
     expect(formatRotationReason('no-streamers')).toBe('No eligible streamer found yet');
     expect(formatRecoveryReason('drops-inactive')).toBe('Restoring Drops tracking');
-    expect(formatRecoveryReason('open-failed')).toBe('Opening another stream');
+    expect(formatRecoveryReason('open-failed')).toBe('Playback could not start; checking other streams');
     expect(formatRecoveryReason('no-streamers')).toBe('No eligible streamer yet');
     expect(formatRecoveryReason('directory-unavailable')).toBe('Searching Twitch again');
     expect(formatRecoveryReason('stalled-progress')).toBe('Checking stalled drop progress');
@@ -201,8 +201,8 @@ describe('runtime status formatting', () => {
   test('keeps a waiting label when the retry deadline passes without evidence of an active attempt', () => {
     expect(formatRetryLabel(61_000, 1_000)).toBe('retry in 1m');
     expect(formatRetryLabel(1_500, 1_000)).toBe('retry in 1s');
-    expect(formatRetryLabel(500, 1_000)).toBe('waiting for scheduled retry');
-    expect(formatRetryLabel(1_000, 1_000)).toBe('waiting for scheduled retry');
+    expect(formatRetryLabel(500, 1_000)).toBe('retry due');
+    expect(formatRetryLabel(1_000, 1_000)).toBe('retry due');
     expect(formatRetryLabel(null, 1_000)).toBeNull();
   });
 });

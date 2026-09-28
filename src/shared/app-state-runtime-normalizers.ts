@@ -98,7 +98,7 @@ export function normalizeCampaignSyncState(value: Record<string, unknown>): AppS
       status: 'retry-scheduled',
       ...common,
       retryAttemptCount: Math.max(1, retryAttemptCount),
-      nextRetryAt,
+      nextRetryAt: lastErrorKind === 'rate-limit' ? nextRetryAt : Math.min(nextRetryAt, Date.now() + 600_000),
       attemptDeadlineAt: null,
       error: candidate.error,
     };

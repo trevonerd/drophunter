@@ -129,7 +129,6 @@ describe('loadTimingState / saveTimingState', () => {
       apiBackoffUntil: original.apiBackoffUntil,
       integrityFallbackActive: original.integrityFallbackActive,
       integrityFallbackActiveUntil: original.integrityFallbackActiveUntil,
-      recoveryBackoffUntil: original.recoveryBackoffUntil,
       lastRecoveryAttemptAt: original.lastRecoveryAttemptAt,
       stalledRecoveryAttempts: original.stalledRecoveryAttempts,
       recoveryNotificationSent: original.recoveryNotificationSent,
@@ -137,6 +136,8 @@ describe('loadTimingState / saveTimingState', () => {
       avoidStreamerName: original.avoidStreamerName,
       unverifiableRewardsByKey: original.unverifiableRewardsByKey,
     });
+    expect(restored.recoveryBackoffUntil).toBeGreaterThan(Date.now());
+    expect(restored.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 10 * 60_000);
     expect(restored.dropClaimRetryAtById).toEqual(new Map([['dropX', 98765]]));
   });
 

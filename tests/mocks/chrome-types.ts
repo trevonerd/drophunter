@@ -159,6 +159,7 @@ export interface MockChrome {
   };
   alarms: {
     create: (name: string, alarmInfo: AlarmInfo) => void;
+    get: (name: string) => Promise<Alarm | undefined>;
     clear: (name: string) => Promise<boolean | undefined>;
     onAlarm: ListenerMock<Alarm>;
     _created: Array<{ name: string; info: AlarmInfo }>;

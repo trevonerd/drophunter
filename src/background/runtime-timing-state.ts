@@ -20,6 +20,7 @@ export interface TimingState {
   lastTrackedDropKey: string | null;
   apiConsecutiveFailures: number;
   apiBackoffUntil: number;
+  apiRetryAfterVerifiedAt: number;
   integrityFallbackActive: boolean;
   integrityFallbackActiveUntil: number;
   recoveryBackoffUntil: number;
@@ -50,6 +51,7 @@ export function createInitialTimingState(): TimingState {
     lastTrackedDropKey: null,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
+    apiRetryAfterVerifiedAt: 0,
     integrityFallbackActive: false,
     integrityFallbackActiveUntil: 0,
     recoveryBackoffUntil: 0,
@@ -121,6 +123,15 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
   const fallbackUntil = finiteNumber(source.integrityFallbackActiveUntil, 0);
   const fallbackActive = Boolean(source.integrityFallbackActive) && fallbackUntil > now;
   const recoveryUntil = finiteNumber(source.recoveryBackoffUntil, 0);
+  const rawApiBackoffUntil = Math.max(0, finiteNumber(source.apiBackoffUntil, 0));
+  const retryAfterVerifiedAt = finiteNumber(source.apiRetryAfterVerifiedAt, 0);
+  const hasRecentRetryAfterProof =
+    retryAfterVerifiedAt > 0 &&
+    retryAfterVerifiedAt <= now &&
+    now - retryAfterVerifiedAt < 24 * 60 * 60_000 &&
+    rawApiBackoffUntil >= retryAfterVerifiedAt &&
+    rawApiBackoffUntil <= retryAfterVerifiedAt + 24 * 60 * 60_000;
+  const maximumRestoredDeadline = now + (hasRecentRetryAfterProof ? 24 * 60 * 60_000 : 10 * 60_000);
   return {
     lastStreamRotationAt: finiteNumber(source.lastStreamRotationAt, initial.lastStreamRotationAt),
     streamValidationGraceUntil: finiteNumber(
@@ -148,10 +159,11 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
         ? source.lastTrackedDropKey
         : null,
     apiConsecutiveFailures: finiteNumber(source.apiConsecutiveFailures, initial.apiConsecutiveFailures),
-    apiBackoffUntil: finiteNumber(source.apiBackoffUntil, initial.apiBackoffUntil),
+    apiBackoffUntil: Math.min(rawApiBackoffUntil, maximumRestoredDeadline),
+    apiRetryAfterVerifiedAt: hasRecentRetryAfterProof ? retryAfterVerifiedAt : 0,
     integrityFallbackActive: fallbackActive,
     integrityFallbackActiveUntil: fallbackActive ? fallbackUntil : 0,
-    recoveryBackoffUntil: recoveryUntil > now ? recoveryUntil : 0,
+    recoveryBackoffUntil: recoveryUntil > now ? Math.min(recoveryUntil, maximumRestoredDeadline) : 0,
     lastRecoveryAttemptAt: finiteNumber(source.lastRecoveryAttemptAt, initial.lastRecoveryAttemptAt),
     stalledRecoveryAttempts: finiteNumber(source.stalledRecoveryAttempts, initial.stalledRecoveryAttempts),
     recoveryNotificationSent: Boolean(source.recoveryNotificationSent) && recoveryUntil > now,

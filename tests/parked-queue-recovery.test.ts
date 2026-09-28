@@ -34,6 +34,31 @@ function fixture() {
 const saveTiming = async () => {};
 
 describe('temporarily unavailable campaign queue', () => {
+  test('playback failure parks its campaign and advances the authorized successor', async () => {
+    const { state, offline, urgent } = fixture();
+    await skipCurrentGameAndAdvanceQueue(state, 'open-failed', {
+      onSaveTimingState: saveTiming,
+      onOpenStreamer: async () => true,
+    });
+    expect(state.appState.selectedGame).toEqual(urgent);
+    expect(state.appState.queue).toContainEqual(offline);
+    expect(state.appState.queueEntryMetadataByKey[gameKey(offline)]?.streamerRetryReason).toBe('open-failed');
+    expect(state.appState.manualQueueAuthorized).toBe(true);
+  });
+
+  test('all failed playback waits for a local retry without declaring Twitch unavailable', async () => {
+    const { state, offline } = fixture();
+    state.appState.queue = [offline];
+    await skipCurrentGameAndAdvanceQueue(state, 'open-failed', {
+      onSaveTimingState: saveTiming,
+      onOpenStreamer: async () => false,
+    });
+    expect(state.appState.queue).toEqual([offline]);
+    expect(state.appState.recoveryReason).toBe('open-failed');
+    expect(state.appState.recoveryBackoffUntil).toBeGreaterThan(now);
+    expect(state.appState.manualQueueAuthorized).toBe(true);
+  });
+
   test('parks exact campaign, retains manual provenance, and farms earlier expiry next', async () => {
     const { state, offline, urgent, later } = fixture();
     await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {

@@ -1,10 +1,13 @@
 import type { FarmingAutomation } from './farming-automation.ts';
 import type { createFarmingSession } from './farming-session.ts';
+import { retryFarmingNow } from './manual-farming-retry.ts';
 import { registerRuntimeMessageRouter } from './message-router.ts';
+import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
 import type { createServiceWorkerContentHandlers } from './service-worker-content-handlers.ts';
 import type { createServiceWorkerSettingsHandlers } from './service-worker-settings-handlers.ts';
 import type { createServiceWorkerStateLifecycle } from './service-worker-state-lifecycle.ts';
+import { saveState } from './state-persistence.ts';
 
 type BrowserEvents = ReturnType<typeof createServiceWorkerBrowserEvents>;
 type ContentHandlers = ReturnType<typeof createServiceWorkerContentHandlers>;
@@ -19,6 +22,7 @@ interface ServiceWorkerRuntimeDependencies {
   readonly farmingSession: FarmingSession;
   readonly settingsHandlers: SettingsHandlers;
   readonly stateLifecycle: StateLifecycle;
+  readonly state: ServiceWorkerState;
 }
 
 type FarmingAutomationUserActionSession = Pick<
@@ -89,6 +93,12 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
       pauseFarming: userActions.pauseFarming,
       setAutoResumeOnStartup: (message) => settingsHandlers.handleSetAutoResumeOnStartup(message.payload),
       resumeFarming: userActions.resumeFarming,
+      retryFarming: () =>
+        retryFarmingNow(dependencies.state, {
+          checkDropProgress: farmingSession.checkDropProgress,
+          acquireStreamerForSelectedGame: farmingSession.acquireStreamerForSelectedGame,
+          saveState: () => saveState(dependencies.state),
+        }),
       stopFarming: userActions.stopFarming,
       updateGames: (message) => contentHandlers.handleUpdateGames(message.payload),
       syncTwitchSession: (message, sender) =>

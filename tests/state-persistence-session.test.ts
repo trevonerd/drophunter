@@ -93,6 +93,32 @@ describe('loadState', () => {
     mocks.teardown();
   });
 
+  test('aborts startup when storage is unavailable instead of booting from empty defaults', async () => {
+    const state = createMinimalState();
+    const original = state.appState;
+    Reflect.set(chrome.storage.local, 'get', async () => {
+      throw new Error('storage unavailable');
+    });
+    await expect(
+      loadState(
+        state,
+        { onLoadTimingState: async () => undefined, onEnforceInactivityReset: async () => false },
+        {
+          sanitizeTwitchSession: () => null,
+          sessionDebugSummary,
+          createInitialState,
+          clearRotationMetadata: (appState) => appState,
+          TWITCH_SESSION_STORAGE_KEY: 'twitchSession',
+          DROPS_SNAPSHOT_CACHE_KEY: 'dropsSnapshotCache',
+          LAST_ACTIVITY_AT_KEY: 'lastActivityAt',
+          TIMING_STATE_KEY: 'timingState',
+          STREAM_VALIDATION_GRACE_MS: 0,
+        },
+      ),
+    ).rejects.toThrow('storage unavailable');
+    expect(state.appState).toBe(original);
+  });
+
   test('clears stale drops page refresh progress on service worker startup', async () => {
     await mocks.storage.local.set({
       appState: createAppState({ dropsPageRefreshInProgress: true }),

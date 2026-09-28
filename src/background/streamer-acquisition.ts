@@ -7,6 +7,7 @@ import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import {
   applyGlobalStreamerRecoveryState,
   applyNoStreamersRecoveryState,
+  applyPlaybackStartRecoveryState,
   clearStreamerAcquisitionRecoveryState,
 } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -19,6 +20,7 @@ import {
 } from './stream-rotation.ts';
 import { runStreamerAcquisitionAttempt } from './streamer-acquisition-attempt.ts';
 import type { RotateStreamerOptions } from './streamer-acquisition-contracts.ts';
+import { WatchPlaybackUnavailableError } from './streamer-selection-flow.ts';
 import { classifyTwitchApiFailure, TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
 
 export type {
@@ -32,7 +34,7 @@ export { rotateStreamerIfInvalid } from './streamer-validation.ts';
 interface AcquisitionOptions {
   onOpenStreamer?: (isCurrent: () => boolean) => Promise<boolean>;
   onSkipCurrentGame?: (
-    reason: 'no-streamers' | 'directory-unavailable',
+    reason: 'no-streamers' | 'directory-unavailable' | 'open-failed',
     isCurrent?: () => boolean,
   ) => Promise<void>;
   onSaveState?: () => Promise<void>;
@@ -74,7 +76,7 @@ async function acquireStreamer(
   };
   const previousAttempts =
     metadata.streamerRetryAttempts ??
-    (state.appState.recoveryReason === 'no-streamers'
+    (state.appState.recoveryReason === 'no-streamers' || state.appState.recoveryReason === 'open-failed'
       ? Math.max(0, state.appState.recoveryAttempts ?? 0)
       : 0);
   if (previousAttempts > 0) {
@@ -95,6 +97,24 @@ async function acquireStreamer(
   try {
     opened = opts?.onOpenStreamer ? await opts.onOpenStreamer(opts.isCurrent ?? (() => true)) : false;
   } catch (error) {
+    if (error instanceof WatchPlaybackUnavailableError) {
+      if (opts?.isCurrent?.() === false) return false;
+      const attempts = previousAttempts + 1;
+      state.appState.queueEntryMetadataByKey[selectedKey] = {
+        ...metadata,
+        streamerRetryAttempts: attempts,
+      };
+      if (attempts >= 3) {
+        release();
+        await opts?.onSkipCurrentGame?.('open-failed', canTransition);
+      } else {
+        applyPlaybackStartRecoveryState(state, Date.now() + NO_STREAMERS_RETRY_MS, attempts);
+      }
+      await opts?.onSaveState?.();
+      if (opts?.isCurrent?.() === false) return false;
+      await opts?.onSaveTimingState?.(state);
+      return false;
+    }
     if (!(error instanceof TwitchDirectoryUnavailableError)) throw error;
     if (opts?.isCurrent?.() === false) return false;
     const failure = classifyTwitchApiFailure(error);

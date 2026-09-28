@@ -188,6 +188,12 @@ const startServiceWorkerOnce = createServiceWorkerStarter({
       onExtensionUpdate: stateLifecycle.handleExtensionUpdate,
       onExtensionStorageCleared: stateLifecycle.handleExtensionStorageCleared,
       onMonitoringAlarm: farmingSession.checkDropProgress,
+      onFarmingRecoveryAlarm: () =>
+        state.appState.recoveryReason === 'open-failed' ||
+        state.appState.recoveryReason === 'no-streamers' ||
+        state.appState.recoveryReason === 'directory-unavailable'
+          ? farmingSession.acquireStreamerForSelectedGame()
+          : farmingSession.checkDropProgress(),
       onActivationSync: contentHandlers.requestActivationSync,
       onLinkRecheckAlarm: () => contentHandlers.requestActivationSync('worker-start'),
     }),
@@ -199,6 +205,7 @@ const startServiceWorkerOnce = createServiceWorkerStarter({
       farmingSession,
       settingsHandlers,
       stateLifecycle,
+      state,
     }),
   reportInitializationError: (error) => logWarn('SW initialization failed:', String(error)),
   reportStarted: () => logDebug('DropHunter service worker loaded'),

@@ -60,6 +60,7 @@ export type QueueSkipReason =
   | 'stalled-progress'
   | 'no-streamers'
   | 'directory-unavailable'
+  | 'open-failed'
   | 'unverifiable-twitch'
   | 'unfarmable';
 

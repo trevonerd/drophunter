@@ -42,6 +42,7 @@ export function applyStartupResumePolicy(
   now: number,
   staleThresholdMs: number,
   resumeRecoveryGraceMs: number,
+  confirmedNewBrowserSession = false,
 ): StartupResumePolicyResult {
   if (state.appState.isPaused || state.appState.lastStopReason === 'user-stop') {
     return 'not-stale';
@@ -52,8 +53,10 @@ export function applyStartupResumePolicy(
   const shouldApply =
     state.appState.isRunning &&
     !state.appState.isPaused &&
-    state.lastHeartbeatAt > 0 &&
-    now - state.lastHeartbeatAt > staleThresholdMs;
+    // A heartbeat gap is only a fallback for callers without browser-session
+    // evidence; MV3 can terminate a worker between normal monitoring alarms.
+    (confirmedNewBrowserSession ||
+      (state.lastHeartbeatAt > 0 && now - state.lastHeartbeatAt > staleThresholdMs));
   if (!shouldApply) return 'not-stale';
 
   if (!state.appState.autoResumeOnStartup) {

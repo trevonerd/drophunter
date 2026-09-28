@@ -17,7 +17,7 @@ export interface QueueEntryMetadata {
   readonly addedAt: number;
   readonly reason: 'user-added' | 'favorite-discovered' | 'retained-after-hide';
   readonly streamerRetryAt?: number;
-  readonly streamerRetryReason?: 'no-streamers' | 'directory-unavailable';
+  readonly streamerRetryReason?: 'no-streamers' | 'directory-unavailable' | 'open-failed';
   readonly streamerRetryAttempts?: number;
   readonly streamerRetryCycles?: number;
   readonly streamerWaitState?: 'availability';

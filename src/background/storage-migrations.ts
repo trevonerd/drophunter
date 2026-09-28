@@ -9,7 +9,7 @@ import {
 import { transformLegacyAppState } from './legacy-state-migration.ts';
 
 export const STORAGE_SCHEMA_VERSION_KEY = 'storageSchemaVersion';
-export const STORAGE_SCHEMA_VERSION = 3;
+export const STORAGE_SCHEMA_VERSION = 4;
 export const EXTENSION_VERSION_STORAGE_KEY = 'lastInitializedExtensionVersion';
 
 const FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX = 'farmingAutomationOwnedWatch:';
@@ -56,6 +56,9 @@ const LEGACY_UPGRADE_LOCAL_KEYS = [...LOCAL_SCHEMA_V1_TRANSIENT_KEYS, ...UPDATE_
 export { transformLegacyAppState };
 
 export async function clearExtensionRuntimeStorage(): Promise<void> {
+  const cachedSession = (await browser.storage.local.get([TWITCH_SESSION_STORAGE_KEY]))[
+    TWITCH_SESSION_STORAGE_KEY
+  ];
   const sessionState = await browser.storage.session.get(null);
   const managedOwnershipKeys = Object.keys(sessionState).filter((key) =>
     key.startsWith(FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX),
@@ -68,6 +71,15 @@ export async function clearExtensionRuntimeStorage(): Promise<void> {
       ...managedOwnershipKeys,
     ]),
   ]);
+  if (
+    cachedSession &&
+    typeof cachedSession === 'object' &&
+    !Array.isArray(cachedSession) &&
+    'clientIntegrity' in cachedSession
+  ) {
+    const { clientIntegrity: _obsoleteIntegrity, ...sessionWithoutIntegrity } = cachedSession;
+    await browser.storage.local.set({ [TWITCH_SESSION_STORAGE_KEY]: sessionWithoutIntegrity });
+  }
 }
 
 async function resetStorageForExtensionVersion(currentVersion: string): Promise<void> {
@@ -158,6 +170,14 @@ export async function migrateExtensionStorage(
       await browser.storage.local.set({
         appState: { ...appState, campaignPriorityMode: 'priority-list-only' },
       });
+    }
+  }
+  if (storedVersion < 4 && stored[EXTENSION_VERSION_STORAGE_KEY] === currentVersion) {
+    const current = await browser.storage.local.get(['appState']);
+    if (current.appState && typeof current.appState === 'object' && !Array.isArray(current.appState)) {
+      const repaired = createExtensionUpdateAppState(normalizeStoredAppState(current.appState));
+      await clearExtensionRuntimeStorage();
+      await browser.storage.local.set({ appState: repaired });
     }
   }
   await resetStorageForExtensionVersion(currentVersion);

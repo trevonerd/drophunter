@@ -6,11 +6,16 @@ import type { QueueSkipReason } from './session-lifecycle-types.ts';
 
 export type QueueRecoveryReason = Extract<
   QueueSkipReason,
-  'no-streamers' | 'directory-unavailable' | 'stalled-progress'
+  'no-streamers' | 'directory-unavailable' | 'open-failed' | 'stalled-progress'
 >;
 
 export function isQueueRecoveryReason(reason: QueueSkipReason): reason is QueueRecoveryReason {
-  return reason === 'no-streamers' || reason === 'directory-unavailable' || reason === 'stalled-progress';
+  return (
+    reason === 'no-streamers' ||
+    reason === 'directory-unavailable' ||
+    reason === 'open-failed' ||
+    reason === 'stalled-progress'
+  );
 }
 
 function failureMessage(reason: QueueRecoveryReason, game: TwitchGame): string {
@@ -20,6 +25,8 @@ function failureMessage(reason: QueueRecoveryReason, game: TwitchGame): string {
       return `No eligible streamer was found for ${label} after repeated attempts`;
     case 'directory-unavailable':
       return `Twitch streamer search remained unavailable for ${label} after repeated attempts`;
+    case 'open-failed':
+      return `Eligible stream playback could not start for ${label} after repeated attempts`;
     case 'stalled-progress':
       return `Drop progress did not resume for ${label} after repeated attempts`;
   }

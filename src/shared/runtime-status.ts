@@ -16,6 +16,7 @@ export interface TerminalStopState {
 export function isStreamerAcquisitionRecovery(reason: string | null | undefined): boolean {
   return (
     reason === 'no-streamers' ||
+    reason === 'open-failed' ||
     reason === 'directory-unavailable' ||
     reason === 'twitch-data-unavailable' ||
     reason === 'twitch-auth' ||
@@ -181,7 +182,7 @@ export function formatRecoveryReason(reason: string | null | undefined): string 
     case 'twitch-integrity':
       return 'Refreshing Twitch verification';
     case 'twitch-network':
-      return 'Waiting for Twitch';
+      return 'Twitch request failed; checking connection';
     case 'twitch-rate-limit':
       return 'Waiting for Twitch request limit';
     case 'twitch-invalid-response':
@@ -191,7 +192,7 @@ export function formatRecoveryReason(reason: string | null | undefined): string 
     case 'stalled-progress':
       return 'Checking stalled drop progress';
     case 'open-failed':
-      return 'Opening another stream';
+      return 'Playback could not start; checking other streams';
     case 'directory-unavailable':
       return 'Searching Twitch again';
     case 'no-streamers':
@@ -214,7 +215,7 @@ export function formatRetryLabel(timestamp?: number | null, now = Date.now()): s
     return null;
   }
   if (timestamp <= now) {
-    return 'waiting for scheduled retry';
+    return 'retry due';
   }
   const seconds = Math.max(1, Math.ceil((timestamp - now) / 1000));
   if (seconds < 60) {

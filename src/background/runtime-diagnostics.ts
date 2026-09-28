@@ -3,6 +3,7 @@ import { gameKey } from '../shared/game-selection.ts';
 import { deriveRuntimeMode } from '../shared/runtime-status.ts';
 import type { AppState } from '../types/index.ts';
 import { logWarn } from './logging.ts';
+import { TwitchDirectoryUnavailableError, TwitchHttpError } from './twitch-api/errors.ts';
 
 export const RUNTIME_DIAGNOSTICS_STORAGE_KEY = 'runtimeDiagnostics';
 export const MAX_RUNTIME_DIAGNOSTIC_EVENTS = 200;
@@ -49,6 +50,9 @@ export interface RuntimeDiagnosticEvent {
   readonly attempt: number | null;
   readonly deadline: number | null;
   readonly timestamp: number;
+  readonly operation?: 'campaign' | 'inventory' | 'directory';
+  readonly httpStatus?: number;
+  readonly outcome?: 'failed';
 }
 
 function safeIdentifier(value: unknown): string | null {
@@ -70,6 +74,8 @@ function normalizeEvent(value: unknown): RuntimeDiagnosticEvent | null {
   const phase = 'phase' in value ? PHASES.find((candidate) => candidate === value.phase) : undefined;
   const timestamp = 'timestamp' in value ? finiteNonNegative(value.timestamp) : null;
   if (build === null || phase === undefined || timestamp === null) return null;
+  const operation = 'operation' in value ? value.operation : undefined;
+  const httpStatus = 'httpStatus' in value ? value.httpStatus : undefined;
   return {
     build,
     phase,
@@ -78,6 +84,16 @@ function normalizeEvent(value: unknown): RuntimeDiagnosticEvent | null {
     failureKind: 'failureKind' in value ? failureKind(value.failureKind) : null,
     attempt: 'attempt' in value ? finiteNonNegative(value.attempt) : null,
     deadline: 'deadline' in value ? finiteNonNegative(value.deadline) : null,
+    ...(operation === 'campaign' || operation === 'inventory' || operation === 'directory'
+      ? { operation }
+      : {}),
+    ...(typeof httpStatus === 'number' &&
+    Number.isInteger(httpStatus) &&
+    httpStatus >= 100 &&
+    httpStatus <= 599
+      ? { httpStatus }
+      : {}),
+    ...('outcome' in value && value.outcome === 'failed' ? { outcome: 'failed' as const } : {}),
   };
 }
 
@@ -89,6 +105,9 @@ function transitionSignature(event: RuntimeDiagnosticEvent): string {
     event.failureKind,
     event.attempt,
     event.deadline,
+    event.operation,
+    event.httpStatus,
+    event.outcome,
   ]);
 }
 
@@ -141,8 +160,7 @@ function snapshotDiagnostic(state: AppState): Omit<RuntimeDiagnosticEvent, 'buil
 
 let pendingWrite: Promise<void> = Promise.resolve();
 
-export function recordRuntimeDiagnostic(state: AppState): void {
-  const snapshot = snapshotDiagnostic(state);
+function enqueueRuntimeDiagnostic(snapshot: Omit<RuntimeDiagnosticEvent, 'build'>): void {
   pendingWrite = pendingWrite
     .then(async () => {
       const manifest = browser.runtime.getManifest();
@@ -161,6 +179,24 @@ export function recordRuntimeDiagnostic(state: AppState): void {
       // Diagnostics are best effort at this storage boundary; never retain or print raw failures.
       logWarn('Runtime diagnostic storage unavailable');
     });
+}
+
+export function recordRuntimeDiagnostic(state: AppState): void {
+  enqueueRuntimeDiagnostic(snapshotDiagnostic(state));
+}
+
+export function recordTwitchApiDiagnostic(
+  state: AppState,
+  operation: 'campaign' | 'inventory' | 'directory',
+  error: unknown,
+): void {
+  const underlying = error instanceof TwitchDirectoryUnavailableError ? error.cause : error;
+  enqueueRuntimeDiagnostic({
+    ...snapshotDiagnostic(state),
+    operation,
+    outcome: 'failed',
+    ...(underlying instanceof TwitchHttpError ? { httpStatus: underlying.status } : {}),
+  });
 }
 
 export function flushRuntimeDiagnosticsForTests(): Promise<void> {

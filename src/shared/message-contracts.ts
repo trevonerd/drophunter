@@ -50,6 +50,7 @@ export const RUNTIME_MESSAGE_TYPES = [
   'SET_SELECTED_GAME',
   'PAUSE_FARMING',
   'RESUME_FARMING',
+  'RETRY_FARMING',
   'STOP_FARMING',
   'UPDATE_STATE',
   'ACTIVATE_POPUP',
@@ -96,6 +97,7 @@ export const NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES = {
   CLEAR_QUEUE: {},
   PAUSE_FARMING: {},
   RESUME_FARMING: {},
+  RETRY_FARMING: {},
   STOP_FARMING: {},
   REFRESH_DROPS: {},
 } as const satisfies Partial<Record<RuntimeMessageType, Record<string, never>>>;

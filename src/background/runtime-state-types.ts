@@ -9,6 +9,7 @@ export interface ServiceWorkerState {
   streamerAcquisitionInFlight: Promise<boolean> | null;
   streamerAcquisitionDeadlineAt: number;
   streamerAcquisitionGeneration: number;
+  streamerAcquisitionPhase: 'directory' | 'playback' | null;
   preparingManagedTabIds: Set<number>;
   tickGeneration: number;
   invalidStreamChecks: number;
@@ -37,6 +38,7 @@ export interface ServiceWorkerState {
   lastActivityAt: number;
   apiConsecutiveFailures: number;
   apiBackoffUntil: number;
+  apiRetryAfterVerifiedAt?: number;
   integrityFallbackActive: boolean;
   integrityFallbackActiveUntil: number;
   recoveryBackoffUntil: number;

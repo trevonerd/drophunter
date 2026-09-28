@@ -18,6 +18,7 @@ export interface SessionSummaryProps {
   queueCount: number;
   startHighlighted: boolean;
   onStart: () => void;
+  onRetry: () => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
@@ -41,6 +42,7 @@ const labelClasses: Record<UserStatusModel['tone'], string> = {
 };
 
 export function SessionSummary(props: SessionSummaryProps) {
+  const [diagnosticFeedback, setDiagnosticFeedback] = useState<string | null>(null);
   const model = createUserStatusModel(props);
   const transport = effectiveTransport(props.state);
   const remainingDrops = remainingSessionDrops(props.state);
@@ -69,6 +71,8 @@ export function SessionSummary(props: SessionSummaryProps) {
       aria-label="Current farming session"
       data-session-mode={model.mode}
       data-progress-state={model.progressState}
+      data-recovery-phase={model.recovery?.phase}
+      data-recovery-operation={model.recovery?.operation}
       data-startup-continuation={props.automaticStartPending ? 'automatic' : undefined}
     >
       <div className="px-3 py-2.5" role="status" aria-live="polite" aria-atomic="true">
@@ -156,6 +160,16 @@ export function SessionSummary(props: SessionSummaryProps) {
             Stop
           </button>
         )}
+        {isRecovering && model.recovery?.action === 'retry' && (
+          <button
+            type="button"
+            onClick={props.onRetry}
+            disabled={props.actionLoading}
+            className="dh-focus min-h-8 flex-1 rounded-lg border border-[color:var(--dh-border-strong)] px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] disabled:opacity-45"
+          >
+            Retry now
+          </button>
+        )}
         {needsTwitch && (
           <button
             type="button"
@@ -165,7 +179,33 @@ export function SessionSummary(props: SessionSummaryProps) {
             Open Twitch
           </button>
         )}
+        {(isRecovering || model.mode === 'attention-required') && (
+          <button
+            type="button"
+            onClick={() => {
+              void (async () => {
+                try {
+                  const stored = await browser.storage.local.get('runtimeDiagnostics');
+                  await navigator.clipboard.writeText(
+                    buildRuntimeDiagnosticReport(stored.runtimeDiagnostics),
+                  );
+                  setDiagnosticFeedback('Diagnostics copied.');
+                } catch {
+                  setDiagnosticFeedback('Could not copy diagnostics.');
+                }
+              })();
+            }}
+            className="dh-focus min-h-8 rounded-lg border border-[color:var(--dh-border-strong)] px-2 py-1.5 text-xs font-semibold text-[color:var(--dh-text)]"
+          >
+            Copy diagnostics
+          </button>
+        )}
       </div>
+      {diagnosticFeedback && (
+        <p role="status" aria-live="polite" className="px-3 text-[10px]">
+          {diagnosticFeedback}
+        </p>
+      )}
       {continuationNote && (
         <p className="border-t border-[color:var(--dh-border)] px-3 py-1.5 text-[10px] leading-snug text-[color:var(--dh-muted)]">
           {continuationNote}
@@ -174,3 +214,7 @@ export function SessionSummary(props: SessionSummaryProps) {
     </section>
   );
 }
+
+import { useState } from 'react';
+import { browser } from '../../shared/browser-api.ts';
+import { buildRuntimeDiagnosticReport } from '../../shared/runtime-diagnostic-report.ts';

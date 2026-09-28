@@ -3,6 +3,12 @@ import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 import type { StreamRotationReason } from './stream-rotation.ts';
+import type { WatchHealth } from './watch-transport.ts';
+
+export type WatchStartResult =
+  | { readonly kind: 'started'; readonly health: WatchHealth | null }
+  | { readonly kind: 'cancelled' }
+  | { readonly kind: 'failed'; readonly health: WatchHealth | null };
 
 export type EnterPersistentRecoveryFn = (
   state: ServiceWorkerState,
@@ -67,7 +73,7 @@ export interface OpenBestStreamerCallbacks {
     isCurrent?: () => boolean,
   ) => Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>;
   onOpenForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;
-  onOpenWatchTransport?: (streamer: TwitchStreamer) => Promise<boolean>;
+  onOpenWatchTransport?: (streamer: TwitchStreamer) => Promise<WatchStartResult | boolean>;
   isCurrent?: () => boolean;
 }
 

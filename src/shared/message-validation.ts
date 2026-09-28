@@ -47,7 +47,7 @@ export function validateBooleanTogglePayload(payload: unknown): payload is { ena
   );
 }
 
-function isTwitchGameLike(value: unknown): value is TwitchGame {
+export function isTwitchGameLike(value: unknown): value is TwitchGame {
   if (!isRecord(value)) return false;
   const dropCount = value.dropCount;
   const validDropCount =

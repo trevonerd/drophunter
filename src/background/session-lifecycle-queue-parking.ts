@@ -3,7 +3,11 @@ import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
 import { expiryTime } from './campaign-priority.ts';
 import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
-import { applyDirectoryUnavailableRecoveryState, applyNoStreamersRecoveryState } from './recovery-state.ts';
+import {
+  applyDirectoryUnavailableRecoveryState,
+  applyNoStreamersRecoveryState,
+  applyPlaybackStartRecoveryState,
+} from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { QueueProgressOptions } from './session-lifecycle-types.ts';
@@ -16,11 +20,14 @@ export const MAX_PARKED_QUEUE_RETRY_CYCLES = 3;
 export function parkCampaignForStreamerRetry(
   state: ServiceWorkerState,
   game: TwitchGame,
-  reason: 'no-streamers' | 'directory-unavailable',
+  reason: 'no-streamers' | 'directory-unavailable' | 'open-failed',
 ): void {
   const key = gameKey(game);
   const previousMetadata = state.appState.queueEntryMetadataByKey[key];
-  const cycles = reason === 'no-streamers' ? (previousMetadata?.streamerRetryCycles ?? 0) + 1 : 0;
+  const cycles =
+    reason === 'no-streamers' || reason === 'open-failed'
+      ? (previousMetadata?.streamerRetryCycles ?? 0) + 1
+      : 0;
   const awaitingAvailability = reason === 'no-streamers' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES;
   markQueueCampaignAttempted(state, game);
   if (!state.appState.queue.some((queued) => gameKey(queued) === key)) state.appState.queue.push(game);
@@ -30,10 +37,16 @@ export function parkCampaignForStreamerRetry(
       reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
       addedAt: Date.now(),
     }),
-    streamerRetryAt: awaitingAvailability ? undefined : Date.now() + PARKED_QUEUE_RETRY_MS,
+    streamerRetryAt: awaitingAvailability
+      ? undefined
+      : Date.now() +
+        (reason === 'open-failed' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES
+          ? 10 * PARKED_QUEUE_RETRY_MS
+          : PARKED_QUEUE_RETRY_MS),
     streamerRetryReason: awaitingAvailability ? undefined : reason,
     streamerRetryAttempts: undefined,
-    streamerRetryCycles: reason === 'no-streamers' ? cycles : previousMetadata?.streamerRetryCycles,
+    streamerRetryCycles:
+      reason === 'no-streamers' || reason === 'open-failed' ? cycles : previousMetadata?.streamerRetryCycles,
     streamerWaitState: awaitingAvailability ? 'availability' : undefined,
   };
 }
@@ -79,7 +92,9 @@ export async function waitForParkedQueue(
   const applyRecovery =
     metadata.streamerRetryReason === 'directory-unavailable'
       ? applyDirectoryUnavailableRecoveryState
-      : applyNoStreamersRecoveryState;
+      : metadata.streamerRetryReason === 'open-failed'
+        ? applyPlaybackStartRecoveryState
+        : applyNoStreamersRecoveryState;
   applyRecovery(
     state,
     Math.max(metadata.streamerRetryAt, state.appState.queueAcquisitionRound?.nextRoundAt ?? 0),

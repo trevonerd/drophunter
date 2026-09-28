@@ -69,18 +69,22 @@ export function createFarmingSessionStreaming(
         onFetchDirectoryStreamersFromApi: adapters.fetchDirectoryStreamersFromApi,
         onOpenForegroundChannel: adapters.openForegroundChannel,
         onOpenWatchTransport: async (streamer) => {
-          if (!isCurrent()) return false;
+          if (!isCurrent()) return { kind: 'cancelled' } as const;
           if (!adapters.watchTransport) {
             await adapters.openForegroundChannel(streamer);
-            return isCurrent();
+            return isCurrent()
+              ? ({ kind: 'started', health: null } as const)
+              : ({ kind: 'cancelled' } as const);
           }
           const health = await adapters.watchTransport.start(streamer, isCurrent);
           if (!isCurrent()) {
-            return false;
+            return { kind: 'cancelled' } as const;
           }
           state.appState.watchTransportMode = health.mode;
           state.appState.watchHealth = health;
-          return !['failed', 'stopped', 'disabled', 'not-started'].includes(health.status);
+          return ['failed', 'stopped', 'disabled', 'not-started'].includes(health.status)
+            ? ({ kind: 'failed', health } as const)
+            : ({ kind: 'started', health } as const);
         },
         isCurrent,
       },
@@ -96,7 +100,7 @@ export function createFarmingSessionStreaming(
   }
 
   async function skipCurrentGameDueToNoStreamers(
-    reason: 'no-streamers' | 'directory-unavailable' = 'no-streamers',
+    reason: 'no-streamers' | 'directory-unavailable' | 'open-failed' = 'no-streamers',
     isCurrent?: () => boolean,
   ): Promise<void> {
     await skipCurrentGameAndAdvanceQueue(state, reason, {

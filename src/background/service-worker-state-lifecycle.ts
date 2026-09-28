@@ -1,12 +1,9 @@
-import { browser } from '../shared/browser-api.ts';
 import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
-import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { createInitialState } from '../shared/utils.ts';
+import { prepareBrowserSessionResume } from './browser-session-resume.ts';
 import {
-  CRASH_DETECTION_THRESHOLD_MS,
   DROPS_SNAPSHOT_CACHE_KEY,
   LAST_ACTIVITY_AT_KEY,
-  RESUME_RECOVERY_GRACE_MS,
   STREAM_VALIDATION_GRACE_MS,
   TIMING_STATE_KEY,
   TWITCH_SESSION_STORAGE_KEY,
@@ -19,14 +16,9 @@ import {
 import { persistExtensionResetState } from './extension-reset-persistence.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logInfo } from './logging.ts';
-import {
-  applyStartupAutoResumeTransition,
-  applyStartupResumePolicy,
-  clearRotationMetadata,
-  type ServiceWorkerState,
-} from './runtime-state.ts';
+import { clearRotationMetadata, type ServiceWorkerState } from './runtime-state.ts';
 import { resetStreamTrackingState } from './session-lifecycle.ts';
-import { pauseFarmingAfterRestart, type StartupPauseSession } from './startup-pause.ts';
+import type { StartupPauseSession } from './startup-pause.ts';
 import {
   broadcastStateUpdate,
   loadState as loadStateExt,
@@ -131,58 +123,6 @@ export function createServiceWorkerStateLifecycle(
     return extensionStorageResetInFlight;
   }
 
-  async function canResumeWithExistingManagedTab(): Promise<boolean> {
-    const tabId = state.appState.tabId;
-    if (!tabId) return false;
-    const tab = await browser.tabs.get(tabId).catch(() => null);
-    return Boolean(tab?.id && getFarmableTwitchChannelNameFromUrl(tab.url));
-  }
-
-  async function prepareStartupResume(): Promise<void> {
-    const now = Date.now();
-    const policy = applyStartupResumePolicy(
-      state,
-      now,
-      CRASH_DETECTION_THRESHOLD_MS,
-      RESUME_RECOVERY_GRACE_MS,
-    );
-    if (
-      state.appState.isRunning &&
-      !state.appState.isPaused &&
-      state.appState.selectedGame &&
-      campaignRejectionReason(state.appState.selectedGame, now)
-    ) {
-      return;
-    }
-    if (policy === 'resume-recovery') {
-      logInfo('SW recycled during active no-tab recovery; resuming monitoring without reset', {
-        recoveryReason: state.appState.recoveryReason,
-        recoveryAttempts: state.appState.recoveryAttempts,
-        secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
-      });
-      return;
-    }
-    if (policy === 'pause-after-restart') {
-      await pauseFarmingAfterRestart(state, dependencies.getFarmingSession(), now);
-      return;
-    }
-    if (policy !== 'auto-resume') return;
-    const keptExistingTab = await canResumeWithExistingManagedTab();
-    logInfo(
-      keptExistingTab
-        ? 'Long browser restart detected; resuming with existing Twitch tab'
-        : 'Long browser restart detected; reopening streamer',
-      { secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000) },
-    );
-    applyStartupAutoResumeTransition(state, now, STREAM_VALIDATION_GRACE_MS);
-    if (!keptExistingTab) {
-      state.appState.tabId = null;
-      state.appState.activeStreamer = null;
-    }
-    await saveState(state);
-    await saveTimingState(state);
-  }
-
   async function loadState(): Promise<void> {
     await loadStateExt(
       state,
@@ -199,7 +139,7 @@ export function createServiceWorkerStateLifecycle(
         STREAM_VALIDATION_GRACE_MS,
       },
     );
-    await prepareStartupResume();
+    await prepareBrowserSessionResume(state, dependencies.getFarmingSession());
   }
 
   async function ensureStateHydratedForCache(): Promise<void> {

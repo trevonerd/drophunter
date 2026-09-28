@@ -92,6 +92,7 @@ export const createInitialState = (): AppState => ({
   lastRotationReason: null,
   lastRotationAt: null,
   recoveryReason: null,
+  recoverySchedulerUnavailable: false,
   recoveryBackoffUntil: null,
   recoveryAttempts: null,
   resumedFromCrash: null,

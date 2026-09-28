@@ -16,6 +16,7 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - `src/background/drops-projection.ts` owns Drops snapshot projection: campaign-aware drop matching, game completion annotation, selected-game drop splitting, monotonic progress preservation, progress-recovery proof.
 - `src/background/runtime-state.ts` owns `ServiceWorkerState`, `createServiceWorkerState()`, timing normalization, crash/startup resume policy, rotation metadata clearing.
 - `src/background/state-persistence.ts` = storage boundary for `appState`, snapshot cache, timing state, activity timestamps, badge updates, state broadcasts.
+- `src/background/farming-recovery-alarm.ts` reconciles the retry alarm; `manual-farming-retry.ts` handles popup Retry without bypassing Twitch cooldown. `src/shared/recovery-presentation.ts` derives phase/operation/reason/deadline/action from persisted state; `user-status.ts` shares it across popup/monitor.
 - `src/background/automation-event-notifier.ts` owns notification-event deduplication, per-channel receipts, and isolated browser/Telegram delivery. Channel adapters only deliver; routine recovery retries stay silent.
 - `src/background/farming-automation-manual-watch.ts` owns serialized manual-view evaluation: a pure decision derives durable facts; the controller performs observation, persistence, deadlines, and transport suspend/resume effects.
 - `src/background/queue-operations.ts` owns campaign-aware queue identity + pure mutators (`normalizeQueueSelection`, `removeGameFromQueue`, `resolveGameFromState`, `pushGameToQueue`, `reorderQueue`, plus shared helpers `queueContainsGame`, `queueEntryMatchesGame`, `removeQueueEntriesForGame`, `promoteQueueHead`, `removeQueueEntriesForHeadGame`). DAG leaf — no imports from drops-projection, stream-rotation, state-persistence.
@@ -45,9 +46,15 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - MV3 service workers restart often. Persist durable state, restore timing state; don't rely on in-memory vars surviving.
 - `PROGRESS_POLL_MS` must stay ≥ Chrome alarm minimum (0.5 min floor).
 - Crash/restart depends on `lastHeartbeatAt`, `CRASH_DETECTION_THRESHOLD_MS`, `autoResumeOnStartup`, `resumedFromCrash`. Cover changes with crash/recovery tests.
+- A stale heartbeat alone is not a browser restart: MV3 workers recycle between progress alarms. `chrome.storage.session` survives worker recycle and clears on browser restart/update. With auto-resume off, pause only on a confirmed new browser session. Test first progress plus worker recycle and actual browser restart.
 - Manual **Pause** preserves the authorized queue and session position in `AppState`; playback and monitoring stay stopped until an explicit Resume or Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends the session, and clears manual queue authorization until an explicit Start. Explicitly enabling favorite auto-start may clear either block; merely adding a favorite must not restart farming. `autoResumeOnStartup` applies only to a session that was actively running when the browser stopped and never overrides Pause or Stop.
 - `resumedFromCrash` = transient UI state. Clear lazily via normal ticks/save paths, not timer-only cleanup.
 - Recovery: prefer self-heal/backoff/rotation before terminal stop. Terminal stops = manual stop/queue complete/no active campaigns/sign-in required.
+- Separate Twitch API/directory errors from local playback failures. Playback failure must not cause API backoff/session reset. Bound candidate/cycle retries, park the failed campaign, continue eligible queue entries, and recheck later.
+- Every recovery countdown needs a real alarm/attempt. Reconcile alarms after restart/sleep, keep farming ticks independent of campaign sync, deduplicate alarm/popup/heartbeat, and show “retrying” only after work starts.
+- On update preserve preferences, progress evidence, campaign identity/order, queue authorization, Pause and manual Stop; rebuild volatile retry/sync/acquisition/transport/integrity state. Migration must survive interrupted writes; same-version load normalizes corrupt state. Repair historical summary/boolean contradictions without deleting campaigns. Scheduler failure cannot suppress future checks.
+- Bound legacy API/recovery deadlines on load. Preserve longer `Retry-After` only with recent persisted HTTP proof; cap verified values at one day. A timestamp alone is not rate-limit proof.
+- For recovery edits use `docs/recovery-case-matrix.md`; test HTTP→directory→playback, migration/restart, alarms, Stop/Pause races and storage failure. Diagnostics are local and allowlisted, never tokens/raw Twitch responses.
 - Don't close only tab in Chrome window when releasing managed tab. Preserve user windows.
 - Inactivity reset = long-horizon cleanup. Preserve lifetime stats/preferences; clear volatile farming/session/timing data.
 
@@ -91,7 +98,7 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 ## Testing Matrix
 - Queue/farming regressions: `tests/queue-management.test.ts`, `tests/queue-start.test.ts`, `tests/service-worker.test.ts`.
 - Campaign identity/labels: `tests/replace-games.test.ts`, `tests/campaign-selection.test.ts`.
-- Runtime persistence/recovery: `tests/runtime-state.test.ts`, `tests/state-persistence-session.test.ts`, `tests/crash-recovery.test.ts`.
+- Runtime persistence/recovery: `tests/runtime-state.test.ts`, `tests/state-persistence-session.test.ts`, `tests/crash-recovery.test.ts`, `tests/worker-recycle-progress.test.ts`.
 - Manual-watch policy/controller: `tests/manual-watch-policy.test.ts`, `tests/farming-automation-manual-watch.test.ts`.
 - Favorite preemption: `tests/farming-automation-preemption.test.ts`.
 - Playback handoff: `tests/watch-transport-handoff.test.ts`.

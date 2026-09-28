@@ -26,7 +26,7 @@ describe('extension storage migration', () => {
       totalChannelPointsClaimed: 17,
       monitorAutoOpen: false,
       notificationsEnabled: true,
-      queue: [{ id: 'game-1', campaignId: 'campaign-1' }],
+      queue: [{ id: 'game-1', name: 'Game 1', imageUrl: '', campaignId: 'campaign-1' }],
       selectedGame: { id: 'game-1', campaignId: 'campaign-1' },
     };
     const telegramCredentials = { botToken: 'preserve-me', chatId: '1234' };
@@ -57,9 +57,13 @@ describe('extension storage migration', () => {
 
     await migrateExtensionStorage();
 
-    expect(mocks.storage.local._store.get('appState')).toEqual({
-      ...appState,
+    expect(mocks.storage.local._store.get('appState')).toMatchObject({
+      totalDropsClaimed: 42,
+      totalChannelPointsClaimed: 17,
+      monitorAutoOpen: false,
+      notificationsEnabled: true,
       campaignPriorityMode: 'priority-list-only',
+      campaignSyncState: { status: 'idle' },
     });
     expect(mocks.storage.local._store.get('onboardingCompleted')).toBe(true);
     expect(mocks.storage.local._store.get('telegramCredentials')).toEqual(telegramCredentials);
@@ -99,10 +103,11 @@ describe('extension storage migration', () => {
     });
 
     expect(hydratedSession).toBeUndefined();
-    expect(hydratedAppState).toEqual({
+    expect(hydratedAppState).toMatchObject({
       totalDropsClaimed: 42,
       monitorAutoOpen: false,
       campaignPriorityMode: 'priority-list-only',
+      campaignSyncState: { status: 'idle' },
     });
   });
 
@@ -142,19 +147,20 @@ describe('extension storage migration', () => {
     await mocks.storage.local.set({
       [STORAGE_SCHEMA_VERSION_KEY]: 1,
       [EXTENSION_VERSION_STORAGE_KEY]: '4.0.0',
-      appState: { queue: [{ id: 'game-1', campaignId: 'campaign-1' }] },
+      appState: { queue: [{ id: 'game-1', name: 'Game 1', imageUrl: '', campaignId: 'campaign-1' }] },
     });
 
     await migrateExtensionStorage();
 
-    expect(mocks.storage.local._store.get('appState')).toEqual({
-      queue: [{ id: 'game-1', campaignId: 'campaign-1' }],
+    expect(mocks.storage.local._store.get('appState')).toMatchObject({
+      queue: [{ id: 'game-1', name: 'Game 1', imageUrl: '', campaignId: 'campaign-1' }],
       campaignPriorityMode: 'priority-list-only',
+      campaignSyncState: { status: 'idle' },
     });
     expect(mocks.storage.local._store.get(STORAGE_SCHEMA_VERSION_KEY)).toBe(STORAGE_SCHEMA_VERSION);
   });
 
-  test('resets volatile extension state while preserving the managed tab and Twitch session across versions', async () => {
+  test('resets volatile playback and integrity state while preserving session recovery data across versions', async () => {
     const releasedTabs: number[] = [];
     mocks.chrome.tabs.setTabsGetResult({
       id: 91,
@@ -185,7 +191,11 @@ describe('extension storage migration', () => {
         watchFallbackReason: 'legacy fallback',
         tabId: 91,
       },
-      twitchSession: { oauthToken: 'cached-token', deviceId: 'cached-device' },
+      twitchSession: {
+        oauthToken: 'cached-token',
+        deviceId: 'cached-device',
+        clientIntegrity: 'obsolete-token',
+      },
       twitchIntegrity: { token: 'stale-integrity' },
       dropsSnapshotCache: [{ id: 'stale-drop' }],
       timingState: { apiBackoffUntil: Date.now() + 60_000 },

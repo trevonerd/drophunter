@@ -85,6 +85,7 @@ export function renderMainView(
     onSetGamePreference: () => undefined,
     onStartQueuedCampaign: () => {},
     onStart: () => {},
+    onRetry: () => {},
     ...overrides,
   } satisfies MainViewProps;
 
