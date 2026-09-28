@@ -4,7 +4,7 @@ Build candidata: `4.0.0-beta.46` (manifest tecnico `3.99.0.46`). Il 29 settembre
 
 La beta.46 mantiene le campagne con drop programmati nella coda, tenta le altre campagne dopo aver spostato in fondo quella non disponibile, e inserisce i nuovi preferiti per scadenza prima delle campagne già tentate nel giro corrente. Dopo tre giri senza streamer idonei conserva la coda per i controlli successivi, senza impostare Pause, e invia l'avviso tramite il notificatore con ricevute per browser e Telegram. I test coprono la coda mista con drop futuri e streamer non disponibili, la persistenza del prossimo giro, il riavvio del worker e la ripresa quando torna disponibile uno streamer.
 
-Archivi beta.46: `.output/drophunter-4.0.0-beta.46-chrome.zip` e `.output/drophunter-4.0.0-beta.46-edge.zip`, SHA-256 `accd67358a90841c1fed4fd4374c37b195e5cfc6f358d12b522a4c301c0f5025` per entrambi.
+Archivi beta.46: `.output/drophunter-4.0.0-beta.46-chrome.zip` e `.output/drophunter-4.0.0-beta.46-edge.zip`, SHA-256 `65fd6c9323ed2a559654302b8f9044dedfb3bcd7e05b8dce36c85c6a59f68f24` per entrambi.
 
 Storico beta.45: il 28 settembre 2026 `bun run release:check` è passato per la build `4.0.0-beta.45` (manifest `3.99.0.45`).
 
