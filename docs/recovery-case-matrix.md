@@ -1,6 +1,12 @@
 # Matrice di recupero e aggiornamento
 
-Build candidata: `4.0.0-beta.45` (manifest tecnico `3.99.0.45`). Il 28 settembre 2026 `bun run release:check` è passato: TypeScript test/sorgente, Biome, suite unitaria, Chrome MV3 E2E con profilo persistente e terminazione effettiva del worker, audit dipendenze, build e archivi Chrome/Edge, verifica dei manifest. La build non è stata pubblicata sugli store.
+Build candidata: `4.0.0-beta.46` (manifest tecnico `3.99.0.46`). Il 29 settembre 2026 `bun run release:check` è passato: TypeScript test/sorgente, Biome, suite unitaria, Chrome MV3 E2E con profilo persistente e terminazione effettiva del worker, audit dipendenze, build e archivi Chrome/Edge, verifica dei manifest. La build è destinata solo alla prerelease GitHub, non agli store.
+
+La beta.46 mantiene le campagne con drop programmati nella coda, tenta le altre campagne dopo aver spostato in fondo quella non disponibile, e inserisce i nuovi preferiti per scadenza prima delle campagne già tentate nel giro corrente. Dopo tre giri senza streamer idonei conserva la coda per i controlli successivi, senza impostare Pause, e invia l'avviso tramite il notificatore con ricevute per browser e Telegram. I test coprono la coda mista con drop futuri e streamer non disponibili, la persistenza del prossimo giro, il riavvio del worker e la ripresa quando torna disponibile uno streamer.
+
+Archivi beta.46: `.output/drophunter-4.0.0-beta.46-chrome.zip` e `.output/drophunter-4.0.0-beta.46-edge.zip`, SHA-256 `accd67358a90841c1fed4fd4374c37b195e5cfc6f358d12b522a4c301c0f5025` per entrambi.
+
+Storico beta.45: il 28 settembre 2026 `bun run release:check` è passato per la build `4.0.0-beta.45` (manifest `3.99.0.45`).
 
 Archivio Chrome: `.output/drophunter-4.0.0-beta.45-chrome.zip`, SHA-256 `4f384aa6c5e037f9b8cfe84398e2b7195fac41d8dd614914bfa224f0d6f3aea7`. L'archivio Edge è stato generato e validato dallo stesso gate. `vexp verify_done` segnala import come mancanti anche per export diretti ancora presenti; TypeScript, i test e la build li risolvono tutti, senza errori di parsing.
 
