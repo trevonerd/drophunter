@@ -3,6 +3,7 @@ import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
+import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
 import { removeQueueEntriesForGame } from './queue-operations.ts';
 import { isQueueRecoveryReason, recordQueueRecoveryActivity } from './queue-recovery-activity.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -13,10 +14,7 @@ import {
 } from './session-lifecycle-completion.ts';
 import { parkCampaignForStreamerRetry } from './session-lifecycle-queue-parking.ts';
 import { progressFarmingQueue } from './session-lifecycle-queue-progression.ts';
-import {
-  isAutomaticFavoriteSession,
-  parkBlockedCampaignAtQueueTail,
-} from './session-lifecycle-queue-selection.ts';
+import { isAutomaticFavoriteSession, parkCampaignAtQueueTail } from './session-lifecycle-queue-selection.ts';
 import { finalizeCompletedQueue, queueSkipCopy, resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type {
   AdvanceQueueOptions,
@@ -33,7 +31,32 @@ export async function advanceQueueIfCompleted(
   if (!state.appState.isRunning || state.appState.isPaused) {
     return false;
   }
-  if (isWaitingForScheduledRewards(state)) return true;
+  if (isWaitingForScheduledRewards(state)) {
+    const scheduledGame = state.appState.selectedGame;
+    if (!scheduledGame) return true;
+    markQueueCampaignAttempted(state, scheduledGame);
+    parkCampaignAtQueueTail(state, scheduledGame);
+    const progression = await progressFarmingQueue(state, {
+      restrictUnauthorizedManualContinuation: isAutomaticFavoriteSession(state, scheduledGame),
+      terminalFarmingCompleteGame: null,
+      hasScheduledWaiting: true,
+      options,
+    });
+    if (progression.kind === 'waiting') await options?.onSaveState?.();
+    if (progression.kind === 'exhausted') {
+      await finalizeCompletedQueue(
+        state,
+        {
+          completedWhileNoStreamers: false,
+          completedGameName: getGameDisplayLabel(scheduledGame),
+          terminalFarmingCompleteGame: progression.terminalFarmingCompleteGame,
+        },
+        options,
+      );
+      return false;
+    }
+    return progression.kind !== 'cancelled';
+  }
 
   const hasFarmablePending = state.appState.pendingDrops.some((drop) => isRewardFarmableNow(drop));
   const hasKnownNonFarmableRemainder =
@@ -124,7 +147,7 @@ export async function skipCurrentGameAndAdvanceQueue(
       reason === 'stalled-progress' &&
       isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, skippedGame)
     ) {
-      parkBlockedCampaignAtQueueTail(state, skippedGame);
+      parkCampaignAtQueueTail(state, skippedGame);
     } else {
       removeQueueEntriesForGame(state, skippedGame);
     }
@@ -136,7 +159,10 @@ export async function skipCurrentGameAndAdvanceQueue(
     terminalFarmingCompleteGame: null,
     options,
   });
-  if (progression.kind === 'cancelled' || progression.kind === 'waiting') return;
+  if (progression.kind === 'cancelled') return;
+  if (progression.kind === 'waiting') {
+    return;
+  }
   if (progression.kind === 'advanced') {
     if (skippedGame && isQueueRecoveryReason(reason)) {
       recordQueueRecoveryActivity(state, skippedGame, reason, {

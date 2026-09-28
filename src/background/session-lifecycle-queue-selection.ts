@@ -16,10 +16,20 @@ export function isAutomaticFavoriteSession(state: ServiceWorkerState, campaign: 
   );
 }
 
-export function parkBlockedCampaignAtQueueTail(state: ServiceWorkerState, campaign: TwitchGame): void {
+export function parkCampaignAtQueueTail(state: ServiceWorkerState, campaign: TwitchGame): void {
   const key = gameKey(campaign);
   const metadata = state.appState.queueEntryMetadataByKey[key];
-  state.appState.queue = [...state.appState.queue.filter((queued) => gameKey(queued) !== key), campaign];
+  const remaining = state.appState.queue.filter((queued) => gameKey(queued) !== key);
+  const firstUnauthorized =
+    !state.appState.manualQueueAuthorized && state.appState.farmingSessionOrigin === 'automatic'
+      ? remaining.findIndex(
+          (queued) => state.appState.queueEntryMetadataByKey[gameKey(queued)]?.source !== 'favorite-auto',
+        )
+      : -1;
+  state.appState.queue =
+    firstUnauthorized < 0
+      ? [...remaining, campaign]
+      : [...remaining.slice(0, firstUnauthorized), campaign, ...remaining.slice(firstUnauthorized)];
   if (metadata) state.appState.queueEntryMetadataByKey[key] = metadata;
 }
 
@@ -41,7 +51,23 @@ export function prepareNextEligibleQueueHead(
     }
   }
   if (state.appState.campaignPriorityMode === 'ending-soonest') {
-    state.appState.queue.sort((left, right) => expiryTime(left) - expiryTime(right));
+    const attempted = new Set(state.appState.queueAcquisitionRound?.attemptedCampaignKeys ?? []);
+    state.appState.queue.sort((left, right) => {
+      if (restrictUnauthorizedManualContinuation) {
+        const leftAuthorized =
+          state.appState.queueEntryMetadataByKey[gameKey(left)]?.source === 'favorite-auto';
+        const rightAuthorized =
+          state.appState.queueEntryMetadataByKey[gameKey(right)]?.source === 'favorite-auto';
+        if (leftAuthorized !== rightAuthorized) return Number(rightAuthorized) - Number(leftAuthorized);
+      }
+      const leftAttempted = attempted.has(gameKey(left));
+      const rightAttempted = attempted.has(gameKey(right));
+      return leftAttempted === rightAttempted
+        ? leftAttempted
+          ? 0
+          : expiryTime(left) - expiryTime(right)
+        : Number(leftAttempted) - Number(rightAttempted);
+    });
   }
   const authorized = state.appState.queue.filter((game) => {
     const metadata = state.appState.queueEntryMetadataByKey[gameKey(game)];

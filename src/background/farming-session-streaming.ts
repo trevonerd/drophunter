@@ -12,6 +12,7 @@ import { createFarmingSessionStallRecovery } from './farming-session-stall-recov
 import { createPersistentRecoveryHandler } from './persistent-recovery-notification.ts';
 import { clearRecoveryState } from './recovery-state.ts';
 import { skipCurrentGameAndAdvanceQueue, skipCurrentGameDueToStall } from './session-lifecycle.ts';
+import { queueWaitingNotification } from './session-lifecycle-queue-parking.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StopFarmingSessionRequest } from './session-lifecycle-types.ts';
 import { blockSelectedCampaignForStall } from './stalled-campaign-blocking.ts';
@@ -56,6 +57,9 @@ export function createFarmingSessionStreaming(
   dependencies: FarmingSessionStreamingDependencies,
 ): FarmingSessionStreaming {
   const { state, adapters } = context;
+  const onQueueWaiting = async (transitionAt: number): Promise<void> => {
+    await adapters.automationNotify?.(queueWaitingNotification(transitionAt));
+  };
   const enterPersistentRecovery = createPersistentRecoveryHandler({
     automationNotify: adapters.automationNotify,
     notify: adapters.notify,
@@ -117,6 +121,7 @@ export function createFarmingSessionStreaming(
         await adapters.watchTransport?.stop();
       },
       onCloseManagedTabIfSafe: adapters.closeManagedTabIfSafe,
+      onQueueWaiting,
       onStopFarmingSession: dependencies.onStopFarmingSession,
       onNotify: adapters.notify,
     });
@@ -185,6 +190,7 @@ export function createFarmingSessionStreaming(
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
       onStopFarmingSession: dependencies.onStopFarmingSession,
+      onQueueWaiting,
       onNotify: adapters.notify,
     });
   }
@@ -206,6 +212,7 @@ export function createFarmingSessionStreaming(
       onSaveTimingState: adapters.saveTimingState,
       onStopFarmingSession: (options) =>
         dependencies.onStopFarmingSession({ ...options, suppressNotifications: true }),
+      onQueueWaiting,
     });
   }
 

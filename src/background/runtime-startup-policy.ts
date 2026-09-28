@@ -1,3 +1,4 @@
+import { isRewardFarmableNow, isRewardScheduledForFuture } from '../shared/reward-scheduling.ts';
 import type { AppState } from '../types/index.ts';
 
 export type StartupResumePolicyResult =
@@ -59,11 +60,6 @@ export function applyStartupResumePolicy(
       (state.lastHeartbeatAt > 0 && now - state.lastHeartbeatAt > staleThresholdMs));
   if (!shouldApply) return 'not-stale';
 
-  if (!state.appState.autoResumeOnStartup) {
-    state.appState.isPaused = true;
-    return 'pause-after-restart';
-  }
-
   const heartbeatGap = now - state.lastHeartbeatAt;
   const recoveryReason = state.appState.recoveryReason;
   const hasActiveNoTabRecovery =
@@ -72,6 +68,18 @@ export function applyStartupResumePolicy(
       (recoveryReason === 'stalled-progress' &&
         state.appState.tabId === null &&
         state.appState.watchTransportMode === 'tabless'));
+  const hasScheduledQueueWait =
+    state.appState.queue.length > 0 &&
+    state.appState.pendingDrops.some((drop) => isRewardScheduledForFuture(drop, now)) &&
+    !state.appState.pendingDrops.some((drop) => isRewardFarmableNow(drop, now));
+  if (!state.appState.autoResumeOnStartup) {
+    // An authorized queue waiting for a streamer or a scheduled reward must
+    // continue checking after restart instead of becoming a manual Pause.
+    if ((hasActiveNoTabRecovery && state.appState.queue.length > 0) || hasScheduledQueueWait)
+      return 'resume-recovery';
+    state.appState.isPaused = true;
+    return 'pause-after-restart';
+  }
   if (hasActiveNoTabRecovery && heartbeatGap < resumeRecoveryGraceMs) return 'resume-recovery';
   return 'auto-resume';
 }

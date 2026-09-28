@@ -18,6 +18,7 @@ export type QueueProgressOptions = {
   readonly onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
   readonly onStopMonitoring?: () => void | Promise<void>;
   readonly onCloseManagedTabIfSafe?: (tabId: number | null) => Promise<boolean>;
+  readonly onQueueWaiting?: (transitionAt: number) => Promise<void>;
 };
 
 export type StopFarmingSessionOptions = {

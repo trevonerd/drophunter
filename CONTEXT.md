@@ -17,7 +17,7 @@ Pause persists the authorized queue and position while playback and monitoring r
 _Avoid_: Pause or Stop automatically restarting favorite farming
 
 **Startup auto-resume**:
-The optional recovery of a farming session that was active when the browser stopped. When disabled, a stale active session is restored as paused and waits for Resume. It does not restart a session the user manually paused or stopped.
+The optional recovery of a farming session that was active when the browser stopped. When disabled, a stale active playback session is restored as paused and waits for Resume; an authorized queue already waiting for a streamer or scheduled reward continues its checks. It does not restart a session the user manually paused or stopped.
 _Avoid_: Resume after any browser restart
 
 **Farming automation**:

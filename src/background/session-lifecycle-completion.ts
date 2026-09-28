@@ -1,17 +1,13 @@
 import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import { dropMatchesGame, findMatchingGame } from '../shared/game-selection.ts';
-import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
-import { isRewardAutomatable } from '../shared/reward-semantics.ts';
+import { isRewardFarmableNow, isRewardScheduledForFuture } from '../shared/reward-scheduling.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 export function hasScheduledPendingRewards(state: ServiceWorkerState): boolean {
   if (state.appState.selectedGame && isExpiredGame(state.appState.selectedGame)) return false;
-  const now = Date.now();
-  return state.appState.pendingDrops.some(
-    (drop) => isRewardAutomatable(drop) && Boolean(drop.startsAt && Date.parse(drop.startsAt) > now),
-  );
+  return state.appState.pendingDrops.some((drop) => isRewardScheduledForFuture(drop));
 }
 
 export function isWaitingForScheduledRewards(state: ServiceWorkerState): boolean {

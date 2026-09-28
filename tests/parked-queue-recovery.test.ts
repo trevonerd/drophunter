@@ -66,7 +66,7 @@ describe('temporarily unavailable campaign queue', () => {
       onOpenStreamer: async () => true,
     });
     expect(state.appState.selectedGame).toEqual(urgent);
-    expect(state.appState.queue).toEqual([urgent, offline, later]);
+    expect(state.appState.queue).toEqual([urgent, later, offline]);
     expect(state.appState.queueEntryMetadataByKey[gameKey(offline)]).toMatchObject({
       source: 'manual',
       addedAt: 123,
@@ -82,7 +82,7 @@ describe('temporarily unavailable campaign queue', () => {
       onOpenStreamer: async () => true,
     });
     expect(state.appState.selectedGame).toEqual(later);
-    expect(state.appState.queue).toEqual([later, offline, urgent]);
+    expect(state.appState.queue).toEqual([later, urgent, offline]);
   });
 
   test('all unavailable campaigns wait without removing entries or declaring queue complete', async () => {

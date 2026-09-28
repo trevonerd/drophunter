@@ -181,7 +181,7 @@ describe('Campaign completion through public farming automation', () => {
     expect(subject.state.appState.isRunning).toBe(false);
   });
 
-  test('does not queue or start a favorite whose rewards have not started', async () => {
+  test('queues a favorite with future rewards without starting playback', async () => {
     // Given: new campaign rewards which begin after the evaluation time.
     const subject = completedCampaignFixture();
     subject.state.appState.availableGames = [];
@@ -195,10 +195,11 @@ describe('Campaign completion through public farming automation', () => {
     // When: automation discovers the favorite.
     const outcome = await subject.automation.request('campaign-refresh');
 
-    // Then: future rewards do not generate queue or activation events.
+    // Then: discovery is announced, but the campaign waits without starting playback.
     expect(outcome).toEqual({ kind: 'unchanged', reason: 'no-eligible-campaign' });
-    expect(subject.state.appState.queue).toEqual([]);
-    expect(subject.notifications).toEqual([]);
+    expect(subject.state.appState.queue.map((game) => gameKey(game))).toEqual([gameKey(subject.game)]);
+    expect(subject.state.appState.isRunning).toBe(false);
+    expect(subject.notifications).toEqual(['discovery']);
   });
 
   test('removes a completed campaign already persisted in the manual queue', async () => {

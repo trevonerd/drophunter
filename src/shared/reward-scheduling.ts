@@ -3,6 +3,10 @@ import { isRewardAutomatable } from './reward-semantics.ts';
 
 export const REWARD_EXPIRY_SAFETY_MARGIN_MS = 5 * 60_000;
 
+export function isRewardScheduledForFuture(drop: TwitchDrop, now = Date.now()): boolean {
+  return isRewardAutomatable(drop) && Boolean(drop.startsAt && Date.parse(drop.startsAt) > now);
+}
+
 function remainingWatchMinutes(drop: TwitchDrop): number | null {
   if (typeof drop.remainingMinutes === 'number' && Number.isFinite(drop.remainingMinutes)) {
     return Math.max(0, drop.remainingMinutes);

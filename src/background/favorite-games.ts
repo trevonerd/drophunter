@@ -1,12 +1,13 @@
 import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { gameCategoryIdentityKeys, gameCategoryKey, gameKey } from '../shared/game-selection.ts';
-import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isRewardFarmableNow, isRewardScheduledForFuture } from '../shared/reward-scheduling.ts';
 import type {
   AppState,
   CampaignPriorityMode,
   FavoriteGame,
   GamePreference,
   HiddenGame,
+  QueueAcquisitionRound,
   QueueEntryMetadata,
   TwitchDrop,
   TwitchGame,
@@ -20,10 +21,11 @@ import {
   preferenceEntryMatches,
   reconcileQueueEntryMetadata,
   type SetGamePreferenceResult,
+  setGameFavorite,
 } from './favorite-campaign-queue-helpers.ts';
 
 export type { SetGamePreferenceResult } from './favorite-campaign-queue-helpers.ts';
-export { reconcileQueueEntryMetadata } from './favorite-campaign-queue-helpers.ts';
+export { reconcileQueueEntryMetadata, setGameFavorite } from './favorite-campaign-queue-helpers.ts';
 
 export interface FavoriteCampaignAddition {
   readonly game: TwitchGame;
@@ -38,6 +40,7 @@ export interface FavoriteCampaignQueuePlanInput {
   readonly queue: readonly TwitchGame[];
   readonly queueEntryMetadataByKey: Readonly<Record<string, QueueEntryMetadata>>;
   readonly campaignPriorityMode: CampaignPriorityMode;
+  readonly queueAcquisitionRound?: QueueAcquisitionRound | null;
   /** The active campaign remains at the queue head until a transition preempts it. */
   readonly isRunning?: boolean;
   readonly selectedGame?: TwitchGame | null;
@@ -68,12 +71,24 @@ export function planFavoriteCampaignQueue(
           gameCategoryIdentityKeys(game).some((key) => hiddenIds.has(key))),
     );
   const selectedKey = input.isRunning && input.selectedGame ? gameKey(input.selectedGame) : null;
+  const attemptedKeys = new Set(input.queueAcquisitionRound?.attemptedCampaignKeys ?? []);
   const active = selectedKey ? retainedQueue.find((game) => gameKey(game) === selectedKey) : undefined;
   const retainedWithoutActive = retainedQueue.filter((game) => gameKey(game) !== selectedKey);
   const queue =
     input.campaignPriorityMode === 'priority-list-only'
       ? [...retainedQueue]
-      : [...(active ? [active] : []), ...retainedWithoutActive.sort(compareCampaignDeadlines)];
+      : [
+          ...(active ? [active] : []),
+          ...retainedWithoutActive.sort((left, right) => {
+            const leftAttempted = attemptedKeys.has(gameKey(left));
+            const rightAttempted = attemptedKeys.has(gameKey(right));
+            return leftAttempted === rightAttempted
+              ? leftAttempted
+                ? 0
+                : compareCampaignDeadlines(left, right)
+              : Number(leftAttempted) - Number(rightAttempted);
+          }),
+        ];
   const queueEntryMetadataByKey = planQueueMetadata(queue, originalMetadata, now);
   for (const game of queue) {
     const key = gameKey(game);
@@ -93,11 +108,14 @@ export function planFavoriteCampaignQueue(
   const candidates = input.availableGames
     .flatMap((game) => {
       if (gameCategoryIdentityKeys(game).some((key) => hiddenIds.has(key))) return [];
+      const knownDrops = input.campaignDropsByKey?.[gameKey(game)];
+      const hasPotentialReward =
+        knownDrops === undefined ||
+        knownDrops.some((drop) => isRewardFarmableNow(drop, now) || isRewardScheduledForFuture(drop, now));
       return matchingFavoriteKey(game, input.favoriteGames) !== null &&
         !queuedKeys.has(gameKey(game)) &&
         campaignRejectionReason(game, now) === null &&
-        input.campaignDropsByKey?.[gameKey(game)]?.every((drop) => !isRewardFarmableNow(drop, now)) !==
-          true &&
+        hasPotentialReward &&
         game.rewardSummary?.completion === 'farmable'
         ? [game]
         : [];
@@ -108,8 +126,15 @@ export function planFavoriteCampaignQueue(
   let plannedQueue = queue;
   for (const game of candidates) {
     if (queuedKeys.has(gameKey(game))) continue;
-    const insertion = insertCampaignByDeadline(plannedQueue, game, active ? 1 : 0);
-    plannedQueue = insertion.queue;
+    const parkedStart =
+      input.campaignPriorityMode === 'priority-list-only'
+        ? -1
+        : plannedQueue.findIndex(
+            (entry, index) => index >= (active ? 1 : 0) && attemptedKeys.has(gameKey(entry)),
+          );
+    const eligibleQueue = parkedStart < 0 ? plannedQueue : plannedQueue.slice(0, parkedStart);
+    const insertion = insertCampaignByDeadline(eligibleQueue, game, active ? 1 : 0);
+    plannedQueue = [...insertion.queue, ...(parkedStart < 0 ? [] : plannedQueue.slice(parkedStart))];
     const key = gameKey(game);
     queueEntryMetadataByKey[key] = originalMetadata[key] ?? automaticFavoriteQueueMetadata(now);
     queuedKeys.add(key);
@@ -188,59 +213,6 @@ export function setGamePreference(
     removedQueueEntries: favoriteResult.removedQueueEntries,
     retainedQueueEntries: 0,
   };
-}
-
-export function setGameFavorite(
-  state: AppState,
-  game: TwitchGame,
-  favorite: boolean,
-  now: number,
-): { readonly changed: boolean; readonly removedQueueEntries: number } {
-  const categoryKey = gameCategoryKey(game);
-  const aliases = categoryAliases(state, game);
-  const favoriteIndex = state.favoriteGames.findIndex((entry) => preferenceEntryMatches(entry, aliases));
-  if (favorite) {
-    if (favoriteIndex >= 0) {
-      const existing = state.favoriteGames[favoriteIndex];
-      state.favoriteGames = [
-        ...state.favoriteGames.filter((entry) => !aliases.has(entry.gameId)),
-        {
-          ...existing,
-          gameId: categoryKey,
-          lastKnownName: game.name,
-          identityKeys: Array.from(new Set([...(existing.identityKeys ?? []), ...aliases])),
-        },
-      ];
-      return { changed: false, removedQueueEntries: 0 };
-    }
-    state.favoriteGames = [
-      ...state.favoriteGames,
-      { gameId: categoryKey, lastKnownName: game.name, addedAt: now, identityKeys: Array.from(aliases) },
-    ];
-    return { changed: true, removedQueueEntries: 0 };
-  }
-
-  if (favoriteIndex < 0) {
-    return { changed: false, removedQueueEntries: 0 };
-  }
-
-  state.favoriteGames = state.favoriteGames.filter(
-    (entry) => ![entry.gameId, ...(entry.identityKeys ?? [])].some((key) => aliases.has(key)),
-  );
-  const before = state.queue.length;
-  state.queue = state.queue.filter((queuedGame) => {
-    if (gameCategoryKey(queuedGame) !== categoryKey) {
-      return true;
-    }
-    return (
-      (state.isRunning &&
-        state.selectedGame !== null &&
-        gameKey(queuedGame) === gameKey(state.selectedGame)) ||
-      state.queueEntryMetadataByKey[gameKey(queuedGame)]?.source !== 'favorite-auto'
-    );
-  });
-  reconcileQueueEntryMetadata(state, now);
-  return { changed: true, removedQueueEntries: before - state.queue.length };
 }
 
 export function discoverFavoriteCampaigns(

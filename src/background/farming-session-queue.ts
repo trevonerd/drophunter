@@ -19,6 +19,7 @@ import { logDebug, logWarn } from './logging.ts';
 import { removeGameFromQueue, resolveGameFromState } from './queue-operations.ts';
 import { applyStopState } from './recovery-state.ts';
 import { advanceQueueIfCompleted as advanceQueue } from './session-lifecycle.ts';
+import { queueWaitingNotification } from './session-lifecycle-queue-parking.ts';
 
 type FarmingSessionQueueDependencies = {
   readonly onEnsureWorkspace: (isCurrent?: () => boolean) => Promise<void>;
@@ -90,6 +91,9 @@ export function createFarmingSessionQueue(
         void adapters.watchTransport?.stop();
       },
       onCloseManagedTabIfSafe: adapters.closeManagedTabIfSafe,
+      onQueueWaiting: async (transitionAt) => {
+        await adapters.automationNotify?.(queueWaitingNotification(transitionAt));
+      },
       onClearManagedTabOwnership: adapters.clearManagedTabOwnership,
       onApplyStopState: applyStopState,
       onNotify: async (title, message) => {

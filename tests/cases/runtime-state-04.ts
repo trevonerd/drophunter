@@ -5,6 +5,7 @@ import {
   createServiceWorkerState,
 } from '../../src/background/runtime-state.ts';
 import type { AppState, TwitchGame } from '../../src/types/index.ts';
+import { createDrop } from '../fixtures/queue-management.ts';
 
 describe('applyStartupResumePolicy', () => {
   const selectedGame = (state: { readonly appState: AppState }): TwitchGame | null =>
@@ -163,15 +164,27 @@ describe('applyStartupResumePolicy', () => {
       expect(state.recoveryBackoffUntil).toBe(90_000);
     });
 
-    test('pauses recovery when auto-resume is disabled', () => {
+    test('keeps an authorized recovery active when auto-resume is disabled', () => {
       const state = makeNoStreamersState();
       state.appState.autoResumeOnStartup = false;
-      const result = applyStartupResumePolicy(state, 40_000, 30_000, 300_000);
+      const result = applyStartupResumePolicy(state, 401_000, 30_000, 300_000, true);
 
-      expect(result).toBe('pause-after-restart');
-      expect(state.appState.isPaused).toBe(true);
+      expect(result).toBe('resume-recovery');
+      expect(state.appState.isPaused).toBe(false);
       expect(state.appState.recoveryReason).toBe('no-streamers');
       expect(state.recoveryBackoffUntil).toBe(90_000);
+    });
+
+    test('keeps a scheduled-reward queue active after restart without auto-resume', () => {
+      const state = makeNoStreamersState();
+      state.appState.autoResumeOnStartup = false;
+      state.appState.recoveryReason = null;
+      state.appState.pendingDrops = [
+        createDrop({ gameId: 'game-1', startsAt: new Date(800_000).toISOString() }),
+      ];
+
+      expect(applyStartupResumePolicy(state, 401_000, 30_000, 300_000, true)).toBe('resume-recovery');
+      expect(state.appState.isPaused).toBe(false);
     });
 
     test('falls through to auto-resume when gap exceeds grace (auto-resume on)', () => {

@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import {
   discoverFavoriteCampaigns,
+  planFavoriteCampaignQueue,
   reconcileQueueEntryMetadata,
   setGameFavorite,
 } from '../src/background/favorite-games.ts';
 import { favoriteGameIdentityKeys, gameKey, isFavoriteGame } from '../src/shared/game-selection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchGame } from '../src/types/index.ts';
+import { createDrop } from './fixtures/queue-management.ts';
 import { game } from './support/favorite-game-fixture.ts';
 import './cases/favorite-game-visibility.ts';
 
@@ -31,6 +33,29 @@ describe('favorite games', () => {
 
     // Then: it queues nothing until Twitch supplies authoritative reward evidence.
     expect({ queue: state.queue, added: discovery.added }).toEqual({ queue: [], added: [] });
+  });
+
+  test('queues a favorite with watch-time rewards scheduled for later', () => {
+    const state = createInitialState();
+    const favorite = game('future-favorite', 'future', '2030-08-03T12:00:00.000Z');
+    state.availableGames = [favorite];
+    state.favoriteGames = [{ gameId: favorite.id, lastKnownName: favorite.name, addedAt: 1 }];
+    const campaignDropsByKey = {
+      [gameKey(favorite)]: [
+        createDrop({
+          gameId: favorite.id,
+          campaignId: favorite.campaignId,
+          startsAt: '2030-08-02T12:00:00.000Z',
+        }),
+      ],
+    };
+
+    const plan = planFavoriteCampaignQueue(
+      { ...state, campaignDropsByKey },
+      Date.parse('2030-08-01T12:00:00.000Z'),
+    );
+
+    expect(plan.queue.map(gameKey)).toEqual([gameKey(favorite)]);
   });
 
   test('favorite discovery queues every farmable campaign for a Twitch category by deadline', () => {
@@ -194,6 +219,30 @@ describe('favorite games', () => {
       queue: ['campaign-earlier', 'campaign-later', 'campaign-manual'],
       added: ['campaign-earlier', 'campaign-later'],
     });
+  });
+
+  test('inserts a new favorite by expiry before campaigns already tried in this round', () => {
+    const state = createInitialState();
+    const active = game('active', 'active', '2030-08-01T14:00:00.000Z');
+    const untried = game('untried', 'untried', '2030-08-10T14:00:00.000Z');
+    const failed = game('failed', 'failed', '2030-08-03T14:00:00.000Z');
+    const favorite = game('new-favorite', 'favorite', '2030-08-15T14:00:00.000Z');
+    state.isRunning = true;
+    state.selectedGame = active;
+    state.campaignPriorityMode = 'ending-soonest';
+    state.queue = [active, untried, failed];
+    state.availableGames = [...state.queue, favorite];
+    state.queueAcquisitionRound = { attemptedCampaignKeys: [gameKey(failed)], nextRoundAt: null };
+    state.favoriteGames = [{ gameId: favorite.id, lastKnownName: favorite.name, addedAt: 1 }];
+
+    discoverFavoriteCampaigns(state, 20);
+
+    expect(state.queue.map((entry) => entry.campaignId)).toEqual([
+      'active',
+      'untried',
+      'new-favorite',
+      'failed',
+    ]);
   });
 
   test('keeps the active campaign at the head until transition policy approves preemption', () => {

@@ -1,6 +1,7 @@
 import { gameKey } from '../shared/game-selection.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
+import type { AutomationEventNotification } from './automation-event-notifier.ts';
 import { expiryTime } from './campaign-priority.ts';
 import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
 import {
@@ -9,6 +10,7 @@ import {
   applyPlaybackStartRecoveryState,
 } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { parkCampaignAtQueueTail } from './session-lifecycle-queue-selection.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { QueueProgressOptions } from './session-lifecycle-types.ts';
 import { isCampaignStallBlocked } from './stalled-campaign-block.ts';
@@ -16,6 +18,18 @@ import { MAX_NO_STREAMERS_RETRIES } from './stream-rotation.ts';
 
 const PARKED_QUEUE_RETRY_MS = 60_000;
 export const MAX_PARKED_QUEUE_RETRY_CYCLES = 3;
+
+export function queueWaitingNotification(transitionAt: number): AutomationEventNotification {
+  return {
+    transitionId: `queue-waiting:${transitionAt}`,
+    event: 'recovery',
+    campaignId: 'queue',
+    telegramReason: 'recovery',
+    title: 'Queue waiting for available campaigns',
+    message:
+      'No queued campaign has an eligible streamer right now. DropHunter will keep checking and resume farming when one becomes available.',
+  };
+}
 
 export function parkCampaignForStreamerRetry(
   state: ServiceWorkerState,
@@ -30,7 +44,7 @@ export function parkCampaignForStreamerRetry(
       : 0;
   const awaitingAvailability = reason === 'no-streamers' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES;
   markQueueCampaignAttempted(state, game);
-  if (!state.appState.queue.some((queued) => gameKey(queued) === key)) state.appState.queue.push(game);
+  parkCampaignAtQueueTail(state, game);
   state.appState.queueEntryMetadataByKey[key] = {
     ...(previousMetadata ?? {
       source: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-auto' : 'manual',
@@ -130,5 +144,6 @@ export async function suspendQueueUntilStreamerAvailable(
   state.appState.forcedCampaignKey = null;
   await options?.onSaveState?.();
   await options?.onSaveTimingState?.(state);
+  await options?.onQueueWaiting?.(Date.now());
   return true;
 }

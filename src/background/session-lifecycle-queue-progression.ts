@@ -1,7 +1,7 @@
 import { haveAllDropsExpiredOrVanished } from '../shared/drops.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
-import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
+import { markQueueCampaignAttempted, resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { removeQueueEntriesForHeadGame } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
@@ -11,7 +11,10 @@ import {
 } from './session-lifecycle-completion.ts';
 import { suspendQueueUntilStreamerAvailable, waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
 import { refreshQueueHead } from './session-lifecycle-queue-refresh.ts';
-import { prepareNextEligibleQueueHead } from './session-lifecycle-queue-selection.ts';
+import {
+  parkCampaignAtQueueTail,
+  prepareNextEligibleQueueHead,
+} from './session-lifecycle-queue-selection.ts';
 import type { QueueProgressOptions } from './session-lifecycle-types.ts';
 
 type QueueProgressionResult =
@@ -26,6 +29,7 @@ type QueueProgressionResult =
 type QueueProgressionRequest = {
   readonly restrictUnauthorizedManualContinuation: boolean;
   readonly terminalFarmingCompleteGame: TwitchGame | null;
+  readonly hasScheduledWaiting?: boolean;
   readonly options?: QueueProgressOptions;
 };
 
@@ -34,6 +38,7 @@ export async function progressFarmingQueue(
   request: QueueProgressionRequest,
 ): Promise<QueueProgressionResult> {
   let terminalFarmingCompleteGame = request.terminalFarmingCompleteGame;
+  let hasScheduledWaiting = request.hasScheduledWaiting ?? false;
 
   while (state.appState.queue.length > 0) {
     const nextGame = prepareNextEligibleQueueHead(state, request.restrictUnauthorizedManualContinuation);
@@ -42,8 +47,11 @@ export async function progressFarmingQueue(
     await refreshQueueHead(state, request.options);
     if (request.options?.isCurrent?.() === false) return { kind: 'cancelled' };
     if (isWaitingForScheduledRewards(state)) {
+      markQueueCampaignAttempted(state, nextGame);
+      parkCampaignAtQueueTail(state, nextGame);
+      hasScheduledWaiting = true;
       await request.options?.onSaveState?.();
-      return { kind: 'waiting' };
+      continue;
     }
 
     const nextFarmingCompleteGame = selectedFarmingCompleteGame(state);
@@ -68,6 +76,10 @@ export async function progressFarmingQueue(
     return { kind: 'waiting' };
   }
   if (await suspendQueueUntilStreamerAvailable(state, request.options)) return { kind: 'waiting' };
+  if (hasScheduledWaiting && state.appState.queue.length > 0) {
+    await request.options?.onSaveState?.();
+    return { kind: 'waiting' };
+  }
   if (request.options?.isCurrent?.() === false) return { kind: 'cancelled' };
   return { kind: 'exhausted', terminalFarmingCompleteGame };
 }
