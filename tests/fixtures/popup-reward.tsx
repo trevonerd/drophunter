@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MainView, type MainViewProps } from '../../src/popup/components/MainView';
 import type { AppState, TwitchDrop, TwitchGame } from '../../src/types';
+import { createInitialState } from '../../src/shared/utils';
 
 export function game(overrides: Partial<TwitchGame> = {}): TwitchGame {
   return {
@@ -17,32 +18,10 @@ export function game(overrides: Partial<TwitchGame> = {}): TwitchGame {
 
 export function appState(selectedGame: TwitchGame | null): AppState {
   return {
+    ...createInitialState(),
     selectedGame,
-    isRunning: false,
-    isPaused: false,
-    monitorAutoOpen: false,
-    autoResumeOnStartup: false,
-    muteFarmingTab: true,
-    notificationsEnabled: false,
-    telegramAlertsEnabled: false,
-    autoClaimChannelPointsBonus: false,
-    autoClaimDrops: false,
-    totalDropsClaimed: 0,
-    totalChannelPointsClaimed: 0,
-    streamerSelectionMode: 'low-view',
-    preferredStreamerLanguage: null,
-    activeStreamer: null,
-    currentDrop: null,
-    completedDrops: [],
-    pendingDrops: [],
-    allDrops: [],
     availableGames: selectedGame ? [selectedGame] : [],
-    queue: [],
-    monitorWindowId: null,
-    tabId: null,
-    completionNotified: false,
     twitchSessionDetected: true,
-    dropsPageRefreshInProgress: false,
   };
 }
 
@@ -87,7 +66,6 @@ export function renderMainView(
     firstSyncCampaignCount: null,
     queueMessage: null,
     dismissedQueueCleanupActivityId: null,
-    rewardsLoading: false,
     notificationPermissionDenied: false,
     onAutoStartFavoriteGamesToggle: () => {},
     onMuteToggle: () => {},
@@ -97,12 +75,15 @@ export function renderMainView(
     onPause: () => {},
     onResume: () => {},
     onStop: () => {},
-    onRetryCampaignSync: () => {},
     onDismissQueueCleanup: () => {},
     onAddToQueue: () => {},
     onRemoveFromQueue: () => {},
     onClearQueue: () => {},
     onReorderQueue: () => {},
+    onAddAllToQueue: () => {},
+    onLinkAccount: () => {},
+    onSetGamePreference: () => undefined,
+    onStartQueuedCampaign: () => {},
     onStart: () => {},
     ...overrides,
   } satisfies MainViewProps;

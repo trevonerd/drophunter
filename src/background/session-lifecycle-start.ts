@@ -149,11 +149,15 @@ export async function handleStartFarming(
     });
   }
 
-  const hasFarmablePendingNow = state.appState.pendingDrops.some(isRewardFarmableNow);
   const selectedGame = state.appState.selectedGame
     ? (findMatchingGame(state.appState.selectedGame, state.appState.availableGames) ??
       state.appState.selectedGame)
     : null;
+  const hasFarmablePendingNow = selectedGame
+    ? state.appState.pendingDrops.some(
+        (drop) => dropMatchesGame(drop, selectedGame) && isRewardFarmableNow(drop),
+      )
+    : false;
   const selectedStartRejection =
     !hasFarmablePendingNow && selectedGame ? startRejectionMessage(selectedGame) : null;
   if (selectedStartRejection || (!hasFarmablePendingNow && state.appState.currentDrop === null)) {

@@ -38,6 +38,7 @@ describe('recovery after prolonged browser inactivity', () => {
         retryAttemptCount: 3,
         lastErrorKind: 'network' as const,
         attemptDeadlineAt: null,
+        error: 'temporary network failure',
       };
       state.appState.campaignSyncState = sync;
 
@@ -100,6 +101,7 @@ describe('recovery after prolonged browser inactivity', () => {
         retryAttemptCount: 3,
         lastErrorKind: 'network',
         attemptDeadlineAt: null,
+        error: 'temporary network failure',
       };
       await mocks.storage.local.set({ appState: state.appState, timing: { retryAttemptCount: 3 } });
       mocks.storage.local.set = async () => {

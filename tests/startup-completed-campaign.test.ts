@@ -72,6 +72,7 @@ async function resume(game: TwitchGame, withNext: boolean, heartbeatAge = 1_000,
         onOpenStreamer: acquireStreamerForSelectedGame,
         onCloseManagedTabIfSafe: async (tabId) => {
           events.push(`close:${tabId}`);
+          return true;
         },
         onClearManagedTabOwnership: () => {
           state.appState.tabId = null;
@@ -143,10 +144,13 @@ describe('startup persisted completed campaign', () => {
       rewardSummary: { completion: 'all-acquired', remainderReasons: [] },
     },
     { ...completed, allDropsCompleted: false, expiresInMs: 0 },
-  ] satisfies TwitchGame[])('advances a terminal summary or expired campaign with no restored drops: %j', async (game) => {
-    const { state, events } = await resume(game, true);
+  ] satisfies TwitchGame[])(
+    'advances a terminal summary or expired campaign with no restored drops: %j',
+    async (game) => {
+      const { state, events } = await resume(game, true);
 
-    expect(state.appState.selectedGame?.campaignId).toBe('next');
-    expect(events).toEqual(['acquire:next', 'monitor:next']);
-  });
+      expect(state.appState.selectedGame?.campaignId).toBe('next');
+      expect(events).toEqual(['acquire:next', 'monitor:next']);
+    },
+  );
 });

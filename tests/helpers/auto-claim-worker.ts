@@ -4,7 +4,8 @@ import {
   setTimingSaveDebounceMsForTests,
 } from '../../src/background/state-persistence.ts';
 import { normalizeStoredAppState } from '../../src/shared/app-state-sync.ts';
-import type { AppState, Message } from '../../src/types/index.ts';
+import type { RuntimeRequest as Message } from '../../src/shared/messages.ts';
+import type { AppState } from '../../src/types/index.ts';
 import { createSeedDrop, farmingGame, type SnapshotDropSpec } from '../fixtures/auto-claim-scenarios.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
 import { AutoClaimFetch } from './auto-claim-fetch.ts';
@@ -66,7 +67,8 @@ export async function createAutoClaimHarness(): Promise<AutoClaimHarness> {
   installActiveTabMocks(mocks);
   mocks.tabs.setTabsQueryResult([]);
 
-  const serviceWorkerModule = await import('../../src/background/service-worker.ts?auto-claim-cross-game');
+  const serviceWorkerModulePath = '../../src/background/service-worker.ts?auto-claim-cross-game';
+  const serviceWorkerModule = await import(serviceWorkerModulePath);
   serviceWorkerModule.startServiceWorker();
 
   async function waitTicks(count = 1): Promise<void> {

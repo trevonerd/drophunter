@@ -28,10 +28,6 @@ export type {
 
 interface FarmingAutomationHarnessDependencies {
   readonly evaluateBatch: FarmingAutomationEvaluateBatch;
-  readonly persistSnooze?: (
-    reason: 'manual-pause' | 'manual-stop',
-  ) => Promise<'snoozed' | 'persistence-failed'>;
-  readonly clearPersistedSnooze?: () => Promise<'cleared' | 'persistence-failed'>;
   readonly persistCampaignSuppression?: (campaignKey: string) => Promise<'suppressed' | 'persistence-failed'>;
   readonly scheduler?: FarmingAutomationScheduler;
 }
@@ -56,26 +52,6 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
     return {
       request: scheduler.request,
       invalidate: scheduler.invalidate,
-      async snooze(reason) {
-        scheduler.invalidate();
-        if (!dependencies.persistSnooze) return 'snoozed';
-        try {
-          return await dependencies.persistSnooze(reason);
-        } catch (error) {
-          if (error instanceof Error) return 'persistence-failed';
-          throw error;
-        }
-      },
-      async clearSnooze() {
-        scheduler.invalidate();
-        if (!dependencies.clearPersistedSnooze) return 'cleared';
-        try {
-          return await dependencies.clearPersistedSnooze();
-        } catch (error) {
-          if (error instanceof Error) return 'persistence-failed';
-          throw error;
-        }
-      },
       async suppressCampaignUntilRefresh(campaignKey) {
         scheduler.invalidate();
         if (!dependencies.persistCampaignSuppression) return 'suppressed';
@@ -88,7 +64,7 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
       },
     };
   }
-  const runtime: FarmingAutomationRuntime = { generation: 0, snoozed: false };
+  const runtime: FarmingAutomationRuntime = { generation: 0 };
   const manualWatch =
     dependencies.manualWatch ??
     createFarmingAutomationManualWatch({
@@ -134,30 +110,6 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
     invalidate: () => {
       runtime.generation += 1;
       scheduler.invalidate();
-    },
-    async snooze() {
-      runtime.generation += 1;
-      runtime.snoozed = true;
-      scheduler.invalidate();
-      try {
-        const persisted = await dependencies.persistence.setSnooze();
-        return persisted.kind === 'written' ? 'snoozed' : 'persistence-failed';
-      } catch (error) {
-        if (!(error instanceof Error)) throw error;
-        return 'persistence-failed';
-      }
-    },
-    async clearSnooze() {
-      runtime.generation += 1;
-      runtime.snoozed = false;
-      scheduler.invalidate();
-      try {
-        const cleared = await dependencies.persistence.clearSnooze();
-        return cleared.kind === 'written' ? 'cleared' : 'persistence-failed';
-      } catch (error) {
-        if (!(error instanceof Error)) throw error;
-        return 'persistence-failed';
-      }
     },
     async suppressCampaignUntilRefresh(campaignKey) {
       runtime.generation += 1;

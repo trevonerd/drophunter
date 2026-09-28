@@ -49,13 +49,13 @@ export function registerQueue14Part01() {
     test('closes managed tab via callback', async () => {
       const state = createMinimalState();
       state.appState.tabId = 123;
-      let closedTabId: number | null = null;
+      const closedTab: { id: number | null } = { id: null };
       await stopFarmingSession(state, {
         onCloseManagedTab: async (tabId) => {
-          closedTabId = tabId;
+          closedTab.id = tabId;
         },
       });
-      expect(closedTabId).toBe(123);
+      expect(closedTab.id).toBe(123);
     });
 
     test('resets running and paused flags', async () => {

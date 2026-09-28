@@ -37,13 +37,14 @@ export function registerQueue17Part02() {
     test('removes existing game from queue before adding to front', async () => {
       const state = createMinimalState();
       const otherGame = createGame({ id: 'other', name: 'Other Game' });
-      const game = createGame({ id: 'game-1', name: 'Game One' });
+      const game = createGame({ id: 'game-1', name: 'Game One', campaignId: 'campaign-1' });
       state.appState.queue = [otherGame, game];
-      state.appState.pendingDrops = [createDrop()];
+      state.appState.pendingDrops = [createDrop({ gameId: game.id, campaignId: game.campaignId })];
       state.appState.availableGames = [otherGame, game];
 
-      await handleStartFarming(state, { game });
+      const result = await handleStartFarming(state, { game });
 
+      expect(result).toEqual({ success: true });
       const game1Count = state.appState.queue.filter((g) => g.id === 'game-1').length;
       expect(game1Count).toBe(1);
       expect(state.appState.queue[0].id).toBe('game-1');

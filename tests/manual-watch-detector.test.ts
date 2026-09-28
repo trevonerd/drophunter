@@ -12,6 +12,31 @@ const target: TwitchGame = {
 };
 
 describe('detectManualViewing', () => {
+  test('does not classify a managed tab that is still being prepared as manual viewing', async () => {
+    const calls: number[] = [];
+    const result = await detectManualViewing({
+      target,
+      managedTabId: null,
+      preparingManagedTabIds: [4],
+      automationActive: true,
+      now: 100,
+      queryTabs: async () => [{ id: 4, active: false, url: 'https://www.twitch.tv/eligible' }],
+      getStreamContext: async (tabId) => {
+        calls.push(tabId);
+        return {
+          channelName: 'eligible',
+          categorySlug: 'valorant',
+          isLive: true,
+          isPlaybackReady: true,
+          hasDropsEnabled: true,
+        };
+      },
+    });
+
+    expect(calls).toEqual([]);
+    expect(result).toEqual({ kind: 'inactive', reason: 'no-recent-visible-twitch' });
+  });
+
   test('recognizes an eligible active user Twitch tab without mutating it', async () => {
     const calls: number[] = [];
     const result = await detectManualViewing({
@@ -130,39 +155,42 @@ describe('detectManualViewing', () => {
   test.each([
     ['playing tab before stopped tab', [4, 5]],
     ['stopped tab before playing tab', [5, 4]],
-  ] as const)('keeps an ineligible playing tab from being erased by a stopped sibling: %s', async (_name, ids) => {
-    // Given: exactly one personal Twitch stream is still playing, but it is not farm-eligible.
-    const result = await detectManualViewing({
-      target,
-      managedTabId: null,
-      automationActive: true,
-      now: 100,
-      queryTabs: async () =>
-        ids.map((id) => ({
-          id,
-          active: false,
-          url: `https://www.twitch.tv/${id === 4 ? 'playing' : 'stopped'}`,
-        })),
-      getStreamContext: async (tabId) =>
-        tabId === 4
-          ? {
-              channelName: 'playing',
-              categorySlug: 'another-game',
-              isLive: true,
-              isPlaybackReady: true,
-            }
-          : {
-              channelName: 'stopped',
-              categorySlug: 'another-game',
-              isLive: true,
-              isPlaybackReady: false,
-            },
-    });
+  ] as const)(
+    'keeps an ineligible playing tab from being erased by a stopped sibling: %s',
+    async (_name, ids) => {
+      // Given: exactly one personal Twitch stream is still playing, but it is not farm-eligible.
+      const result = await detectManualViewing({
+        target,
+        managedTabId: null,
+        automationActive: true,
+        now: 100,
+        queryTabs: async () =>
+          ids.map((id) => ({
+            id,
+            active: false,
+            url: `https://www.twitch.tv/${id === 4 ? 'playing' : 'stopped'}`,
+          })),
+        getStreamContext: async (tabId) =>
+          tabId === 4
+            ? {
+                channelName: 'playing',
+                categorySlug: 'another-game',
+                isLive: true,
+                isPlaybackReady: true,
+              }
+            : {
+                channelName: 'stopped',
+                categorySlug: 'another-game',
+                isLive: true,
+                isPlaybackReady: false,
+              },
+      });
 
-    // When: all personal tabs are inspected in either order.
-    // Then: the playing stream still suspends farming.
-    expect(result).toEqual({ kind: 'automation-paused', reason: 'ineligible-manual-view' });
-  });
+      // When: all personal tabs are inspected in either order.
+      // Then: the playing stream still suspends farming.
+      expect(result).toEqual({ kind: 'automation-paused', reason: 'ineligible-manual-view' });
+    },
+  );
 
   test('pauses automation for a visible ineligible manual Twitch stream', async () => {
     const result = await detectManualViewing({

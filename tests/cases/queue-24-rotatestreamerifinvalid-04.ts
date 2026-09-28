@@ -77,7 +77,7 @@ export function registerQueue24Part04() {
           pageUrl: 'https://twitch.tv/streamer',
         }),
         onResolveCategorySlug: async () => 'test-game',
-        onRotateStreamer: async () => {},
+        onRotateStreamer: async () => false,
       });
 
       expect(state.appState.recoveryReason).toBeNull();

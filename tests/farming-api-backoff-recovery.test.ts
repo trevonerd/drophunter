@@ -108,7 +108,11 @@ describe('API failure recovery classification', () => {
 
       // Then: playback resumes after the deadline and clears its temporary status.
       expect(opened).toBe(waiting ? 0 : 1);
-      expect(state.appState.recoveryReason).toBe(waiting ? 'twitch-data-unavailable' : null);
+      if (waiting) {
+        expect(state.appState.recoveryReason).toBe('twitch-data-unavailable');
+      } else {
+        expect(state.appState.recoveryReason).toBeNull();
+      }
     });
   }
 });

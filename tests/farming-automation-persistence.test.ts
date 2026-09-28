@@ -29,27 +29,21 @@ function persistenceFor(
 
 describe('Farming automation persistence', () => {
   test.each([
-    ['worker reconstruction', false, 'stored', true],
-    ['browser restart', true, 'missing', false],
-  ] as const)('round-trips valid V1 records across %s', async (_scenario, restart, source, snoozed) => {
+    ['worker reconstruction', false],
+    ['browser restart', true],
+  ] as const)('round-trips valid V1 records across %s', async (_scenario, restart) => {
     // Given
     const storage = createInMemoryFarmingAutomationStorage();
     const receipt = transitionReceipt();
     storage.seedLocal(FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY, receipt);
-    const firstWorker = persistenceFor(storage);
-    await firstWorker.setSnooze();
     if (restart) storage.restartBrowser();
     const reconstructedWorker = persistenceFor(storage);
 
     // When
-    const [receiptResult, snoozeResult] = await Promise.all([
-      reconstructedWorker.loadReceipt(),
-      reconstructedWorker.loadSnooze(),
-    ]);
+    const receiptResult = await reconstructedWorker.loadReceipt();
 
     // Then
     expect(receiptResult).toEqual({ kind: 'ready', source: 'stored', value: receipt });
-    expect(snoozeResult).toEqual({ kind: 'ready', source, value: snoozed });
   });
 
   test('projects only durable fact fields after a successful write', async () => {
@@ -233,7 +227,7 @@ describe('Farming automation persistence', () => {
     expect(storage.getLocalSetPayloads()).toEqual([]);
   });
 
-  test('uses Chrome local and session storage in the production adapter', async () => {
+  test('uses Chrome local storage in the production adapter', async () => {
     // Given
     const mocks = setupChromeMocks();
     const state = createServiceWorkerState();
@@ -242,7 +236,6 @@ describe('Farming automation persistence', () => {
       getSessionRevision: () => 'revision-1',
       broadcast: () => undefined,
     });
-    await persistence.setSnooze();
     const facts = createInitialFarmingAutomationFacts();
 
     try {
@@ -252,11 +245,6 @@ describe('Farming automation persistence', () => {
       // Then
       expect(result).toEqual({ kind: 'written' });
       expect(mocks.storage.local._store.get(FARMING_AUTOMATION_FACTS_STORAGE_KEY)).toEqual(facts);
-      expect(await persistence.loadSnooze()).toEqual({
-        kind: 'ready',
-        source: 'stored',
-        value: true,
-      });
     } finally {
       mocks.teardown();
     }

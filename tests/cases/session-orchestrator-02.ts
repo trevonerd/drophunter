@@ -133,10 +133,6 @@ describe('session orchestrator', () => {
       validateRecoveredTwitchSession: async () => true,
       getSessionRevision: () => 0,
       discardPersistedTwitchSessionIfMatches: async () => {},
-      closeTemporaryTabIfSafe: async () => {
-        events.push('close');
-        return true;
-      },
       logDebug: () => {},
       logWarn: () => {},
     });

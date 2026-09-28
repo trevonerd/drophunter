@@ -82,28 +82,28 @@ describe('ensureManagedTab', () => {
 
   test('updates URL if existing tab is on Twitch but URL differs', async () => {
     mock.tabs.setGetResult({ id: 5, url: 'https://www.twitch.tv/old', windowId: 1 });
-    let updatedTab: TabManagementTab | null = null;
+    const updatedTabs: TabManagementTab[] = [];
     mock.tabs.update = async (tabId: number, details: TabManagementTabUpdateDetails) => {
       const tab: TabManagementTab = { id: tabId, ...details };
-      updatedTab = tab;
+      updatedTabs.push(tab);
       return tab;
     };
     const result = await ensureManagedTab(5, 'https://www.twitch.tv/new', false);
     expect(result).toBe(5);
-    expect(updatedTab?.url).toBe('https://www.twitch.tv/new');
+    expect(updatedTabs[0]?.url).toBe('https://www.twitch.tv/new');
   });
 
   test('reactivates tab if active flag is true and tab is not active', async () => {
     mock.tabs.setGetResult({ id: 5, url: 'https://www.twitch.tv/current', active: false, windowId: 1 });
-    let updatedTab: TabManagementTab | null = null;
+    const updatedTabs: TabManagementTab[] = [];
     mock.tabs.update = async (tabId: number, details: TabManagementTabUpdateDetails) => {
       const tab: TabManagementTab = { id: tabId, ...details };
-      updatedTab = tab;
+      updatedTabs.push(tab);
       return tab;
     };
     const result = await ensureManagedTab(5, 'https://www.twitch.tv/current', true);
     expect(result).toBe(5);
-    expect(updatedTab?.active).toBe(true);
+    expect(updatedTabs[0]?.active).toBe(true);
   });
 
   test('creates new tab if existing tabId is null', async () => {

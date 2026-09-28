@@ -5,6 +5,7 @@ import { createServiceWorkerContentHandlers } from '../src/background/service-wo
 import { createFarmingAutomationUserActionHandlers } from '../src/background/service-worker-runtime-wiring.ts';
 import { createServiceWorkerSettingsHandlers } from '../src/background/service-worker-settings-handlers.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
+import type { ActivationTrigger } from '../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
 import { fixture } from './support/farming-automation-queue-fixture.ts';
 import {
@@ -26,19 +27,16 @@ describe('farming automation runtime wiring', () => {
     chromeMocks.teardown();
   });
 
-  test('snoozes automatic favorites when the user pauses or stops an automatic session', async () => {
+  test('invalidates automatic evaluation before the user pauses or stops', async () => {
     // Given: automatic favorites remain enabled while a session receives user transport controls.
     const calls: string[] = [];
     const handlers = createFarmingAutomationUserActionHandlers(
       {
         request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-        snooze: async (reason) => {
-          calls.push(`snooze:${reason}`);
-          return 'snoozed';
-        },
+        invalidate: () => calls.push('invalidate'),
+        suppressCampaignUntilRefresh: async () => 'suppressed',
       },
       {
-        automaticFavoritesEnabled: () => true,
         handlePauseFarming: async () => {
           calls.push('pause');
           return { success: true };
@@ -56,24 +54,21 @@ describe('farming automation runtime wiring', () => {
     await handlers.stopFarming();
 
     // Then: the next automatic evaluation cannot undo the explicit user action.
-    expect(calls).toEqual(['snooze:manual-pause', 'pause', 'snooze:manual-stop', 'stop']);
+    expect(calls).toEqual(['invalidate', 'pause', 'invalidate', 'stop']);
   });
 
-  test('clears a previous manual snooze when auto-start is enabled again', async () => {
-    // Given: auto-start was disabled after a manual stop and its snooze is still persisted.
+  test('explicitly re-enabling auto-start clears a previous manual Stop', async () => {
     const state = createServiceWorkerState();
     state.appState.autoStartFavoriteGames = false;
+    state.appState.lastStopReason = 'user-stop';
+    state.appState.lastStopMessage = 'Stopped by user.';
     const calls: string[] = [];
     const automation: FarmingAutomation = {
       request: async (trigger) => {
         calls.push(`request:${trigger}`);
         return { kind: 'unchanged', reason: 'no-eligible-campaign' };
       },
-      snooze: async () => 'snoozed',
-      clearSnooze: async () => {
-        calls.push('clear-snooze');
-        return 'cleared';
-      },
+      suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const settings = createServiceWorkerSettingsHandlers(state, createSettingsDependencies(automation));
 
@@ -82,16 +77,17 @@ describe('farming automation runtime wiring', () => {
 
     // Then: the prior manual stop cannot remain an invisible gate.
     expect({ calls, result, enabled: state.appState.autoStartFavoriteGames }).toEqual({
-      calls: ['clear-snooze', 'request:campaign-refresh'],
+      calls: ['request:campaign-refresh'],
       result: { success: true, autoStartFavoriteGames: true },
       enabled: true,
     });
+    expect(state.appState.lastStopReason).toBeNull();
   });
 
-  test('clears a manual stop snooze for a newly added favorite when auto-start is enabled', async () => {
-    // Given: a stopped automatic session and a campaign which is not yet a favorite.
+  test('adding a favorite does not clear a previous manual Stop', async () => {
     const state = createServiceWorkerState();
     state.appState.autoStartFavoriteGames = true;
+    state.appState.lastStopReason = 'user-stop';
     state.appState.availableGames = [game];
     const calls: string[] = [];
     const automation: FarmingAutomation = {
@@ -99,22 +95,23 @@ describe('farming automation runtime wiring', () => {
         calls.push(`request:${trigger}`);
         return { kind: 'unchanged', reason: 'no-eligible-campaign' };
       },
-      snooze: async () => 'snoozed',
-      clearSnooze: async () => {
-        calls.push('clear-snooze');
-        return 'cleared';
-      },
+      suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const settings = createServiceWorkerSettingsHandlers(state, createSettingsDependencies(automation));
 
     // When: the user marks that campaign as a favorite.
     const result = await settings.handleSetGamePreference({ game, preference: 'favorite' });
 
-    // Then: the explicit new favorite clears only the Stop gate and requests fresh planning.
-    expect({ calls, result: result.success, favoriteCount: state.appState.favoriteGames.length }).toEqual({
-      calls: ['clear-snooze', 'request:campaign-refresh'],
+    expect({
+      calls,
+      result: result.success,
+      favoriteCount: state.appState.favoriteGames.length,
+      stop: state.appState.lastStopReason,
+    }).toEqual({
+      calls: ['request:campaign-refresh'],
       result: true,
       favoriteCount: 1,
+      stop: 'user-stop',
     });
   });
 
@@ -131,14 +128,10 @@ describe('farming automation runtime wiring', () => {
         calls.push(`automation:${trigger}`);
         return originalRequest(trigger);
       },
-      clearSnooze: async () => {
-        calls.push('clear-snooze');
-        return (await automation.clearSnooze?.()) ?? 'cleared';
-      },
     };
     const dependencies = {
       ...createSettingsDependencies(wrappedAutomation),
-      requestActivationSync: async (trigger: 'favorite-change') => {
+      requestActivationSync: async (trigger: ActivationTrigger) => {
         calls.push(`activation:${trigger}`);
         await wrappedAutomation.request('campaign-refresh');
         return { kind: 'synced' as const, campaignCount: 1 };
@@ -157,7 +150,7 @@ describe('farming automation runtime wiring', () => {
       queue: state.appState.queue,
       isRunning: state.appState.isRunning,
     }).toEqual({
-      calls: ['clear-snooze', 'activation:favorite-change', 'automation:campaign-refresh'],
+      calls: ['activation:favorite-change', 'automation:campaign-refresh'],
       result: {
         success: true,
         preference: 'favorite',
@@ -221,7 +214,7 @@ describe('farming automation runtime wiring', () => {
         calls.push(`request:${trigger}`);
         return { kind: 'unchanged', reason: 'disabled' };
       },
-      snooze: async () => 'snoozed',
+      suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const settings = createServiceWorkerSettingsHandlers(state, createSettingsDependencies(automation));
 
@@ -302,7 +295,7 @@ describe('farming automation runtime wiring', () => {
           ? (userOutcomes.shift() ?? { kind: 'unchanged', reason: 'no-eligible-campaign' })
           : { kind: 'unchanged', reason: 'disabled' };
       },
-      snooze: async () => 'snoozed',
+      suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const settings = createServiceWorkerSettingsHandlers(
       createServiceWorkerState(),
@@ -350,7 +343,7 @@ describe('farming automation runtime wiring', () => {
       request: async () => {
         throw new Error('automation unavailable');
       },
-      snooze: async () => 'snoozed',
+      suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const settings = createServiceWorkerSettingsHandlers(state, createSettingsDependencies(automation));
 
@@ -388,26 +381,5 @@ describe('farming automation runtime wiring', () => {
     });
     expect(state.appState.favoriteGames).toHaveLength(1);
     expect(state.appState.favoriteGames[0]?.identityKeys).toContain('game-1');
-  });
-
-  test('keeps the saved favorite when clearing the old snooze cannot be persisted', async () => {
-    const state = createServiceWorkerState();
-    const automation: FarmingAutomation = {
-      ...disabledAutomation(),
-      clearSnooze: async () => 'persistence-failed',
-    };
-    const settings = createServiceWorkerSettingsHandlers(state, {
-      ...createSettingsDependencies(automation),
-      requestActivationSync: async () => ({ kind: 'needs-session', errorKind: 'session' }),
-    });
-
-    const result = await settings.handleSetGamePreference({ game, preference: 'favorite' });
-
-    expect(result).toMatchObject({
-      success: true,
-      preference: 'favorite',
-      autoStart: { status: 'waiting', reason: 'session' },
-    });
-    expect(state.appState.favoriteGames).toHaveLength(1);
   });
 });

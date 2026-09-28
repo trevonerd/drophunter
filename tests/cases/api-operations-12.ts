@@ -153,7 +153,7 @@ describe('fetchDropsSnapshotFromApi', () => {
           recoveryCalls += 1;
           return null;
         },
-        onEnsureSessionIntegrity: async (session) => session,
+        onEnsureSessionIntegrity: async (_state, session) => session,
         onPersistTwitchSession: async () => undefined,
         onStopFarmingSession: async (options) => {
           stopReason = options.stopReason;

@@ -7,14 +7,9 @@ import {
   FarmingAutomationInventoryRefreshError,
   type FarmingAutomationTwitchSource,
 } from '../src/background/farming-automation-twitch.ts';
+import type { TwitchSession } from '../src/background/twitch-api/types.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
-import type {
-  DropsSnapshot,
-  TwitchDrop,
-  TwitchGame,
-  TwitchSession,
-  TwitchStreamer,
-} from '../src/types/index.ts';
+import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
 
 const session: TwitchSession = {
   oauthToken: 'oauth-token',
@@ -88,7 +83,10 @@ describe('farming automation Twitch adapter', () => {
 
     expect(result.kind).toBe('ready');
     if (result.kind !== 'ready') return;
-    expect(result.snapshot.games.map((entry) => gameKey(entry))).toEqual([gameKey(first), gameKey(second)]);
+    expect(result.snapshot.games.map((entry) => entry.campaignId)).toEqual([
+      first.campaignId,
+      second.campaignId,
+    ]);
     expect(result.snapshot.campaignDropsByKey[gameKey(first)]?.[0]?.progress).toBe(60);
     expect(result.snapshot.campaignDropsByKey[gameKey(second)]?.[0]?.progress).toBe(20);
     expect(result.snapshot.campaignDropsByKey[gameKey(first)]).not.toBe(

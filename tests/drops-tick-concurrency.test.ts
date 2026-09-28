@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { TICK_WATCHDOG_TIMEOUT_MS } from '../src/background/constants.ts';
 import {
   type CheckDropProgressCallbacks,
@@ -13,7 +13,7 @@ function callbacks(overrides: Partial<CheckDropProgressCallbacks> = {}): CheckDr
     onRotateStreamerIfInvalid: async () => {},
     onAcquireStreamerForSelectedGame: async () => false,
     onAttemptAutoClaimChannelPointsBonus: async () => false,
-    onRefreshDropsData: async () => {},
+    onRefreshDropsData: async () => 'refreshed',
     onAutoClaimClaimableDrops: async () => false,
     onAdvanceQueueIfCompleted: async () => true,
     onSaveTimingState: async () => {},
@@ -38,12 +38,18 @@ describe('monitoring tick ownership', () => {
     const newTransport = Promise.withResolvers<boolean>();
     const watchdogs: Array<() => void> = [];
     const nativeSetTimeout = globalThis.setTimeout;
-    const timer = spyOn(globalThis, 'setTimeout').mockImplementation((handler, delay) => {
+    const originalTimerDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'setTimeout');
+    const replacementSetTimeout = (handler: TimerHandler, delay?: number, ...args: unknown[]) => {
       if (delay === TICK_WATCHDOG_TIMEOUT_MS && typeof handler === 'function') {
         watchdogs.push(() => handler());
         return nativeSetTimeout(() => {}, 0);
       }
-      return nativeSetTimeout(handler, delay);
+      return nativeSetTimeout(handler, delay, ...args);
+    };
+    Object.defineProperty(globalThis, 'setTimeout', {
+      configurable: true,
+      writable: true,
+      value: replacementSetTimeout,
     });
     let staleWork = 0;
     let oldTick: Promise<void> | undefined;
@@ -68,7 +74,9 @@ describe('monitoring tick ownership', () => {
       oldTransport.resolve(false);
       newTransport.resolve(false);
       await Promise.all([oldTick, newTick]);
-      timer.mockRestore();
+      if (originalTimerDescriptor) {
+        Object.defineProperty(globalThis, 'setTimeout', originalTimerDescriptor);
+      }
     }
     expect(state.monitorTickInFlight).toBe(false);
   });
@@ -97,6 +105,7 @@ describe('monitoring tick ownership', () => {
           refreshes += 1;
           requested.resolve();
           await inventory.promise;
+          return 'refreshed';
         },
       }),
     );
@@ -110,6 +119,7 @@ describe('monitoring tick ownership', () => {
       callbacks({
         onRefreshDropsData: async () => {
           refreshes += 1;
+          return 'refreshed';
         },
       }),
     );

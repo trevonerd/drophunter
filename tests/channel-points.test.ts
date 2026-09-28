@@ -12,6 +12,7 @@ import {
   findClaimableChannelPointsBonusButton,
 } from '../src/content/channel-points.ts';
 import { createInitialState } from '../src/shared/utils.ts';
+import type { AppState } from '../src/types/index.ts';
 
 interface FakeElement {
   textContent?: string | null;
@@ -292,14 +293,14 @@ describe('content channel-points autonomous claiming', () => {
 });
 
 describe('attemptAutoClaimChannelPointsBonusExt', () => {
-  function makeRunningState() {
+  function makeRunningState(): AppState {
     return {
       ...createInitialState(),
       isRunning: true,
       isPaused: false,
       autoClaimChannelPointsBonus: true,
       tabId: 42,
-      activeStreamer: { displayName: 'StreamerName' },
+      activeStreamer: { id: 'streamer-1', name: 'streamer-1', displayName: 'StreamerName', isLive: true },
     };
   }
 
@@ -319,7 +320,7 @@ describe('attemptAutoClaimChannelPointsBonusExt', () => {
   });
 
   test('returns false when no tabId', async () => {
-    const state = { ...makeRunningState(), tabId: null as unknown as number };
+    const state = { ...makeRunningState(), tabId: null };
     let getTabCalled = false;
     const deps: ChannelPointsClaimDeps = {
       ensureContentScriptOnTab: () => undefined,

@@ -167,13 +167,13 @@ function fixture(manualAuthorized = true, availableStreamers = true) {
     },
     refreshGamesCache: async () =>
       unavailable
-        ? { kind: 'unavailable', failure: { kind: 'network', message: 'network unavailable' } }
+        ? { kind: 'unavailable', games: [], failure: { kind: 'network', message: 'network unavailable' } }
         : { kind: 'refreshed', games: [skull, marvel], inventoryVerified: true },
     dropsPageRefresher: {
       openDropsPageAndRefresh: async () => {
         hiddenRefreshes += 1;
         publishSnapshot();
-        return { success: true, gamesCount: 2 };
+        return { success: true, opened: true, refreshed: true, gamesCount: 2 };
       },
     },
   });
@@ -203,31 +203,31 @@ function fixture(manualAuthorized = true, availableStreamers = true) {
   };
 }
 
-test.each([
-  true,
-  false,
-])('successful scheduled validation automatically starts eligible queue (manual authorization=%s)', async (manualAuthorized) => {
-  const run = fixture(manualAuthorized);
-  const failed = await run.coordinator.request('worker-start');
-  expect(failed.kind).toBe('retry-scheduled');
-  expect(run.state.appState.isRunning).toBe(false);
-  run.recover();
-  now = run.state.appState.campaignSyncState.nextRetryAt ?? now;
-  const result = await run.coordinator.request('periodic-campaign');
-  expect(result.kind).toBe('synced');
-  expect(run.outcomes.at(-1)).toMatchObject({ kind: 'started' });
-  expect(run.state.appState.isRunning).toBe(true);
-  expect(run.state.appState.selectedGame?.campaignId).toBe(
-    (manualAuthorized ? run.skull : run.marvel).campaignId,
-  );
-});
+test.each([true, false])(
+  'successful scheduled validation automatically starts eligible queue (manual authorization=%s)',
+  async (manualAuthorized) => {
+    const run = fixture(manualAuthorized);
+    const failed = await run.coordinator.request('worker-start');
+    expect(failed.kind).toBe('retry-scheduled');
+    expect(run.state.appState.isRunning).toBe(false);
+    run.recover();
+    now = run.state.appState.campaignSyncState.nextRetryAt ?? now;
+    const result = await run.coordinator.request('periodic-campaign');
+    expect(result.kind).toBe('synced');
+    expect(run.outcomes.at(-1)).toMatchObject({ kind: 'started' });
+    expect(run.state.appState.isRunning).toBe(true);
+    expect(run.state.appState.selectedGame?.campaignId).toBe(
+      (manualAuthorized ? run.skull : run.marvel).campaignId,
+    );
+  },
+);
 
 test('foreground validation honors prior explicit Stop even with favorite automation enabled', async () => {
   const run = fixture();
   await createFarmingAutomationUserActionHandlers(run.automation, run.farming).stopFarming();
   const result = await run.coordinator.request('manual');
   expect(result.kind).toBe('synced');
-  expect(run.outcomes.at(-1)).toEqual({ kind: 'unchanged', reason: 'snoozed' });
+  expect(run.outcomes.at(-1)).toEqual({ kind: 'unchanged', reason: 'user-stopped' });
   expect(run.state.appState.isRunning).toBe(false);
 });
 

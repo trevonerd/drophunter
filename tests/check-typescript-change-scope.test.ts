@@ -118,6 +118,50 @@ describe('changed TypeScript scope checker', () => {
   );
 
   test.serial(
+    'grandfathers an existing oversized file while still rejecting files that cross the limit',
+    () => {
+      const directory = createFixture();
+      const source = Array.from({ length: 260 }, (_, index) => `const value${index} = ${index};`).join('\n');
+      writeFileSync(join(directory, 'src', 'legacy-large.ts'), source, 'utf8');
+      expect(run(['git', 'add', 'src/legacy-large.ts'], directory).exitCode).toBe(0);
+      expect(
+        run(['git', 'commit', '--no-gpg-sign', '--no-verify', '-qm', 'legacy oversized file'], directory)
+          .exitCode,
+      ).toBe(0);
+
+      writeFileSync(
+        join(directory, 'src', 'legacy-large.ts'),
+        source.replace('value0 = 0', 'value0 = 1'),
+        'utf8',
+      );
+      expect(runChecker(directory).exitCode).toBe(0);
+
+      writeFileSync(join(directory, 'src', 'legacy-large.ts'), `${source}\nconst added = true;`, 'utf8');
+      expect(runChecker(directory).exitCode).toBe(0);
+
+      const withinLimit = Array.from({ length: 250 }, (_, index) => `const fresh${index} = ${index};`).join(
+        '\n',
+      );
+      writeFileSync(join(directory, 'src', 'crosses-limit.ts'), withinLimit, 'utf8');
+      expect(run(['git', 'add', 'src/crosses-limit.ts'], directory).exitCode).toBe(0);
+      expect(
+        run(['git', 'commit', '--no-gpg-sign', '--no-verify', '-qm', 'file at size limit'], directory)
+          .exitCode,
+      ).toBe(0);
+      writeFileSync(
+        join(directory, 'src', 'crosses-limit.ts'),
+        `${withinLimit}\nconst added = true;`,
+        'utf8',
+      );
+
+      const crossed = runChecker(directory);
+      expect(crossed.exitCode).toBe(1);
+      expect(crossed.stderr).toContain('251 pure LOC exceeds 250');
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test.serial(
     'lists changed TypeScript deterministically and ignores deleted or unrelated files',
     () => {
       const directory = createFixture();

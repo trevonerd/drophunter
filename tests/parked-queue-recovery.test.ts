@@ -5,6 +5,7 @@ import {
 } from '../src/background/session-lifecycle.ts';
 import { normalizeQueueMetadata } from '../src/shared/app-state-collection-normalizers.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
+import type { QueueEntryMetadata } from '../src/types/queue.ts';
 import { createDrop, createGame, createMinimalState } from './fixtures/queue-management.ts';
 
 const now = Date.parse('2026-09-09T08:00:00Z');
@@ -142,7 +143,7 @@ describe('temporarily unavailable campaign queue', () => {
   });
 
   test('restores valid retry metadata and discards malformed timers without losing manual provenance', () => {
-    const metadata = { source: 'manual', reason: 'user-added', addedAt: 123 };
+    const metadata: QueueEntryMetadata = { source: 'manual', reason: 'user-added', addedAt: 123 };
     const restored = normalizeQueueMetadata({
       good: { ...metadata, streamerRetryAt: now + 60_000, streamerRetryCycles: 2 },
       bad: { ...metadata, streamerRetryAt: 'tomorrow', streamerRetryCycles: -1 },

@@ -9,14 +9,14 @@ const originalChrome = (globalThis as typeof globalThis & { chrome?: unknown }).
 const originalBrowser = (globalThis as typeof globalThis & { browser?: unknown }).browser;
 
 function setChromeMock(chromeMock: unknown): void {
-  (globalThis as typeof globalThis & { chrome?: unknown }).chrome = chromeMock;
-  (globalThis as typeof globalThis & { browser?: unknown }).browser = chromeMock;
+  Reflect.set(globalThis, 'chrome', chromeMock);
+  Reflect.set(globalThis, 'browser', chromeMock);
 }
 
 describe('content app-state sync', () => {
   afterEach(() => {
-    (globalThis as typeof globalThis & { chrome?: unknown }).chrome = originalChrome;
-    (globalThis as typeof globalThis & { browser?: unknown }).browser = originalBrowser;
+    Object.defineProperty(globalThis, 'chrome', { configurable: true, value: originalChrome });
+    Object.defineProperty(globalThis, 'browser', { configurable: true, value: originalBrowser });
   });
 
   test('does not throw when chrome.storage.onChanged is unavailable in a content world', () => {
@@ -50,7 +50,7 @@ describe('content app-state sync', () => {
   });
 
   test('updates from storage changes when the storage change event exists', () => {
-    let storageListener: StorageListener | null = null;
+    const storageListeners: StorageListener[] = [];
     const seenStates: Array<{ autoClaimChannelPointsBonus?: boolean }> = [];
     setChromeMock({
       runtime: {
@@ -67,21 +67,22 @@ describe('content app-state sync', () => {
         },
         onChanged: {
           addListener(listener: StorageListener) {
-            storageListener = listener;
+            storageListeners.push(listener);
           },
           removeListener(listener: StorageListener) {
-            if (storageListener === listener) storageListener = null;
+            const index = storageListeners.indexOf(listener);
+            if (index >= 0) storageListeners.splice(index, 1);
           },
         },
       },
     });
 
     const cleanup = subscribeToContentAppState((state) => seenStates.push(state));
-    storageListener?.({ appState: { newValue: { autoClaimChannelPointsBonus: false } } }, 'local');
+    storageListeners[0]?.({ appState: { newValue: { autoClaimChannelPointsBonus: false } } }, 'local');
 
     expect(seenStates).toEqual([{ autoClaimChannelPointsBonus: false }]);
     cleanup();
-    expect(storageListener).toBeNull();
+    expect(storageListeners).toEqual([]);
   });
 
   test('falls back to defaults when content storage is unavailable', async () => {

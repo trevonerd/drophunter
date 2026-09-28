@@ -64,7 +64,9 @@ function renderRunningPopup(currentDrop: TwitchDrop, pendingDrops: TwitchDrop[])
       firstSyncConfirmation={false}
       firstSyncCampaignCount={null}
       queueMessage={null}
-      rewardsLoading={false}
+      dismissedQueueCleanupActivityId={null}
+      notificationPermissionDenied={false}
+      onAutoStartFavoriteGamesToggle={() => {}}
       onMuteToggle={() => {}}
       onOpenDropsPage={() => {}}
       onOpenMonitor={() => {}}
@@ -72,11 +74,15 @@ function renderRunningPopup(currentDrop: TwitchDrop, pendingDrops: TwitchDrop[])
       onPause={() => {}}
       onResume={() => {}}
       onStop={() => {}}
-      onRetryCampaignSync={() => {}}
+      onDismissQueueCleanup={() => {}}
       onAddToQueue={() => {}}
+      onAddAllToQueue={() => {}}
+      onLinkAccount={() => {}}
+      onSetGamePreference={() => undefined}
       onRemoveFromQueue={() => {}}
       onClearQueue={() => {}}
       onReorderQueue={() => {}}
+      onStartQueuedCampaign={() => {}}
       onStart={() => {}}
     />,
   );

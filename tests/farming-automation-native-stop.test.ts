@@ -41,14 +41,14 @@ test.each([
   let playbackCalls = 0;
   let probeCalls = 0;
   let commits = 0;
-  mocks.chrome.tabs.create = async (properties) => {
+  mocks.chrome.tabs.create = async (properties = {}) => {
     if (stage === 'native-create') {
       entered.resolve(undefined);
       await release.promise;
     }
     return { id: 22, windowId: 4, url: properties.url, active: false };
   };
-  mocks.chrome.tabs.update = async (tabId, properties) => {
+  mocks.chrome.tabs.update = async (tabId, properties = {}) => {
     if (properties.url) {
       navigation.push(properties.url);
       currentUrl = properties.url;
@@ -125,7 +125,7 @@ test.each([
     {
       acquireStreamer: async () => createStreamer(),
       currentFingerprint: () => 'current',
-      loadReceipt: async () => ({ kind: 'ready', value: null }),
+      loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
       commitTransition: async () => {
         commits += 1;
         return { kind: 'committed' };

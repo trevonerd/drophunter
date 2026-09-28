@@ -17,10 +17,39 @@ describe('release check UI runner', () => {
     const scopeGate = source.indexOf(
       "{ name: 'TypeScript scope', command: ['bun', 'run', 'check:typescript-scope'] }",
     );
+    const testCompilation = source.indexOf(
+      "{ name: 'Test TypeScript', command: ['bun', 'run', 'test:types'] }",
+    );
     const compilation = source.indexOf("{ name: 'TypeScript', command: ['bun', 'run', 'test:ts'] }");
 
     expect(scopeGate).toBeGreaterThan(-1);
-    expect(compilation).toBeGreaterThan(scopeGate);
+    expect(testCompilation).toBeGreaterThan(scopeGate);
+    expect(compilation).toBeGreaterThan(testCompilation);
+  });
+
+  test('runs browser E2E and dependency audit before packaging', () => {
+    const source = readFileSync(new URL('../scripts/release-check.mjs', import.meta.url), 'utf8');
+    const e2e = source.indexOf("{ name: 'Extension E2E', command: ['bun', 'run', 'test:e2e'] }");
+    const audit = source.indexOf("{ name: 'Dependency audit', command: ['bun', 'audit'] }");
+    const build = source.indexOf("{ name: 'Build + package Chrome + Edge'");
+
+    expect(e2e).toBeGreaterThan(-1);
+    expect(audit).toBeGreaterThan(e2e);
+    expect(build).toBeGreaterThan(audit);
+  });
+
+  test('keeps the previous release archives inside the build and validation transaction', () => {
+    const source = readFileSync(new URL('../scripts/release-check.mjs', import.meta.url), 'utf8');
+    const transaction = source.indexOf('await withReleaseArchiveRecovery(');
+    const build = source.indexOf("{ name: 'Build + package Chrome + Edge'");
+    const manifestValidation = source.indexOf("{ name: 'Release manifests'");
+    const archiveValidation = source.indexOf("{ name: 'Release archives'");
+
+    expect(transaction).toBeGreaterThan(-1);
+    expect(build).toBeGreaterThan(transaction);
+    expect(manifestValidation).toBeGreaterThan(build);
+    expect(archiveValidation).toBeGreaterThan(manifestValidation);
+    expect(source).not.toContain("{ name: 'Clean release archives'");
   });
 
   test('prints ticks and a passing recap when all steps pass', async () => {

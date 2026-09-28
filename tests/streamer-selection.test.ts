@@ -59,7 +59,7 @@ describe('pickStreamerForPreferences', () => {
       () => 0.99,
     );
 
-    expect(['a', 'b', 'c']).toContain(result.streamer?.name);
+    expect(['a', 'b', 'c'].includes(result.streamer?.name ?? '')).toBe(true);
     expect(result.activePoolSize).toBe(streamers.length);
   });
 

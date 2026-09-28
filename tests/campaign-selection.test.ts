@@ -37,6 +37,7 @@ function createDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     gameName: 'Overwatch',
     imageUrl: '',
     progress: 0,
+    currentMinutes: 0,
     claimed: false,
     campaignId: 'campaign-default',
     categorySlug: 'overwatch',

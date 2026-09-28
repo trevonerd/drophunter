@@ -120,7 +120,7 @@ function fixture(failure: PostCommitFailure = null) {
       dispose: async () => undefined,
     }),
     prepareTabless: async () => null,
-    release: async () => ({ kind: 'released', method: 'none' }),
+    release: async () => ({ kind: 'not-required' }),
   });
   const browser: FarmingAutomationBrowser = {
     watch,
@@ -199,7 +199,7 @@ describe('Farming automation ordered effects', () => {
     // When: automation discovers an eligible favorite campaign.
     const outcome = await subject.automation.request('campaign-refresh');
 
-    // Then: the recovery stop is not a manual snooze and normal favorite auto-start still runs.
+    // Then: the recovery stop is not a manual user block and normal favorite auto-start still runs.
     expect({ outcome, running: subject.state.appState.isRunning }).toEqual({
       outcome: { kind: 'started', campaignKey: gameKey(subject.candidate), transition: 'start' },
       running: true,

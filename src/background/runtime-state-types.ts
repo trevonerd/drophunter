@@ -9,6 +9,7 @@ export interface ServiceWorkerState {
   streamerAcquisitionInFlight: Promise<boolean> | null;
   streamerAcquisitionDeadlineAt: number;
   streamerAcquisitionGeneration: number;
+  preparingManagedTabIds: Set<number>;
   tickGeneration: number;
   invalidStreamChecks: number;
   lastStreamRotationAt: number;

@@ -95,6 +95,7 @@ test('settings exposes farming automation controls without an obsolete recovery 
       onMuteFarmingTabToggle={() => {}}
       onNotificationsEnabledToggle={() => {}}
       onTelegramAlertsToggle={async () => undefined}
+      onTelegramSystemAlertsToggle={async () => undefined}
       onSaveTelegramCredentials={async () => undefined}
       onTestTelegramAlerts={async () => undefined}
       onLoadTelegramSettings={async () => undefined}

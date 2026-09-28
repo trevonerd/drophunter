@@ -12,7 +12,7 @@ function createSubject(permissionGranted = true) {
   state.appState.notificationsEnabled = true;
   state.appState.autoStartFavoriteGames = false;
   state.appState.manualQueueAuthorized = true;
-  state.appState.queue = [{ id: 'marvel', name: 'Marvel Rivals', campaignId: 'season-10' }];
+  state.appState.queue = [{ id: 'marvel', name: 'Marvel Rivals', imageUrl: '', campaignId: 'season-10' }];
   const fakes = createAutomationNotificationFakes(permissionGranted);
   const receipts = new Set<string>();
   const persistence = {
@@ -149,7 +149,7 @@ describe('campaign validation session notifications', () => {
     const subject = createSubject();
     subject.state.appState.manualQueueAuthorized = false;
     subject.state.appState.autoStartFavoriteGames = true;
-    subject.state.appState.favoriteGames = ['marvel'];
+    subject.state.appState.favoriteGames = [{ gameId: 'marvel', lastKnownName: 'Marvel Rivals', addedAt: 1 }];
     await subject.makeCoordinator().request('browser-start');
     await flushMicrotasks();
     expect(subject.fakes.records).toHaveLength(1);
@@ -194,8 +194,13 @@ describe('campaign validation session notifications', () => {
     await persistCampaignSyncState(
       subject.state,
       {
-        ...subject.state.appState.campaignSyncState,
         status: 'needs-session',
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        campaignCount: null,
+        retryAttemptCount: 1,
+        nextRetryAt: null,
+        attemptDeadlineAt: null,
         lastErrorKind: 'integrity',
       },
       {

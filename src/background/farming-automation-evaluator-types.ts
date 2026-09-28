@@ -8,7 +8,7 @@ import type { FarmingAutomationManualWatchController } from './farming-automatio
 import type { FarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
-export type FarmingAutomationRuntime = { generation: number; snoozed: boolean };
+export type FarmingAutomationRuntime = { generation: number };
 
 export type FarmingAutomationEvaluatorDependencies = {
   readonly state: ServiceWorkerState;

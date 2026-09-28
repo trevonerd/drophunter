@@ -75,7 +75,7 @@ test('automatic queue defers native creation on transient old-tab proof failure 
           kind: 'ready',
           target: {
             campaignKey: gameKey(game),
-            campaignId: game.campaignId,
+            campaignId: game.campaignId ?? null,
             gameId: game.id,
             gameName: game.name,
             categoryId: null,
@@ -86,7 +86,7 @@ test('automatic queue defers native creation on transient old-tab proof failure 
         }),
       },
     });
-    expect(await automation.request('worker-start')).toMatchObject({
+    expect(await automation.request('campaign-refresh')).toMatchObject({
       kind: 'failed',
       reason: 'candidate-preparation-failed',
     });

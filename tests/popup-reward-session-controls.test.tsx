@@ -57,7 +57,7 @@ test('automation summary hides transport diagnostics from the main interface', (
   expect(markup).not.toContain('Healthy');
 });
 
-test('paused or stopped session keeps favorite auto-start state clear to the user', () => {
+test('paused session requires an explicit Resume even when favorite auto-start is enabled', () => {
   const selected = game();
   const markup = renderMainView(
     {
@@ -70,9 +70,9 @@ test('paused or stopped session keeps favorite auto-start state clear to the use
     { runtimeMode: 'paused' },
   );
 
-  expect(markup).toContain('Favorite auto-start can restart farming after Pause or Stop.');
-  expect(markup).toContain('Turn it off to keep farming stopped.');
-  expect(markup).toContain('aria-describedby="session-auto-start-note"');
+  expect(markup).toContain('>Resume</button>');
+  expect(markup).not.toContain('Favorite auto-start can restart farming after Pause or Stop.');
+  expect(markup).not.toContain('session-auto-start-note');
   expect(markup).not.toContain('class="dh-running-badge"');
 });
 
@@ -132,7 +132,7 @@ test('no-streamer recovery omits redundant queue continuation copy', () => {
   expect(markup).not.toContain('The started queue will continue automatically');
   expect(markup).not.toContain('data-watch-transport=');
   expect(markup).not.toContain('Fallback tab');
-  expect(markup).toContain('Turn it off to keep farming stopped.');
+  expect(markup).not.toContain('Favorite auto-start can restart farming after Pause or Stop.');
 });
 
 test('session summary exposes exactly one effective transport indicator', () => {

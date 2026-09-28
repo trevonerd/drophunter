@@ -1,8 +1,14 @@
 import { expect, test } from 'bun:test';
 import { createInitialState } from '../src/shared/utils';
+import type { AppState, TwitchGame } from '../src/types';
 import { game, renderMainView, startButtonMarkup } from './fixtures/popup-reward';
 
-function pendingState() {
+type PendingState = AppState & {
+  selectedGame: TwitchGame;
+  campaignSyncState: Extract<AppState['campaignSyncState'], { status: 'retry-scheduled' }>;
+};
+
+function pendingState(): PendingState {
   const selected = game();
   return {
     ...createInitialState(),
@@ -11,12 +17,15 @@ function pendingState() {
     availableGames: [selected],
     twitchSessionDetected: true,
     campaignSyncState: {
-      ...createInitialState().campaignSyncState,
-      status: 'retry-scheduled' as const,
-      nextRetryAt: Date.now() + 60_000,
-      error: 'private transport text',
+      status: 'retry-scheduled',
+      lastAttemptAt: Date.now(),
+      lastSuccessAt: null,
+      campaignCount: null,
       retryAttemptCount: 3,
-      lastErrorKind: 'network' as const,
+      lastErrorKind: 'network',
+      nextRetryAt: Date.now() + 60_000,
+      attemptDeadlineAt: null,
+      error: 'private transport text',
     },
   };
 }
@@ -104,7 +113,7 @@ test('keeps active farming ahead of a nonblocking catalog refresh', () => {
 });
 
 test('preserves manual Start after an explicit stop even when favorites remain enabled', () => {
-  // Given a favorite stopped by the user, with possible automation snooze.
+  // Given a favorite stopped explicitly by the user.
   const base = pendingState();
   const state = {
     ...base,

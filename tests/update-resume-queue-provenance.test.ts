@@ -32,7 +32,7 @@ test('guarded update start preserves automatic queue provenance and acquisition 
     allDrops: [drop],
     currentDrop: drop,
     queueEntryMetadataByKey: {
-      [gameKey(selected)]: { source: 'favorite', reason: 'favorite-auto-start', addedAt: 1 },
+      [gameKey(selected)]: { source: 'favorite-auto', reason: 'favorite-discovered', addedAt: 1 },
     },
   });
   state.cachedDropsSnapshot = [drop];
@@ -49,7 +49,7 @@ test('guarded update start preserves automatic queue provenance and acquisition 
     expect(started.success).toBe(true);
     expect(state.appState.manualQueueAuthorized).toBe(false);
     expect(state.appState.farmingSessionOrigin).toBe('automatic');
-    expect(state.appState.queueEntryMetadataByKey[gameKey(selected)]?.source).toBe('favorite');
+    expect(state.appState.queueEntryMetadataByKey[gameKey(selected)]?.source).toBe('favorite-auto');
     expect(state.appState.queue.map(gameKey)).toEqual([gameKey(first), gameKey(selected)]);
     expect(state.appState.selectedGame?.campaignId).toBe(selected.campaignId);
     expect(state.appState.queueAcquisitionRound).toEqual(round);
@@ -87,7 +87,6 @@ test('automatic update resume with missing reward data retains authorized queue 
     farmingSession: farming,
     automation: {
       request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-      snooze: async () => 'snoozed',
       suppressCampaignUntilRefresh: async () => 'suppressed',
     },
     refreshGamesCache: async () => ({ kind: 'refreshed', games: [game], inventoryVerified: true }),

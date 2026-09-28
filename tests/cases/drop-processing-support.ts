@@ -1,3 +1,4 @@
+import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
 
@@ -19,6 +20,7 @@ export function makeState(overrides = {}) {
     availableGames: [],
   };
   return {
+    ...createServiceWorkerState(),
     appState,
     monitorTickInFlight: false,
     invalidStreamChecks: 0,

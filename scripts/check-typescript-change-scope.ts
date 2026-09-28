@@ -152,11 +152,9 @@ function scanComments(source: string, filePath: string, lineStarts: readonly num
   }
 }
 
-function analyzeFile(root: string, relativePath: string): FileReport {
-  const filePath = path.resolve(root, relativePath);
-  const source = readFileSync(filePath, 'utf8');
+function analyzeSource(source: string, relativePath: string): FileReport {
   const lineStarts = computeLineStarts(source);
-  const tokens = scanTokens(source, filePath, true);
+  const tokens = scanTokens(source, relativePath, true);
   const pureLines = new Set<number>();
   const violations: Violation[] = [];
   for (const token of tokens) {
@@ -186,6 +184,21 @@ function analyzeFile(root: string, relativePath: string): FileReport {
   return { pureLoc: pureLines.size, violations };
 }
 
+function analyzeFile(root: string, relativePath: string): FileReport {
+  return analyzeSource(readFileSync(path.resolve(root, relativePath), 'utf8'), relativePath);
+}
+
+function basePureLoc(root: string, base: string, relativePath: string): number | null {
+  const result = Bun.spawnSync({
+    cmd: ['git', '-C', root, 'show', `${base}:${relativePath}`],
+    env: gitCommandEnvironment(),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  if (!result.success) return null;
+  return analyzeSource(new TextDecoder().decode(result.stdout), relativePath).pureLoc;
+}
+
 function formatViolation(violation: Violation): string {
   return `${violation.filePath}:${violation.line}:${violation.column}: [${violation.ruleId}] ${violation.message}`;
 }
@@ -197,14 +210,27 @@ function parseBase(args: readonly string[]): string {
 
 export function runCheckerAt(root: string, base: string): CommandResult {
   const files = changedPaths(root, base);
-  const reports = files.map((filePath) => ({ filePath, report: analyzeFile(root, filePath) }));
+  const reports = files.map((filePath) => ({
+    filePath,
+    report: analyzeFile(root, filePath),
+    basePureLoc: basePureLoc(root, base, filePath),
+  }));
   const output = reports.map(({ filePath, report }) => `${filePath}: ${report.pureLoc} pure LOC`).join('\n');
   const violations = reports.flatMap(({ report }) => report.violations);
   const stderr = [
-    ...reports.flatMap(({ filePath, report }) => report.pureLoc > MAX_PURE_LOC ? [`${filePath}: ${report.pureLoc} pure LOC exceeds ${MAX_PURE_LOC}`] : []),
+    ...reports.flatMap(({ filePath, report, basePureLoc: previousPureLoc }) =>
+      report.pureLoc > MAX_PURE_LOC &&
+      (previousPureLoc === null || previousPureLoc <= MAX_PURE_LOC)
+        ? [`${filePath}: ${report.pureLoc} pure LOC exceeds ${MAX_PURE_LOC}`]
+        : [],
+    ),
     ...violations.map(formatViolation),
   ].join('\n');
-  const tooLarge = reports.some(({ report }) => report.pureLoc > MAX_PURE_LOC);
+  const tooLarge = reports.some(
+    ({ report, basePureLoc: previousPureLoc }) =>
+      report.pureLoc > MAX_PURE_LOC &&
+      (previousPureLoc === null || previousPureLoc <= MAX_PURE_LOC),
+  );
   return {
     exitCode: tooLarge || violations.length > 0 ? 1 : 0,
     stderr,

@@ -18,7 +18,7 @@ function createSessionRecoveryAttempt(
     }),
     dropsPageRefresher: {
       openDropsPageAndRefresh: async (options) => {
-        openedWith.push(options);
+        openedWith.push(options ?? {});
         return {
           success: true,
           opened: true,
@@ -35,7 +35,6 @@ function createSessionRecoveryAttempt(
     },
     automation: {
       request: async () => ({ kind: 'unchanged' as const, reason: 'no-eligible-campaign' as const }),
-      snooze: async () => 'snoozed' as const,
       suppressCampaignUntilRefresh: async () => 'suppressed' as const,
     },
   });

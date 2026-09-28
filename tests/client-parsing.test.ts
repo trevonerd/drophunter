@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { ClaimedRewardAwardedAt } from '../src/background/twitch-api/claimed-rewards.ts';
 import {
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
@@ -118,7 +119,8 @@ describe('toIsoDate', () => {
   test('returns ISO string for valid date string', () => {
     const result = toIsoDate('2025-06-15T12:00:00Z');
     expect(result).not.toBeNull();
-    expect(new Date(result!).getFullYear()).toBe(2025);
+    if (result === null) throw new Error('Expected a valid ISO date');
+    expect(new Date(result).getFullYear()).toBe(2025);
   });
 
   test('returns ISO string format ending in Z', () => {
@@ -267,7 +269,8 @@ describe('computeExpiry', () => {
     const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const result = computeExpiry(past);
     expect(result.expiresInMs).not.toBeNull();
-    expect(result.expiresInMs!).toBeLessThanOrEqual(0);
+    if (result.expiresInMs === null) throw new Error('Expected an expiry duration');
+    expect(result.expiresInMs).toBeLessThanOrEqual(0);
   });
 });
 
@@ -427,7 +430,8 @@ describe('buildClaimedRewardLookup', () => {
     ]);
     const lookup = buildClaimedRewardLookup(inv);
     expect(lookup.has('my game')).toBe(true);
-    const entry = lookup.get('my game')!;
+    const entry = lookup.get('my game');
+    if (!entry) throw new Error('Expected claimed rewards for My Game');
     expect(entry.idCounts.get('id-1')).toBe(1);
     expect(entry.idCounts.get('id-2')).toBe(1);
     expect(entry.nameCounts.get('reward a')).toBe(1);
@@ -439,7 +443,8 @@ describe('buildClaimedRewardLookup', () => {
       { id: 'id-1', name: 'Reward', game: { displayName: 'Game' } },
       { id: 'id-1', name: 'Reward', game: { displayName: 'Game' } },
     ]);
-    const entry = buildClaimedRewardLookup(inv).get('game')!;
+    const entry = buildClaimedRewardLookup(inv).get('game');
+    if (!entry) throw new Error('Expected claimed rewards for Game');
     expect(entry.idCounts.get('id-1')).toBe(2);
     expect(entry.nameCounts.get('reward')).toBe(2);
   });
@@ -472,7 +477,7 @@ function makeEntry(ids: Record<string, number>, names: Record<string, number>): 
   return {
     idCounts: new Map(Object.entries(ids)),
     nameCounts: new Map(Object.entries(names)),
-    idAwardedAt: new Map(
+    idAwardedAt: new Map<string, ClaimedRewardAwardedAt[]>(
       Object.entries(ids)
         .filter(([, count]) => count > 0)
         .map(([id]) => [id, [{ kind: 'missing' }]]),
@@ -481,7 +486,7 @@ function makeEntry(ids: Record<string, number>, names: Record<string, number>): 
 }
 
 const emptyEntry = makeEntry({}, {});
-const defaultWindow = { startsAt: null, endsAt: null };
+const defaultWindow: { startsAt: string | null; endsAt: string | null } = { startsAt: null, endsAt: null };
 
 function matchForTest(
   benefitIds: string[],

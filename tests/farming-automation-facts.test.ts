@@ -46,13 +46,16 @@ function receiptFixture(): FarmingSessionTransitionReceiptV1 {
   };
 }
 
-const cleanupVariants: readonly WatchCleanupV1[] = [
+const cleanupVariants: WatchCleanupV1[] = [
   { kind: 'not-required' },
   { kind: 'released', releasedAt: 1_750_000_010_000, method: 'closed' },
   { kind: 'abandoned-unproven', acknowledgedAt: 1_750_000_020_000 },
 ];
 
-const unsupportedStorageRecords = [
+const unsupportedStorageRecords: Array<{
+  readonly key: string;
+  readonly read: (persistence: FarmingAutomationPersistence) => Promise<unknown>;
+}> = [
   {
     key: FARMING_AUTOMATION_FACTS_STORAGE_KEY,
     read: (persistence: FarmingAutomationPersistence) => persistence.loadFacts(),
@@ -61,7 +64,7 @@ const unsupportedStorageRecords = [
     key: FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
     read: (persistence: FarmingAutomationPersistence) => persistence.loadReceipt(),
   },
-] as const;
+];
 
 describe('Farming automation fact normalization', () => {
   test('returns canonical V1 defaults when the record is absent', () => {

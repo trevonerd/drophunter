@@ -3,6 +3,7 @@ import type { ServiceWorkerState } from '../../src/background/service-worker.ts'
 import type { StreamRotationReason } from '../../src/background/stream-rotation.ts';
 import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from '../../src/background/stream-rotation.ts';
 import { rotateStreamerIfInvalid } from '../../src/background/streamer-acquisition.ts';
+import type { RotateStreamerIfInvalidOptions } from '../../src/background/streamer-acquisition-contracts.ts';
 import type { TwitchDrop } from '../../src/types/index.ts';
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
@@ -35,7 +36,7 @@ export function registerQueue24Part03() {
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       let rotateCalls = 0;
-      const opts = {
+      const opts: RotateStreamerIfInvalidOptions = {
         onFetchStreamContext: async () => ({
           channelName: 'streamer',
           categorySlug: 'test-game',
@@ -49,6 +50,7 @@ export function registerQueue24Part03() {
         onResolveCategorySlug: async () => 'test-game',
         onRotateStreamer: async () => {
           rotateCalls += 1;
+          return true;
         },
       };
 
@@ -87,9 +89,11 @@ export function registerQueue24Part03() {
           // Simulates detectRecoveryProof having already cleared the stall on fresher data.
           state.stalledRecoveryAttempts = 0;
           state.appState.currentDrop = createDrop({ requiredMinutes: 60, progress: 40 });
+          return 'refreshed';
         },
         onRotateStreamer: async () => {
           rotateCalled = true;
+          return true;
         },
       });
 
@@ -107,7 +111,7 @@ export function registerQueue24Part03() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      let rotateReason: StreamRotationReason | null = null;
+      const observed = { rotateReason: null as StreamRotationReason | null };
       let forceRefreshCalled = false;
       await rotateStreamerIfInvalid(state, {
         onFetchStreamContext: async () => ({
@@ -124,14 +128,16 @@ export function registerQueue24Part03() {
         onForceRefreshDropsData: async () => {
           forceRefreshCalled = true;
           // No change — the refresh confirms the drop is still genuinely stalled.
+          return 'refreshed';
         },
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
+          return true;
         },
       });
 
       expect(forceRefreshCalled).toBe(true);
-      expect(rotateReason).toBe('stalled-progress');
+      expect(observed.rotateReason).toBe('stalled-progress');
       expect(state.stalledRecoveryAttempts).toBe(2);
     });
 

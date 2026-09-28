@@ -1,6 +1,10 @@
 import type { AppState } from '../types/index.ts';
 
-export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'resume-recovery';
+export type StartupResumePolicyResult =
+  | 'not-stale'
+  | 'pause-after-restart'
+  | 'auto-resume'
+  | 'resume-recovery';
 
 const ACTIVE_NO_TAB_RECOVERY_REASONS = new Set(['no-streamers', 'offline', 'open-failed']);
 
@@ -39,6 +43,9 @@ export function applyStartupResumePolicy(
   staleThresholdMs: number,
   resumeRecoveryGraceMs: number,
 ): StartupResumePolicyResult {
+  if (state.appState.isPaused || state.appState.lastStopReason === 'user-stop') {
+    return 'not-stale';
+  }
   if (state.appState.isRunning && !state.appState.selectedGame && state.appState.queue.length > 0) {
     state.appState.selectedGame = state.appState.queue[0] ?? null;
   }
@@ -48,6 +55,11 @@ export function applyStartupResumePolicy(
     state.lastHeartbeatAt > 0 &&
     now - state.lastHeartbeatAt > staleThresholdMs;
   if (!shouldApply) return 'not-stale';
+
+  if (!state.appState.autoResumeOnStartup) {
+    state.appState.isPaused = true;
+    return 'pause-after-restart';
+  }
 
   const heartbeatGap = now - state.lastHeartbeatAt;
   const recoveryReason = state.appState.recoveryReason;

@@ -25,6 +25,7 @@ export function registerQueue24Part01() {
       await rotateStreamerIfInvalid(state, {
         onRotateStreamer: async () => {
           rotateStreamerCalled = true;
+          return true;
         },
       });
 
@@ -37,14 +38,15 @@ export function registerQueue24Part01() {
       state.appState.tabId = null;
       state.recoveryBackoffUntil = 0;
 
-      let rotateReason: StreamRotationReason | null = null;
+      const observed = { rotateReason: null as StreamRotationReason | null };
       await rotateStreamerIfInvalid(state, {
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
+          return true;
         },
       });
 
-      expect(rotateReason).toBe('open-failed');
+      expect(observed.rotateReason).toBe('open-failed');
     });
 
     test('does not rotate when in recovery backoff for open-failed', async () => {
@@ -58,6 +60,7 @@ export function registerQueue24Part01() {
       await rotateStreamerIfInvalid(state, {
         onRotateStreamer: async () => {
           rotateStreamerCalled = true;
+          return true;
         },
       });
 
@@ -70,7 +73,7 @@ export function registerQueue24Part01() {
       state.appState.tabId = 999;
 
       await rotateStreamerIfInvalid(state, {
-        onRotateStreamer: async () => {},
+        onRotateStreamer: async () => false,
       });
 
       expect(state.appState.tabId).toBeNull();
@@ -145,16 +148,16 @@ export function registerQueue24Part01() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      let rotateReason: StreamRotationReason | null = null;
+      const observed = { rotateReason: null as StreamRotationReason | null };
       await rotateStreamerIfInvalid(state, {
         onFetchStreamContext: async () => null,
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
           return true;
         },
       });
 
-      expect(rotateReason).toBe('missing-context');
+      expect(observed.rotateReason).toBe('missing-context');
       expect(state.invalidStreamChecks).toBe(0);
     });
 
@@ -183,15 +186,16 @@ export function registerQueue24Part01() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      let rotateReason: StreamRotationReason | null = null;
+      const observed = { rotateReason: null as StreamRotationReason | null };
       await rotateStreamerIfInvalid(state, {
         onFetchStreamContext: async () => null,
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
+          return true;
         },
       });
 
-      expect(rotateReason).toBe('missing-context');
+      expect(observed.rotateReason).toBe('missing-context');
       expect(state.invalidStreamChecks).toBe(0);
     });
 
@@ -209,6 +213,7 @@ export function registerQueue24Part01() {
         onFetchStreamContext: async () => null,
         onRotateStreamer: async () => {
           rotateStreamerCalled = true;
+          return true;
         },
       });
 

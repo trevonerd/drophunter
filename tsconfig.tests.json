@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["chrome", "vite/client"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "paths": {
+      "bun:test": ["./node_modules/bun-types/test.d.ts"]
+    }
+  },
+  "include": ["src", "tests", "e2e", ".wxt/wxt.d.ts"],
+  "files": ["node_modules/bun-types/test.d.ts"],
+  "references": []
+}

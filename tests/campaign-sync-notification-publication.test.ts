@@ -3,7 +3,21 @@ import { createActivationSyncCoordinator } from '../src/background/activation-sy
 import { persistCampaignSyncState } from '../src/background/campaign-sync-state.ts';
 import * as logging from '../src/background/logging.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import type { CampaignSyncState } from '../src/types/activation-sync.ts';
 import { createDeferred, flushMicrotasks } from './support/farming-automation-fixtures.ts';
+
+function needsSessionState(): Extract<CampaignSyncState, { status: 'needs-session' }> {
+  return {
+    status: 'needs-session',
+    lastAttemptAt: Date.now(),
+    lastSuccessAt: null,
+    campaignCount: null,
+    retryAttemptCount: 0,
+    lastErrorKind: 'session',
+    nextRetryAt: null,
+    attemptDeadlineAt: null,
+  };
+}
 
 test('publishes needs-session and clears retries even when notification delivery never settles', async () => {
   // Given: a running session needs browser verification and its notifier stalls.
@@ -56,23 +70,15 @@ test('reports rejected notification delivery without failing publication or logg
   let broadcasts = 0;
   try {
     // When: the user-action state is persisted and broadcast.
-    await persistCampaignSyncState(
-      state,
-      {
-        ...state.appState.campaignSyncState,
-        status: 'needs-session',
-        lastErrorKind: 'session',
+    await persistCampaignSyncState(state, needsSessionState(), {
+      save: async () => {},
+      broadcast: () => {
+        broadcasts += 1;
       },
-      {
-        save: async () => {},
-        broadcast: () => {
-          broadcasts += 1;
-        },
-        notifyAutomation: async () => {
-          throw new Error('sensitive-provider-payload');
-        },
+      notifyAutomation: async () => {
+        throw new Error('sensitive-provider-payload');
       },
-    );
+    });
     await flushMicrotasks();
     // Then: the published state survives, with only a safe fixed warning.
     expect(broadcasts).toBe(1);
@@ -89,21 +95,17 @@ test('suppresses delivery when Stop arrives after saving but before its notifica
   state.appState.isRunning = true;
   const notifications: string[] = [];
   // When: the user stops between publication and detached notification delivery.
-  await persistCampaignSyncState(
-    state,
-    { ...state.appState.campaignSyncState, status: 'needs-session', lastErrorKind: 'session' },
-    {
-      save: async () => {},
-      broadcast: () => {
-        queueMicrotask(() => {
-          state.appState.lastStopReason = 'user-stop';
-        });
-      },
-      notifyAutomation: async (notification) => {
-        notifications.push(notification.event);
-      },
+  await persistCampaignSyncState(state, needsSessionState(), {
+    save: async () => {},
+    broadcast: () => {
+      queueMicrotask(() => {
+        state.appState.lastStopReason = 'user-stop';
+      });
     },
-  );
+    notifyAutomation: async (notification) => {
+      notifications.push(notification.event);
+    },
+  });
   await flushMicrotasks();
   // Then: the superseded warning is never sent.
   expect(notifications).toEqual([]);

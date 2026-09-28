@@ -16,7 +16,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Auto-claim completed drops across all campaigns when Twitch marks them claimable
 - Keep a local claim log so you can review recently claimed drops grouped by campaign
 - Pause and resume farming without losing your place in the queue
-- Optionally auto-resume farming after a browser restart instead of coming back paused
+- Optionally resume an active farming session after a browser restart
 - Choose how DropHunter picks streamers: lowest viewers, random, or most viewers
 - Filter streamers by preferred language (30+ languages supported)
 - Automatically claim free channel points bonuses on open Twitch channel tabs
@@ -67,7 +67,7 @@ From there, DropHunter will:
 
 DropHunter checks for new campaigns every five minutes and after relevant changes, including while idle or while you watch Twitch yourself. Drop progress has its own monitoring cadence.
 
-While favorite auto-start is enabled, **Stop** and **Pause** stop the current playback but an eligible favorite can restart at the next automatic evaluation. Disable favorite auto-start to keep farming stopped. Your personal Twitch streams take priority even in background tabs; farming resumes after all of them stop, close, or leave the channel, with a short grace period.
+**Pause** keeps the authorized queue and current position, then stops playback until you explicitly resume or start. **Stop** ends the session and clears manual queue authorization until you explicitly start again. Turning favorite auto-start on explicitly may reactivate automation; merely adding a favorite never overrides Pause or Stop. Your personal Twitch streams take priority even in background tabs; farming resumes after all of them stop, close, or leave the channel, with a short grace period.
 
 If a campaign stalls after recovery attempts, it remains queued but excluded until there is positive progress, a newly eligible streamer, or you explicitly press Start. Other authorized campaigns can continue; otherwise the popup explains why farming stopped.
 
@@ -81,7 +81,7 @@ missing from a complete, verified Twitch update are removed too; failed or parti
 updates do not establish that a campaign has disappeared. The remaining queue
 continues only when its farming session was authorized.
 
-If Twitch blocks playback or needs a manual interaction, DropHunter can notify you so you can click the player and resume progress. If the browser restarts mid-session, you can also choose whether DropHunter should resume automatically or stay paused until you come back.
+If Twitch blocks playback or needs a manual interaction, DropHunter can notify you so you can click the player and resume progress. The auto-resume setting applies when the browser stops while a farming session is active: when disabled, that interrupted session returns paused and waits for Resume. A session you manually paused or stopped stays paused or stopped after restart.
 
 ## Monitor Window
 
@@ -96,7 +96,7 @@ DropHunter includes a compact monitor popup for quick progress checks while farm
 DropHunter includes a few runtime controls in the popup so you can tune how aggressive or quiet the automation feels:
 
 - enable or disable desktop notifications
-- choose whether farming should auto-resume after a browser restart
+- choose whether an active farming session should resume after a browser restart
 - toggle auto-claim for channel points bonuses
 - toggle auto-claim for completed drops
 - review and clear the local drop claim log

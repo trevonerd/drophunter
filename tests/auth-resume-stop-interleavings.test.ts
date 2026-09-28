@@ -58,7 +58,22 @@ test('content session sync does not resume farming after Stop interrupts campaig
   const pending = handlers.handleSyncTwitchSession(
     { session: createSession({ oauthToken: 'refreshed-session-token-12345678' }) },
     {
-      tab: { id: 1, url: 'https://www.twitch.tv/drops/inventory' },
+      tab: {
+        id: 1,
+        index: 0,
+        windowId: 1,
+        url: 'https://www.twitch.tv/drops/inventory',
+        pinned: false,
+        highlighted: true,
+        active: true,
+        frozen: false,
+        incognito: false,
+        selected: true,
+        discarded: false,
+        autoDiscardable: true,
+        groupId: -1,
+        lastAccessed: Date.now(),
+      },
     },
   );
   await entered.promise;
@@ -70,40 +85,40 @@ test('content session sync does not resume farming after Stop interrupts campaig
   expect(state.appState.lastStopReason).toBe('user-stop');
 });
 
-test.each([
-  false,
-  true,
-])('snapshot recovery does not resume farming after Stop (progressive=%s)', async (progressive) => {
-  const state = blockedState();
-  const entered = createDeferred<void>();
-  const response = createDeferred<void>();
-  let resumes = 0;
-  originalFetch = installFetchMock([
-    async () => {
-      entered.resolve(undefined);
-      await response.promise;
-      return buildDropsDashboardResponse([]);
-    },
-    async () => ({
-      data: { currentUser: { inventory: { dropCampaignsInProgress: [], gameEventDrops: [] } } },
-    }),
-  ]);
-  const farming = createFarmingSession(state, createFarmingSessionAdapters());
-  const gateway = createServiceWorkerTwitchGateway(state, {
-    recoverTwitchSession: async () => {},
-    resumeAfterAuthRecovery: async () => {
-      resumes += 1;
-    },
-  });
-  const pending = progressive ? gateway.fetchDropsSnapshotProgressively() : gateway.fetchDropsSnapshot();
-  await entered.promise;
-  await farming.handleStopFarming();
-  response.resolve(undefined);
-  expect(await pending).not.toBeNull();
-  expect(resumes).toBe(0);
-  expect(state.appState.isRunning).toBe(false);
-  expect(state.appState.lastStopReason).toBe('user-stop');
-});
+test.each([false, true])(
+  'snapshot recovery does not resume farming after Stop (progressive=%s)',
+  async (progressive) => {
+    const state = blockedState();
+    const entered = createDeferred<void>();
+    const response = createDeferred<void>();
+    let resumes = 0;
+    originalFetch = installFetchMock([
+      async () => {
+        entered.resolve(undefined);
+        await response.promise;
+        return buildDropsDashboardResponse([]);
+      },
+      async () => ({
+        data: { currentUser: { inventory: { dropCampaignsInProgress: [], gameEventDrops: [] } } },
+      }),
+    ]);
+    const farming = createFarmingSession(state, createFarmingSessionAdapters());
+    const gateway = createServiceWorkerTwitchGateway(state, {
+      recoverTwitchSession: async () => {},
+      resumeAfterAuthRecovery: async () => {
+        resumes += 1;
+      },
+    });
+    const pending = progressive ? gateway.fetchDropsSnapshotProgressively() : gateway.fetchDropsSnapshot();
+    await entered.promise;
+    await farming.handleStopFarming();
+    response.resolve(undefined);
+    expect(await pending).not.toBeNull();
+    expect(resumes).toBe(0);
+    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.lastStopReason).toBe('user-stop');
+  },
+);
 
 test('auth resume cannot acquire a streamer after Stop interrupts workspace resolution', async () => {
   const state = blockedState();

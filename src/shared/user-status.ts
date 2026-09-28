@@ -7,6 +7,7 @@ import {
   formatStopReason,
   type RuntimeMode,
 } from './runtime-status';
+import { classifyStartupPresentation } from './startup-presentation.ts';
 
 export type UserStatusMode =
   | 'ready'
@@ -193,12 +194,12 @@ export function createUserStatusModel({
     };
   }
 
-  const routineAutomaticStartup =
-    automaticStartPending &&
-    (campaignSyncStatus === 'syncing' ||
-      campaignSyncStatus === 'idle' ||
-      (campaignSyncStatus === 'retry-scheduled' && state.campaignSyncState.retryAttemptCount < 3));
-  if (routineAutomaticStartup) {
+  const startupPresentation = classifyStartupPresentation({
+    blocksStartup: Boolean(automaticStartPending),
+    automaticStartPending: Boolean(automaticStartPending),
+    campaignSyncState: state.campaignSyncState,
+  });
+  if (startupPresentation === 'starting-silently') {
     return {
       mode: 'pending-validation',
       progressState: 'waiting',

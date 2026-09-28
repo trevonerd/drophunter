@@ -48,7 +48,7 @@ describe('ActivationSyncCoordinator', () => {
     let syncState = idleState();
     const attempts: string[] = [];
     const firstAttempt = createDeferred<ActivationSyncAttempt>();
-    let firstExecution: ActivationSyncExecution | null = null;
+    const firstExecution: { current: ActivationSyncExecution | null } = { current: null };
     const coordinator = createActivationSyncCoordinator({
       now: clock.now,
       getCampaignSyncState: () => syncState,
@@ -58,7 +58,7 @@ describe('ActivationSyncCoordinator', () => {
       performSync: async (trigger, execution) => {
         attempts.push(trigger);
         if (trigger === 'periodic-campaign') {
-          firstExecution = execution;
+          firstExecution.current = execution;
           return firstAttempt.promise;
         }
         return { kind: 'synced', campaignCount: 2 };
@@ -68,7 +68,7 @@ describe('ActivationSyncCoordinator', () => {
     const periodic = coordinator.request('periodic-campaign');
     await flushMicrotasks();
     const favorite = coordinator.request('favorite-change');
-    expect(firstExecution?.signal.aborted).toBe(true);
+    expect(firstExecution.current?.signal.aborted).toBe(true);
     firstAttempt.resolve({ kind: 'synced', campaignCount: 1 });
 
     expect(await periodic).toEqual({ kind: 'not-needed' });
@@ -81,7 +81,9 @@ describe('ActivationSyncCoordinator', () => {
     let syncState = idleState();
     const firstAttempt = createDeferred<ActivationSyncAttempt>();
     const attempts: string[] = [];
-    let firstExecution: { readonly signal: AbortSignal; readonly isCurrent: () => boolean } | null = null;
+    const firstExecution: {
+      current: { readonly signal: AbortSignal; readonly isCurrent: () => boolean } | null;
+    } = { current: null };
     const coordinator = createActivationSyncCoordinator({
       now: clock.now,
       getCampaignSyncState: () => syncState,
@@ -91,7 +93,7 @@ describe('ActivationSyncCoordinator', () => {
       performSync: async (trigger, execution) => {
         attempts.push(trigger);
         if (attempts.length === 1) {
-          firstExecution = execution;
+          firstExecution.current = execution;
           return firstAttempt.promise;
         }
         return { kind: 'synced', campaignCount: 8 };
@@ -103,8 +105,8 @@ describe('ActivationSyncCoordinator', () => {
     const wake = coordinator.request('wake');
     const popup = coordinator.request('popup-open');
     expect(attempts).toEqual(['periodic-campaign']);
-    expect(firstExecution?.signal.aborted).toBe(true);
-    expect(firstExecution?.isCurrent()).toBe(false);
+    expect(firstExecution.current?.signal.aborted).toBe(true);
+    expect(firstExecution.current?.isCurrent()).toBe(false);
 
     firstAttempt.resolve({ kind: 'synced', campaignCount: 7 });
 

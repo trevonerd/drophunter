@@ -80,7 +80,7 @@ export function registerTablessOwnershipCases() {
     state.appState.selectedGame = incumbent;
     state.appState.isRunning = true;
     const incumbentOwnership: WatchOwnershipV1 = { kind: 'tabless', targetKey: gameKey(incumbent) };
-    let receipt: FarmingSessionTransitionReceiptV1 | null = null;
+    const committed = { receipt: null as FarmingSessionTransitionReceiptV1 | null };
     const watch = createWatchTransportTransition({
       currentOwnership: incumbentOwnership,
       prepareTabless: async () => ({
@@ -120,7 +120,7 @@ export function registerTablessOwnershipCases() {
         currentFingerprint: () => 'fingerprint-a',
         loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
         commitTransition: async (commit) => {
-          receipt = commit.receipt;
+          committed.receipt = commit.receipt;
           return { kind: 'committed' };
         },
         watch,
@@ -129,7 +129,7 @@ export function registerTablessOwnershipCases() {
     );
 
     // Then: obsolete tabless A is historical ownership but requires no cleanup reconciliation.
-    expect({ result: result.kind, cleanup: receipt?.cleanup }).toEqual({
+    expect({ result: result.kind, cleanup: committed.receipt?.cleanup }).toEqual({
       result: 'committed',
       cleanup: { kind: 'not-required' },
     });

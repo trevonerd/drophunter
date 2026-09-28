@@ -1,4 +1,5 @@
 import { vi } from 'bun:test';
+import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
 import type { TwitchSession } from '../../src/background/twitch-api/types.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
@@ -6,7 +7,7 @@ import type { TwitchDrop } from '../../src/types/index.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
 
-export const mockClaimDropReward = vi.fn<[string], Promise<boolean>>();
+export const mockClaimDropReward = vi.fn<(claimId: string) => Promise<boolean>>();
 const originalFetch = globalThis.fetch;
 
 function setupFetchMock() {
@@ -53,6 +54,7 @@ export function teardownClaimApiMocks(mocks: ChromeMocks) {
 
 export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
+    ...createServiceWorkerState(),
     appState: createInitialState(),
     monitorTickInFlight: false,
     invalidStreamChecks: 0,
@@ -96,7 +98,7 @@ export function makeDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     name: 'Test Drop',
     gameName: 'Test Game',
     gameId: 'game-1',
-    benefitId: 'ben-1',
+    benefitIds: ['ben-1'],
     imageUrl: '',
     claimed: false,
     claimable: false,
@@ -107,8 +109,8 @@ export function makeDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
     acquisitionMethod: 'watch-time',
     rewardKind: 'in-game',
     verificationState: 'unassessed',
-    startAt: new Date().toISOString(),
-    endAt: new Date(Date.now() + 86400000).toISOString(),
+    startsAt: new Date().toISOString(),
+    endsAt: new Date(Date.now() + 86400000).toISOString(),
     ...overrides,
   };
 }
@@ -117,7 +119,7 @@ export function makeSession(): TwitchSession {
   return {
     userId: 'uid123',
     oauthToken: 'tokensecret',
-    clientIntegrity: true,
+    clientIntegrity: 'test-integrity-token',
     deviceId: 'device-abc-xyz-123456',
     uuid: 'uuid-abc',
     clientId: 'client-xyz',

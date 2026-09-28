@@ -24,7 +24,7 @@ test('main view model owns popup campaign, queue, and transient activity project
     selectedGame: campaign,
     availableGames: [campaign],
     queue: [campaign],
-    favoriteGames: [campaign],
+    favoriteGames: [{ gameId: campaign.id, lastKnownName: campaign.name, addedAt: 900 }],
     automationActivity: [
       cleanupActivity,
       {

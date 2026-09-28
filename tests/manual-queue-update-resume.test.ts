@@ -26,78 +26,78 @@ afterEach(() => {
 
 for (const legacyToggle of [false, true]) {
   for (const path of ['direct', 'browser'] as const) {
-    test.each([
-      'running',
-      'paused',
-      'stopped',
-    ] as const)(`extension update respects %s queue, favorites off, legacy ${legacyToggle}, ${path} validation`, async (status) => {
-      // Given: a real update lifecycle will stop its transport before restoring previously authorized intent.
-      const state = createServiceWorkerState();
-      const game = createGame({ campaignId: 'manual-update', endsAt: '2099-01-01T00:00:00Z' });
-      Object.assign(state.appState, {
-        isRunning: status !== 'stopped',
-        isPaused: status === 'paused',
-        wasRunning: true,
-        lastStopReason: status === 'stopped' ? 'user-stop' : null,
-        autoResumeOnStartup: legacyToggle,
-        autoStartFavoriteGames: false,
-        manualQueueAuthorized: status !== 'stopped',
-        farmingSessionOrigin: status !== 'stopped' ? 'manual' : null,
-        queue: [game],
-        selectedGame: game,
-        availableGames: [game],
-        queueAcquisitionRound: { attemptedCampaignKeys: ['campaign:earlier'], nextRoundAt: null },
-        queueEntryMetadataByKey: { [gameKey(game)]: { source: 'manual', reason: 'user-added', addedAt: 1 } },
-      });
-      const starts: string[] = [];
-      const farming = {
-        stop: async () => stopFarmingSession(state, { onSaveTimingState: async () => {} }),
-        stopMonitoring: () => {},
-        startMonitoring: () => {},
-        acquireStreamerForSelectedGame: async () => false,
-        advanceQueueIfCompleted: async () => true,
-        handleStartFarming: async () => {
-          starts.push(state.appState.selectedGame?.campaignId ?? 'missing');
-          state.appState.isRunning = true;
-          return { success: true };
-        },
-      };
-      const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
-      // When: update reset completes and activation validates the campaign through either supported route.
-      await lifecycle.handleExtensionUpdate();
-      const activation = createServiceWorkerActivationSync({
-        state,
-        farmingSession: farming,
-        automation: {
-          request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-          snooze: async () => 'snoozed',
-          suppressCampaignUntilRefresh: async () => 'suppressed',
-        },
-        refreshGamesCache: async () =>
-          path === 'direct'
-            ? { kind: 'refreshed', games: [game], inventoryVerified: true }
-            : { kind: 'cached', games: [] },
-        dropsPageRefresher: {
-          openDropsPageAndRefresh: async () => ({
-            success: true,
-            opened: false,
-            refreshed: true,
-            gamesCount: 1,
-            inventoryVerified: true,
-          }),
-        },
-      });
-      await activation('extension-update', { signal: new AbortController().signal, isCurrent: () => true });
-      // Then: only the queue that was actually running is resumed, independent of both settings.
-      expect(starts).toEqual(status === 'running' ? [game.campaignId ?? 'missing'] : []);
-      expect(state.appState.isPaused).toBe(status === 'paused');
-      expect(state.appState.manualQueueAuthorized).toBe(status !== 'stopped');
-      expect(state.appState.queue.map(gameKey)).toEqual([gameKey(game)]);
-      expect(state.appState.wasRunning).toBe(false);
-      if (status !== 'stopped')
-        expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).toEqual(['campaign:earlier']);
-      if (status === 'stopped') expect(state.appState.lastStopReason).toBe('user-stop');
-    });
+    test.each(['running', 'paused', 'stopped'] as const)(
+      `extension update respects %s queue, favorites off, legacy ${legacyToggle}, ${path} validation`,
+      async (status) => {
+        // Given: a real update lifecycle will stop its transport before restoring previously authorized intent.
+        const state = createServiceWorkerState();
+        const game = createGame({ campaignId: 'manual-update', endsAt: '2099-01-01T00:00:00Z' });
+        Object.assign(state.appState, {
+          isRunning: status !== 'stopped',
+          isPaused: status === 'paused',
+          wasRunning: true,
+          lastStopReason: status === 'stopped' ? 'user-stop' : null,
+          autoResumeOnStartup: legacyToggle,
+          autoStartFavoriteGames: false,
+          manualQueueAuthorized: status !== 'stopped',
+          farmingSessionOrigin: status !== 'stopped' ? 'manual' : null,
+          queue: [game],
+          selectedGame: game,
+          availableGames: [game],
+          queueAcquisitionRound: { attemptedCampaignKeys: ['campaign:earlier'], nextRoundAt: null },
+          queueEntryMetadataByKey: {
+            [gameKey(game)]: { source: 'manual', reason: 'user-added', addedAt: 1 },
+          },
+        });
+        const starts: string[] = [];
+        const farming = {
+          stop: async () => stopFarmingSession(state, { onSaveTimingState: async () => {} }),
+          stopMonitoring: () => {},
+          startMonitoring: () => {},
+          acquireStreamerForSelectedGame: async () => false,
+          advanceQueueIfCompleted: async () => true,
+          handleStartFarming: async () => {
+            starts.push(state.appState.selectedGame?.campaignId ?? 'missing');
+            state.appState.isRunning = true;
+            return { success: true };
+          },
+        };
+        const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
+        // When: update reset completes and activation validates the campaign through either supported route.
+        await lifecycle.handleExtensionUpdate();
+        const activation = createServiceWorkerActivationSync({
+          state,
+          farmingSession: farming,
+          automation: {
+            request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
+            suppressCampaignUntilRefresh: async () => 'suppressed',
+          },
+          refreshGamesCache: async () =>
+            path === 'direct'
+              ? { kind: 'refreshed', games: [game], inventoryVerified: true }
+              : { kind: 'cached', games: [] },
+          dropsPageRefresher: {
+            openDropsPageAndRefresh: async () => ({
+              success: true,
+              opened: false,
+              refreshed: true,
+              gamesCount: 1,
+              inventoryVerified: true,
+            }),
+          },
+        });
+        await activation('extension-update', { signal: new AbortController().signal, isCurrent: () => true });
+        // Then: only the queue that was actually running is resumed, independent of both settings.
+        expect(starts).toEqual(status === 'running' ? [game.campaignId ?? 'missing'] : []);
+        expect(state.appState.isPaused).toBe(status === 'paused');
+        expect(state.appState.manualQueueAuthorized).toBe(status !== 'stopped');
+        expect(state.appState.queue.map(gameKey)).toEqual([gameKey(game)]);
+        expect(state.appState.wasRunning).toBe(false);
+        if (status !== 'stopped')
+          expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).toEqual(['campaign:earlier']);
+        if (status === 'stopped') expect(state.appState.lastStopReason).toBe('user-stop');
+      },
+    );
   }
 }
 

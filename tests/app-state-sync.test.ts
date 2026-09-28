@@ -121,7 +121,7 @@ describe('normalizeStoredAppState', () => {
     // Given: a queued campaign retained by an explicit hide action.
     const stored = {
       queueEntryMetadataByKey: {
-        retained: { source: 'manual', addedAt: 123, reason: 'retained-after-hide' },
+        retained: { source: 'manual', addedAt: 123, reason: 'retained-after-hide' } as const,
       },
     };
 

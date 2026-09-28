@@ -1,5 +1,6 @@
 import { dropStateKey } from '../../src/background/drops-projection.ts';
 import { createFarmingSession, type FarmingSessionAdapters } from '../../src/background/farming-session.ts';
+import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
 import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from '../../src/background/stream-rotation.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
@@ -7,6 +8,7 @@ import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/ind
 
 export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
+    ...createServiceWorkerState(),
     appState: createInitialState(),
     monitorTickInFlight: false,
     tickGeneration: 0,

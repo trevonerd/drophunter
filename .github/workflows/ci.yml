@@ -19,7 +19,10 @@ jobs:
       - name: Install (root)
         run: bun install --frozen-lockfile
 
-      - name: Check (typecheck + lint + test + build)
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Check (typecheck + lint + unit + E2E + build)
         run: bun run check
 
       - name: Audit dependencies

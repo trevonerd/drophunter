@@ -27,6 +27,7 @@ export async function openOwnedManagedWatch(
   const expectedUrl = streamerWatchUrl(target.channelName);
   const ownershipKey = managedTabOwnershipKey(ownershipToken);
   let retained = false;
+  let preparingTabId: number | null = null;
   let restorePrevious: (() => Promise<void>) | undefined;
   try {
     await host.sessionStorage.set({ [ownershipKey]: { version: 1, expectedUrl } });
@@ -50,6 +51,8 @@ export async function openOwnedManagedWatch(
       ownershipToken,
       expectedChannel: target.channelName,
     };
+    preparingTabId = tab.id;
+    state.preparingManagedTabIds.add(tab.id);
     let accepted = false;
     try {
       if (isCurrent()) await waitForTabComplete(tab.id, 15_000);
@@ -85,6 +88,7 @@ export async function openOwnedManagedWatch(
   } catch {
     return null;
   } finally {
+    if (preparingTabId !== null) state.preparingManagedTabIds.delete(preparingTabId);
     if (!retained) {
       await host.sessionStorage.remove(ownershipKey).catch(() => undefined);
       await host.managedWatchMarker?.forget?.(ownershipToken).catch(() => undefined);

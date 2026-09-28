@@ -47,7 +47,7 @@ describe('manifest permissions', () => {
   });
 
   test('uses one Twitch-only host pattern everywhere', () => {
-    const expected = ['https://*.twitch.tv/*'];
+    const expected: typeof EXTENSION_MANIFEST.host_permissions = ['https://*.twitch.tv/*'];
 
     expect(EXTENSION_MANIFEST.host_permissions).toEqual(expected);
     expect(TWITCH_MATCHES).toEqual(expected);
@@ -55,11 +55,12 @@ describe('manifest permissions', () => {
 
   test('maps the package version to Chrome-compatible WXT manifest metadata', () => {
     const releaseVersion = resolveReleaseVersion(packageJson.version);
+    const betaNumber = /^4\.0\.0-beta\.(\d+)$/.exec(packageJson.version)?.[1];
 
     expect(releaseVersion).toEqual({
       channel: 'beta',
-      manifestVersion: '3.99.0.42',
-      versionName: '4.0.0-beta.42',
+      manifestVersion: `3.99.0.${betaNumber}`,
+      versionName: packageJson.version,
     });
   });
 

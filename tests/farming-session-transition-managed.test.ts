@@ -92,7 +92,7 @@ describe('automatic farming session managed transition', () => {
         events.push('commit');
         writes.push(structuredClone(commit));
         state.appState = structuredClone(commit.nextAppState);
-        state.cachedDropsSnapshot = structuredClone(commit.nextDropsSnapshot);
+        state.cachedDropsSnapshot = [...structuredClone(commit.nextDropsSnapshot)];
         events.push('publish');
         return { kind: 'committed' };
       },
@@ -110,6 +110,7 @@ describe('automatic farming session managed transition', () => {
                 channelName: 'channel-b',
               },
               ownership: toWatch,
+              fallbackReason: null,
               health: {
                 mode: 'managed-tab',
                 isHealthy: true,
@@ -190,7 +191,11 @@ describe('automatic farming session managed transition', () => {
     });
   });
 
-  test.each([
+  const failureCases: [
+    string,
+    number,
+    'candidate-preparation-failed' | 'superseded-by-state-change' | 'transition-commit-failed',
+  ][] = [
     ['streamer lookup', 0, 'candidate-preparation-failed'],
     ['managed open', 0, 'candidate-preparation-failed'],
     ['playback prep', 1, 'candidate-preparation-failed'],
@@ -198,85 +203,91 @@ describe('automatic farming session managed transition', () => {
     ['revision after streamer', 0, 'superseded-by-state-change'],
     ['revision after prepare', 1, 'superseded-by-state-change'],
     ['storage commit', 1, 'transition-commit-failed'],
-  ])('preserves incumbent when %s fails', async (failure, expectedDisposals, expectedReason) => {
-    // Given: protected incumbent bytes and one injected managed-transition failpoint.
-    const state = createServiceWorkerState();
-    state.appState.selectedGame = incumbent;
-    state.appState.isRunning = true;
-    state.appState.activeStreamer = { ...streamer, name: 'channel-a' };
-    state.appState.tabId = 11;
-    state.appState.queue = [incumbent];
-    state.lastTrackedProgress = 77;
-    state.recoveryBackoffUntil = 9_000;
-    const before = JSON.stringify(state);
-    let fingerprint = 'fingerprint-a';
-    let disposals = 0;
-    const dependencies: AutomaticFarmingSessionTransitionDependencies = {
-      acquireStreamer: async () => {
-        if (failure === 'streamer lookup') throw new DOMException('injected streamer failure');
-        if (failure === 'revision after streamer') fingerprint = 'fingerprint-b';
-        return streamer;
-      },
-      currentFingerprint: () => fingerprint,
-      loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
-      commitTransition: async () => ({ kind: 'failed', reason: 'transition-commit-failed' }),
-      watch: {
-        currentOwnership: () => fromWatch,
-        prepare: async () => {
-          if (failure === 'managed open') return { kind: 'failed', reason: 'candidate-unavailable' };
-          if (failure === 'playback prep' || failure === 'candidate probe') {
-            disposals += 1;
-            return { kind: 'failed', reason: 'candidate-unavailable' };
-          }
-          if (failure === 'revision after prepare') fingerprint = 'fingerprint-b';
-          return {
-            kind: 'prepared',
-            watch: {
-              target: { gameId: 'shared-game', campaignId: 'campaign-b', channelName: 'channel-b' },
-              ownership: toWatch,
-              health: {
-                mode: 'managed-tab',
-                isHealthy: true,
-                status: 'healthy',
-                reason: 'heartbeat',
-                consecutiveFailures: 0,
-                consecutiveStalls: 0,
-                progress: null,
-                shouldFallback: false,
-                checkedAt: 1,
-              },
-              promote: () => ({ kind: 'promoted', ownership: toWatch, obsolete: fromWatch }),
-              dispose: async () => {
-                disposals += 1;
-              },
-            },
-          };
+  ];
+
+  test.each(failureCases)(
+    'preserves incumbent when %s fails',
+    async (failure, expectedDisposals, expectedReason) => {
+      // Given: protected incumbent bytes and one injected managed-transition failpoint.
+      const state = createServiceWorkerState();
+      state.appState.selectedGame = incumbent;
+      state.appState.isRunning = true;
+      state.appState.activeStreamer = { ...streamer, name: 'channel-a' };
+      state.appState.tabId = 11;
+      state.appState.queue = [incumbent];
+      state.lastTrackedProgress = 77;
+      state.recoveryBackoffUntil = 9_000;
+      const before = JSON.stringify(state);
+      let fingerprint = 'fingerprint-a';
+      let disposals = 0;
+      const dependencies: AutomaticFarmingSessionTransitionDependencies = {
+        acquireStreamer: async () => {
+          if (failure === 'streamer lookup') throw new DOMException('injected streamer failure');
+          if (failure === 'revision after streamer') fingerprint = 'fingerprint-b';
+          return streamer;
         },
-        release: async () => ({ kind: 'abandoned-unproven' }),
-      },
-      now: () => 5_000,
-    };
+        currentFingerprint: () => fingerprint,
+        loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
+        commitTransition: async () => ({ kind: 'failed', reason: 'transition-commit-failed' }),
+        watch: {
+          currentOwnership: () => fromWatch,
+          prepare: async () => {
+            if (failure === 'managed open') return { kind: 'failed', reason: 'candidate-unavailable' };
+            if (failure === 'playback prep' || failure === 'candidate probe') {
+              disposals += 1;
+              return { kind: 'failed', reason: 'candidate-unavailable' };
+            }
+            if (failure === 'revision after prepare') fingerprint = 'fingerprint-b';
+            return {
+              kind: 'prepared',
+              watch: {
+                target: { gameId: 'shared-game', campaignId: 'campaign-b', channelName: 'channel-b' },
+                ownership: toWatch,
+                fallbackReason: null,
+                health: {
+                  mode: 'managed-tab',
+                  isHealthy: true,
+                  status: 'healthy',
+                  reason: 'heartbeat',
+                  consecutiveFailures: 0,
+                  consecutiveStalls: 0,
+                  progress: null,
+                  shouldFallback: false,
+                  checkedAt: 1,
+                },
+                promote: () => ({ kind: 'promoted', ownership: toWatch, obsolete: fromWatch }),
+                dispose: async () => {
+                  disposals += 1;
+                },
+              },
+            };
+          },
+          release: async () => ({ kind: 'abandoned-unproven' }),
+        },
+        now: () => 5_000,
+      };
 
-    // When: the automatic preemption reaches the injected failure.
-    const result = await transitionAutomaticFarmingSession(
-      state,
-      {
-        attemptId: `attempt-${failure}`,
-        transition: 'preemption',
-        fromCampaignKey: gameKey(incumbent),
-        candidate,
-        snapshot: provisionalSnapshot(),
-        watchMode: 'managed-tab',
-        expectedFingerprint: 'fingerprint-a',
-      },
-      dependencies,
-    );
+      // When: the automatic preemption reaches the injected failure.
+      const result = await transitionAutomaticFarmingSession(
+        state,
+        {
+          attemptId: `attempt-${failure}`,
+          transition: 'preemption',
+          fromCampaignKey: gameKey(incumbent),
+          candidate,
+          snapshot: provisionalSnapshot(),
+          watchMode: 'managed-tab',
+          expectedFingerprint: 'fingerprint-a',
+        },
+        dependencies,
+      );
 
-    // Then: every protected A byte is unchanged and only provisional B is disposed.
-    expect({
-      after: JSON.stringify(state),
-      resultReason: result.kind === 'failed' || result.kind === 'unchanged' ? result.reason : result.kind,
-      disposals,
-    }).toEqual({ after: before, resultReason: expectedReason, disposals: expectedDisposals });
-  });
+      // Then: every protected A byte is unchanged and only provisional B is disposed.
+      expect({
+        after: JSON.stringify(state),
+        resultReason: result.kind === 'failed' || result.kind === 'unchanged' ? result.reason : result.kind,
+        disposals,
+      }).toEqual({ after: before, resultReason: expectedReason, disposals: expectedDisposals });
+    },
+  );
 });

@@ -42,39 +42,27 @@ export function registerStreamHealthCases() {
     });
   });
 
-  test('missing drops signal requests a slow recovery only when drops are expected', () => {
-    expect(
-      classifyStreamHealth({
-        isLive: true,
-        sameChannel: true,
-        sameGame: true,
-        hasDropsSignal: false,
-        progressStalled: false,
-        expectsDropsSignal: true,
-      }),
-    ).toEqual({
-      isHealthy: false,
-      forceImmediateRotation: false,
-      invalidIncrement: 1,
-      reason: 'drops-inactive',
-    });
-
-    expect(
-      classifyStreamHealth({
-        isLive: true,
-        sameChannel: true,
-        sameGame: true,
-        hasDropsSignal: false,
-        progressStalled: false,
-        expectsDropsSignal: false,
-      }),
-    ).toEqual({
-      isHealthy: true,
-      forceImmediateRotation: false,
-      invalidIncrement: 0,
-      reason: null,
-    });
-  });
+  test.each([
+    [
+      true,
+      { isHealthy: false, forceImmediateRotation: false, invalidIncrement: 1, reason: 'drops-inactive' },
+    ],
+    [false, { isHealthy: true, forceImmediateRotation: false, invalidIncrement: 0, reason: null }],
+  ] as const)(
+    'classifies a missing drops signal when expectsDropsSignal=%s',
+    (expectsDropsSignal, expected) => {
+      expect(
+        classifyStreamHealth({
+          isLive: true,
+          sameChannel: true,
+          sameGame: true,
+          hasDropsSignal: false,
+          progressStalled: false,
+          expectsDropsSignal,
+        }),
+      ).toEqual(expected);
+    },
+  );
 
   test('offline stream requests recovery', () => {
     expect(
@@ -112,41 +100,5 @@ export function registerStreamHealthCases() {
 
   test('persistent recovery cycle cap exceeds the rotation attempt cap', () => {
     expect(MAX_PERSISTENT_RECOVERY_CYCLES).toBeGreaterThan(MAX_NO_PROGRESS_ROTATION_ATTEMPTS);
-  });
-
-  test('stream is classified healthy when no drops are expected and no drops signal present (campaign-vanished scenario)', () => {
-    expect(
-      classifyStreamHealth({
-        isLive: true,
-        sameChannel: true,
-        sameGame: true,
-        hasDropsSignal: false,
-        progressStalled: false,
-        expectsDropsSignal: false,
-      }),
-    ).toEqual({
-      isHealthy: true,
-      forceImmediateRotation: false,
-      invalidIncrement: 0,
-      reason: null,
-    });
-  });
-
-  test('stream with drops expected but no drops signal is unhealthy with drops-inactive', () => {
-    expect(
-      classifyStreamHealth({
-        isLive: true,
-        sameChannel: true,
-        sameGame: true,
-        hasDropsSignal: false,
-        progressStalled: false,
-        expectsDropsSignal: true,
-      }),
-    ).toEqual({
-      isHealthy: false,
-      forceImmediateRotation: false,
-      invalidIncrement: 1,
-      reason: 'drops-inactive',
-    });
   });
 }

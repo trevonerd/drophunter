@@ -17,6 +17,7 @@ import type {
 import type { FarmingAutomation, FarmingAutomationOutcome } from './farming-automation.ts';
 import { setGamePreference } from './favorite-games.ts';
 import { logWarn } from './logging.ts';
+import { clearStopState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
 import type { createServiceWorkerStateLifecycle } from './service-worker-state-lifecycle.ts';
@@ -134,12 +135,6 @@ export function createServiceWorkerAutomationSettingsHandlers(
         autoStart: { status: 'disabled' as const },
       };
     }
-    if (addedFavorite) {
-      const snooze = await dependencies.automation.clearSnooze?.();
-      if (snooze === 'persistence-failed') {
-        logWarn('Favorite saved, but the automatic-farming snooze could not be persisted');
-      }
-    }
     let autoStart: FavoriteAutoStartDisposition | undefined;
     if (addedFavorite && state.appState.autoStartFavoriteGames && dependencies.requestActivationSync) {
       try {
@@ -201,15 +196,11 @@ export function createServiceWorkerAutomationSettingsHandlers(
       await dependencies.automation.request('campaign-refresh');
       return { success: true, autoStartFavoriteGames: false };
     }
-    const snooze = await dependencies.automation.clearSnooze?.();
-    if (snooze === 'persistence-failed') {
-      return {
-        success: false,
-        autoStartFavoriteGames: state.appState.autoStartFavoriteGames,
-        error: 'Automatic-farming state could not be resumed.',
-      };
-    }
+    const wasPaused = state.appState.isPaused;
     state.appState.autoStartFavoriteGames = true;
+    state.appState.isPaused = false;
+    if (wasPaused) state.appState.isRunning = false;
+    if (state.appState.lastStopReason === 'user-stop') clearStopState(state);
     await saveState(state);
     await dependencies.automation.request('campaign-refresh');
     return {

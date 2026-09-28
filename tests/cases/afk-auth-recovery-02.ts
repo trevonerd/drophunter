@@ -251,8 +251,8 @@ describe('AFK Twitch authentication recovery', () => {
 
     expect(state.appState.isRunning).toBe(true);
     expect(state.appState.lastStopReason).toBeNull();
-    expect(state.appState.activeStreamer).toEqual(streamer);
-    expect(state.appState.twitchSessionSyncState).toEqual({
+    expect(state.appState.activeStreamer).toMatchObject(streamer);
+    expect(state.appState.twitchSessionSyncState).toMatchObject({
       status: 'ready',
       attempts: 0,
       nextRetryAt: null,

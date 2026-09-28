@@ -77,9 +77,12 @@ describe('streamer acquisition recovery budget', () => {
             openedChannels.push(streamer.name);
             return {
               mode: 'managed-tab',
-              status: 'started',
-              reason: null,
+              status: 'healthy',
+              reason: 'started',
               isHealthy: true,
+              consecutiveFailures: 0,
+              consecutiveStalls: 0,
+              progress: null,
               shouldFallback: false,
               checkedAt: now,
             };
@@ -89,6 +92,9 @@ describe('streamer acquisition recovery budget', () => {
             status: 'not-started',
             reason: 'not-started',
             isHealthy: false,
+            consecutiveFailures: 0,
+            consecutiveStalls: 0,
+            progress: null,
             shouldFallback: false,
             checkedAt: now,
           }),

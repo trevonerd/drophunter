@@ -168,20 +168,21 @@ function startFixture(
 }
 
 describe('Farming automation start', () => {
-  test('clears a durable browser-session snooze only on browser-start', async () => {
-    // Given: a user snoozed the production automation instance.
+  test('keeps Pause across browser-start and resumes only after explicit intent changes', async () => {
     const subject = startFixture();
-    const snooze = await subject.automation.snooze('manual-pause');
+    subject.state.appState.isPaused = true;
 
-    // When: periodic evaluation precedes a browser-start evaluation.
+    // When: routine triggers run before the user explicitly resumes.
     const periodic = await subject.automation.request('periodic');
     const browserStart = await subject.automation.request('browser-start');
+    subject.state.appState.isPaused = false;
+    const resumed = await subject.automation.request('user-request');
 
-    // Then: periodic stays snoozed while browser-start clears snooze and starts farming.
-    expect({ snooze, periodic, browserStart }).toEqual({
-      snooze: 'snoozed',
-      periodic: { kind: 'unchanged', reason: 'snoozed' },
-      browserStart: { kind: 'started', campaignKey: gameKey(subject.best), transition: 'start' },
+    // Then: neither worker nor browser lifecycle bypasses Pause.
+    expect({ periodic, browserStart, resumed }).toEqual({
+      periodic: { kind: 'unchanged', reason: 'paused' },
+      browserStart: { kind: 'unchanged', reason: 'paused' },
+      resumed: { kind: 'started', campaignKey: gameKey(subject.best), transition: 'start' },
     });
   });
 });

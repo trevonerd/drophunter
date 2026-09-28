@@ -186,16 +186,16 @@ describe('Farming automation start', () => {
       empty.automation.request('periodic'),
     ]);
 
-    // Then: disabled catalog refresh projects availability, while enabled auto-start resumes a paused favorite.
+    // Then: disabled catalog refresh projects availability, while Pause remains an explicit user gate.
     expect(outcomes).toEqual([
       { kind: 'unchanged', reason: 'disabled' },
-      { kind: 'started', campaignKey: gameKey(paused.best), transition: 'start' },
+      { kind: 'unchanged', reason: 'paused' },
       { kind: 'unchanged', reason: 'no-eligible-campaign' },
     ]);
     expect(disabled.refreshCount()).toBe(1);
     expect(Object.keys(disabled.state.appState.campaignAvailabilityByKey)).toHaveLength(2);
     expect(disabled.state.appState.queue).toEqual([]);
-    expect(paused.refreshCount()).toBe(1);
+    expect(paused.refreshCount()).toBe(0);
     expect(empty.refreshCount()).toBe(1);
   });
 });

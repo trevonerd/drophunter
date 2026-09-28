@@ -149,11 +149,19 @@ describe('session lifecycle facade', () => {
       notification: { title: 'Stopped', message: 'Stopped by test.' },
       stopReason: 'test-stop',
       onStopMonitoring: () => events.push('monitor'),
-      onCloseManagedTab: async () => events.push('tab'),
+      onCloseManagedTab: async () => {
+        events.push('tab');
+      },
       onApplyStopState: () => events.push('stop-state'),
-      onNotify: async () => events.push('notification'),
-      onSaveState: async () => events.push('state'),
-      onSaveTimingState: async () => events.push('timing'),
+      onNotify: async () => {
+        events.push('notification');
+      },
+      onSaveState: async () => {
+        events.push('state');
+      },
+      onSaveTimingState: async () => {
+        events.push('timing');
+      },
     });
 
     // Then

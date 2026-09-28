@@ -25,7 +25,7 @@ export function registerQueue07Part01() {
 
       expect(result.success).toBe(true);
       expect(result.reordered).toBe(true);
-      expect(state.appState.campaignPriorityMode).toBe('priority-list-only');
+      expect(state.appState).toMatchObject({ campaignPriorityMode: 'priority-list-only' });
       expect(state.appState.queue.map((game) => game.id)).toEqual(['game-2', 'game-1']);
       expect(saved).toBe(1);
     });

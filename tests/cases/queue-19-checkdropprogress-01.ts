@@ -43,6 +43,7 @@ export function registerQueue19Part01() {
           state.lastProgressAdvanceAt = Date.now();
           state.lastTrackedMinutes = 13;
           state.appState.currentDrop = createDrop({ requiredMinutes: 60, currentMinutes: 13 });
+          return 'refreshed';
         },
         onRotateStreamerIfInvalid: async () => {
           calls.push('validate-stream');
@@ -94,6 +95,7 @@ export function registerQueue19Part01() {
         onAcquireStreamerForSelectedGame: async () => false,
         onRefreshDropsData: async () => {
           refreshCalled = true;
+          return 'refreshed';
         },
         onRotateStreamerIfInvalid: async () => undefined,
         onAttemptAutoClaimChannelPointsBonus: async () => false,
@@ -128,6 +130,7 @@ export function registerQueue19Part01() {
         onAcquireStreamerForSelectedGame: async () => false,
         onRefreshDropsData: async () => {
           calls.push('refresh');
+          return 'refreshed';
         },
         onAutoClaimClaimableDrops: async () => {
           calls.push('claim');
@@ -169,6 +172,7 @@ export function registerQueue19Part01() {
         onAcquireStreamerForSelectedGame: async () => false,
         onRefreshDropsData: async (opts) => {
           refreshOptions.push(opts);
+          return 'refreshed';
         },
         onRotateStreamerIfInvalid: async () => undefined,
         onAttemptAutoClaimChannelPointsBonus: async () => false,
@@ -204,7 +208,7 @@ export function registerQueue19Part01() {
           acquisitionCalls += 1;
           return false;
         },
-        onRefreshDropsData: async () => undefined,
+        onRefreshDropsData: async () => 'refreshed',
         onAttemptAutoClaimChannelPointsBonus: async () => false,
         onAutoClaimClaimableDrops: async () => false,
         onAdvanceQueueIfCompleted: async () => true,
@@ -238,7 +242,7 @@ export function registerQueue19Part01() {
           acquisitionCalls += 1;
           return false;
         },
-        onRefreshDropsData: async () => undefined,
+        onRefreshDropsData: async () => 'refreshed',
         onAttemptAutoClaimChannelPointsBonus: async () => false,
         onAutoClaimClaimableDrops: async () => false,
         onAdvanceQueueIfCompleted: async () => true,

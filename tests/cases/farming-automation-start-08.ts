@@ -88,7 +88,6 @@ describe('Farming automation start', () => {
       release: async () => ({ kind: 'released', method: 'closed' }),
     });
     const notifications: string[] = [];
-    const telegramAlerts: string[] = [];
     const browser: FarmingAutomationBrowser = {
       watch,
       hasNotificationPermission: async () => true,
@@ -129,9 +128,6 @@ describe('Farming automation start', () => {
       },
       now: () => 2_000,
       random: () => 0,
-      telegramNotify: async (_reason, message) => {
-        telegramAlerts.push(message);
-      },
     });
 
     const outcome = await automation.request('campaign-refresh');
@@ -142,14 +138,12 @@ describe('Farming automation start', () => {
       selectedGame: state.appState.selectedGame,
       queue: state.appState.queue.map(gameKey),
       notifications,
-      telegramAlerts,
     }).toEqual({
       outcome: { kind: 'unchanged', reason: 'no-eligible-campaign' },
       isRunning: false,
       selectedGame: null,
       queue: [gameKey(manual)],
       notifications: [],
-      telegramAlerts: [],
     });
   });
 });

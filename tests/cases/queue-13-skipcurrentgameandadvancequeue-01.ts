@@ -17,18 +17,18 @@ export function registerQueue13Part01() {
       state.appState.queue = [current, next];
 
       try {
-        let openedGame: string | null = null;
+        const observation: { openedGame: string | null } = { openedGame: null };
         await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
           onSaveTimingState: async () => {},
           onOpenStreamer: async () => {
-            openedGame = state.appState.selectedGame?.id ?? null;
+            observation.openedGame = state.appState.selectedGame?.id ?? null;
             return true;
           },
         });
 
         expect(state.appState.queue.some((game) => game.id === current.id)).toBe(true);
         expect(state.appState.selectedGame?.id).toBe(next.id);
-        expect(openedGame).toBe(next.id);
+        expect(observation.openedGame).toBe(next.id);
       } finally {
         mocks.teardown();
       }
@@ -110,7 +110,12 @@ export function registerQueue13Part01() {
       state.appState.selectedGame = current;
       state.appState.queue = [current, next];
       state.appState.stalledCampaignBlocksByKey = {
-        [gameKey(current)]: { blockedAt: 1, rotationAttempts: 3, eligibleStreamerNames: ['old-channel'] },
+        [gameKey(current)]: {
+          blockedAt: 1,
+          rotationAttempts: 3,
+          eligibleStreamerNames: ['old-channel'],
+          rewardProgressByKey: {},
+        },
       };
 
       // When: the stalled session advances its queue.
@@ -137,7 +142,12 @@ export function registerQueue13Part01() {
       state.appState.selectedGame = current;
       state.appState.queue = [current];
       state.appState.stalledCampaignBlocksByKey = {
-        [gameKey(current)]: { blockedAt: 1, rotationAttempts: 3, eligibleStreamerNames: ['old-channel'] },
+        [gameKey(current)]: {
+          blockedAt: 1,
+          rotationAttempts: 3,
+          eligibleStreamerNames: ['old-channel'],
+          rewardProgressByKey: {},
+        },
       };
 
       // When: the blocked campaign has no eligible successor.
@@ -258,17 +268,19 @@ export function registerQueue13Part01() {
       state.appState.selectedGame = current;
       state.appState.queue = [current];
 
-      let notification: { title: string; message: string } | null = null;
+      const observation: { notification: { title: string; message: string } | undefined } = {
+        notification: undefined,
+      };
       await skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', {
         onStopFarmingSession: async (opts) => {
-          notification = opts.notification;
+          observation.notification = opts.notification;
         },
       });
 
-      expect(notification?.title).toBe('Farming stopped: no drop progress');
-      expect(notification?.message).toContain('Stalled Game');
-      expect(notification?.message).toContain('opened a stream but drop progress did not resume');
-      expect(notification?.message).not.toContain('No eligible streamer was found');
+      expect(observation.notification?.title).toBe('Farming stopped: no drop progress');
+      expect(observation.notification?.message).toContain('Stalled Game');
+      expect(observation.notification?.message).toContain('opened a stream but drop progress did not resume');
+      expect(observation.notification?.message).not.toContain('No eligible streamer was found');
     });
   });
 }

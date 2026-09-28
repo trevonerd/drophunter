@@ -27,7 +27,7 @@ export function registerClaimDropViaApiCases() {
     test('returns false when drop has no claimId', async () => {
       const drop = makeDrop({ claimId: undefined });
       const state = createMinimalState();
-      const getSession = vi.fn<[], Promise<TwitchSession | null>>();
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>();
 
       const result = await claimDropViaApi(state, drop, getSession);
 
@@ -41,7 +41,7 @@ export function registerClaimDropViaApiCases() {
       const state = createMinimalState({
         dropClaimRetryAtById: new Map([['cooldown-claim', future]]),
       });
-      const getSession = vi.fn<[], Promise<TwitchSession | null>>();
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>();
 
       const result = await claimDropViaApi(state, drop, getSession);
 
@@ -52,7 +52,7 @@ export function registerClaimDropViaApiCases() {
     test('calls API and returns true on success', async () => {
       const drop = makeDrop({ claimId: 'success-claim', name: 'My Drop' });
       const state = createMinimalState();
-      const getSession = vi.fn<[], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
 
       const result = await claimDropViaApi(state, drop, getSession);
 
@@ -63,7 +63,7 @@ export function registerClaimDropViaApiCases() {
     test('uses cooldown instead of refreshing the session when Twitch does not confirm the claim', async () => {
       const drop = makeDrop({ claimId: 'ambiguous-claim' });
       const state = createMinimalState();
-      const getSession = vi.fn<[], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
       mockClaimDropReward.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
       const result = await claimDropViaApi(state, drop, getSession);
@@ -77,7 +77,7 @@ export function registerClaimDropViaApiCases() {
     test('uses cooldown after a recoverable claim error', async () => {
       const drop = makeDrop({ claimId: 'recoverable-claim' });
       const state = createMinimalState();
-      const getSession = vi.fn<[], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
       mockClaimDropReward
         .mockRejectedValueOnce(new TypeError('temporary network failure'))
         .mockResolvedValueOnce(true);
@@ -92,7 +92,7 @@ export function registerClaimDropViaApiCases() {
     test('sets retry timestamp after one failed claim', async () => {
       const drop = makeDrop({ claimId: 'fail-claim' });
       const state = createMinimalState();
-      const getSession = vi.fn<[], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
       mockClaimDropReward.mockResolvedValue(false);
 
       await claimDropViaApi(state, drop, getSession);
@@ -116,7 +116,7 @@ export function registerClaimDropViaApiCases() {
       const state = createMinimalState({
         dropClaimRetryAtById: new Map([['remove-retry-claim', Date.now() - 1000]]),
       });
-      const getSession = vi.fn<[], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
 
       const result = await claimDropViaApi(state, drop, getSession);
 

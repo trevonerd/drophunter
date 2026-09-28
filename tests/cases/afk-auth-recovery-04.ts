@@ -85,19 +85,28 @@ describe('AFK Twitch authentication recovery', () => {
     state.appState.activeStreamer = null;
     state.appState.tabId = null;
     state.appState.watchHealth = null;
-    let stopOptions: { stopReason?: string; stopMessage?: string | null } | null = null;
+    const captured: { stopOptions: { stopReason?: string; stopMessage?: string | null } | null } = {
+      stopOptions: null,
+    };
 
     await stopForSignInRequiredIfRunning(state, async (options) => {
-      stopOptions = options;
+      captured.stopOptions = options;
     });
 
-    expect(stopOptions?.stopReason).toBe('sign-in-required');
+    expect(captured.stopOptions?.stopReason).toBe('sign-in-required');
     expect(state.appState.twitchSessionSyncState.status).toBe('blocked');
   });
 
   test('delivers sign-in-required once through the common notifier', async () => {
     const state = createState();
-    const automaticEvents: Array<{ event: string; transitionId: string; message: string }> = [];
+    const automaticEvents: Array<{
+      event: string;
+      transitionId: string;
+      message: string;
+      campaignId?: string;
+      title?: string;
+      telegramReason?: string;
+    }> = [];
     let legacyNotifications = 0;
     const farmingSession = createFarmingSession(
       state,

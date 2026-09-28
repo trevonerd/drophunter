@@ -5,12 +5,15 @@ import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState, GamePreference, TwitchGame } from '../../types';
 import { formatFarmingCompleteQueueMessage } from '../format';
 import { logPopupWarn } from '../logging';
-import { INITIAL_QUEUE_FEEDBACK_STATE, publishQueueFeedback } from '../queue-feedback';
+import {
+  INITIAL_QUEUE_FEEDBACK_STATE,
+  publishQueueFeedback,
+  scheduleQueueFeedbackDismissal,
+} from '../queue-feedback';
 import { getGameToStartFromQueue } from '../queue-start';
+import { type FarmingControlType, runFarmingControlRequest } from './farming-control-action.ts';
 import { reorderQueueAction, startQueuedCampaignAction } from './queue-command-actions.ts';
 import { useQueueCleanupDismissal } from './useQueueCleanupDismissal';
-
-const QUEUE_MESSAGE_DISMISS_MS = 6_000;
 
 interface UsePopupActionsArgs {
   readonly state: AppState;
@@ -39,8 +42,11 @@ export function usePopupActions({
 
   useEffect(() => {
     if (queueMessage === null || queueMessageOccurrence === 0) return;
-    const timeout = globalThis.setTimeout(() => setQueueMessage(null), QUEUE_MESSAGE_DISMISS_MS);
-    return () => globalThis.clearTimeout(timeout);
+    return scheduleQueueFeedbackDismissal(
+      () => setQueueMessage(null),
+      globalThis.setTimeout,
+      globalThis.clearTimeout,
+    );
   }, [queueMessage, queueMessageOccurrence]);
 
   const handleAddToQueue = async (requestedGame: TwitchGame | null = state.selectedGame) => {
@@ -206,11 +212,12 @@ export function usePopupActions({
   };
 
   const runFarmingControl = useCallback(
-    async (type: 'PAUSE_FARMING' | 'RESUME_FARMING' | 'STOP_FARMING') => {
+    async (type: FarmingControlType) => {
       if (actionLoading) return;
       setActionLoading(true);
       try {
-        await sendRuntimeMessage({ type });
+        const error = await runFarmingControlRequest(type, sendRuntimeMessage);
+        if (error) setQueueMessage(error);
       } finally {
         setTimeout(() => setActionLoading(false), 250);
       }

@@ -12,7 +12,6 @@ import type {
 } from './farming-automation-contracts.ts';
 import {
   FARMING_AUTOMATION_FACTS_STORAGE_KEY,
-  FARMING_AUTOMATION_SNOOZE_STORAGE_KEY,
   FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
 } from './farming-automation-contracts.ts';
 import {
@@ -76,7 +75,6 @@ async function storageWrite(operation: () => Promise<void>): Promise<FarmingAuto
 function createPersistence(
   context: FarmingAutomationPersistenceContext,
   local: FarmingAutomationStorageArea,
-  session: FarmingAutomationStorageArea,
 ): FarmingAutomationPersistence {
   const stateSignature = () =>
     JSON.stringify([context.getSessionRevision(), context.state.appState, context.state.cachedDropsSnapshot]);
@@ -150,23 +148,6 @@ function createPersistence(
         FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
         normalizeFarmingSessionTransitionReceipt,
       ),
-    async loadSnooze() {
-      try {
-        const stored = await session.get([FARMING_AUTOMATION_SNOOZE_STORAGE_KEY]);
-        const raw = stored[FARMING_AUTOMATION_SNOOZE_STORAGE_KEY];
-        if (raw === undefined) {
-          return { kind: 'ready', source: 'missing', value: false };
-        }
-        return typeof raw === 'boolean'
-          ? { kind: 'ready', source: 'stored', value: raw }
-          : { kind: 'failed', reason: 'unsupported-record' };
-      } catch (error) {
-        if (error instanceof Error) {
-          return { kind: 'failed', reason: 'storage-unavailable' };
-        }
-        throw error;
-      }
-    },
     async saveFacts(facts: FarmingAutomationFactsV1) {
       const nextAppState = structuredClone(context.state.appState);
       nextAppState.manualWatchState = facts.manualWatch?.kind ?? 'inactive';
@@ -233,8 +214,6 @@ function createPersistence(
           );
       }
     },
-    setSnooze: () => storageWrite(() => session.set({ [FARMING_AUTOMATION_SNOOZE_STORAGE_KEY]: true })),
-    clearSnooze: () => storageWrite(() => session.remove([FARMING_AUTOMATION_SNOOZE_STORAGE_KEY])),
   };
 }
 
@@ -243,11 +222,11 @@ export function createInMemoryFarmingAutomationPersistence(
     readonly storage: InMemoryFarmingAutomationStorage;
   },
 ): FarmingAutomationPersistence {
-  return createPersistence(context, context.storage.local, context.storage.session);
+  return createPersistence(context, context.storage.local);
 }
 
 export function createChromeFarmingAutomationPersistence(
   context: FarmingAutomationPersistenceContext,
 ): FarmingAutomationPersistence {
-  return createPersistence(context, chromeStorageArea('local'), chromeStorageArea('session'));
+  return createPersistence(context, chromeStorageArea('local'));
 }

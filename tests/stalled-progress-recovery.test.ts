@@ -20,6 +20,9 @@ const drop: TwitchDrop = {
   currentMinutes: 1,
   claimed: false,
   campaignId: game.campaignId,
+  acquisitionMethod: 'watch-time',
+  rewardKind: 'in-game',
+  verificationState: 'unassessed',
 };
 
 function createStalledState() {

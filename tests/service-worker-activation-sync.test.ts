@@ -15,7 +15,6 @@ describe('service-worker activation sync', () => {
     let queueAdvanceCalls = 0;
     const automation: FarmingAutomation = {
       request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-      snooze: async () => 'snoozed',
       suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const performSync = createServiceWorkerActivationSync({
@@ -62,7 +61,6 @@ describe('service-worker activation sync', () => {
     let queueAdvanceCalls = 0;
     const automation: FarmingAutomation = {
       request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-      snooze: async () => 'snoozed',
       suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const performSync = createServiceWorkerActivationSync({
@@ -117,7 +115,6 @@ describe('service-worker activation sync', () => {
     const startResult = createDeferred<{ readonly success: true }>();
     const automation: FarmingAutomation = {
       request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-      snooze: async () => 'snoozed',
       suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const performSync = createServiceWorkerActivationSync({

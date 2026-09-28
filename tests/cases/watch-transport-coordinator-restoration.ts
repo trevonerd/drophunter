@@ -1,6 +1,12 @@
 import { expect, test } from 'bun:test';
+import type { ServiceWorkerState } from '../../src/background/runtime-state.ts';
 import { createWatchTransportCoordinator } from '../../src/background/watch-transport-coordinator.ts';
+import type { WatchTransportMode } from '../../src/types/index.ts';
 import { createWatchTransportCoordinatorFixture } from '../fixtures/watch-transport-coordinator.ts';
+
+function watchTransportMode(state: ServiceWorkerState): WatchTransportMode {
+  return state.appState.watchTransportMode;
+}
 
 export function registerWatchTransportCoordinatorRestorationCases() {
   test('rehydrates a persisted tabless session on the next service-worker tick', async () => {
@@ -74,7 +80,7 @@ export function registerWatchTransportCoordinatorRestorationCases() {
     expect(health.mode).toBe('tabless');
     expect(opens).toBe(0);
     expect(fixture.state.appState.tabId).toBeNull();
-    expect(fixture.state.appState.watchTransportMode).toBe('tabless');
+    expect(watchTransportMode(fixture.state)).toBe('tabless');
     expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 }

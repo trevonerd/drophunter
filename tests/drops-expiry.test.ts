@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test';
 import { haveAllDropsExpiredOrVanished } from '../src/shared/drops.ts';
+import type { TwitchDrop } from '../src/types/index.ts';
 
-function createDrop(overrides = {}) {
+function createDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
   return {
     id: `drop-${Math.random().toString(36).slice(2)}`,
     name: 'Reward',
@@ -9,7 +10,11 @@ function createDrop(overrides = {}) {
     gameName: 'Game',
     imageUrl: '',
     progress: 0,
+    currentMinutes: 0,
     claimed: false,
+    acquisitionMethod: 'watch-time',
+    rewardKind: 'in-game',
+    verificationState: 'unassessed',
     ...overrides,
   };
 }

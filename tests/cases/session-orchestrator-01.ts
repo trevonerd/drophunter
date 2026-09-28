@@ -171,10 +171,6 @@ describe('session orchestrator', () => {
       waitForTabComplete: async (tabId) => {
         events.push(`wait:${tabId}`);
       },
-      closeTemporaryTabIfSafe: async (tabId) => {
-        events.push(`close:${tabId}`);
-        return true;
-      },
       logDebug: () => {},
       logWarn: () => {},
     });

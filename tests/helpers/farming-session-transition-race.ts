@@ -83,7 +83,7 @@ function snapshot(): FarmingAutomationTwitchSnapshot {
 }
 
 export function request(
-  overrides: Partial<AutomaticFarmingSessionTransitionRequest> = {},
+  overrides: { readonly fromCampaignKey?: string } = {},
 ): AutomaticFarmingSessionTransitionRequest {
   return {
     attemptId: 'attempt-b',
@@ -119,7 +119,7 @@ export function dependenciesFor(
       (async (commit) => {
         events.push('commit');
         state.appState = structuredClone(commit.nextAppState);
-        state.cachedDropsSnapshot = structuredClone(commit.nextDropsSnapshot);
+        state.cachedDropsSnapshot = [...structuredClone(commit.nextDropsSnapshot)];
         events.push('publish');
         return { kind: 'committed' };
       }),
@@ -132,6 +132,7 @@ export function dependenciesFor(
           watch: {
             target: { gameId: 'duplicate-game', campaignId: 'campaign-b', channelName: 'channel-b' },
             ownership: toWatch,
+            fallbackReason: null,
             health: {
               mode: 'managed-tab',
               isHealthy: true,

@@ -46,17 +46,6 @@ export function createServiceWorkerFarmingAutomationRuntime(
       if (result.kind === 'failed') throw result.error;
       return result.automation.request(trigger);
     },
-    async snooze(reason) {
-      const result = await ready;
-      if (result.kind === 'failed') throw result.error;
-      return result.automation.snooze(reason);
-    },
-    async clearSnooze() {
-      const result = await ready;
-      if (result.kind === 'failed') throw result.error;
-      const clearSnooze = result.automation.clearSnooze;
-      return clearSnooze ? clearSnooze() : 'cleared';
-    },
     async suppressCampaignUntilRefresh(campaignKey) {
       const result = await ready;
       if (result.kind === 'failed') throw result.error;

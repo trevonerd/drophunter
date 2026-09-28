@@ -28,9 +28,9 @@ afterEach(() => {
   chrome.teardown();
 });
 
-for (const idleHours of [1, 73]) {
-  for (const legacyAutoResume of [false, true]) {
-    test(`resumes an interrupted manual queue after ${idleHours} hours with favorites disabled and legacy resume ${legacyAutoResume}`, async () => {
+for (const idleHours of [1, 48]) {
+  for (const autoResumeOnStartup of [false, true]) {
+    test(`${autoResumeOnStartup ? 'resumes' : 'pauses'} an interrupted manual queue after ${idleHours} hours when auto-resume is ${autoResumeOnStartup ? 'enabled' : 'disabled'}`, async () => {
       // Given: the same installed build restores a manually running queue with favorite automation disabled.
       const now = Date.now();
       const game = createGame({
@@ -44,7 +44,7 @@ for (const idleHours of [1, 73]) {
         manualQueueAuthorized: true,
         farmingSessionOrigin: 'manual' as const,
         autoStartFavoriteGames: false,
-        autoResumeOnStartup: legacyAutoResume,
+        autoResumeOnStartup,
         autoClaimDrops: false,
         totalDropsClaimed: 17,
         activeStreamer: createStreamer({ name: 'stale-streamer' }),
@@ -88,6 +88,11 @@ for (const idleHours of [1, 73]) {
           events.push('monitor');
         },
         stopMonitoring: () => {},
+        pauseAfterRestart: async () => {
+          events.push('pause-after-restart');
+          state.appState.isPaused = true;
+          return { success: true as const };
+        },
         stop: async () => {},
       };
       const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
@@ -96,7 +101,6 @@ for (const idleHours of [1, 73]) {
         farmingSession: farming,
         automation: {
           request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-          snooze: async () => 'snoozed',
           suppressCampaignUntilRefresh: async () => 'suppressed',
         },
         refreshGamesCache: async () => {
@@ -115,18 +119,19 @@ for (const idleHours of [1, 73]) {
       });
       // When: worker initialization restores storage and browser startup validates fresh Twitch data.
       await lifecycle.beginInitialization(async () => {});
-      expect(state.appState.activeStreamer).toBeNull();
-      expect(state.appState.tabId).toBeNull();
+      expect(state.appState.activeStreamer === null).toBe(autoResumeOnStartup);
+      expect(state.appState.tabId === null).toBe(autoResumeOnStartup);
       await activation('browser-start', { signal: new AbortController().signal, isCurrent: () => true });
       // Then: prior manual intent, independent of favorites and the retired toggle, resumes only after validation.
       expect(state.appState.manualQueueAuthorized).toBe(true);
       expect(state.appState.farmingSessionOrigin).toBe('manual');
       expect(state.appState.isRunning).toBe(true);
-      expect(events.filter((event) => event === 'validated' || event.startsWith('acquire:'))).toEqual([
-        'validated',
-        'acquire:manual-current',
-      ]);
-      expect(events).toContain('monitor');
+      expect(events.filter((event) => event === 'validated' || event.startsWith('acquire:'))).toEqual(
+        autoResumeOnStartup ? ['validated', 'acquire:manual-current'] : ['validated'],
+      );
+      expect(events.includes('monitor')).toBe(autoResumeOnStartup);
+      expect(events.includes('pause-after-restart')).toBe(!autoResumeOnStartup);
+      expect(state.appState.isPaused).toBe(!autoResumeOnStartup);
       expect(state.appState.autoStartFavoriteGames).toBe(false);
       expect(state.appState.autoClaimDrops).toBe(false);
       expect(state.appState.totalDropsClaimed).toBe(17);
@@ -137,75 +142,74 @@ for (const idleHours of [1, 73]) {
 }
 
 for (const idleHours of [1, 73]) {
-  test.each([
-    'paused',
-    'stopped',
-  ] as const)(`does not restart a %s manual queue after ${idleHours} hours`, async (status) => {
-    // Given: a user deliberately paused or stopped a persisted manual queue.
-    const game = createGame({ campaignId: 'manual-current' });
-    await chrome.storage.local.set({
-      appState: {
-        ...createInitialState(),
-        queue: [game],
-        selectedGame: game,
-        availableGames: [game],
-        autoStartFavoriteGames: false,
-        isRunning: status === 'paused',
-        isPaused: status === 'paused',
-        manualQueueAuthorized: status === 'paused',
-        farmingSessionOrigin: status === 'paused' ? 'manual' : null,
-        wasRunning: status === 'stopped',
-        lastStopReason: status === 'stopped' ? 'user-stop' : null,
-      },
-      lastActivityAt: Date.now() - idleHours * 3_600_000,
-      timingState: { lastHeartbeatAt: Date.now() - idleHours * 3_600_000 },
-      [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
-      [EXTENSION_VERSION_STORAGE_KEY]: browser.runtime.getManifest().version,
-    });
-    const state = createServiceWorkerState();
-    const started: string[] = [];
-    const farming = {
-      acquireStreamerForSelectedGame: async () => {
-        started.push('acquire');
-        return true;
-      },
-      advanceQueueIfCompleted: async () => false,
-      handleStartFarming: async () => {
-        started.push('start');
-        return { success: true };
-      },
-      startMonitoring: () => {
-        started.push('monitor');
-      },
-      stopMonitoring: () => {},
-      stop: async () => {},
-    };
-    const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
-    // When: browser state is restored after worker restart or an entire weekend.
-    await lifecycle.beginInitialization(async () => {});
-    await createServiceWorkerActivationSync({
-      state,
-      farmingSession: farming,
-      automation: {
-        request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-        snooze: async () => 'snoozed',
-        suppressCampaignUntilRefresh: async () => 'suppressed',
-      },
-      refreshGamesCache: async () => ({ kind: 'refreshed', games: [game], inventoryVerified: true }),
-      dropsPageRefresher: {
-        openDropsPageAndRefresh: async () => ({
-          success: true,
-          opened: false,
-          refreshed: true,
-          gamesCount: 1,
-        }),
-      },
-    })('browser-start', { signal: new AbortController().signal, isCurrent: () => true });
-    // Then: initialization preserves the explicit paused/stopped intent.
-    expect(started).toEqual([]);
-    expect(state.appState.isPaused).toBe(status === 'paused');
-    expect(state.appState.isRunning).toBe(status === 'paused');
-    expect(state.appState.manualQueueAuthorized).toBe(status === 'paused');
-    if (status === 'stopped') expect(state.appState.lastStopReason).toBe('user-stop');
-  });
+  test.each(['paused', 'stopped'] as const)(
+    `does not restart a %s manual queue after ${idleHours} hours`,
+    async (status) => {
+      // Given: a user deliberately paused or stopped a persisted manual queue.
+      const game = createGame({ campaignId: 'manual-current' });
+      await chrome.storage.local.set({
+        appState: {
+          ...createInitialState(),
+          queue: [game],
+          selectedGame: game,
+          availableGames: [game],
+          autoStartFavoriteGames: false,
+          isRunning: status === 'paused',
+          isPaused: status === 'paused',
+          manualQueueAuthorized: status === 'paused',
+          farmingSessionOrigin: status === 'paused' ? 'manual' : null,
+          wasRunning: status === 'stopped',
+          lastStopReason: status === 'stopped' ? 'user-stop' : null,
+        },
+        lastActivityAt: Date.now() - idleHours * 3_600_000,
+        timingState: { lastHeartbeatAt: Date.now() - idleHours * 3_600_000 },
+        [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
+        [EXTENSION_VERSION_STORAGE_KEY]: browser.runtime.getManifest().version,
+      });
+      const state = createServiceWorkerState();
+      const started: string[] = [];
+      const farming = {
+        acquireStreamerForSelectedGame: async () => {
+          started.push('acquire');
+          return true;
+        },
+        advanceQueueIfCompleted: async () => false,
+        handleStartFarming: async () => {
+          started.push('start');
+          return { success: true };
+        },
+        startMonitoring: () => {
+          started.push('monitor');
+        },
+        stopMonitoring: () => {},
+        stop: async () => {},
+      };
+      const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
+      // When: browser state is restored after worker restart or an entire weekend.
+      await lifecycle.beginInitialization(async () => {});
+      await createServiceWorkerActivationSync({
+        state,
+        farmingSession: farming,
+        automation: {
+          request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
+          suppressCampaignUntilRefresh: async () => 'suppressed',
+        },
+        refreshGamesCache: async () => ({ kind: 'refreshed', games: [game], inventoryVerified: true }),
+        dropsPageRefresher: {
+          openDropsPageAndRefresh: async () => ({
+            success: true,
+            opened: false,
+            refreshed: true,
+            gamesCount: 1,
+          }),
+        },
+      })('browser-start', { signal: new AbortController().signal, isCurrent: () => true });
+      // Then: initialization preserves the explicit paused/stopped intent.
+      expect(started).toEqual([]);
+      expect(state.appState.isPaused).toBe(status === 'paused');
+      expect(state.appState.isRunning).toBe(status === 'paused');
+      expect(state.appState.manualQueueAuthorized).toBe(status === 'paused');
+      if (status === 'stopped') expect(state.appState.lastStopReason).toBe('user-stop');
+    },
+  );
 }

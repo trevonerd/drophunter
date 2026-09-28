@@ -119,24 +119,24 @@ describe('Campaign completion through public farming automation', () => {
     expect(subject.state.appState.availableGames[0]?.rewardSummary?.completion).toBe('all-acquired');
   });
 
-  test.each([
-    false,
-    true,
-  ])('retains incoming positive completion with duplicate rows: %s', async (duplicate) => {
-    // Given: the incoming snapshot contains completion evidence but its drop progress is stale.
-    const subject = completedCampaignFixture();
-    subject.snapshot.games = duplicate ? [subject.completed, subject.game] : [subject.completed];
-    subject.state.appState.availableGames = [];
-    subject.state.cachedDropsSnapshot = [];
-    subject.state.appState.allDrops = [];
+  test.each([false, true])(
+    'retains incoming positive completion with duplicate rows: %s',
+    async (duplicate) => {
+      // Given: the incoming snapshot contains completion evidence but its drop progress is stale.
+      const subject = completedCampaignFixture();
+      subject.snapshot.games = duplicate ? [subject.completed, subject.game] : [subject.completed];
+      subject.state.appState.availableGames = [];
+      subject.state.cachedDropsSnapshot = [];
+      subject.state.appState.allDrops = [];
 
-    // When: the real Twitch adapter normalizes this snapshot.
-    const outcome = await subject.automation.request('campaign-refresh');
+      // When: the real Twitch adapter normalizes this snapshot.
+      const outcome = await subject.automation.request('campaign-refresh');
 
-    // Then: normalization does not replace positive acquisition evidence with zero progress.
-    expect(outcome).toEqual({ kind: 'unchanged', reason: 'no-eligible-campaign' });
-    expect(subject.notifications).toEqual([]);
-  });
+      // Then: normalization does not replace positive acquisition evidence with zero progress.
+      expect(outcome).toEqual({ kind: 'unchanged', reason: 'no-eligible-campaign' });
+      expect(subject.notifications).toEqual([]);
+    },
+  );
 
   test('rejects a completion that arrives during directory discovery', async () => {
     // Given: a valid candidate whose inventory becomes acquired during the async directory lookup.
@@ -210,7 +210,7 @@ describe('Campaign completion through public farming automation', () => {
     };
 
     // When: the worker evaluates the restored queue against the campaign evidence.
-    await subject.automation.request('worker-init');
+    await subject.automation.request('campaign-refresh');
 
     // Then: neither durable queue nor live queue retains the completed entry.
     expect(subject.state.appState.queue).toEqual([]);

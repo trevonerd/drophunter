@@ -31,7 +31,7 @@ export function installManagedWatchPages(mocks: ChromeMocks) {
         (query.url === undefined || [query.url].flat().includes(page.url)),
     );
   mocks.chrome.tabs.create = async (properties) => add(properties.url ?? 'about:blank');
-  mocks.chrome.tabs.update = async (id, properties) => {
+  mocks.chrome.tabs.update = async (id, properties = {}) => {
     const page = pages.get(id);
     if (!page) throw new Error('No tab');
     if (properties.url) {

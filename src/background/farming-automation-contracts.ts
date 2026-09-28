@@ -132,11 +132,8 @@ export type FarmingAutomationReceiptCleanupResult =
 export interface FarmingAutomationPersistence {
   loadFacts(): Promise<FarmingAutomationPersistenceRead<FarmingAutomationFactsV1>>;
   loadReceipt(): Promise<FarmingAutomationPersistenceRead<FarmingSessionTransitionReceiptV1 | null>>;
-  loadSnooze(): Promise<FarmingAutomationPersistenceRead<boolean>>;
   saveFacts(facts: FarmingAutomationFactsV1): Promise<FarmingAutomationPersistenceWrite>;
   savePolicyPatch(patch: FarmingAutomationPolicyPatch): Promise<FarmingAutomationPersistenceWrite>;
-  setSnooze(): Promise<FarmingAutomationPersistenceWrite>;
-  clearSnooze(): Promise<FarmingAutomationPersistenceWrite>;
   updateReceiptCleanup(
     update: FarmingAutomationReceiptCleanupUpdate,
   ): Promise<FarmingAutomationReceiptCleanupResult>;
@@ -145,14 +142,13 @@ export interface FarmingAutomationPersistence {
 
 export const FARMING_AUTOMATION_FACTS_STORAGE_KEY = 'farmingAutomationFactsV1';
 export const FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY = 'farmingSessionTransitionReceiptV1';
-export const FARMING_AUTOMATION_SNOOZE_STORAGE_KEY = 'autoStartSnoozedForBrowserSession';
 
 export type FarmingAutomationTrigger = 'browser-start' | 'periodic' | 'campaign-refresh' | 'user-request';
 
 export type FarmingAutomationUnchangedReason =
   | 'disabled'
-  | 'snoozed'
   | 'paused'
+  | 'user-stopped'
   | 'manual-watch-active'
   | 'already-farming-best-campaign'
   | 'no-eligible-campaign'
@@ -185,7 +181,5 @@ export interface FarmingAutomation {
   startQueuedCampaign?(campaignKey: string): Promise<{ readonly success: boolean; readonly error?: string }>;
   /** Invalidates an in-flight evaluation before it can commit a later transition. */
   invalidate?(): void;
-  snooze(reason: 'manual-pause' | 'manual-stop'): Promise<'snoozed' | 'persistence-failed'>;
-  clearSnooze?(): Promise<'cleared' | 'persistence-failed'>;
   suppressCampaignUntilRefresh(campaignKey: string): Promise<'suppressed' | 'persistence-failed'>;
 }

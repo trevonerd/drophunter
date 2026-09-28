@@ -35,7 +35,7 @@ describe('extension lifecycle listeners', () => {
       logWarn: () => {},
     });
 
-    api.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: 1 });
+    api.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: 1, persistAcrossSessions: false });
     api.tabs.onRemoved.trigger(10);
     api.tabs.onUpdated.trigger(10, { url: 'https://example.com/' });
     api.windows.onRemoved.trigger(20);
@@ -54,10 +54,7 @@ describe('extension lifecycle listeners', () => {
       api,
       alarmName: 'dropCheck',
       farmingAutomation: inactiveAutomation,
-      getInitPromise: () =>
-        Promise.resolve().then(() => {
-          calls.push('init');
-        }),
+      getInitPromise: () => Promise.resolve().then(() => void calls.push('init')),
       onExtensionUpdate: async () => {
         calls.push('update');
       },
@@ -87,7 +84,10 @@ describe('extension lifecycle listeners', () => {
           return { kind: 'unchanged', reason: 'disabled' } as const;
         },
       },
-      getInitPromise: () => Promise.resolve().then(() => calls.push('init')),
+      getInitPromise: () =>
+        Promise.resolve().then(() => {
+          calls.push('init');
+        }),
       onExtensionUpdate: async () => {},
       onAlarm: async () => {},
       onManagedTabRemoved: async () => {},
@@ -97,7 +97,11 @@ describe('extension lifecycle listeners', () => {
     });
 
     api.runtime.onStartup.trigger();
-    api.alarms.onAlarm.trigger({ name: 'favoriteCampaignCheck', scheduledTime: 1 });
+    api.alarms.onAlarm.trigger({
+      name: 'favoriteCampaignCheck',
+      scheduledTime: 1,
+      persistAcrossSessions: false,
+    });
     await flushAsyncListeners();
 
     expect(calls).toEqual(['init', 'init', 'startup', 'automation']);
@@ -133,7 +137,7 @@ describe('extension lifecycle listeners', () => {
     });
 
     api.runtime.onInstalled.trigger({ reason: 'update', previousVersion: '3.5.1' });
-    api.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: 1 });
+    api.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: 1, persistAcrossSessions: false });
     api.tabs.onRemoved.trigger(10);
     api.tabs.onUpdated.trigger(10, { url: 'https://example.com/' });
     api.windows.onRemoved.trigger(20);
@@ -162,8 +166,8 @@ describe('extension lifecycle listeners', () => {
       logWarn: () => {},
     });
 
-    api.alarms.onAlarm.trigger({ name: 'other', scheduledTime: 1 });
-    api.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: 2 });
+    api.alarms.onAlarm.trigger({ name: 'other', scheduledTime: 1, persistAcrossSessions: false });
+    api.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: 2, persistAcrossSessions: false });
     await flushAsyncListeners();
 
     expect(ticks).toBe(1);
@@ -192,8 +196,8 @@ describe('extension lifecycle listeners', () => {
     });
 
     // When the periodic alarm and the due one-shot retry alarm fire.
-    api.alarms.onAlarm.trigger({ name: 'campaignSync', scheduledTime: 1 });
-    api.alarms.onAlarm.trigger({ name: 'campaignSyncRetry', scheduledTime: 2 });
+    api.alarms.onAlarm.trigger({ name: 'campaignSync', scheduledTime: 1, persistAcrossSessions: false });
+    api.alarms.onAlarm.trigger({ name: 'campaignSyncRetry', scheduledTime: 2, persistAcrossSessions: false });
     await flushAsyncListeners();
 
     // Then only the periodic alarm uses the gate; the due retry resumes validation immediately.
@@ -218,8 +222,16 @@ describe('extension lifecycle listeners', () => {
       logWarn: () => {},
     });
 
-    api.alarms.onAlarm.trigger({ name: 'campaignLinkRecheck:1', scheduledTime: 1 });
-    api.alarms.onAlarm.trigger({ name: 'unrelated:campaignLinkRecheck:1', scheduledTime: 2 });
+    api.alarms.onAlarm.trigger({
+      name: 'campaignLinkRecheck:1',
+      scheduledTime: 1,
+      persistAcrossSessions: false,
+    });
+    api.alarms.onAlarm.trigger({
+      name: 'unrelated:campaignLinkRecheck:1',
+      scheduledTime: 2,
+      persistAcrossSessions: false,
+    });
     await flushAsyncListeners();
 
     expect(names).toEqual(['campaignLinkRecheck:1']);

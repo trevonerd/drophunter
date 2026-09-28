@@ -41,7 +41,7 @@ describe('skipCurrentGameAndAdvanceQueue', () => {
 
     // Then: the vanished campaign is removed and only the farmable successor is opened.
     expect(refreshCalls).toBe(2);
-    expect(openedCampaigns).toEqual([farmableGame.campaignId]);
+    expect(openedCampaigns).toEqual(['campaign-3']);
     expect(state.appState.selectedGame).toBe(farmableGame);
     expect(state.appState.queue).toEqual([farmableGame]);
   });

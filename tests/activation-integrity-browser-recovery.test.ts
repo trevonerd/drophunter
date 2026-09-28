@@ -20,9 +20,7 @@ function fixture(
       return { kind: 'unchanged', reason: 'no-eligible-campaign' };
     },
     invalidate: () => {},
-    snooze: async () => {},
-    unsnooze: async () => {},
-    initialize: async () => {},
+    suppressCampaignUntilRefresh: async () => 'suppressed',
   };
   const performSync = createServiceWorkerActivationSync({
     state,
@@ -30,11 +28,12 @@ function fixture(
     automation,
     refreshGamesCache: async () => ({
       kind: 'unavailable',
+      games: [],
       failure: { kind: 'integrity', message: 'Integrity rejected after endpoint retries.' },
     }),
     farmingSession: {
       acquireStreamerForSelectedGame: async () => false,
-      advanceQueueIfCompleted: async () => {},
+      advanceQueueIfCompleted: async () => false,
       handleStartFarming: async () => ({ success: true }),
     },
     dropsPageRefresher: {

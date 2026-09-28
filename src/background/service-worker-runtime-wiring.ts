@@ -23,18 +23,15 @@ interface ServiceWorkerRuntimeDependencies {
 
 type FarmingAutomationUserActionSession = Pick<
   FarmingSession,
-  'automaticFavoritesEnabled' | 'handlePauseFarming' | 'handleResumeFarming' | 'handleStopFarming'
+  'handlePauseFarming' | 'handleResumeFarming' | 'handleStopFarming'
 >;
 
-async function runSnoozedUserAction(
+async function runUserAction(
   automation: FarmingAutomation,
-  reason: 'manual-pause' | 'manual-stop',
   action: () => Promise<{ readonly success: true }>,
-  persistenceError: string,
 ) {
-  const snoozing = automation.snooze(reason);
-  const [snooze, result] = await Promise.all([snoozing, action()]);
-  return snooze === 'snoozed' ? result : { success: false, error: persistenceError };
+  automation.invalidate?.();
+  return action();
 }
 
 export function createFarmingAutomationUserActionHandlers(
@@ -42,21 +39,9 @@ export function createFarmingAutomationUserActionHandlers(
   farmingSession: FarmingAutomationUserActionSession,
 ) {
   return {
-    pauseFarming: () =>
-      runSnoozedUserAction(
-        automation,
-        'manual-pause',
-        farmingSession.handlePauseFarming,
-        'Farming paused, but the automatic-farming snooze could not be persisted.',
-      ),
-    resumeFarming: farmingSession.handleResumeFarming,
-    stopFarming: () =>
-      runSnoozedUserAction(
-        automation,
-        'manual-stop',
-        farmingSession.handleStopFarming,
-        'Farming stopped, but the automatic-farming snooze could not be persisted.',
-      ),
+    pauseFarming: () => runUserAction(automation, farmingSession.handlePauseFarming),
+    resumeFarming: () => runUserAction(automation, farmingSession.handleResumeFarming),
+    stopFarming: () => runUserAction(automation, farmingSession.handleStopFarming),
   };
 }
 

@@ -1,7 +1,8 @@
-import { mkdir, readdir, readFile, unlink } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EXTENSION_MANIFEST, TWITCH_MATCHES } from '../src/shared/extension-manifest.ts';
 import { resolveReleaseVersion } from '../src/shared/release-version.ts';
+import { withReleaseArchiveRecovery } from './release-archives.mjs';
 import { runSteps } from './release-check-ui.mjs';
 
 const RELEASE_ARCHIVE_PATTERN = /^drophunter-.*-(chrome|edge)\.zip$/;
@@ -127,30 +128,38 @@ async function checkReleaseManifests() {
   };
 }
 
-async function cleanReleaseArchives() {
-  await mkdir('.output', { recursive: true });
-  const archiveNames = (await readdir('.output')).filter((name) => RELEASE_ARCHIVE_PATTERN.test(name));
-  await Promise.all(archiveNames.map((name) => unlink(join('.output', name))));
-  return { stdout: 'Old DropHunter release archives removed\n' };
-}
-
 async function checkReleaseArchives() {
   const { packageVersion } = await readPackageRelease();
   const expected = [`drophunter-${packageVersion}-chrome.zip`, `drophunter-${packageVersion}-edge.zip`];
-  const actual = (await readdir('.output')).filter((name) => RELEASE_ARCHIVE_PATTERN.test(name)).sort();
-  assertEqual('release archives', actual, expected);
-  return { stdout: `Chrome and Edge archives are release-ready for ${packageVersion}\n` };
+  const actual = new Set((await readdir('.output')).filter((name) => RELEASE_ARCHIVE_PATTERN.test(name)));
+  const missing = expected.filter((name) => !actual.has(name));
+  if (missing.length > 0) throw new Error(`Release archives are missing: ${missing.join(', ')}`);
+  return { stdout: `Chrome and Edge archives are present for ${packageVersion}\n` };
 }
 
-const result = await runSteps([
-  { name: 'TypeScript scope', command: ['bun', 'run', 'check:typescript-scope'] },
-  { name: 'TypeScript', command: ['bun', 'run', 'test:ts'] },
-  { name: 'Biome', command: ['bun', 'run', 'lint'] },
-  { name: 'Tests', command: ['bun', 'run', 'test'] },
-  { name: 'Clean release archives', run: cleanReleaseArchives },
-  { name: 'Build + package Chrome + Edge', command: ['bun', 'run', 'zip:all'] },
-  { name: 'Release manifests', run: checkReleaseManifests },
-  { name: 'Release archives', run: checkReleaseArchives },
-]);
+const { packageVersion } = await readPackageRelease();
+const result = await withReleaseArchiveRecovery(
+  {
+    outputDir: '.output',
+    archivePattern: RELEASE_ARCHIVE_PATTERN,
+    expectedArchiveNames: [
+      `drophunter-${packageVersion}-chrome.zip`,
+      `drophunter-${packageVersion}-edge.zip`,
+    ],
+  },
+  () =>
+    runSteps([
+      { name: 'TypeScript scope', command: ['bun', 'run', 'check:typescript-scope'] },
+      { name: 'Test TypeScript', command: ['bun', 'run', 'test:types'] },
+      { name: 'TypeScript', command: ['bun', 'run', 'test:ts'] },
+      { name: 'Biome', command: ['bun', 'run', 'lint'] },
+      { name: 'Tests', command: ['bun', 'run', 'test'] },
+      { name: 'Extension E2E', command: ['bun', 'run', 'test:e2e'] },
+      { name: 'Dependency audit', command: ['bun', 'audit'] },
+      { name: 'Build + package Chrome + Edge', command: ['bun', 'run', 'zip:all'] },
+      { name: 'Release manifests', run: checkReleaseManifests },
+      { name: 'Release archives', run: checkReleaseArchives },
+    ]),
+);
 
 process.exit(result.exitCode);

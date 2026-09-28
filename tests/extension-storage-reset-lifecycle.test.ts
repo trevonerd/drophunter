@@ -39,9 +39,13 @@ test('deleting local app storage resets the live worker after initialization', a
         return { kind: 'unchanged', reason: 'disabled' } as const;
       },
     },
-    getInitPromise: () => Promise.resolve().then(() => calls.push('init')),
+    getInitPromise: async () => {
+      calls.push('init');
+    },
     onExtensionUpdate: async () => {},
-    onExtensionStorageCleared: async () => calls.push('reset'),
+    onExtensionStorageCleared: async () => {
+      calls.push('reset');
+    },
     onAlarm: async () => {},
     onManagedTabRemoved: async () => {},
     onManagedTabNavigatedAway: async () => {},

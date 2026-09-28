@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import type { AppState } from '../../src/types/index.ts';
 import { demoGame } from '../fixtures/service-worker-games.ts';
 import { enqueueDropsSnapshot } from '../helpers/service-worker-fetch.ts';
 import {

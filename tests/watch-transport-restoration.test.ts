@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { createServiceWorkerState, type ServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createWatchTransportCoordinator } from '../src/background/watch-transport-coordinator.ts';
+import type { WatchTransportMode } from '../src/types/index.ts';
+
+function watchTransportMode(state: ServiceWorkerState): WatchTransportMode {
+  return state.appState.watchTransportMode;
+}
 
 describe('watch transport restoration', () => {
   test('retains a persisted managed fallback tab when the preference is tabless', async () => {
@@ -54,7 +59,7 @@ describe('watch transport restoration', () => {
     expect(closes).toBe(0);
     expect(opens).toBe(0);
     expect(state.appState.tabId).toBeNull();
-    expect(state.appState.watchTransportMode).toBe('tabless');
+    expect(watchTransportMode(state)).toBe('tabless');
     expect(state.appState.watchFallbackReason).toBeNull();
     expect(coordinator.currentOwnership()).toEqual({
       kind: 'tabless',
@@ -113,7 +118,7 @@ describe('watch transport restoration', () => {
     const restored = await coordinator.restore({ kind: 'tabless', targetKey: 'campaign:campaign-1' });
 
     expect(restored).toBe(true);
-    expect(state.appState.watchTransportMode).toBe('tabless');
+    expect(watchTransportMode(state)).toBe('tabless');
     expect(state.appState.watchFallbackReason).toBeNull();
     expect(persists).toBe(1);
     expect(broadcasts).toBe(1);

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { CRASH_DETECTION_THRESHOLD_MS } from '../src/background/constants.ts';
 import { splitDropsForSelectedGame } from '../src/background/drops-projection.ts';
+import { applyStartupResumePolicy } from '../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../src/background/service-worker.ts';
 import {
   clearPendingTimingStateSaveForTests,
@@ -144,24 +145,27 @@ describe('loadTimingState', () => {
   });
 });
 
-describe('crash detection threshold', () => {
-  test('CRASH_DETECTION_THRESHOLD_MS is 30 seconds', () => {
-    expect(CRASH_DETECTION_THRESHOLD_MS).toBe(30_000);
-  });
+describe('crash startup policy boundary', () => {
+  test.each([
+    ['recent heartbeat', CRASH_DETECTION_THRESHOLD_MS - 1, true, 'not-stale'],
+    ['exact threshold', CRASH_DETECTION_THRESHOLD_MS, true, 'not-stale'],
+    ['stale heartbeat with auto-resume', CRASH_DETECTION_THRESHOLD_MS + 1, true, 'auto-resume'],
+    ['stale heartbeat without auto-resume', CRASH_DETECTION_THRESHOLD_MS + 1, false, 'pause-after-restart'],
+  ] as const)('%s resolves through the startup policy', (_scenario, heartbeatAge, autoResume, expected) => {
+    const now = 100_000;
+    const state = makeState({ lastHeartbeatAt: now - heartbeatAge });
+    const game = { id: 'game', name: 'Game', imageUrl: '', campaignId: 'campaign' };
+    state.appState.isRunning = true;
+    state.appState.autoResumeOnStartup = autoResume;
+    state.appState.selectedGame = game;
+    state.appState.queue = [game];
 
-  test('stale heartbeat exceeds threshold', () => {
-    const lastHeartbeatAt = Date.now() - 60_000;
-    expect(Date.now() - lastHeartbeatAt > CRASH_DETECTION_THRESHOLD_MS).toBe(true);
-  });
-
-  test('recent heartbeat does not exceed threshold', () => {
-    const lastHeartbeatAt = Date.now() - 5_000;
-    expect(Date.now() - lastHeartbeatAt > CRASH_DETECTION_THRESHOLD_MS).toBe(false);
+    expect(applyStartupResumePolicy(state, now, CRASH_DETECTION_THRESHOLD_MS, 300_000)).toBe(expected);
   });
 });
 
 describe('false recovery proof guard (freshTimingState)', () => {
-  const game: TwitchGame = { id: 'g1', name: 'TestGame' };
+  const game: TwitchGame = { id: 'g1', name: 'TestGame', imageUrl: '' };
 
   test('first tick with sentinel values does not trigger recovery proof reset', () => {
     const state = makeState({
@@ -178,7 +182,9 @@ describe('false recovery proof guard (freshTimingState)', () => {
       id: 'd1',
       campaignId: 'c1',
       name: 'Drop1',
+      gameId: game.id,
       gameName: 'TestGame',
+      imageUrl: '',
       progress: 45,
       currentMinutes: 45,
       remainingMinutes: 15,
@@ -212,7 +218,9 @@ describe('false recovery proof guard (freshTimingState)', () => {
       id: 'd1',
       campaignId: 'c1',
       name: 'Drop1',
+      gameId: game.id,
       gameName: 'TestGame',
+      imageUrl: '',
       progress: 50,
       currentMinutes: 50,
       remainingMinutes: 10,

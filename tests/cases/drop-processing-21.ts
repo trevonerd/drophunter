@@ -85,7 +85,7 @@ export function registerDropProcessing21(): void {
         appState: {
           ...subject.createInitialState(),
           selectedGame,
-          queue: [{ gameId: 'game-1' } as subject.TwitchGame],
+          queue: [selectedGame],
           allDrops: [completedDrop],
         },
         cachedDropsSnapshot: [completedDrop],

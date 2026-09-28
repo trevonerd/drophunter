@@ -6,7 +6,7 @@ import {
 } from '../src/background/playback-orchestrator.ts';
 import { createPlaybackTransport } from '../src/background/playback-transport.ts';
 import { createInitialState } from '../src/shared/utils.ts';
-import type { PlaybackPrepResult, TwitchStreamer } from '../src/types';
+import type { TwitchStreamer } from '../src/types';
 
 function createState() {
   return {
@@ -178,7 +178,7 @@ describe('playback orchestrator', () => {
       }),
       attention: createPlaybackAttentionPolicy(state, {
         shouldMuteManagedFarmingTab: () => false,
-        needsPlaybackAttention: (_result: PlaybackPrepResult) => true,
+        needsPlaybackAttention: () => true,
         notify: async (title) => {
           notifications.push(title);
         },

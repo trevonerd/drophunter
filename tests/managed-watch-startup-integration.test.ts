@@ -109,7 +109,7 @@ test('actual automation assembly restores ordinary managed watch after same-vers
       startMonitoring: () => {},
       twitchGateway: {
         ensureTwitchSession: async () => null,
-        fetchDirectoryStreamers: async () => [],
+        fetchDirectoryStreamers: async () => Object.assign([], { languageFilterApplied: false }),
         fetchDropsSnapshot: async () => null,
         getLatestProgressSnapshot: () => null,
         fetchInventorySnapshot: async () => null,

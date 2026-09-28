@@ -2,113 +2,43 @@ import { describe, expect, test } from 'bun:test';
 import type { FarmingAutomation } from '../src/background/farming-automation.ts';
 import { createFarmingAutomationUserActionHandlers } from '../src/background/service-worker-runtime-wiring.ts';
 
-function deferred() {
-  let resolve: () => void = () => undefined;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
 describe('farming automation user-action wiring', () => {
-  for (const favoritesEnabled of [false, true]) {
-    test(`Stop invalidates immediately and snoozes automation with favorites=${favoritesEnabled}`, async () => {
-      const persistence = deferred();
-      const events: string[] = [];
-      const automation: FarmingAutomation = {
-        request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-        snooze: async () => {
-          events.push('snoozed');
-          await persistence.promise;
-          return 'snoozed';
-        },
-      };
-      const actions = createFarmingAutomationUserActionHandlers(automation, {
-        automaticFavoritesEnabled: () => favoritesEnabled,
-        handlePauseFarming: async () => ({ success: true }),
-        handleResumeFarming: async () => ({ success: true }),
-        handleStopFarming: async () => {
-          events.push('stopped');
-          return { success: true };
-        },
-      });
-      const stop = actions.stopFarming();
-      expect(events).toEqual(['snoozed', 'stopped']);
-      persistence.resolve();
-      expect(await stop).toEqual({ success: true });
-    });
-  }
-  test('applies user action and surfaces snooze failure', async () => {
-    // Given pause and stop snoozes whose synchronous invalidation precedes a blocked persistence write.
+  test('invalidates automation before Pause, Resume, and Stop mutate durable session intent', async () => {
     const events: string[] = [];
-    let persistence = deferred();
     const automation: FarmingAutomation = {
       request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-      snooze: async (reason) => {
-        events.push(`${reason}:invalidate`);
-        await persistence.promise;
-        events.push(`${reason}:persistence-failed`);
-        return 'persistence-failed';
-      },
+      invalidate: () => events.push('invalidate'),
+      suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const actions = createFarmingAutomationUserActionHandlers(automation, {
       handlePauseFarming: async () => {
-        events.push('pause:action');
+        events.push('pause');
+        return { success: true };
+      },
+      handleResumeFarming: async () => {
+        events.push('resume');
         return { success: true };
       },
       handleStopFarming: async () => {
-        events.push('stop:action');
+        events.push('stop');
         return { success: true };
       },
     });
 
-    // When each request reaches the storage barrier and that persistence attempt fails.
-    const pause = actions.pauseFarming();
-    await Promise.resolve();
-    expect(events).toEqual(['manual-pause:invalidate', 'pause:action']);
-    persistence.resolve();
-    const pauseResponse = await pause;
-    persistence = deferred();
-    const stop = actions.stopFarming();
-    await Promise.resolve();
-    expect(events).toEqual([
-      'manual-pause:invalidate',
-      'pause:action',
-      'manual-pause:persistence-failed',
-      'manual-stop:invalidate',
-      'stop:action',
-    ]);
-    persistence.resolve();
-    const stopResponse = await stop;
+    const responses = [
+      await actions.pauseFarming(),
+      await actions.resumeFarming(),
+      await actions.stopFarming(),
+    ];
 
-    // Then both user actions run exactly once and neither response reports a false clean success.
-    expect(events).toEqual([
-      'manual-pause:invalidate',
-      'pause:action',
-      'manual-pause:persistence-failed',
-      'manual-stop:invalidate',
-      'stop:action',
-      'manual-stop:persistence-failed',
-    ]);
-    expect(pauseResponse).toEqual({
-      success: false,
-      error: 'Farming paused, but the automatic-farming snooze could not be persisted.',
-    });
-    expect(stopResponse).toEqual({
-      success: false,
-      error: 'Farming stopped, but the automatic-farming snooze could not be persisted.',
-    });
+    expect(events).toEqual(['invalidate', 'pause', 'invalidate', 'resume', 'invalidate', 'stop']);
+    expect(responses).toEqual([{ success: true }, { success: true }, { success: true }]);
   });
 
-  test('keeps resume outside snooze and preserves clean action success', async () => {
-    // Given a persisted snooze and three successful Farming session actions.
-    const snoozeReasons: string[] = [];
+  test('returns the session action result without a second persistence channel', async () => {
     const automation: FarmingAutomation = {
       request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-      snooze: async (reason) => {
-        snoozeReasons.push(reason);
-        return 'snoozed';
-      },
+      suppressCampaignUntilRefresh: async () => 'suppressed',
     };
     const actions = createFarmingAutomationUserActionHandlers(automation, {
       handlePauseFarming: async () => ({ success: true }),
@@ -116,15 +46,7 @@ describe('farming automation user-action wiring', () => {
       handleStopFarming: async () => ({ success: true }),
     });
 
-    // When pause, resume, and stop are requested in order.
-    const responses = [
-      await actions.pauseFarming(),
-      await actions.resumeFarming(),
-      await actions.stopFarming(),
-    ];
-
-    // Then only pause and stop create snoozes, while clean responses remain unchanged.
-    expect(snoozeReasons).toEqual(['manual-pause', 'manual-stop']);
-    expect(responses).toEqual([{ success: true }, { success: true }, { success: true }]);
+    expect(await actions.pauseFarming()).toEqual({ success: true });
+    expect(await actions.stopFarming()).toEqual({ success: true });
   });
 });

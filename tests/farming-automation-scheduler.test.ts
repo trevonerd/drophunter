@@ -5,7 +5,6 @@ import type {
 } from '../src/background/farming-automation.ts';
 import { createFarmingAutomationScheduler } from '../src/background/farming-automation-scheduler.ts';
 import { createDeferred, flushMicrotasks } from './support/farming-automation-fixtures.ts';
-import { createFarmingAutomationHarness } from './support/farming-automation-harness.ts';
 
 function unchanged(reason: 'disabled' | 'no-eligible-campaign'): FarmingAutomationOutcome {
   return { kind: 'unchanged', reason };
@@ -104,13 +103,6 @@ describe('FarmingAutomation scheduler', () => {
     await expect(first).resolves.toEqual(unchanged('disabled'));
     await expect(trailing).resolves.toEqual(unchanged('disabled'));
     await expect(third).resolves.toEqual(unchanged('no-eligible-campaign'));
-  });
-
-  test('public automation keeps snooze separate from request scheduling', async () => {
-    const harness = createFarmingAutomationHarness();
-    await expect(harness.automation.snooze('manual-pause')).resolves.toBe('snoozed');
-    expect(await harness.persistence.getSession('autoStartSnoozedForBrowserSession')).toBe(true);
-    expect(harness.scheduler.getStatus()).toMatchObject({ active: false, pending: false });
   });
 
   test('invalidating an active run resolves it as superseded', async () => {

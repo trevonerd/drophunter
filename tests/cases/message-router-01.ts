@@ -13,7 +13,12 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
     throw new Error('unexpected handler');
   };
 
-  return {
+  const handlers: RuntimeMessageHandlers = {
+    activatePopup: missing,
+    openDropsAndSync: missing,
+    startQueuedCampaign: missing,
+    setGamePreference: missing,
+    setWatchTransportMode: missing,
     ensureGamesCache: missing,
     openDropsPageAndRefresh: missing,
     markDropsRefreshNoticeSeen: missing,
@@ -52,8 +57,9 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
     openMonitorDashboard: missing,
     getClaimLog: missing,
     clearClaimLog: missing,
-    ...overrides,
   };
+  Object.assign(handlers, overrides);
+  return handlers;
 }
 
 async function callListener(
@@ -166,7 +172,24 @@ describe('runtime message router', () => {
     const response = callListener(
       listener,
       { type: 'SYNC_TWITCH_INTEGRITY', payload: { token: 'fresh-integrity-token' } },
-      { tab: { url: 'https://www.twitch.tv/drops/campaigns' } },
+      {
+        tab: {
+          id: 1,
+          index: 0,
+          windowId: 1,
+          url: 'https://www.twitch.tv/drops/campaigns',
+          pinned: false,
+          highlighted: true,
+          active: true,
+          frozen: false,
+          incognito: false,
+          selected: true,
+          discarded: false,
+          autoDiscardable: true,
+          groupId: -1,
+          lastAccessed: Date.now(),
+        },
+      },
     );
     await Promise.resolve();
 

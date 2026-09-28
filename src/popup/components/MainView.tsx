@@ -1,3 +1,4 @@
+import { classifyStartupPresentation } from '../../shared/startup-presentation.ts';
 import { AutomationSummary } from './AutomationSummary';
 import { CampaignList } from './CampaignList';
 import { CampaignQueueControls } from './CampaignQueueControls';
@@ -59,13 +60,12 @@ export function MainView({
     dismissedQueueCleanupActivityId,
   });
   const queueCleanupActivity = model.queueCleanupActivity;
-  const routineAutomaticStartup =
-    model.startup.automaticStartPending &&
-    (state.campaignSyncState.status === 'syncing' ||
-      state.campaignSyncState.status === 'idle' ||
-      (state.campaignSyncState.status === 'retry-scheduled' &&
-        state.campaignSyncState.retryAttemptCount < 3));
-  const showStartupSyncPanel = model.startup.isBlocking && !routineAutomaticStartup;
+  const startupPresentation = classifyStartupPresentation({
+    blocksStartup: model.startup.isBlocking,
+    automaticStartPending: model.startup.automaticStartPending,
+    campaignSyncState: state.campaignSyncState,
+  });
+  const showStartupSyncPanel = startupPresentation === 'blocked';
   const queueCampaignRemovalNotice = queueCleanupActivity ? (
     <QueueCleanupNotice
       summary={
@@ -86,6 +86,7 @@ export function MainView({
       hasCachedCampaigns={state.availableGames.length > 0}
       campaignSyncState={state.campaignSyncState}
       blocksStartup={model.startup.isBlocking}
+      automaticStartPending={model.startup.automaticStartPending}
       onOpenTwitchDrops={onOpenDropsPage}
     />
   );

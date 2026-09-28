@@ -10,7 +10,7 @@ import {
 
 export function registerStartAndSettingsCases() {
   test('START_FARMING returns an error when no game is provided', async () => {
-    const response = await dispatchMessage({ type: 'START_FARMING' });
+    const response = await dispatchMessage({ type: 'START_FARMING', payload: {} });
 
     expect(response).toEqual({ success: false, error: 'No game selected.' });
     expect(getAppStateFromStorage().isRunning).toBe(false);

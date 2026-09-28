@@ -2,7 +2,8 @@ import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { createFarmingAutomationTwitchAdapter } from '../src/background/farming-automation-twitch.ts';
 import { TwitchApiClient } from '../src/background/twitch-api/client.ts';
 import { TwitchGqlTransport } from '../src/background/twitch-api/gql.ts';
-import type { TwitchDrop, TwitchSession } from '../src/types/index.ts';
+import type { TwitchSession } from '../src/background/twitch-api/types.ts';
+import type { TwitchDrop } from '../src/types/index.ts';
 import { campaign, fixture } from './support/farming-automation-queue-fixture.ts';
 
 const session: TwitchSession = { oauthToken: 'test', userId: 'viewer', deviceId: 'test', uuid: 'test' };
@@ -45,53 +46,51 @@ test.each(['', '   '])('automation waits for an identified account (%j)', async 
   expect(calls).toBe(0);
 });
 
-test.each([
-  null,
-  undefined,
-  {},
-  { dropCampaignsInProgress: null },
-])('invalid raw Twitch inventory (%j) cannot notify or auto-start a favorite from default zero progress', async (inventory) => {
-  spyOn(TwitchGqlTransport.prototype, 'postAuthorized').mockResolvedValue({
-    currentUser: { inventory },
-  });
-  const client = new TwitchApiClient(session);
-  let directories = 0;
-  let notifications = 0;
-  const twitch = createFarmingAutomationTwitchAdapter({
-    loadSession: async () => session,
-    fetchCampaignSnapshot: async () => ({
-      games: [game],
-      drops: [drop],
-      inventoryVerified: false,
-      updatedAt: 1,
-    }),
-    fetchInventorySnapshot: (_session, baseDrops) => client.fetchInventorySnapshot([...baseDrops]),
-    fetchDirectoryStreamers: async () => {
-      directories++;
-      return {
-        streamers: [{ id: 'live', name: 'live', displayName: 'Live', isLive: true, viewerCount: 1 }],
-        languageFilterApplied: false,
-      };
-    },
-  });
-  const subject = fixture('priority-list-only', {
-    queue: [],
-    twitch,
-    automationNotify: {
-      notify: async () => {
-        notifications++;
+test.each([null, undefined, {}, { dropCampaignsInProgress: null }])(
+  'invalid raw Twitch inventory (%j) cannot notify or auto-start a favorite from default zero progress',
+  async (inventory) => {
+    spyOn(TwitchGqlTransport.prototype, 'postAuthorized').mockResolvedValue({
+      currentUser: { inventory },
+    });
+    const client = new TwitchApiClient(session);
+    let directories = 0;
+    let notifications = 0;
+    const twitch = createFarmingAutomationTwitchAdapter({
+      loadSession: async () => session,
+      fetchCampaignSnapshot: async () => ({
+        games: [game],
+        drops: [drop],
+        inventoryVerified: false,
+        updatedAt: 1,
+      }),
+      fetchInventorySnapshot: (_session, baseDrops) => client.fetchInventorySnapshot([...baseDrops]),
+      fetchDirectoryStreamers: async () => {
+        directories++;
+        return {
+          streamers: [{ id: 'live', name: 'live', displayName: 'Live', isLive: true, viewerCount: 1 }],
+          languageFilterApplied: false,
+        };
       },
-    },
-  });
-  const outcome = await subject.automation.request('campaign-refresh');
-  expect({
-    directories,
-    notifications,
-    queue: subject.state.appState.queue,
-    running: subject.state.appState.isRunning,
-    outcome: outcome.kind,
-  }).toEqual({ directories: 0, notifications: 0, queue: [], running: false, outcome: 'failed' });
-});
+    });
+    const subject = fixture('priority-list-only', {
+      queue: [],
+      twitch,
+      automationNotify: {
+        notify: async () => {
+          notifications++;
+        },
+      },
+    });
+    const outcome = await subject.automation.request('campaign-refresh');
+    expect({
+      directories,
+      notifications,
+      queue: subject.state.appState.queue,
+      running: subject.state.appState.isRunning,
+      outcome: outcome.kind,
+    }).toEqual({ directories: 0, notifications: 0, queue: [], running: false, outcome: 'failed' });
+  },
+);
 
 test('a verified empty inventory preserves genuinely unearned rewards', async () => {
   spyOn(TwitchGqlTransport.prototype, 'postAuthorized').mockResolvedValue({

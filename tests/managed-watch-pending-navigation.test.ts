@@ -12,83 +12,81 @@ import { installManagedWatchPages } from './support/managed-watch-pages.ts';
 const target = { gameId: 'game', categorySlug: 'game', channelName: 'owned_channel' };
 const url = 'https://www.twitch.tv/owned_channel';
 
-test.each([
-  'complete',
-  'timeout',
-  'stop',
-  'user-navigation',
-] as const)('regular managed watch handles delayed navigation: %s', async (stage) => {
-  const mocks = setupChromeMocks();
-  const tabs = installManagedWatchPages(mocks);
-  const state = createServiceWorkerState();
-  const session = createFarmingSession(state, createFarmingSessionAdapters());
-  const waiting = createDeferred<void>();
-  const nativeUpdate = mocks.chrome.tabs.update;
-  let playback = 0;
-  mocks.chrome.tabs.update = async (id, properties) => {
-    if (properties.url === url) {
-      const page = tabs.pages.get(id);
-      if (!page) throw new Error('No tab');
-      page.pendingUrl = url;
-      page.status = 'loading';
-      return { ...page };
+test.each(['complete', 'timeout', 'stop', 'user-navigation'] as const)(
+  'regular managed watch handles delayed navigation: %s',
+  async (stage) => {
+    const mocks = setupChromeMocks();
+    const tabs = installManagedWatchPages(mocks);
+    const state = createServiceWorkerState();
+    const session = createFarmingSession(state, createFarmingSessionAdapters());
+    const waiting = createDeferred<void>();
+    const nativeUpdate = mocks.chrome.tabs.update;
+    let playback = 0;
+    mocks.chrome.tabs.update = async (id, properties = {}) => {
+      if (properties.url === url) {
+        const page = tabs.pages.get(id);
+        if (!page) throw new Error('No tab');
+        page.pendingUrl = url;
+        page.status = 'loading';
+        return { ...page };
+      }
+      return nativeUpdate(id, properties);
+    };
+    const addListener = mocks.chrome.tabs.onUpdated.addListener;
+    mocks.chrome.tabs.onUpdated.addListener = (listener) => {
+      addListener(listener);
+      waiting.resolve(undefined);
+    };
+    const timer = globalThis.setTimeout;
+    if (stage === 'timeout')
+      globalThis.setTimeout = ((callback: TimerHandler, ms?: number, ...args: unknown[]) =>
+        timer(callback, ms === 15_000 ? 1 : ms, ...args)) as typeof setTimeout;
+    try {
+      const opening = openOwnedManagedWatch(state, target, async () => {
+        playback++;
+        return { isPlaybackReady: true };
+      });
+      await waiting.promise;
+      const page = tabs.pages.get(20);
+      if (!page) throw new Error('Missing created page');
+      if (stage === 'stop') await session.handleStopFarming();
+      if (stage === 'complete') {
+        page.url = url;
+        delete page.pendingUrl;
+        page.status = 'complete';
+      }
+      if (stage === 'user-navigation') {
+        page.url = 'https://www.twitch.tv/user_choice';
+        delete page.pendingUrl;
+      }
+      if (stage !== 'timeout')
+        for (const handler of [...mocks.chrome.tabs.onUpdated._handlers])
+          Reflect.apply(handler, undefined, [20, { status: 'complete' }, page]);
+      const result = await opening;
+      expect(playback).toBe(stage === 'complete' ? 1 : 0);
+      if (stage === 'complete') {
+        expect(result?.tabId).toBe(20);
+        expect(page.storage.size).toBe(1);
+      } else {
+        expect(result).toBeNull();
+        expect(page.url).toBe(
+          stage === 'user-navigation' ? 'https://www.twitch.tv/user_choice' : 'about:blank',
+        );
+        expect(page.pendingUrl).toBeUndefined();
+      }
+    } finally {
+      globalThis.setTimeout = timer;
+      mocks.teardown();
     }
-    return nativeUpdate(id, properties);
-  };
-  const addListener = mocks.chrome.tabs.onUpdated.addListener;
-  mocks.chrome.tabs.onUpdated.addListener = (listener) => {
-    addListener(listener);
-    waiting.resolve(undefined);
-  };
-  const timer = globalThis.setTimeout;
-  if (stage === 'timeout')
-    globalThis.setTimeout = ((callback: TimerHandler, ms?: number, ...args: unknown[]) =>
-      timer(callback, ms === 15_000 ? 1 : ms, ...args)) as typeof setTimeout;
-  try {
-    const opening = openOwnedManagedWatch(state, target, async () => {
-      playback++;
-      return { isPlaybackReady: true };
-    });
-    await waiting.promise;
-    const page = tabs.pages.get(20);
-    if (!page) throw new Error('Missing created page');
-    if (stage === 'stop') await session.handleStopFarming();
-    if (stage === 'complete') {
-      page.url = url;
-      delete page.pendingUrl;
-      page.status = 'complete';
-    }
-    if (stage === 'user-navigation') {
-      page.url = 'https://www.twitch.tv/user_choice';
-      delete page.pendingUrl;
-    }
-    if (stage !== 'timeout')
-      for (const handler of [...mocks.chrome.tabs.onUpdated._handlers])
-        Reflect.apply(handler, undefined, [20, { status: 'complete' }, page]);
-    const result = await opening;
-    expect(playback).toBe(stage === 'complete' ? 1 : 0);
-    if (stage === 'complete') {
-      expect(result?.tabId).toBe(20);
-      expect(page.storage.size).toBe(1);
-    } else {
-      expect(result).toBeNull();
-      expect(page.url).toBe(
-        stage === 'user-navigation' ? 'https://www.twitch.tv/user_choice' : 'about:blank',
-      );
-      expect(page.pendingUrl).toBeUndefined();
-    }
-  } finally {
-    globalThis.setTimeout = timer;
-    mocks.teardown();
-  }
-});
+  },
+);
 
 test('native Stop after update response cancels proven pending navigation in the sole active tab', async () => {
   const mocks = setupChromeMocks();
   const tabs = installManagedWatchPages(mocks);
   let current = true;
   const nativeUpdate = mocks.chrome.tabs.update;
-  mocks.chrome.tabs.update = async (id, properties) => {
+  mocks.chrome.tabs.update = async (id, properties = {}) => {
     if (properties.url !== url) return nativeUpdate(id, properties);
     const page = tabs.pages.get(id);
     if (!page) throw new Error('No tab');

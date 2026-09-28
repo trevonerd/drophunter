@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { hydratePopupStateStaleWhileRevalidate } from '../src/popup/hooks/useAppState.ts';
 import { createInitialState } from '../src/shared/utils.ts';
+import type { AppState } from '../src/types';
 
 test('cached popup state becomes renderable before activation resolves', async () => {
   const cached = {
@@ -10,7 +11,9 @@ test('cached popup state becomes renderable before activation resolves', async (
   };
   const activated = { ...cached, twitchSessionDetected: true };
   const events: string[] = [];
-  let resolveActivation: ((value: { appState: typeof activated }) => void) | null = null;
+  let resolveActivation: (value: { appState: typeof activated }) => void = (_value) => {
+    throw new Error('Activation resolver was not initialized');
+  };
   const activation = new Promise<{ appState: typeof activated }>((resolve) => {
     resolveActivation = resolve;
   });
@@ -28,7 +31,7 @@ test('cached popup state becomes renderable before activation resolves', async (
   await Promise.resolve();
   expect(events).toEqual(['cached', 'renderable']);
 
-  resolveActivation?.({ appState: activated });
+  resolveActivation({ appState: activated });
   await hydration;
   expect(events).toEqual(['cached', 'renderable', 'activated']);
 });
@@ -37,7 +40,7 @@ test('activation cannot overwrite a repaired running target with null', async ()
   const queued = { id: 'game-1', name: 'FragPunk', imageUrl: '', campaignId: 'campaign-1' };
   const cached = { ...createInitialState(), isRunning: true, selectedGame: queued, queue: [queued] };
   const invalidActivation = { ...cached, selectedGame: null };
-  let applied = cached;
+  let applied: AppState = cached;
 
   await hydratePopupStateStaleWhileRevalidate({
     loadCachedState: async () => cached,

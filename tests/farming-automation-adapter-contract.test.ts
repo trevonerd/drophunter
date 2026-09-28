@@ -9,28 +9,28 @@ describe('Farming automation deterministic adapters', () => {
   test('retains durable state and clears only session data on browser restart', async () => {
     const persistence = createFarmingAutomationPersistence();
     await persistence.setLocal('facts', { version: 1, nextEvaluationAt: 100 });
-    await persistence.setSession('snooze', true);
+    await persistence.setSession('ephemeral-flag', true);
 
     const reconstructed = persistence.reconstruct();
     expect(await reconstructed.getLocal('facts')).toEqual({ version: 1, nextEvaluationAt: 100 });
-    expect(await reconstructed.getSession('snooze')).toBe(true);
+    expect(await reconstructed.getSession('ephemeral-flag')).toBe(true);
 
     reconstructed.restartBrowser();
     expect(await reconstructed.getLocal('facts')).toEqual({ version: 1, nextEvaluationAt: 100 });
-    expect(await reconstructed.getSession('snooze')).toBeUndefined();
+    expect(await reconstructed.getSession('ephemeral-flag')).toBeUndefined();
   });
 
   test('reconstructs the harness over durable stores and resets only browser session data', async () => {
     const harness = createFarmingAutomationHarness();
     await harness.persistence.setLocal('facts', { version: 1 });
-    await harness.persistence.setSession('snooze', true);
+    await harness.persistence.setSession('ephemeral-flag', true);
 
     const reconstructed = harness.reconstruct();
     expect(await reconstructed.persistence.getLocal('facts')).toEqual({ version: 1 });
-    expect(await reconstructed.persistence.getSession('snooze')).toBe(true);
+    expect(await reconstructed.persistence.getSession('ephemeral-flag')).toBe(true);
     reconstructed.restartBrowser();
     expect(await reconstructed.persistence.getLocal('facts')).toEqual({ version: 1 });
-    expect(await reconstructed.persistence.getSession('snooze')).toBeUndefined();
+    expect(await reconstructed.persistence.getSession('ephemeral-flag')).toBeUndefined();
   });
 
   test('fails before mutation when a persistence write fails', async () => {

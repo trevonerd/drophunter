@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { TWITCH_SESSION_STORAGE_KEY } from '../../src/background/constants.ts';
+import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
 import {
   discardPersistedTwitchSessionIfMatches,
@@ -12,6 +13,7 @@ import { setupChromeMocks } from '../mocks/chrome.ts';
 
 function _createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
+    ...createServiceWorkerState(),
     appState: createInitialState(),
     monitorTickInFlight: false,
     invalidStreamChecks: 0,

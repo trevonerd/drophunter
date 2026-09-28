@@ -1,9 +1,11 @@
+import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
 import type { AppState } from '../../src/types/index.ts';
 
 export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
+    ...createServiceWorkerState(),
     appState: createInitialState(),
     monitorTickInFlight: false,
     invalidStreamChecks: 0,

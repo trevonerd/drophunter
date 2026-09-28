@@ -205,10 +205,12 @@ export function expireFarmingAutomationManualWatch(
 
 export function cheapFarmingAutomationGate(
   state: ServiceWorkerState,
-  snoozed: boolean,
   hasParkedCampaigns = false,
 ): FarmingAutomationOutcome | null {
-  if (snoozed) return { kind: 'unchanged', reason: 'snoozed' };
+  if (state.appState.lastStopReason === 'user-stop') {
+    return { kind: 'unchanged', reason: 'user-stopped' };
+  }
+  if (state.appState.isPaused) return { kind: 'unchanged', reason: 'paused' };
   const authorizedParkedQueue =
     state.appState.manualQueueAuthorized &&
     state.appState.queue.some(
@@ -221,9 +223,6 @@ export function cheapFarmingAutomationGate(
     !state.appState.queueResumeOnAvailability
   ) {
     return { kind: 'unchanged', reason: 'disabled' };
-  }
-  if (state.appState.isPaused && !state.appState.autoStartFavoriteGames) {
-    return { kind: 'unchanged', reason: 'paused' };
   }
   return null;
 }

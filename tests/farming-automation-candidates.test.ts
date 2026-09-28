@@ -218,8 +218,9 @@ describe('farming automation candidate policy', () => {
     expect(ranked.map((candidate) => candidate.game.campaignId)).toEqual(['campaign-b', 'campaign-a']);
   });
 
-  test('preserves the active campaign when a favorite candidate expires earlier', () => {
+  test('preempts the active campaign when a favorite candidate expires earlier', () => {
     const earlier = game('earlier', '2030-08-03T12:00:00.000Z');
+    const active = game('active', '2030-08-04T12:00:00.000Z');
     const candidate = (campaign: TwitchGame, isFavorite: boolean): FarmingAutomationCandidate => ({
       game: campaign,
       eligibleStreamerCount: 1,
@@ -232,8 +233,14 @@ describe('farming automation candidate policy', () => {
     expect(
       decideFarmingAutomationTransition({
         isRunning: true,
+        selectedGame: active,
+        lastPreemption: null,
         rankedCandidates: [candidate(earlier, true)],
       }),
-    ).toEqual({ kind: 'unchanged', reason: 'already-running', campaign: earlier });
+    ).toEqual({
+      kind: 'preemption',
+      campaign: earlier,
+      fromCampaignKey: gameKey(active),
+    });
   });
 });

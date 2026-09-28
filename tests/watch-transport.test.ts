@@ -28,10 +28,10 @@ describe('ManagedTabTransport', () => {
       ownershipToken: 'managed-token',
       expectedChannel: target.channelName,
     };
-    let startOptions: { active: false; focus: false } | null = null;
+    const startOptions: { current: { active: false; focus: false } | null } = { current: null };
     const transport = new ManagedTabTransport({
       open: async (_target, options) => {
-        startOptions = options;
+        startOptions.current = options;
         calls.push('open');
         return { ...managedSession, ownership };
       },
@@ -51,7 +51,7 @@ describe('ManagedTabTransport', () => {
     const ticked = await transport.tick();
     await transport.stop();
 
-    expect(startOptions).toEqual({ active: false, focus: false });
+    expect(startOptions.current).toEqual({ active: false, focus: false });
     expect(calls).toEqual(['open', 'probe']);
     expect(transport.currentOwnership()).toEqual(ownership);
     expect(started).toMatchObject({

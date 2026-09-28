@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { StreamRotationReason } from '../../src/background/stream-rotation.ts';
 import { rotateStreamerIfInvalid } from '../../src/background/streamer-acquisition.ts';
+import type { RotateStreamerIfInvalidOptions } from '../../src/background/streamer-acquisition-contracts.ts';
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
@@ -37,23 +38,24 @@ export function registerQueue24Part02() {
         pageUrl: 'https://twitch.tv/streamer',
       };
 
-      let rotateReason: StreamRotationReason | null = null;
-      const opts = {
+      const observed = { rotateReason: null as StreamRotationReason | null };
+      const opts: RotateStreamerIfInvalidOptions = {
         onFetchStreamContext: async () => offlineContext,
         onResolveCategorySlug: async () => 'test-game',
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
+          return true;
         },
       };
 
       // First offline reading is not enough — a single one is usually a transient ad break.
       await rotateStreamerIfInvalid(state, opts);
-      expect(rotateReason).toBeNull();
+      expect(observed.rotateReason).toBeNull();
       expect(state.offlineChecks).toBe(1);
 
       // Second consecutive offline reading confirms the outage and rotates.
       await rotateStreamerIfInvalid(state, opts);
-      expect(rotateReason).toBe('offline');
+      expect(observed.rotateReason).toBe('offline');
     });
 
     test('a single offline reading does not rotate while a live reading resets the streak', async () => {
@@ -76,12 +78,13 @@ export function registerQueue24Part02() {
       };
 
       let isLive = false;
-      let rotateReason: StreamRotationReason | null = null;
-      const opts = {
+      const observed = { rotateReason: null as StreamRotationReason | null };
+      const opts: RotateStreamerIfInvalidOptions = {
         onFetchStreamContext: async () => ({ ...baseContext, isLive }),
         onResolveCategorySlug: async () => 'test-game',
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
+          return true;
         },
       };
 
@@ -94,7 +97,7 @@ export function registerQueue24Part02() {
 
       isLive = false;
       await rotateStreamerIfInvalid(state, opts); // offline #1 again -> defer, no rotation
-      expect(rotateReason).toBeNull();
+      expect(observed.rotateReason).toBeNull();
       expect(state.offlineChecks).toBe(1);
     });
 
@@ -141,7 +144,7 @@ export function registerQueue24Part02() {
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       let attemptSelfHealCalled = false;
-      let rotateReason: StreamRotationReason | null = null;
+      const observed = { rotateReason: null as StreamRotationReason | null };
       await rotateStreamerIfInvalid(state, {
         onFetchStreamContext: async () => ({
           channelName: 'streamer',
@@ -158,12 +161,13 @@ export function registerQueue24Part02() {
           attemptSelfHealCalled = true;
         },
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
+          return true;
         },
       });
 
       expect(attemptSelfHealCalled).toBe(false);
-      expect(rotateReason).toBeNull();
+      expect(observed.rotateReason).toBeNull();
       expect(state.stalledRecoveryAttempts).toBe(0);
       expect(state.appState.recoveryReason).toBeNull();
     });
@@ -183,7 +187,7 @@ export function registerQueue24Part02() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      let rotateReason: StreamRotationReason | null = null;
+      const observed = { rotateReason: null as StreamRotationReason | null };
       await rotateStreamerIfInvalid(state, {
         onFetchStreamContext: async () => ({
           channelName: 'streamer',
@@ -197,11 +201,12 @@ export function registerQueue24Part02() {
         }),
         onResolveCategorySlug: async () => 'test-game',
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
+          return true;
         },
       });
 
-      expect(rotateReason).toBe('stalled-progress');
+      expect(observed.rotateReason).toBe('stalled-progress');
       expect(state.stalledRecoveryAttempts).toBe(3);
       expect(state.appState.recoveryAttempts).toBe(3);
     });
@@ -218,7 +223,7 @@ export function registerQueue24Part02() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      let rotateReason: StreamRotationReason | null = null;
+      const observed = { rotateReason: null as StreamRotationReason | null };
       let selfHealCalled = false;
       await rotateStreamerIfInvalid(state, {
         onFetchStreamContext: async () => ({
@@ -236,12 +241,13 @@ export function registerQueue24Part02() {
           selfHealCalled = true;
         },
         onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
+          observed.rotateReason = reason;
+          return true;
         },
       });
 
       expect(selfHealCalled).toBe(false);
-      expect(rotateReason).toBe('stalled-progress');
+      expect(observed.rotateReason).toBe('stalled-progress');
       expect(state.stalledRecoveryAttempts).toBe(2);
     });
   });

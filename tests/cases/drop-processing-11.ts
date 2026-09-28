@@ -8,6 +8,7 @@ export function registerDropProcessing11(): void {
       const drops = [
         {
           id: 'd1',
+          name: 'Drop One',
           gameId: 'g1',
           progress: 100,
           currentMinutes: 1,
@@ -21,6 +22,7 @@ export function registerDropProcessing11(): void {
         } satisfies subject.TwitchDrop,
         {
           id: 'd2',
+          name: 'Drop Two',
           gameId: 'g1',
           progress: 100,
           currentMinutes: 1,
@@ -50,6 +52,7 @@ export function registerDropProcessing11(): void {
       const drops = [
         {
           id: 'd1',
+          name: 'Drop One',
           gameId: 'g1',
           progress: 100,
           currentMinutes: 1,
@@ -63,6 +66,7 @@ export function registerDropProcessing11(): void {
         } satisfies subject.TwitchDrop,
         {
           id: 'd2',
+          name: 'Drop Two',
           gameId: 'g1',
           progress: 50,
           currentMinutes: 1,
@@ -91,6 +95,7 @@ export function registerDropProcessing11(): void {
       const drops = [
         {
           id: 'd1',
+          name: 'Other Drop',
           gameId: 'g2',
           progress: 50,
           currentMinutes: 1,

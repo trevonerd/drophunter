@@ -49,7 +49,6 @@ describe('replaceAvailableGames', () => {
         name: 'GameA',
         endsAt: expiredTime,
         expiresInMs: 0,
-        expiryStatus: 'expired',
       }),
       createGame({ id: 'game-b', name: 'GameB' }),
     ];

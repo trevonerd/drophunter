@@ -135,13 +135,13 @@ describe('fetchDirectoryStreamersFromApi', () => {
       },
     ];
 
-    let capturedBody: Record<string, unknown> | null = null;
+    const capturedBody: Array<Record<string, unknown>> = [];
     const originalFetchMock = globalThis.fetch;
     let _callCount = 0;
     globalThis.fetch = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       _callCount++;
       if (init?.body && typeof init.body === 'string') {
-        capturedBody = JSON.parse(init.body);
+        capturedBody.push(JSON.parse(init.body));
       }
       return {
         ok: true,
@@ -154,8 +154,7 @@ describe('fetchDirectoryStreamersFromApi', () => {
     await fetchDirectoryStreamersFromApi(state, game, session, 'en');
 
     globalThis.fetch = originalFetchMock;
-    expect(capturedBody).not.toBeNull();
-    const vars = capturedBody?.variables as Record<string, unknown> | undefined;
+    const vars = capturedBody[0]?.variables as Record<string, unknown> | undefined;
     const options = vars?.options as Record<string, unknown> | undefined;
     const langs = options?.broadcasterLanguages as string[] | undefined;
     expect(langs).toContain('EN');

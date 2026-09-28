@@ -30,7 +30,7 @@ export function registerAutoClaimClaimableDropsCases() {
       const state = createMinimalState({
         appState: { ...createInitialState(), isRunning: true, autoClaimDrops: false },
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>();
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>();
 
       const result = await autoClaimClaimableDrops(state, getSession);
 
@@ -42,7 +42,7 @@ export function registerAutoClaimClaimableDropsCases() {
         appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true },
         dropClaimInFlight: true,
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>();
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>();
 
       const result = await autoClaimClaimableDrops(state, getSession);
 
@@ -54,7 +54,7 @@ export function registerAutoClaimClaimableDropsCases() {
         appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true },
         cachedDropsSnapshot: [],
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>();
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>();
 
       const result = await autoClaimClaimableDrops(state, getSession);
 
@@ -72,7 +72,7 @@ export function registerAutoClaimClaimableDropsCases() {
         },
         cachedDropsSnapshot: [claimableDrop],
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
 
       const result = await autoClaimClaimableDrops(state, getSession);
 
@@ -95,7 +95,7 @@ export function registerAutoClaimClaimableDropsCases() {
         appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true },
         cachedDropsSnapshot: [claimableDrop],
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
 
       expect(await autoClaimClaimableDrops(state, getSession)).toBe(true);
       expect(state.cachedDropsSnapshot[0]?.verificationState).toBe('verified');
@@ -109,8 +109,8 @@ export function registerAutoClaimClaimableDropsCases() {
         appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true, allDrops: [] },
         cachedDropsSnapshot: [claimableDrop],
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
-      const onDropClaimed = vi.fn<[TwitchDrop], void | Promise<void>>();
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const onDropClaimed = vi.fn<(drop: TwitchDrop) => void | Promise<void>>();
 
       await autoClaimClaimableDrops(state, getSession, onDropClaimed);
 
@@ -129,7 +129,7 @@ export function registerAutoClaimClaimableDropsCases() {
         },
         cachedDropsSnapshot: [claimableDrop],
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
       const claimedNotifications: TwitchDrop[] = [];
 
       // When a stale Twitch snapshot marks the same reward claimable again.
@@ -157,7 +157,7 @@ export function registerAutoClaimClaimableDropsCases() {
         appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true },
         cachedDropsSnapshot: [eventDrop],
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
 
       const result = await autoClaimClaimableDrops(state, getSession);
 
@@ -195,7 +195,7 @@ export function registerAutoClaimClaimableDropsCases() {
         appState: { ...createInitialState(), isRunning: true, autoClaimDrops: true },
         cachedDropsSnapshot: [watchTimeDrop, unknownDrop, subscriptionDrop, unverifiableNativeDrop],
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
 
       const result = await autoClaimClaimableDrops(state, getSession);
 
@@ -212,7 +212,7 @@ export function registerAutoClaimClaimableDropsCases() {
         cachedDropsSnapshot: [staleClaim],
         dropClaimRetryAtById: new Map([['stale-claim', Date.now() - 1000]]),
       });
-      const getSession = vi.fn<[boolean], Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
+      const getSession = vi.fn<() => Promise<TwitchSession | null>>().mockResolvedValue(makeSession());
 
       await autoClaimClaimableDrops(state, getSession);
 

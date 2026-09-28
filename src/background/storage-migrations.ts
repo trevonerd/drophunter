@@ -4,7 +4,6 @@ import { DROPS_SNAPSHOT_CACHE_KEY, TIMING_STATE_KEY, TWITCH_SESSION_STORAGE_KEY 
 import { createExtensionUpdateAppState } from './extension-reset.ts';
 import {
   FARMING_AUTOMATION_FACTS_STORAGE_KEY,
-  FARMING_AUTOMATION_SNOOZE_STORAGE_KEY,
   FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
 } from './farming-automation-contracts.ts';
 import { transformLegacyAppState } from './legacy-state-migration.ts';
@@ -14,6 +13,7 @@ export const STORAGE_SCHEMA_VERSION = 3;
 export const EXTENSION_VERSION_STORAGE_KEY = 'lastInitializedExtensionVersion';
 
 const FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX = 'farmingAutomationOwnedWatch:';
+const LEGACY_FARMING_AUTOMATION_SNOOZE_STORAGE_KEY = 'autoStartSnoozedForBrowserSession';
 
 const LEGACY_TWITCH_SESSION_KEYS = [
   'oauthToken',
@@ -64,7 +64,7 @@ export async function clearExtensionRuntimeStorage(): Promise<void> {
     browser.storage.local.remove([...UPDATE_RESET_LOCAL_KEYS]),
     browser.storage.session.remove([
       TIMING_STATE_KEY,
-      FARMING_AUTOMATION_SNOOZE_STORAGE_KEY,
+      LEGACY_FARMING_AUTOMATION_SNOOZE_STORAGE_KEY,
       ...managedOwnershipKeys,
     ]),
   ]);
@@ -109,7 +109,7 @@ async function migrateLegacyStorage(currentVersion: string, appState: unknown): 
     browser.storage.sync.remove([...LEGACY_TWITCH_SESSION_KEYS]),
     browser.storage.session.remove([
       TIMING_STATE_KEY,
-      FARMING_AUTOMATION_SNOOZE_STORAGE_KEY,
+      LEGACY_FARMING_AUTOMATION_SNOOZE_STORAGE_KEY,
       ...(await browser.storage.session
         .get(null)
         .then((sessionState) =>

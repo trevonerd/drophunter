@@ -1,5 +1,6 @@
 // Extracted from src/popup/App.tsx (CampaignSyncPanel component).
 
+import { classifyStartupPresentation, isRoutineStartupSync } from '../../shared/startup-presentation.ts';
 import type { CampaignSyncState } from '../../types';
 import type { CampaignSyncStatus } from '../constants';
 import { campaignValidationFeedback } from './campaign-sync-feedback';
@@ -11,6 +12,7 @@ export interface CampaignSyncPanelProps {
   hasCachedCampaigns: boolean;
   campaignSyncState: CampaignSyncState;
   blocksStartup?: boolean;
+  automaticStartPending?: boolean;
   onOpenTwitchDrops: () => void;
 }
 
@@ -20,9 +22,20 @@ export function CampaignSyncPanel({
   hasCachedCampaigns,
   campaignSyncState,
   blocksStartup = false,
+  automaticStartPending = false,
   onOpenTwitchDrops,
 }: CampaignSyncPanelProps) {
-  if (status === 'fresh' || status === 'signed-out' || campaignSyncState.status === 'needs-session') {
+  const startupPresentation = classifyStartupPresentation({
+    blocksStartup,
+    automaticStartPending,
+    campaignSyncState,
+  });
+  if (
+    status === 'fresh' ||
+    status === 'signed-out' ||
+    campaignSyncState.status === 'needs-session' ||
+    startupPresentation === 'starting-silently'
+  ) {
     return null;
   }
 
@@ -30,8 +43,7 @@ export function CampaignSyncPanel({
   const retryScheduled =
     campaignSyncState.status === 'retry-scheduled' && campaignSyncState.nextRetryAt > Date.now();
   const showError =
-    status === 'failed' &&
-    (campaignSyncState.status === 'retry-failed' || campaignSyncState.retryAttemptCount < 3);
+    status === 'failed' && (campaignSyncState.status === 'retry-failed' || startupPresentation === 'blocked');
   const visibleError =
     error ?? (campaignSyncState.status === 'retry-failed' ? campaignSyncState.error : null);
   const validationFeedback =
@@ -54,7 +66,7 @@ export function CampaignSyncPanel({
             ? 'Validating saved campaigns…'
             : 'Updating campaigns…'
           : status === 'pending-validation'
-            ? campaignSyncState.retryAttemptCount >= 3
+            ? !isRoutineStartupSync(campaignSyncState)
               ? 'Campaign validation is delayed.'
               : retryScheduled
                 ? 'Saved campaigns are pending validation. DropHunter will retry automatically.'

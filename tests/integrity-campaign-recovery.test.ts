@@ -4,9 +4,24 @@ import {
   ensureSessionIntegrity,
   syncTwitchIntegrityFromContentScriptExt,
 } from '../src/background/session-management.ts';
+import type { CampaignSyncState } from '../src/types/activation-sync.ts';
 import { createSession } from './api-operations-fixtures.ts';
 import { createMinimalState } from './fixtures/queue-management.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
+
+function retryScheduledState(lastErrorKind: 'integrity' | 'network'): CampaignSyncState {
+  return {
+    status: 'retry-scheduled',
+    lastAttemptAt: Date.now(),
+    lastSuccessAt: null,
+    campaignCount: null,
+    retryAttemptCount: 1,
+    lastErrorKind,
+    nextRetryAt: Date.now() + 600_000,
+    attemptDeadlineAt: null,
+    error: 'Campaign validation is waiting to retry.',
+  };
+}
 
 describe('campaign integrity recovery', () => {
   let chrome: ChromeMocks;
@@ -47,12 +62,7 @@ describe('campaign integrity recovery', () => {
       // Given: authentication is valid, but campaign validation is waiting on integrity.
       const state = createMinimalState();
       state.twitchSessionCache = { ...createSession(), clientIntegrity: 'rejected-token' };
-      state.appState.campaignSyncState = {
-        ...state.appState.campaignSyncState,
-        status: 'retry-scheduled',
-        lastErrorKind: 'integrity',
-        nextRetryAt: Date.now() + 600_000,
-      };
+      state.appState.campaignSyncState = retryScheduledState('integrity');
       let initialized = false;
       let retries = 0;
       const handlers = createServiceWorkerTwitchContentHandlers(state, {
@@ -85,11 +95,9 @@ describe('campaign integrity recovery', () => {
     test(`does not restart campaign validation for ${scenario}`, async () => {
       const state = createMinimalState();
       state.twitchSessionCache = { ...createSession(), clientIntegrity: 'current-token' };
-      state.appState.campaignSyncState = {
-        ...state.appState.campaignSyncState,
-        status: 'retry-scheduled',
-        lastErrorKind: scenario === 'network-error' ? 'network' : 'integrity',
-      };
+      state.appState.campaignSyncState = retryScheduledState(
+        scenario === 'network-error' ? 'network' : 'integrity',
+      );
       let retries = 0;
       const handlers = createServiceWorkerTwitchContentHandlers(state, {
         awaitInitialization: async () => {},
@@ -139,11 +147,7 @@ describe('campaign integrity recovery', () => {
   test('retries the same fresh token after its first storage write fails', async () => {
     const state = createMinimalState();
     state.twitchSessionCache = { ...createSession(), clientIntegrity: 'old-token' };
-    state.appState.campaignSyncState = {
-      ...state.appState.campaignSyncState,
-      status: 'retry-scheduled',
-      lastErrorKind: 'integrity',
-    };
+    state.appState.campaignSyncState = retryScheduledState('integrity');
     let retries = 0;
     const handlers = createServiceWorkerTwitchContentHandlers(state, {
       awaitInitialization: async () => {},

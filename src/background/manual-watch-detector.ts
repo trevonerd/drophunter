@@ -26,6 +26,7 @@ export interface ManualStreamContext {
 export interface ManualViewingDetectionOptions {
   readonly target: TwitchGame;
   readonly managedTabId: number | null;
+  readonly preparingManagedTabIds?: readonly number[];
   readonly automationActive: boolean;
   readonly now: number;
   readonly queryTabs: () => Promise<readonly ManualWatchTab[]>;
@@ -91,6 +92,7 @@ export async function detectManualViewing(
     if (
       typeof tab.id !== 'number' ||
       tab.id === options.managedTabId ||
+      options.preparingManagedTabIds?.includes(tab.id) === true ||
       getFarmableTwitchChannelNameFromUrl(tab.url) === null
     ) {
       continue;

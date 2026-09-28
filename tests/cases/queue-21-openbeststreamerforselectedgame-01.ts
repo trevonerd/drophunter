@@ -13,7 +13,7 @@ export function registerQueue21Part01() {
         createStreamer({ id: 'beta', name: 'beta' }),
       ];
       let seenCandidates: string[] = [];
-      let openedStreamer: string | null = null;
+      const observed: { streamer: string | null } = { streamer: null };
       const fetchLanguages: string[] = [];
 
       const opened = await openBestStreamerForSelectedGame(
@@ -24,7 +24,7 @@ export function registerQueue21Part01() {
             return Object.assign([...streamers], { languageFilterApplied: false }) as never;
           },
           onOpenForegroundChannel: async (streamer) => {
-            openedStreamer = streamer.name;
+            observed.streamer = streamer.name;
           },
         },
         {
@@ -48,7 +48,7 @@ export function registerQueue21Part01() {
       expect(opened).toBe(false);
       expect(fetchLanguages).toEqual(['']);
       expect(seenCandidates).toEqual([]);
-      expect(openedStreamer).toBeNull();
+      expect(observed.streamer).toBeNull();
     });
 
     test('falls back to unfiltered allowed streamers when preferred language hides them', async () => {
@@ -72,7 +72,7 @@ export function registerQueue21Part01() {
         preferredLanguage: string | null;
         filterApplied: boolean;
       }> = [];
-      let openedStreamer: string | null = null;
+      const observed: { streamer: string | null } = { streamer: null };
 
       const opened = await openBestStreamerForSelectedGame(
         state,
@@ -83,7 +83,7 @@ export function registerQueue21Part01() {
             return Object.assign([...result], { languageFilterApplied: Boolean(language) }) as never;
           },
           onOpenForegroundChannel: async (streamer) => {
-            openedStreamer = streamer.name;
+            observed.streamer = streamer.name;
           },
         },
         {
@@ -119,7 +119,7 @@ export function registerQueue21Part01() {
           filterApplied: false,
         },
       ]);
-      expect(openedStreamer).toBe('allowed-one');
+      expect(observed.streamer).toBe('allowed-one');
     });
 
     test('does not open a streamer when unfiltered fallback still has no allowed channels', async () => {

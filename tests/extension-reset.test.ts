@@ -55,6 +55,9 @@ describe('extension update reset', () => {
         currentMinutes: 5,
         requiredMinutes: 10,
         claimed: false,
+        acquisitionMethod: 'watch-time',
+        rewardKind: 'in-game',
+        verificationState: 'unassessed',
       },
     ];
     state.apiBackoffUntil = 9_999;

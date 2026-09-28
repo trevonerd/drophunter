@@ -58,14 +58,6 @@ export function createFarmingAutomationHarness(
   const scheduler = createFarmingAutomationScheduler(evaluateBatch);
   const automation = createFarmingAutomation({
     evaluateBatch,
-    persistSnooze: async () => {
-      try {
-        await persistence.setSession('autoStartSnoozedForBrowserSession', true);
-        return 'snoozed';
-      } catch {
-        return 'persistence-failed';
-      }
-    },
     scheduler,
   });
   harness = {

@@ -17,6 +17,7 @@ export type ManualWatchTransportDirective =
 export type FarmingAutomationManualWatchInput = {
   readonly target: TwitchGame | null;
   readonly managedTabId: number | null;
+  readonly preparingManagedTabIds?: readonly number[];
   readonly automationActive: boolean;
 };
 
@@ -185,6 +186,7 @@ export function createFarmingAutomationManualWatch(
         : await detectManualViewing({
             target: input.target,
             managedTabId: input.managedTabId,
+            preparingManagedTabIds: input.preparingManagedTabIds,
             automationActive: input.automationActive,
             now: observedAt,
             queryTabs: async () => observation.tabs.map(({ tab }) => tab),

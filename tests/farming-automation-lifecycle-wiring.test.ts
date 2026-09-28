@@ -80,8 +80,16 @@ describe('Farming automation lifecycle wiring', () => {
 
     // When: browser startup and both automation alarms arrive together.
     api.runtime.onStartup.trigger();
-    api.alarms.onAlarm.trigger({ name: 'favoriteCampaignCheck', scheduledTime: 1 });
-    api.alarms.onAlarm.trigger({ name: 'favoriteCampaignDeadline', scheduledTime: 2 });
+    api.alarms.onAlarm.trigger({
+      name: 'favoriteCampaignCheck',
+      scheduledTime: 1,
+      persistAcrossSessions: false,
+    });
+    api.alarms.onAlarm.trigger({
+      name: 'favoriteCampaignDeadline',
+      scheduledTime: 2,
+      persistAcrossSessions: false,
+    });
     await flushAsyncListeners();
 
     // Then: initialization wins and the deep public interface is the only automation path.
@@ -113,8 +121,16 @@ describe('Farming automation lifecycle wiring', () => {
 
     // When: startup and both alarms dispatch asynchronously.
     api.runtime.onStartup.trigger();
-    api.alarms.onAlarm.trigger({ name: 'favoriteCampaignCheck', scheduledTime: 1 });
-    api.alarms.onAlarm.trigger({ name: 'favoriteCampaignDeadline', scheduledTime: 2 });
+    api.alarms.onAlarm.trigger({
+      name: 'favoriteCampaignCheck',
+      scheduledTime: 1,
+      persistAcrossSessions: false,
+    });
+    api.alarms.onAlarm.trigger({
+      name: 'favoriteCampaignDeadline',
+      scheduledTime: 2,
+      persistAcrossSessions: false,
+    });
     await flushAsyncListeners();
 
     // Then: each rejection reaches the lifecycle reporter instead of escaping.
@@ -123,11 +139,10 @@ describe('Farming automation lifecycle wiring', () => {
   });
 
   test('distinguishes worker recycle from browser startup', async () => {
-    // Given: a snoozed browser session and an overdue durable deadline survive a worker recycle.
+    // Given: an overdue durable deadline survives a worker recycle.
     const chromeMocks = setupChromeMocks();
     const api = createLifecycleApi();
     const now = 20_000;
-    let snoozed = true;
     const triggerLog: FarmingAutomationTrigger[] = [];
     const alarmLog: Array<
       | { readonly kind: 'periodic'; readonly minutes: number }
@@ -139,7 +154,6 @@ describe('Farming automation lifecycle wiring', () => {
     const automation = {
       async request(trigger: FarmingAutomationTrigger): Promise<FarmingAutomationOutcome> {
         triggerLog.push(trigger);
-        if (trigger === 'browser-start') snoozed = false;
         return unchanged();
       },
     };
@@ -166,6 +180,8 @@ describe('Farming automation lifecycle wiring', () => {
                 lastPreemption: null,
                 manualWatch: null,
                 nextEvaluationAt: now - 1,
+                suppressedCampaignKeys: [],
+                suppressedUntilByCampaignKey: {},
               },
             };
           },
@@ -176,6 +192,7 @@ describe('Farming automation lifecycle wiring', () => {
     const lifecycle = createServiceWorkerStateLifecycle(createServiceWorkerState(), {
       getFarmingSession: () => ({
         acquireStreamerForSelectedGame: async () => false,
+        advanceQueueIfCompleted: async () => false,
         startMonitoring: () => undefined,
         stop: async () => undefined,
         stopMonitoring: () => undefined,
@@ -186,7 +203,6 @@ describe('Farming automation lifecycle wiring', () => {
     try {
       // When: the worker reconstructs, then a real browser startup event occurs.
       await lifecycle.beginInitialization(async () => undefined);
-      const afterRecycle = snoozed;
       registerExtensionLifecycleListeners({
         api,
         alarmName: 'dropCheck',
@@ -204,10 +220,8 @@ describe('Farming automation lifecycle wiring', () => {
       api.runtime.onStartup.trigger();
       await flushAsyncListeners();
 
-      // Then: recycle keeps snooze, clears the stale deadline, and evaluates exactly once before startup.
-      expect({ afterRecycle, snoozed, triggerLog, alarmLog }).toEqual({
-        afterRecycle: true,
-        snoozed: false,
+      // Then: recycle clears the stale deadline and browser startup remains a distinct trigger.
+      expect({ triggerLog, alarmLog }).toEqual({
         triggerLog: ['periodic', 'browser-start'],
         alarmLog: [
           { kind: 'periodic', minutes: 2 },
@@ -250,6 +264,8 @@ describe('Farming automation lifecycle wiring', () => {
               lastPreemption: null,
               manualWatch: null,
               nextEvaluationAt: now + 5_000,
+              suppressedCampaignKeys: [],
+              suppressedUntilByCampaignKey: {},
             },
           };
         },

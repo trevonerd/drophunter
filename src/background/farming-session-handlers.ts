@@ -42,8 +42,8 @@ type FarmingSessionHandlerDependencies = FarmingSessionStartDependencies;
 type SuccessResult = { readonly success: true };
 
 export type FarmingSessionHandlers = {
-  readonly automaticFavoritesEnabled: () => boolean;
   readonly handlePauseFarming: () => Promise<SuccessResult>;
+  readonly pauseAfterRestart: () => Promise<SuccessResult>;
   readonly handleResumeFarming: () => Promise<SuccessResult>;
   readonly handleStartFarming: (
     payload: StartFarmingPayload,
@@ -61,6 +61,14 @@ export function createFarmingSessionHandlers(
   dependencies: FarmingSessionHandlerDependencies,
 ): FarmingSessionHandlers {
   const { state, adapters } = context;
+
+  function scheduleTimingStateSave(): void {
+    void adapters.saveTimingState(state).catch((error: unknown) => {
+      logWarn('Farming session timing persistence failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+    });
+  }
 
   async function stop(options?: FarmingSessionStopOptions): Promise<void> {
     const signInRequired = options?.stopReason === 'sign-in-required';
@@ -96,7 +104,7 @@ export function createFarmingSessionHandlers(
           ? undefined
           : adapters.telegramSystemAlert,
       onSaveState: () => adapters.saveState(state),
-      onSaveTimingState: options?.skipTimingStateSave ? undefined : adapters.saveTimingState,
+      onSaveTimingState: options?.skipTimingStateSave ? undefined : async () => scheduleTimingStateSave(),
     });
     if (signInRequired && adapters.automationNotify) {
       const selectedGame = state.appState.selectedGame;
@@ -205,20 +213,24 @@ export function createFarmingSessionHandlers(
     await adapters.saveTimingState(state);
   }
 
-  async function pause(): Promise<SuccessResult> {
-    await adapters.trackActivity('pause-farming');
+  async function pause(trackActivity: boolean): Promise<SuccessResult> {
+    if (trackActivity) await adapters.trackActivity('pause-farming');
     state.appState.isPaused = true;
     state.playbackAttentionWarningSent = false;
     await adapters.watchTransport?.stop();
     context.manualWatchTransportSuspended = false;
     dependencies.onStopMonitoring();
     await adapters.saveState(state);
-    await adapters.saveTimingState(state);
+    scheduleTimingStateSave();
     return { success: true };
   }
 
   function handlePauseFarming(): Promise<SuccessResult> {
-    return runFarmingSessionMutation(state, pause);
+    return runFarmingSessionMutation(state, () => pause(true));
+  }
+
+  function pauseAfterRestart(): Promise<SuccessResult> {
+    return runFarmingSessionMutation(state, () => pause(false));
   }
 
   async function resume(): Promise<SuccessResult> {
@@ -237,7 +249,7 @@ export function createFarmingSessionHandlers(
     context.manualWatchTransportSuspended = false;
     dependencies.onStartMonitoring();
     await adapters.saveState(state);
-    await adapters.saveTimingState(state);
+    scheduleTimingStateSave();
     return { success: true };
   }
 
@@ -246,8 +258,8 @@ export function createFarmingSessionHandlers(
   }
 
   return {
-    automaticFavoritesEnabled: () => state.appState.autoStartFavoriteGames,
     handlePauseFarming,
+    pauseAfterRestart,
     handleResumeFarming,
     handleStartFarming,
     handleStopFarming,

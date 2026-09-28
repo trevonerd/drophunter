@@ -151,6 +151,24 @@ describe('farming session revision authority', () => {
     expect(events).toEqual(['first-started', 'first-finished', 'second-started']);
   });
 
+  test('does not block manual controls on debounced timing persistence', async () => {
+    const state = createServiceWorkerState();
+    const timingSave = createDeferred<void>();
+    const adapters = createAdapters(async () => undefined);
+    const session = createFarmingSession(state, {
+      ...adapters,
+      saveTimingState: () => timingSave.promise,
+    });
+
+    await session.handlePauseFarming();
+    expect(state.appState.isPaused).toBe(true);
+
+    await session.handleResumeFarming();
+    expect(state.appState.isPaused).toBe(false);
+
+    timingSave.resolve(undefined);
+  });
+
   test('keeps revision state ephemeral and isolated per session state', async () => {
     // Given
     const state = createServiceWorkerState();

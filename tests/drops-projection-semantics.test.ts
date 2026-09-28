@@ -87,27 +87,27 @@ describe('duplicate unverifiable reward observations', () => {
       },
       expectedStrongerState: 'verified',
     },
-  ] as const)('reconciles every same-key row when $evidence appears in either order', ({
-    stronger,
-    expectedStrongerState,
-  }) => {
-    // Given
-    const expected = {
-      projected: [
-        { progress: 99, currentMinutes: 59, verificationState: 'unassessed' },
-        { progress: 100, currentMinutes: 60, verificationState: expectedStrongerState },
-      ],
-      markers: {},
-    };
+  ] as const)(
+    'reconciles every same-key row when $evidence appears in either order',
+    ({ stronger, expectedStrongerState }) => {
+      // Given
+      const expected: ReturnType<typeof projectDuplicateObservations> = {
+        projected: [
+          { progress: 99, currentMinutes: 59, verificationState: 'unassessed' },
+          { progress: 100, currentMinutes: 60, verificationState: expectedStrongerState },
+        ],
+        markers: {},
+      };
 
-    // When
-    const staleThenStrong = projectDuplicateObservations([staleObservation, stronger]);
-    const strongThenStale = projectDuplicateObservations([stronger, staleObservation]);
+      // When
+      const staleThenStrong = projectDuplicateObservations([staleObservation, stronger]);
+      const strongThenStale = projectDuplicateObservations([stronger, staleObservation]);
 
-    // Then
-    expect(staleThenStrong).toEqual(expected);
-    expect(strongThenStale).toEqual(staleThenStrong);
-  });
+      // Then
+      expect(staleThenStrong).toEqual(expected);
+      expect(strongThenStale).toEqual(staleThenStrong);
+    },
+  );
 });
 
 describe('authoritative reward-set completeness', () => {
@@ -149,6 +149,7 @@ test('an omitted campaign-verification flag cannot clear a stall block or termin
       blockedAt: 1,
       rotationAttempts: 3,
       eligibleStreamerNames: ['old-channel'],
+      rewardProgressByKey: {},
     },
   };
   const snapshot = {

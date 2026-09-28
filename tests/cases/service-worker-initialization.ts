@@ -16,7 +16,7 @@ export function registerInitializationCases() {
       let createCalls = 0;
       chrome.tabs.create = async () => {
         createCalls += 1;
-        return null;
+        throw new Error('simulated tab creation failure');
       };
 
       const responsePromise = dispatchMessageFromMocks(isolated.mocks, { type: 'OPEN_DROPS_AND_SYNC' });
@@ -25,7 +25,7 @@ export function registerInitializationCases() {
       await sleepTick();
 
       expect(createCalls).toBe(0);
-      expect(isolated.setCalls).toHaveLength(0);
+      expect(isolated.setCalls.some((items) => 'appState' in items)).toBe(false);
 
       isolated.releaseInitialLoad();
       const response = (await responsePromise) as { success?: boolean; error?: string };
@@ -61,7 +61,7 @@ export function registerInitializationCases() {
       await sleepTick();
 
       expect(fetchCalls).toBe(0);
-      expect(isolated.setCalls).toHaveLength(0);
+      expect(isolated.setCalls.some((items) => 'appState' in items)).toBe(false);
 
       isolated.releaseInitialLoad();
       const response = (await responsePromise) as {

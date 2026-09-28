@@ -11,7 +11,7 @@ import {
 } from './support/automation-notification-fakes.ts';
 
 describe('automation notification controls', () => {
-  test('the Pause action snoozes automation regardless of the favorite preference', async () => {
+  test('the Pause action persists session intent regardless of the favorite preference', async () => {
     for (const automaticFavoritesEnabled of [true, false]) {
       const state = { appState: { ...createInitialState(), notificationsEnabled: true } };
       const fakes = createAutomationNotificationFakes(true);
@@ -19,13 +19,10 @@ describe('automation notification controls', () => {
       const userActions = createFarmingAutomationUserActionHandlers(
         {
           request: async () => ({ kind: 'unchanged', reason: 'disabled' }),
-          snooze: async (reason) => {
-            actions.push(`snooze:${reason}`);
-            return 'snoozed';
-          },
+          invalidate: () => actions.push('invalidate'),
+          suppressCampaignUntilRefresh: async () => 'suppressed',
         },
         {
-          automaticFavoritesEnabled: () => automaticFavoritesEnabled,
           handlePauseFarming: async () => {
             actions.push('pause');
             return { success: true };
@@ -51,7 +48,7 @@ describe('automation notification controls', () => {
       fakes.buttonClickedListeners[0]?.(notificationId, 1);
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(actions).toEqual(['snooze:manual-pause', 'pause']);
+      expect(actions).toEqual(['invalidate', 'pause']);
     }
   });
 

@@ -1,14 +1,32 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { INITIAL_QUEUE_FEEDBACK_STATE, publishQueueFeedback } from '../src/popup/queue-feedback';
-
-const source = readFileSync(new URL('../src/popup/hooks/usePopupActions.ts', import.meta.url), 'utf8');
+import {
+  INITIAL_QUEUE_FEEDBACK_STATE,
+  publishQueueFeedback,
+  QUEUE_MESSAGE_DISMISS_MS,
+  scheduleQueueFeedbackDismissal,
+} from '../src/popup/queue-feedback';
 
 test('queue feedback dismisses after six seconds and restarts for every publication', () => {
-  expect(source).toContain('const QUEUE_MESSAGE_DISMISS_MS = 6_000;');
-  expect(source).toContain('globalThis.setTimeout(() => setQueueMessage(null), QUEUE_MESSAGE_DISMISS_MS)');
-  expect(source).toContain('return () => globalThis.clearTimeout(timeout);');
-  expect(source).toContain('[queueMessage, queueMessageOccurrence]');
+  let scheduledCallback: () => void = () => undefined;
+  let scheduledDelay = 0;
+  const cancelledTimeouts: number[] = [];
+  const events: string[] = [];
+
+  const cleanup = scheduleQueueFeedbackDismissal(
+    () => events.push('dismissed'),
+    (callback, delayMs) => {
+      scheduledCallback = callback;
+      scheduledDelay = delayMs;
+      return 42;
+    },
+    (timeout) => cancelledTimeouts.push(timeout),
+  );
+
+  expect(scheduledDelay).toBe(QUEUE_MESSAGE_DISMISS_MS);
+  scheduledCallback();
+  expect(events).toEqual(['dismissed']);
+  cleanup();
+  expect(cancelledTimeouts).toEqual([42]);
 });
 
 test('identical queue feedback publications have distinct occurrences', () => {

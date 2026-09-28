@@ -21,7 +21,9 @@ const target: TwitchGame = {
 describe('Farming automation manual watch', () => {
   test('serializes concurrent fact evaluations', async () => {
     // Given: the first browser observation is held open.
-    let releaseFirstObservation: (() => void) | null = null;
+    let releaseFirstObservation: () => void = () => {
+      throw new Error('First observation was not initialized');
+    };
     const firstObservation = new Promise<void>((resolve) => {
       releaseFirstObservation = resolve;
     });
@@ -60,7 +62,7 @@ describe('Farming automation manual watch', () => {
     await Promise.resolve();
     await Promise.resolve();
     const concurrentCalls = observationCalls;
-    releaseFirstObservation?.();
+    releaseFirstObservation();
     await Promise.all([first, second]);
 
     // Then: the second compare-and-update starts only after the first completes.

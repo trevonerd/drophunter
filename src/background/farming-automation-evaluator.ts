@@ -56,26 +56,12 @@ export function createFarmingAutomationEvaluator(
       persistFarmingAutomationRetry(dependencies.persistence, dependencies.browser, facts, reason, now);
     const saveFacts = () =>
       persistFarmingAutomationFacts(dependencies.persistence, dependencies.browser, facts, now);
-    if (triggers.has('browser-start')) {
-      const cleared = await dependencies.persistence.clearSnooze();
-      if (cleared.kind === 'failed') return { kind: 'failed', reason: 'persistence-failed' };
-      dependencies.runtime.snoozed = false;
-      dependencies.runtime.generation += 1;
-    } else {
-      const snooze = await dependencies.persistence.loadSnooze();
-      if (snooze.kind === 'failed') return { kind: 'failed', reason: 'persistence-failed' };
-      dependencies.runtime.snoozed = dependencies.runtime.snoozed || snooze.value;
-    }
     const expiredFacts = expireFarmingAutomationManualWatch(facts, now);
     if (expiredFacts !== facts) {
       facts = expiredFacts;
       if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
     }
-    const cheapGate = cheapFarmingAutomationGate(
-      dependencies.state,
-      dependencies.runtime.snoozed,
-      facts.suppressedCampaignKeys.length > 0,
-    );
+    const cheapGate = cheapFarmingAutomationGate(dependencies.state, facts.suppressedCampaignKeys.length > 0);
     const refreshAvailabilityOnly = shouldRefreshAvailabilityOnly(
       cheapGate,
       triggers,

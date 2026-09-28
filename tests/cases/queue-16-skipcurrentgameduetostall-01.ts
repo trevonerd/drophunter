@@ -65,23 +65,27 @@ export function registerQueue16Part01() {
       state.appState.queue = [];
 
       let stopFarmingCalled = false;
-      let stopParams: {
-        stopReason: string;
-        stopMessage: string;
-        notification: { title: string; message: string };
-      } | null = null;
+      const captured: {
+        stopParams: {
+          stopReason: string;
+          stopMessage: string;
+          notification: { title: string; message: string };
+        } | null;
+      } = { stopParams: null };
 
       await skipCurrentGameDueToStall(state, {
         onStopFarmingSession: async (params) => {
           stopFarmingCalled = true;
-          stopParams = params;
+          captured.stopParams = params;
         },
       });
 
       expect(stopFarmingCalled).toBe(true);
-      expect(stopParams?.stopReason).toBe('stall-skipped');
-      expect(stopParams?.notification.title).toBe('Farming stopped: no drop progress');
-      expect(stopParams?.notification.message).toContain('opened a stream but drop progress did not resume');
+      expect(captured.stopParams?.stopReason).toBe('stall-skipped');
+      expect(captured.stopParams?.notification.title).toBe('Farming stopped: no drop progress');
+      expect(captured.stopParams?.notification.message).toContain(
+        'opened a stream but drop progress did not resume',
+      );
     });
 
     test('calls onSaveState after skipping', async () => {

@@ -1,7 +1,19 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createFarmingSession, type FarmingSessionAdapters } from '../src/background/farming-session.ts';
 import { currentFarmingSessionEpoch } from '../src/background/farming-session-revision.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { createDrop, createGame, createStreamer } from './fixtures/queue-management.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
+
+let chrome: ReturnType<typeof setupChromeMocks>;
+
+beforeEach(() => {
+  chrome = setupChromeMocks();
+});
+
+afterEach(() => {
+  chrome.teardown();
+});
 
 function createAdapters(): FarmingSessionAdapters {
   return {
@@ -41,7 +53,6 @@ describe('farming session facade', () => {
     expect(methods).toEqual([
       'acquireStreamerForSelectedGame',
       'advanceQueueIfCompleted',
-      'automaticFavoritesEnabled',
       'checkDropProgress',
       'handleAddToQueue',
       'handleAuthoritativeCampaignUnavailable',
@@ -53,6 +64,7 @@ describe('farming session facade', () => {
       'handleSetSelectedGame',
       'handleStartFarming',
       'handleStopFarming',
+      'pauseAfterRestart',
       'recoverTwitchSession',
       'refreshDropsData',
       'resumeAfterAuthRecovery',
@@ -74,5 +86,55 @@ describe('farming session facade', () => {
 
     // Then
     expect(currentFarmingSessionEpoch(state)).toBe(capturedEpoch);
+  });
+
+  test('starts only when the requested campaign has a farmable reward', async () => {
+    const state = createServiceWorkerState();
+    const requested = createGame({ id: 'shared-game', campaignId: 'campaign-requested' });
+    const sibling = createGame({ id: 'shared-game', campaignId: 'campaign-sibling' });
+    const requestedDrop = createDrop({
+      gameId: requested.id,
+      campaignId: requested.campaignId,
+      requiredMinutes: 60,
+      remainingMinutes: 60,
+    });
+    state.appState.availableGames = [requested, sibling];
+    state.appState.pendingDrops = [requestedDrop];
+    state.appState.allDrops = [requestedDrop];
+    state.appState.currentDrop = requestedDrop;
+    state.appState.activeStreamer = createStreamer();
+
+    const result = await createFarmingSession(state, createAdapters()).handleStartFarming({
+      game: requested,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(state.appState.selectedGame?.campaignId).toBe(requested.campaignId);
+  });
+
+  test('rejects a requested campaign when only a sibling campaign has a farmable reward', async () => {
+    const state = createServiceWorkerState();
+    const requested = createGame({ id: 'shared-game', campaignId: 'campaign-requested' });
+    const sibling = createGame({ id: 'shared-game', campaignId: 'campaign-sibling' });
+    const siblingDrop = createDrop({
+      gameId: sibling.id,
+      campaignId: sibling.campaignId,
+      requiredMinutes: 60,
+      remainingMinutes: 60,
+    });
+    state.appState.availableGames = [requested, sibling];
+    state.appState.queue = [sibling];
+    state.appState.pendingDrops = [siblingDrop];
+    state.appState.allDrops = [siblingDrop];
+    state.appState.currentDrop = siblingDrop;
+
+    const result = await createFarmingSession(state, createAdapters()).handleStartFarming({
+      game: requested,
+    });
+
+    expect(result).toEqual({ success: false, error: 'No farmable drops for this game.' });
+    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([sibling.campaignId]);
   });
 });

@@ -89,7 +89,7 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
     fetchInventorySnapshotFromApi: async () => null,
     fetchDirectoryStreamersFromApi: async () => Object.assign([streamer], { languageFilterApplied: true }),
     fetchStreamContext: async () => null,
-    resolveCategorySlug: async () => game.categorySlug ?? null,
+    resolveCategorySlug: async () => game.categorySlug ?? '',
     openForegroundChannel: async () => {},
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
@@ -231,6 +231,7 @@ describe('AFK Twitch authentication recovery', () => {
       onAttemptAutoClaimChannelPointsBonus: async () => false,
       onRefreshDropsData: async () => {
         await gateway.fetchInventorySnapshot([drop]);
+        return 'refreshed';
       },
       onAutoClaimClaimableDrops: async () => true,
       onAdvanceQueueIfCompleted: async () => false,

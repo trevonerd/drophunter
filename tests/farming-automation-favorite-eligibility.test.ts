@@ -4,7 +4,8 @@ import {
   FarmingAutomationInventoryRefreshError,
   type FarmingAutomationTwitchSource,
 } from '../src/background/farming-automation-twitch.ts';
-import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchSession } from '../src/types/index.ts';
+import type { TwitchSession } from '../src/background/twitch-api/types.ts';
+import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
 const session: TwitchSession = {
   oauthToken: 'oauth-token',

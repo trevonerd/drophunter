@@ -12,7 +12,7 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 ## Architecture Map
 - `src/background/service-worker.ts` wires controllers, runtime messages, alarms, lifecycle, tab orchestration, Twitch API calls, cache refresh delegation, persistence. Farming session behavior goes through `src/background/farming-session.ts`; games-cache refresh orchestration goes through `src/background/games-cache-orchestration.ts`.
 - Background modules take `ServiceWorkerState` and mutate it. Add behavior to focused modules before growing `service-worker.ts`.
-- `src/background/farming-session.ts` composes farming session interface (start/stop/pause/resume, monitoring ticks, streamer acquisition, queue advancement, recovery orchestration) from `farming-session-context.ts`, `farming-session-handlers.ts`, `farming-session-monitoring.ts`, `farming-session-queue.ts`, `farming-session-streaming.ts`, which hold the actual logic.
+- `src/background/farming-session.ts` exports `createFarmingSession`, the facade that composes the farming-session interface (start/stop/pause/resume, monitoring ticks, streamer acquisition, queue advancement, recovery orchestration) from `farming-session-context.ts`, `farming-session-handlers.ts`, `farming-session-monitoring.ts`, `farming-session-queue.ts`, and `farming-session-streaming.ts`, which hold the actual logic. Wire consumers through this facade rather than importing its implementation modules directly.
 - `src/background/drops-projection.ts` owns Drops snapshot projection: campaign-aware drop matching, game completion annotation, selected-game drop splitting, monotonic progress preservation, progress-recovery proof.
 - `src/background/runtime-state.ts` owns `ServiceWorkerState`, `createServiceWorkerState()`, timing normalization, crash/startup resume policy, rotation metadata clearing.
 - `src/background/state-persistence.ts` = storage boundary for `appState`, snapshot cache, timing state, activity timestamps, badge updates, state broadcasts.
@@ -45,6 +45,7 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - MV3 service workers restart often. Persist durable state, restore timing state; don't rely on in-memory vars surviving.
 - `PROGRESS_POLL_MS` must stay ≥ Chrome alarm minimum (0.5 min floor).
 - Crash/restart depends on `lastHeartbeatAt`, `CRASH_DETECTION_THRESHOLD_MS`, `autoResumeOnStartup`, `resumedFromCrash`. Cover changes with crash/recovery tests.
+- Manual **Pause** preserves the authorized queue and session position in `AppState`; playback and monitoring stay stopped until an explicit Resume or Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends the session, and clears manual queue authorization until an explicit Start. Explicitly enabling favorite auto-start may clear either block; merely adding a favorite must not restart farming. `autoResumeOnStartup` applies only to a session that was actively running when the browser stopped and never overrides Pause or Stop.
 - `resumedFromCrash` = transient UI state. Clear lazily via normal ticks/save paths, not timer-only cleanup.
 - Recovery: prefer self-heal/backoff/rotation before terminal stop. Terminal stops = manual stop/queue complete/no active campaigns/sign-in required.
 - Don't close only tab in Chrome window when releasing managed tab. Preserve user windows.
@@ -90,11 +91,15 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 ## Testing Matrix
 - Queue/farming regressions: `tests/queue-management.test.ts`, `tests/queue-start.test.ts`, `tests/service-worker.test.ts`.
 - Campaign identity/labels: `tests/replace-games.test.ts`, `tests/campaign-selection.test.ts`.
-- Runtime persistence/recovery: `tests/runtime-state.test.ts`, `tests/state-persistence.test.ts`, `tests/crash-recovery.test.ts`.
+- Runtime persistence/recovery: `tests/runtime-state.test.ts`, `tests/state-persistence-session.test.ts`, `tests/crash-recovery.test.ts`.
+- Manual-watch policy/controller: `tests/manual-watch-policy.test.ts`, `tests/farming-automation-manual-watch.test.ts`.
+- Favorite preemption: `tests/farming-automation-preemption.test.ts`.
+- Playback handoff: `tests/watch-transport-handoff.test.ts`.
 - Messages/router contracts: `tests/messages.test.ts`, `tests/message-router.test.ts`.
 - Twitch API/session/integrity parsing: `tests/client-parsing.test.ts`, `tests/integrity-token.test.ts`, `tests/session-management.test.ts`, `tests/api-operations.test.ts`.
 - Popup source behavior: `tests/popup-source.test.ts`.
 - Content/playback changes: `tests/content-script.test.ts`, `tests/content-app-state.test.ts`, `tests/playback-orchestrator.test.ts`.
+- Browser extension E2E: `e2e/extension-controls.spec.ts` via `bun run test:e2e` after a real Chrome MV3 build.
 - Release UI/check scripts: `tests/release-check-ui.test.ts`, `scripts/release-check.mjs`.
 
 ## Work Rules
@@ -104,18 +109,20 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - Keep imports/exports type-safe. Type-only re-exports like `export type { ServiceWorkerState }` OK for backward compat, erase at runtime.
 - Don't amend commits unless asked.
 - No destructive git commands unless explicitly asked + risk clear.
-- Run smallest relevant tests during dev; full release gate before release/store handoff.
+- Run smallest relevant tests during dev. `bun run test:types` and `bun run test:ts` are mandatory before handoff; run the full release gate before release/store handoff.
 
 ## Release And Store Handoff
 - Treat `4.0.0-beta.N` as GitHub/local-only builds. The manifest uses technical version `3.99.0.N` plus visible `version_name`; never upload these betas to browser stores.
 - Reserve manifest/tag/release version `4.0.0` for the first stable 4.x store submission.
 - Before release/store handoff run:
+  - `bun run test:types`
   - `bun run test:ts`
   - `bun run lint`
   - `bun test tests/`
+  - `bun run test:e2e`
   - `bun run build:all`
   - `bun audit`
-- Preferred release gate: `bun run release:check`; runs TypeScript, Biome, tests, build, generated manifest checks.
+- Preferred release gate: `bun run release:check`; runs source and test TypeScript, Biome, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
 - Regenerate release zips with `bun run release:zip`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
 - Stable store handoff: verify `README.md`, `PRIVACY.md`, screenshots, permission justifications, listing copy against exact production artifacts.
 - Long-run farming changes: exercise real eligible campaign progress, worker restart, sleep/wake, hidden→managed fallback, manual viewing, notifications, recovery.
@@ -128,7 +135,7 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - Twitch DOM/API shape changes normal. Keep code defensive, tests explicit about null/missing/duplicate/stale data.
 
 
-## vexp - Context-Aware AI Coding <!-- vexp v3.2.4 -->
+## vexp - Context-Aware AI Coding <!-- vexp v3.3.0 -->
 
 ### Context strategy: call run_pipeline ONCE at task start
 If the task already names the files/symbols to touch, SKIP vexp. Otherwise one

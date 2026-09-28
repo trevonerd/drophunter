@@ -175,7 +175,7 @@ export type RuntimeResponseByType = BooleanToggleResponseByType &
     EVALUATE_AUTO_START: BasicResponse & { started?: boolean; reason?: string };
     ADD_TO_QUEUE: BasicResponse & { added?: boolean; reason?: AddToQueueReason };
     REMOVE_FROM_QUEUE: BasicResponse & { removed?: number; queueLength?: number };
-    REORDER_QUEUE: BasicResponse & { reordered?: boolean };
+    REORDER_QUEUE: BasicResponse & { reordered?: boolean; queueLength?: number };
     START_FARMING: BasicResponse;
     START_QUEUED_CAMPAIGN: BasicResponse;
     SET_SELECTED_GAME: BasicResponse & { selectedGame?: TwitchGame | null };

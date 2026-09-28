@@ -11,7 +11,11 @@ import { setupTabManagementMock, type TabManagementTabUpdateDetails } from './mo
 describe('clearManagedTabOwnership', () => {
   test('clears tabId and activeStreamer from state', () => {
     const state = createTabManagementState({
-      appState: { ...createInitialState(), tabId: 42, activeStreamer: 'TestChannel' },
+      appState: {
+        ...createInitialState(),
+        tabId: 42,
+        activeStreamer: { id: 'test', name: 'TestChannel', displayName: 'TestChannel', isLive: true },
+      },
     });
     clearManagedTabOwnership(state);
     expect(state.appState.tabId).toBeNull();
@@ -22,7 +26,10 @@ describe('clearManagedTabOwnership', () => {
 describe('shouldMuteManagedFarmingTab', () => {
   test('returns true when muteFarmingTab is undefined', () => {
     const state = createTabManagementState();
-    delete state.appState.muteFarmingTab;
+    Object.defineProperty(state.appState, 'muteFarmingTab', {
+      configurable: true,
+      value: undefined,
+    });
     expect(shouldMuteManagedFarmingTab(state)).toBe(true);
   });
 

@@ -47,10 +47,11 @@ test.each(['integrity', 'network', 'rate-limit', 'invalid-response'] as const)(
           evaluated = true;
           return { kind: 'unchanged', reason: 'no-eligible-campaign' };
         },
+        suppressCampaignUntilRefresh: async () => 'suppressed',
       },
       farmingSession: {
         acquireStreamerForSelectedGame: async () => false,
-        advanceQueueIfCompleted: async () => {},
+        advanceQueueIfCompleted: async () => false,
         handleStartFarming: async () => ({ success: true }),
       },
     });

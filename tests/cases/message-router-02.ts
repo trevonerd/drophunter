@@ -13,7 +13,12 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
     throw new Error('unexpected handler');
   };
 
-  return {
+  const handlers: RuntimeMessageHandlers = {
+    activatePopup: missing,
+    openDropsAndSync: missing,
+    startQueuedCampaign: missing,
+    setGamePreference: missing,
+    setWatchTransportMode: missing,
     ensureGamesCache: missing,
     openDropsPageAndRefresh: missing,
     markDropsRefreshNoticeSeen: missing,
@@ -52,8 +57,9 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
     openMonitorDashboard: missing,
     getClaimLog: missing,
     clearClaimLog: missing,
-    ...overrides,
   };
+  Object.assign(handlers, overrides);
+  return handlers;
 }
 
 async function callListener(

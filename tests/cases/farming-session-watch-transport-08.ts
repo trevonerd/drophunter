@@ -108,7 +108,7 @@ export function registerManualWatchTransportCases(getChromeMocks: () => ChromeMo
       }),
     );
 
-    await watchTransport.start(streamer);
+    await watchTransport.start();
     await session.checkDropProgress();
     expect(state.appState.manualWatchState).toBe('eligible-manual');
     expect({ starts, stops, ticks }).toEqual({ starts: 1, stops: 1, ticks: 0 });

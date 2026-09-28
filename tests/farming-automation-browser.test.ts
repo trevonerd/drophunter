@@ -180,7 +180,7 @@ describe('farming automation browser', () => {
     // Then: only fully proven ownership permits a destructive browser action.
     expect(result).toEqual(expectedResult);
     expect(operations.filter((operation) => /^(remove|update):/.test(operation))).toEqual(
-      expectedDestructive,
+      Array.from(expectedDestructive),
     );
   });
 });

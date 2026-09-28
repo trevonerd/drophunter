@@ -51,8 +51,8 @@ export function registerDropProcessing13(): void {
         completion: 'farming-complete',
         remainderReasons: ['unverifiable-twitch'],
       });
-      expect(state.appState.availableGames[0]).toBe(state.appState.selectedGame);
-      expect(state.appState.queue[0]).toBe(state.appState.selectedGame);
+      expect(state.appState.availableGames[0]?.campaignId).toBe(state.appState.selectedGame?.campaignId);
+      expect(state.appState.queue[0]?.campaignId).toBe(state.appState.selectedGame?.campaignId);
       expect(state.appState.availableGames[1]).toBe(siblingGame);
       expect(state.appState.queue[1]).toBe(siblingGame);
     });

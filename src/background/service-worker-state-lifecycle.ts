@@ -26,6 +26,7 @@ import {
   type ServiceWorkerState,
 } from './runtime-state.ts';
 import { resetStreamTrackingState } from './session-lifecycle.ts';
+import { pauseFarmingAfterRestart, type StartupPauseSession } from './startup-pause.ts';
 import {
   broadcastStateUpdate,
   loadState as loadStateExt,
@@ -41,12 +42,11 @@ import { sanitizeTwitchSession } from './twitch-api/types.ts';
 
 const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000;
 
-interface StateLifecycleFarmingSession {
+interface StateLifecycleFarmingSession extends StartupPauseSession {
   readonly acquireStreamerForSelectedGame: () => Promise<boolean>;
   readonly advanceQueueIfCompleted: () => Promise<boolean>;
   readonly startMonitoring: () => void;
   readonly stop: (options?: { readonly skipTimingStateSave?: boolean }) => Promise<void>;
-  readonly stopMonitoring: () => void;
 }
 
 interface ServiceWorkerStateLifecycleDependencies {
@@ -160,6 +160,10 @@ export function createServiceWorkerStateLifecycle(
         recoveryAttempts: state.appState.recoveryAttempts,
         secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
       });
+      return;
+    }
+    if (policy === 'pause-after-restart') {
+      await pauseFarmingAfterRestart(state, dependencies.getFarmingSession(), now);
       return;
     }
     if (policy !== 'auto-resume') return;

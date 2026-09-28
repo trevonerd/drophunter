@@ -55,9 +55,6 @@ export function SessionSummary(props: SessionSummaryProps) {
     props.state.manualQueueAuthorized && isPaused
       ? 'The started queue is saved and will continue after Resume.'
       : null;
-  const showAutoStartNote =
-    props.state.autoStartFavoriteGames &&
-    (isRunning || isPaused || isRecovering || props.automaticStartPending);
   const startLabel = props.actionLoading
     ? 'Starting…'
     : props.queueCount > 0
@@ -133,7 +130,6 @@ export function SessionSummary(props: SessionSummaryProps) {
           <button
             type="button"
             onClick={props.onPause}
-            aria-describedby={showAutoStartNote ? 'session-auto-start-note' : undefined}
             disabled={props.actionLoading}
             className="dh-focus min-h-8 flex-1 rounded-lg border border-[color:var(--dh-border-strong)] px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] disabled:opacity-45"
           >
@@ -154,7 +150,6 @@ export function SessionSummary(props: SessionSummaryProps) {
           <button
             type="button"
             onClick={props.onStop}
-            aria-describedby={showAutoStartNote ? 'session-auto-start-note' : undefined}
             disabled={props.actionLoading}
             className="dh-focus min-h-8 flex-1 rounded-lg border border-red-500/35 px-3 py-1.5 text-xs font-semibold text-red-300 disabled:opacity-45"
           >
@@ -174,14 +169,6 @@ export function SessionSummary(props: SessionSummaryProps) {
       {continuationNote && (
         <p className="border-t border-[color:var(--dh-border)] px-3 py-1.5 text-[10px] leading-snug text-[color:var(--dh-muted)]">
           {continuationNote}
-        </p>
-      )}
-      {showAutoStartNote && (
-        <p
-          id="session-auto-start-note"
-          className="border-t border-[color:var(--dh-border)] px-3 py-1.5 text-[11px] leading-snug text-[color:var(--dh-text-soft)]"
-        >
-          Favorite auto-start can restart farming after Pause or Stop. Turn it off to keep farming stopped.
         </p>
       )}
     </section>

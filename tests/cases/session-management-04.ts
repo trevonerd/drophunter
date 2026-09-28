@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
 import { trySanitizeSessionCandidate } from '../../src/background/session-management.ts';
 import type { TwitchSession } from '../../src/background/twitch-api/types.ts';
@@ -6,6 +7,7 @@ import { createInitialState } from '../../src/shared/utils.ts';
 
 function _createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
+    ...createServiceWorkerState(),
     appState: createInitialState(),
     monitorTickInFlight: false,
     invalidStreamChecks: 0,

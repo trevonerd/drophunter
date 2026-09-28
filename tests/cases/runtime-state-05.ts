@@ -24,11 +24,11 @@ describe('applyExtensionUpdateStateTransition', () => {
       selectedGame: { id: 'game-1', name: 'Game', imageUrl: '' },
       isRunning: true,
       tabId: 42,
-      activeStreamer: { id: 'streamer-1', name: 'S1', displayName: 'S1', imageUrl: '' },
+      activeStreamer: { id: 'streamer-1', name: 'S1', displayName: 'S1', isLive: true },
       recoveryReason: 'stalled-progress',
       recoveryBackoffUntil: 99_999,
       recoveryAttempts: 3,
-      resumedFromCrash: true,
+      resumedFromCrash: 1,
       lastRotationReason: 'viewers',
       lastRotationAt: 1234,
     };

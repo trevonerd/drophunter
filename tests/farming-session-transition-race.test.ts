@@ -99,7 +99,7 @@ describe('automatic farming session transition races', () => {
           commitGate.markStarted();
           const result = await commitGate.promise;
           state.appState = structuredClone(commit.nextAppState);
-          state.cachedDropsSnapshot = structuredClone(commit.nextDropsSnapshot);
+          state.cachedDropsSnapshot = [...structuredClone(commit.nextDropsSnapshot)];
           events.push('publish');
           return result;
         },

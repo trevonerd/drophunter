@@ -28,8 +28,7 @@ type FailureStage =
   | 'preparation'
   | 'commit'
   | 'persistence'
-  | 'queue-write'
-  | 'snooze-write';
+  | 'queue-write';
 
 const streamer: TwitchStreamer = {
   id: 'streamer',
@@ -106,10 +105,6 @@ function fixture(stage: FailureStage) {
       stage === 'queue-write'
         ? async () => ({ kind: 'failed', reason: 'storage-unavailable' })
         : base.savePolicyPatch,
-    setSnooze:
-      stage === 'snooze-write'
-        ? async () => ({ kind: 'failed', reason: 'storage-unavailable' })
-        : base.setSnooze,
     commitTransition:
       stage === 'commit'
         ? async () => ({ kind: 'failed', reason: 'transition-commit-failed' })
@@ -243,21 +238,5 @@ describe('Farming automation operational failures', () => {
     expect(subject.state.appState.nextAutomationCheckAt).toBe(122_000);
     expect(subject.state.appState.campaignAvailabilityByKey).toEqual({});
     expect(subject.disposals()).toBe(0);
-  });
-
-  test('keeps an immediate in-memory snooze after durable snooze persistence fails', async () => {
-    // Given: persistence rejects the durable snooze write.
-    const subject = fixture('snooze-write');
-
-    // When: the user snoozes before another request.
-    const snooze = await subject.automation.snooze('manual-stop');
-    const outcome = await subject.automation.request('periodic');
-
-    // Then: the failure is surfaced without touching the incumbent fixture.
-    expect({ snooze, outcome, selected: subject.state.appState.selectedGame }).toEqual({
-      snooze: 'persistence-failed',
-      outcome: { kind: 'unchanged', reason: 'snoozed' },
-      selected: subject.incumbent,
-    });
   });
 });

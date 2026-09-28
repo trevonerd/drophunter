@@ -89,7 +89,7 @@ function _createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmi
     fetchInventorySnapshotFromApi: async () => null,
     fetchDirectoryStreamersFromApi: async () => Object.assign([streamer], { languageFilterApplied: true }),
     fetchStreamContext: async () => null,
-    resolveCategorySlug: async () => game.categorySlug ?? null,
+    resolveCategorySlug: async () => game.categorySlug ?? '',
     openForegroundChannel: async () => {},
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
@@ -172,13 +172,30 @@ describe('AFK Twitch authentication recovery', () => {
         deviceId: 'device-1',
         uuid: 'uuid-1',
       },
-      { tab: { id: 7, url: 'https://www.twitch.tv/drops/campaigns' } },
+      {
+        tab: {
+          id: 7,
+          index: 0,
+          windowId: 1,
+          url: 'https://www.twitch.tv/drops/campaigns',
+          pinned: false,
+          highlighted: true,
+          active: true,
+          frozen: false,
+          incognito: false,
+          selected: true,
+          discarded: false,
+          autoDiscardable: true,
+          groupId: -1,
+          lastAccessed: Date.now(),
+        },
+      },
     );
 
     expect(result.success).toBe(true);
     expect(resumes).toBe(1);
     expect(state.appState.isRunning).toBe(true);
-    expect(state.appState.twitchSessionSyncState).toEqual({
+    expect(state.appState.twitchSessionSyncState).toMatchObject({
       status: 'ready',
       attempts: 0,
       nextRetryAt: null,

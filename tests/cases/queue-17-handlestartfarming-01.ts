@@ -80,13 +80,14 @@ export function registerQueue17Part01() {
     test('adds game to front of queue', async () => {
       const state = createMinimalState();
       const existingGame = createGame({ id: 'existing', name: 'Existing Game' });
-      const newGame = createGame({ id: 'new', name: 'New Game' });
+      const newGame = createGame({ id: 'new', name: 'New Game', campaignId: 'new-campaign' });
       state.appState.queue = [existingGame];
-      state.appState.pendingDrops = [createDrop()];
+      state.appState.pendingDrops = [createDrop({ gameId: newGame.id, campaignId: newGame.campaignId })];
       state.appState.availableGames = [existingGame, newGame];
 
-      await handleStartFarming(state, { game: newGame });
+      const result = await handleStartFarming(state, { game: newGame });
 
+      expect(result).toEqual({ success: true });
       expect(state.appState.queue[0].id).toBe('new');
       expect(state.appState.queue[1].id).toBe('existing');
     });
@@ -223,24 +224,27 @@ export function registerQueue17Part01() {
       const state = createMinimalState();
       state.appState.pendingDrops = [createDrop()];
 
-      let refreshOptions: {
+      type CapturedRefreshOptions = {
         includeCampaignFetch: boolean;
         includeInventoryFetch: boolean;
         suppressNotifications: boolean;
-      } | null = null;
+      };
+      const captured: CapturedRefreshOptions[] = [];
       await handleStartFarming(
         state,
         { game: createGame() },
         {
           onRefreshDropsData: async (options) => {
-            refreshOptions = options;
+            captured.push(options);
           },
         },
       );
 
-      expect(refreshOptions?.includeCampaignFetch).toBe(true);
-      expect(refreshOptions?.includeInventoryFetch).toBe(true);
-      expect(refreshOptions?.suppressNotifications).toBe(true);
+      const refreshOptions = captured[0];
+      if (!refreshOptions) throw new Error('Expected refresh options to be captured.');
+      expect(refreshOptions.includeCampaignFetch).toBe(true);
+      expect(refreshOptions.includeInventoryFetch).toBe(true);
+      expect(refreshOptions.suppressNotifications).toBe(true);
     });
 
     test('clears drop claim state', async () => {

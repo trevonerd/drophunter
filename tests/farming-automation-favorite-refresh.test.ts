@@ -8,9 +8,10 @@ import {
 import { createFarmingAutomationTwitchAdapter } from '../src/background/farming-automation-twitch.ts';
 import { currentFarmingSessionEpoch } from '../src/background/farming-session-revision.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import type { TwitchSession } from '../src/background/twitch-api/types.ts';
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
-import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchSession } from '../src/types/index.ts';
+import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
 const session: TwitchSession = {
   oauthToken: 'oauth-token',
@@ -123,11 +124,12 @@ test('campaign refresh persists the first farmable favorite immediately', async 
         watch: {
           kind: 'eligible-manual',
           observedAt: 2_000,
+          stoppedAt: null,
           expiresAt: 22_000,
           recheckAt: 22_000,
         },
       }),
-      reconcileTransport: async () => 'unchanged',
+      reconcileTransport: async () => ({ kind: 'unchanged' }),
     },
     now: () => 2_000,
     random: () => 0,

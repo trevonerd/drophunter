@@ -32,7 +32,14 @@ describe('farming session watch transport integration', () => {
       remainingMinutes: 0,
     };
     const calls: string[] = [];
-    const events: Array<{ event: string; transitionId: string }> = [];
+    const events: Array<{
+      event: string;
+      transitionId: string;
+      campaignId?: string;
+      title?: string;
+      message?: string;
+      telegramReason?: string;
+    }> = [];
     const session = createFarmingSession(
       state,
       createWatchTransportAdapters({

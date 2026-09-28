@@ -18,8 +18,8 @@ function createChromeNotificationFakes(permissionGranted: boolean) {
     },
     notificationsApi: {
       async create(
-        notificationIdOrOptions: string | chrome.notifications.NotificationOptions<true>,
-        options?: chrome.notifications.NotificationOptions<true>,
+        notificationIdOrOptions: string | chrome.notifications.NotificationOptions,
+        options?: chrome.notifications.NotificationOptions,
       ) {
         const notificationOptions =
           typeof notificationIdOrOptions === 'string' ? options : notificationIdOrOptions;

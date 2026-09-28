@@ -68,6 +68,7 @@ export function createFarmingSessionMonitoring(
     const directive = await context.manualWatchController.reconcileTransport({
       target: state.appState.selectedGame,
       managedTabId: state.appState.tabId,
+      preparingManagedTabIds: [...state.preparingManagedTabIds],
       automationActive: state.appState.isRunning && !state.appState.isPaused,
       transportSuspended: context.manualWatchTransportSuspended,
     });

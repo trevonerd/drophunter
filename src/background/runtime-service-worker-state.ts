@@ -10,6 +10,7 @@ export function createServiceWorkerState(): ServiceWorkerState {
     streamerAcquisitionInFlight: null,
     streamerAcquisitionDeadlineAt: 0,
     streamerAcquisitionGeneration: 0,
+    preparingManagedTabIds: new Set(),
     tickGeneration: 0,
     invalidStreamChecks: 0,
     lastStreamRotationAt: 0,
