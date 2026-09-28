@@ -2,7 +2,7 @@
 
 Build candidata: `4.0.0-beta.45` (manifest tecnico `3.99.0.45`). Il 28 settembre 2026 `bun run release:check` è passato: TypeScript test/sorgente, Biome, suite unitaria, Chrome MV3 E2E con profilo persistente e terminazione effettiva del worker, audit dipendenze, build e archivi Chrome/Edge, verifica dei manifest. La build non è stata pubblicata sugli store.
 
-Archivio Chrome: `.output/drophunter-4.0.0-beta.45-chrome.zip`, SHA-256 `5d5b470f08073f06ca0cdfadbe04631bfadace7b3ce4bc72dc262c6b2c622f58`. L'archivio Edge è stato generato e validato dallo stesso gate. `vexp verify_done` segnala import come mancanti anche per export diretti ancora presenti; TypeScript, i test e la build li risolvono tutti, senza errori di parsing.
+Archivio Chrome: `.output/drophunter-4.0.0-beta.45-chrome.zip`, SHA-256 `4f384aa6c5e037f9b8cfe84398e2b7195fac41d8dd614914bfa224f0d6f3aea7`. L'archivio Edge è stato generato e validato dallo stesso gate. `vexp verify_done` segnala import come mancanti anche per export diretti ancora presenti; TypeScript, i test e la build li risolvono tutti, senza errori di parsing.
 
 La beta.44 non verificava il riciclo di un worker mentre il farming era attivo. Con `autoResumeOnStartup` spento, interpretava il heartbeat vecchio di oltre 30 secondi come riavvio del browser e chiamava `pauseAfterRestart`. La beta.45 usa un marcatore in `chrome.storage.session` per distinguere i due eventi; il nuovo E2E termina il worker dopo un progresso all'1% e verifica che la sessione resti attiva.
 
