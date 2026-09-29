@@ -207,39 +207,45 @@ test('a Chrome MV3 worker recycle after progress does not pause active farming',
   }
 });
 
-test('persistent profile upgrade discards stale recovery without losing manual queue intent', async () => {
-  const profile = await createExtensionProfile();
-  try {
-    const worker = await getExtensionWorker(profile.context);
-    await expect.poll(async () => worker.evaluate(async () =>
-      (await chrome.storage.local.get('storageSchemaVersion')).storageSchemaVersion,
-    )).toBe(4);
-    await seedAppState(profile, {
-      ...runningState(true),
-      isPaused: true,
-      recoveryReason: 'open-failed',
-      recoveryBackoffUntil: Date.now() + 365 * 24 * 60 * 60_000,
-      recoveryAttempts: 99,
-    });
-    expect(await worker.evaluate(async () => {
-      const data = await chrome.storage.local.get(['storageSchemaVersion', 'appState']);
-      return [data.storageSchemaVersion, (data.appState as Record<string, unknown>).recoveryReason];
-    })).toEqual([3, 'open-failed']);
-    await profile.shutdown();
-    const upgraded = await createExtensionProfile(profile.userDataDir);
+for (const isPaused of [false, true]) {
+  test(`persistent profile upgrade from beta.46 preserves ${isPaused ? 'paused' : 'active'} queue intent`, async () => {
+    const profile = await createExtensionProfile();
     try {
-      const popup = await openPopup(upgraded);
-      await expect.poll(async () => popup.evaluate(async () => {
-        const { appState, storageSchemaVersion } = await chrome.storage.local.get(['appState', 'storageSchemaVersion']);
-        const state = appState as Record<string, unknown>;
-        return [storageSchemaVersion, state.recoveryReason, state.recoveryBackoffUntil, state.isPaused, state.isRunning,
-          state.manualQueueAuthorized,
-          (state.queue as Array<{ campaignId: string }>)[0]?.campaignId];
-      })).toEqual([4, null, null, true, true, true, 'e2e-campaign']);
+      const worker = await getExtensionWorker(profile.context);
+      await expect.poll(async () => worker.evaluate(async () =>
+        (await chrome.storage.local.get('storageSchemaVersion')).storageSchemaVersion,
+      )).toBe(4);
+      await seedAppState(profile, {
+        ...runningState(false),
+        isPaused,
+        recoveryReason: 'open-failed',
+        recoveryBackoffUntil: Date.now() + 365 * 24 * 60 * 60_000,
+        recoveryAttempts: 99,
+      });
+      await worker.evaluate(() => chrome.storage.local.set({
+        storageSchemaVersion: 4,
+        lastInitializedExtensionVersion: '3.99.0.46',
+      }));
+      expect(await worker.evaluate(async () => {
+        const data = await chrome.storage.local.get(['storageSchemaVersion', 'lastInitializedExtensionVersion', 'appState']);
+        return [data.storageSchemaVersion, data.lastInitializedExtensionVersion, (data.appState as Record<string, unknown>).recoveryReason];
+      })).toEqual([4, '3.99.0.46', 'open-failed']);
+      await profile.shutdown();
+      const upgraded = await createExtensionProfile(profile.userDataDir);
+      try {
+        const popup = await openPopup(upgraded);
+        await expect.poll(async () => popup.evaluate(async () => {
+          const { appState, storageSchemaVersion, lastInitializedExtensionVersion } = await chrome.storage.local.get(['appState', 'storageSchemaVersion', 'lastInitializedExtensionVersion']);
+          const state = appState as Record<string, unknown>;
+          return [storageSchemaVersion, lastInitializedExtensionVersion, state.recoveryReason, state.recoveryBackoffUntil, state.isPaused, state.isRunning, state.wasRunning,
+            state.manualQueueAuthorized,
+            (state.queue as Array<{ campaignId: string }>)[0]?.campaignId];
+        })).toEqual([4, '3.99.0.47', null, null, isPaused, isPaused, !isPaused, true, 'e2e-campaign']);
+      } finally {
+        await upgraded.shutdown();
+      }
     } finally {
-      await upgraded.shutdown();
+      await profile.close();
     }
-  } finally {
-    await profile.close();
-  }
-});
+  });
+}

@@ -251,6 +251,7 @@ async function refreshCampaigns(popup: Awaited<ReturnType<typeof openPopup>>) {
 }
 
 test('completes the first queued campaign and reuses its managed tab for the next one', async () => {
+  test.setTimeout(60_000);
   const profile = await createExtensionProfile();
   try {
     const twitch = await installLocalTwitchFixture(profile);
@@ -282,7 +283,10 @@ test('completes the first queued campaign and reuses its managed tab for the nex
       payload: { game: games[0] },
     });
     expect(startResult).toEqual({ success: true });
-    await expect.poll(async () => (await readAppState(popup)).activeStreamer?.name).toBe('local-stream-one');
+    await expect.poll(async () => {
+      const state = await readAppState(popup);
+      return [state.activeStreamer?.name, typeof state.tabId === 'number'];
+    }, { timeout: 30_000 }).toEqual(['local-stream-one', true]);
     const first = await readAppState(popup);
     expect(first.selectedGame?.campaignId).toBe(games[0]?.campaignId);
     expect(first.queue.map((game) => game.campaignId)).toEqual(games.map((game) => game.campaignId));

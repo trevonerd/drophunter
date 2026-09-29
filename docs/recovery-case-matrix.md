@@ -4,7 +4,7 @@ Build candidata: `4.0.0-beta.47` (manifest tecnico `3.99.0.47`). Il 29 settembre
 
 La beta.47 riprende al riavvio una sessione che era attiva, ignora il vecchio `autoResumeOnStartup: false` senza modificare le altre preferenze e conserva Pausa e Stop manuali. Il badge mostra `⏸` in ambra in pausa e ripristina l'avanzamento alla ripresa; l'automazione dei preferiti valuta le campagne dopo il riavvio.
 
-Archivi beta.47: `.output/drophunter-4.0.0-beta.47-chrome.zip` e `.output/drophunter-4.0.0-beta.47-edge.zip`, SHA-256 `21d1aef2cdd4396302e37015e7b92f6dc6d54afe7d3f7ac0531a9c77ba8cea53` per entrambi.
+Archivi beta.47: `.output/drophunter-4.0.0-beta.47-chrome.zip` e `.output/drophunter-4.0.0-beta.47-edge.zip`, SHA-256 `461ac808f8a23a1191a61edf5f568b09b5935b0443a9602c1281955148d76dd6` per entrambi. Gli archivi sono stati rigenerati da un checkout pulito del commit di release.
 
 Nella beta.46 le campagne con drop programmati restavano nella coda; dopo tre giri senza streamer idonei la coda veniva conservata e l'avviso inviato tramite il notificatore con ricevute per browser e Telegram. I test coprivano la coda mista, la persistenza del prossimo giro, il riavvio del worker e la ripresa quando tornava disponibile uno streamer.
 
@@ -141,8 +141,8 @@ La beta.44 non verificava il riciclo di un worker mentre il farming era attivo. 
 | Aggiornamento | 38→41→nuova build | tests/storage-migrations.test.ts, tests/storage-migrations-legacy.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
 | Aggiornamento | 38→nuova build | tests/storage-migrations.test.ts, tests/storage-migrations-legacy.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
 | Aggiornamento | 43→nuova build | tests/storage-migrations.test.ts, tests/storage-migrations-legacy.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
-| Stato all'update | attivo | tests/storage-migrations.test.ts, tests/recovery-loop-regressions.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
-| Stato all'update | paused | tests/storage-migrations.test.ts, tests/recovery-loop-regressions.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
+| Stato all'update | attivo | tests/manual-queue-update-resume.test.ts, e2e/extension-controls.spec.ts | P | Il profilo Chrome beta.46→beta.47 conserva l'intento attivo senza Pausa; l'update in diretta con Twitch resta da verificare |
+| Stato all'update | paused | tests/manual-queue-update-resume.test.ts, e2e/extension-controls.spec.ts | P | Il profilo Chrome conserva la Pausa già salvata; l'update in diretta con Twitch resta da verificare |
 | Stato all'update | stopped | tests/storage-migrations.test.ts, tests/recovery-loop-regressions.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
 | Stato all'update | retrying | tests/storage-migrations.test.ts, tests/recovery-loop-regressions.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
 | Stato all'update | retry-failed | tests/storage-migrations.test.ts, tests/recovery-loop-regressions.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
