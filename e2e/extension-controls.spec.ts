@@ -13,7 +13,6 @@ type PersistedControlState = {
   readonly isRunning: boolean;
   readonly isPaused: boolean;
   readonly lastStopReason: string | null;
-  readonly autoResumeOnStartup: boolean;
   readonly resumedFromCrash: number | null;
 };
 
@@ -26,7 +25,6 @@ async function readControlState(page: Awaited<ReturnType<typeof openPopup>>): Pr
       isRunning: state.isRunning === true,
       isPaused: state.isPaused === true,
       lastStopReason: typeof state.lastStopReason === 'string' ? state.lastStopReason : null,
-      autoResumeOnStartup: state.autoResumeOnStartup === true,
       resumedFromCrash: typeof state.resumedFromCrash === 'number' ? state.resumedFromCrash : null,
     };
   });
@@ -50,9 +48,8 @@ test('popup pause, resume, and stop controls persist session transitions', async
   let profile = seedProfile;
   try {
     await test.step('seed and restart extension', async () => {
-      // This scenario exercises the controls after a real browser restart;
-      // auto-resume must be enabled for the seeded session to be running.
-      await seedAppState(seedProfile, runningState(true));
+      // An active session resumes after a real browser restart, including old profiles.
+      await seedAppState(seedProfile, runningState(false));
       await seedProfile.shutdown();
       profile = await createExtensionProfile(seedProfile.userDataDir);
     });
@@ -68,6 +65,10 @@ test('popup pause, resume, and stop controls persist session transitions', async
           return [state.isRunning, state.isPaused];
         })
         .toEqual([true, true]);
+      await expect.poll(() => popup.evaluate(() => chrome.action.getBadgeText({}))).toBe('⏸');
+      await expect.poll(() => popup.evaluate(() => chrome.action.getBadgeBackgroundColor({}))).toEqual([
+        180, 83, 9, 255,
+      ]);
     });
 
     await test.step('resume session', async () => {
@@ -80,6 +81,7 @@ test('popup pause, resume, and stop controls persist session transitions', async
           return [state.isRunning, state.isPaused];
         })
         .toEqual([true, false]);
+      await expect.poll(() => popup.evaluate(() => chrome.action.getBadgeText({}))).toBe('10%');
     });
 
     await test.step('stop session', async () => {
@@ -92,6 +94,7 @@ test('popup pause, resume, and stop controls persist session transitions', async
           return [state.isRunning, state.isPaused, state.lastStopReason];
         })
         .toEqual([false, false, 'user-stop']);
+      await expect.poll(() => popup.evaluate(() => chrome.action.getBadgeText({}))).toBe('');
     });
   } finally {
     await profile.shutdown().catch(() => undefined);
@@ -102,7 +105,6 @@ test('popup pause, resume, and stop controls persist session transitions', async
 test('paused and manually stopped sessions stay stopped after an extension worker restart', async () => {
   for (const [label, patch] of [
     ['paused', { ...runningState(true), isPaused: true }],
-    ['auto-resume-disabled', runningState(false)],
     ['stopped', { ...runningState(true), isRunning: false, wasRunning: false, lastStopReason: 'user-stop' }],
   ] as const) {
     const profile = await createExtensionProfile();
@@ -119,13 +121,10 @@ test('paused and manually stopped sessions stay stopped after an extension worke
             const state = await readControlState(page);
             return [state.isRunning, state.isPaused, state.lastStopReason];
           })
-          .toEqual(
-            label === 'paused'
-              ? [true, true, null]
-              : label === 'auto-resume-disabled'
-                ? [true, true, null]
-                : [false, false, 'user-stop'],
-          );
+          .toEqual(label === 'paused' ? [true, true, null] : [false, false, 'user-stop']);
+        if (label === 'paused') {
+          await expect.poll(() => page.evaluate(() => chrome.action.getBadgeText({}))).toBe('⏸');
+        }
       } finally {
         await restarted.shutdown();
       }
@@ -137,11 +136,11 @@ test('paused and manually stopped sessions stay stopped after an extension worke
   }
 });
 
-test('stale active session auto-resumes on extension startup when enabled', async () => {
+test('stale active session resumes on extension startup with the retired setting disabled', async () => {
   const profile = await createExtensionProfile();
   const profilePath = profile.userDataDir;
   try {
-    await seedAppState(profile, runningState(true));
+    await seedAppState(profile, runningState(false));
     await seedStaleHeartbeat(profile);
     await profile.shutdown();
 
@@ -154,9 +153,13 @@ test('stale active session auto-resumes on extension startup when enabled', asyn
       await expect
         .poll(async () => {
           const state = await readControlState(page);
-          return [state.isRunning, state.isPaused, state.autoResumeOnStartup];
+          return [state.isRunning, state.isPaused];
         })
-        .toEqual([true, false, true]);
+        .toEqual([true, false]);
+      expect(await page.evaluate(async () => {
+        const { appState } = await chrome.storage.local.get('appState');
+        return 'autoResumeOnStartup' in (appState as Record<string, unknown>);
+      })).toBe(false);
     } finally {
       await restarted.shutdown();
     }
@@ -173,7 +176,7 @@ test('a Chrome MV3 worker recycle after progress does not pause active farming',
   try {
     const progressingDrop = { ...fixtureDrop, progress: 1, currentMinutes: 1, remainingMinutes: 59 };
     await seedAppState(seedProfile, {
-      ...runningState(true),
+      ...runningState(false),
       currentDrop: progressingDrop,
       pendingDrops: [progressingDrop],
       allDrops: [progressingDrop],
@@ -182,11 +185,6 @@ test('a Chrome MV3 worker recycle after progress does not pause active farming',
     profile = await createExtensionProfile(seedProfile.userDataDir);
     const popup = await openPopup(profile);
     await expect.poll(async () => (await readControlState(popup)).isPaused).toBe(false);
-    const setting = await popup.evaluate(() => chrome.runtime.sendMessage({
-      type: 'SET_AUTO_RESUME_ON_STARTUP',
-      payload: { enabled: false },
-    }));
-    expect(setting).toMatchObject({ success: true, autoResumeOnStartup: false });
     await seedStaleHeartbeat(profile);
 
     const cdp = await profile.context.newCDPSession(popup);
@@ -198,7 +196,6 @@ test('a Chrome MV3 worker recycle after progress does not pause active farming',
     expect(await readControlState(popup)).toMatchObject({
       isRunning: true,
       isPaused: false,
-      autoResumeOnStartup: false,
     });
     expect(await popup.evaluate(async () => {
       const { appState } = await chrome.storage.local.get('appState');

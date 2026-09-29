@@ -22,7 +22,6 @@ export const RUNTIME_MESSAGE_TYPES = [
   'CHANNEL_POINTS_BONUS_CLAIMED',
   'OPEN_MONITOR_DASHBOARD',
   'SET_MONITOR_AUTO_OPEN',
-  'SET_AUTO_RESUME_ON_STARTUP',
   'SET_MUTE_FARMING_TAB',
   'SET_NOTIFICATIONS_ENABLED',
   'SET_TELEGRAM_ALERTS_ENABLED',
@@ -72,7 +71,6 @@ export type RuntimeMessageType = (typeof RUNTIME_MESSAGE_TYPES)[number];
 
 export const BOOLEAN_TOGGLE_MESSAGES = {
   SET_MONITOR_AUTO_OPEN: { responseField: 'monitorAutoOpen' },
-  SET_AUTO_RESUME_ON_STARTUP: { responseField: 'autoResumeOnStartup' },
   SET_MUTE_FARMING_TAB: { responseField: 'muteFarmingTab' },
   SET_NOTIFICATIONS_ENABLED: { responseField: 'notificationsEnabled' },
   SET_TELEGRAM_ALERTS_ENABLED: { responseField: 'telegramAlertsEnabled' },

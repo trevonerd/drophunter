@@ -16,7 +16,7 @@ describe('normalizeStoredAppState', () => {
     expect(state.isRunning).toBe(true);
     expect(state.selectedGame?.name).toBe('Game');
     expect(state.queue).toEqual([]);
-    expect(state.autoResumeOnStartup).toBe(false);
+    expect('autoResumeOnStartup' in state).toBe(false);
     expect(state.muteFarmingTab).toBe(true);
     expect(state.notificationsEnabled).toBe(false);
     expect(state.autoClaimChannelPointsBonus).toBe(true);
@@ -43,6 +43,18 @@ describe('normalizeStoredAppState', () => {
     expect(state.manualWatchState).toBe('inactive');
     expect(state.campaignAvailabilityByKey).toEqual({});
     expect(state.campaignDropsByKey).toEqual({});
+  });
+
+  test('drops the retired restart preference while retaining other settings', () => {
+    const state = normalizeStoredAppState({
+      autoResumeOnStartup: false,
+      muteFarmingTab: false,
+      autoStartFavoriteGames: false,
+    });
+
+    expect('autoResumeOnStartup' in state).toBe(false);
+    expect(state.muteFarmingTab).toBe(false);
+    expect(state.autoStartFavoriteGames).toBe(false);
   });
 
   test('preserves an explicit manual session origin during normalization', () => {

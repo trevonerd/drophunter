@@ -104,24 +104,6 @@ export function registerStartAndSettingsCases() {
     expect(resumed.isPaused).toBe(false);
   });
 
-  test('SET_AUTO_RESUME_ON_STARTUP persists the startup resume preference', async () => {
-    const enabled = await dispatchMessage({
-      type: 'SET_AUTO_RESUME_ON_STARTUP',
-      payload: { enabled: true },
-    });
-
-    expect(enabled).toEqual({ success: true, autoResumeOnStartup: true });
-    expect(getAppStateFromStorage().autoResumeOnStartup).toBe(true);
-
-    const disabled = await dispatchMessage({
-      type: 'SET_AUTO_RESUME_ON_STARTUP',
-      payload: { enabled: false },
-    });
-
-    expect(disabled).toEqual({ success: true, autoResumeOnStartup: false });
-    expect(getAppStateFromStorage().autoResumeOnStartup).toBe(false);
-  });
-
   test('SET_NOTIFICATIONS_ENABLED persists the notification preference and suppresses alerts', async () => {
     const chrome = chromeMocks.chrome;
     const notifications: unknown[] = [];

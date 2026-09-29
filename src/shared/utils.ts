@@ -27,7 +27,6 @@ export const createInitialState = (): AppState => ({
   isRunning: false,
   isPaused: false,
   monitorAutoOpen: true,
-  autoResumeOnStartup: false,
   muteFarmingTab: true,
   notificationsEnabled: false,
   telegramAlertsEnabled: false,

@@ -12,7 +12,6 @@ import {
   applyStartupResumePolicy,
   type ServiceWorkerState,
 } from './runtime-state.ts';
-import { pauseFarmingAfterRestart, type StartupPauseSession } from './startup-pause.ts';
 import { saveState, saveTimingState } from './state-persistence.ts';
 
 const BROWSER_SESSION_SEEN_KEY = 'farmingBrowserSessionSeen';
@@ -32,10 +31,7 @@ async function canResumeWithExistingManagedTab(state: ServiceWorkerState): Promi
   return Boolean(tab?.id && getFarmableTwitchChannelNameFromUrl(tab.url));
 }
 
-export async function prepareBrowserSessionResume(
-  state: ServiceWorkerState,
-  session: StartupPauseSession,
-): Promise<void> {
+export async function prepareBrowserSessionResume(state: ServiceWorkerState): Promise<void> {
   let browserSessionSeen: boolean;
   try {
     const stored = await browser.storage.session.get([BROWSER_SESSION_SEEN_KEY]);
@@ -70,11 +66,6 @@ export async function prepareBrowserSessionResume(
       recoveryAttempts: state.appState.recoveryAttempts,
       secondsAgo: Math.round((now - state.lastHeartbeatAt) / 1000),
     });
-    await markBrowserSessionSeen();
-    return;
-  }
-  if (policy === 'pause-after-restart') {
-    await pauseFarmingAfterRestart(state, session, now);
     await markBrowserSessionSeen();
     return;
   }

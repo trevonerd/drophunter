@@ -60,7 +60,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   });
   const {
     handlePauseFarming,
-    pauseAfterRestart,
     handleResumeFarming,
     handleStartFarming,
     handleStopFarming,
@@ -88,7 +87,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     handleAddToQueue,
     handleClearQueue,
     handlePauseFarming,
-    pauseAfterRestart,
     handleRemoveFromQueue,
     handleReorderQueue,
     handleResumeFarming,

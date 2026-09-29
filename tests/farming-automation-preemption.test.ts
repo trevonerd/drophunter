@@ -14,7 +14,7 @@ import {
   type FarmingAutomationTwitchSnapshot,
 } from '../src/background/farming-automation-twitch.ts';
 import { currentFarmingSessionEpoch } from '../src/background/farming-session-revision.ts';
-import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { applyStartupResumePolicy, createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { campaign, reward, streamer } from './support/farming-automation-preemption-fixture.ts';
@@ -165,6 +165,9 @@ describe('Farming automation running-session preservation', () => {
   test('preempts for a strictly earlier eligible favorite and parks the incumbent next', async () => {
     // Given: A and B share a game ID, while favorite B has a strictly earlier finite expiry.
     const subject = fixture('2030-08-03T12:00:00.000Z');
+    Object.assign(subject.state.appState, { autoResumeOnStartup: false });
+    subject.state.lastHeartbeatAt = 1_000;
+    expect(applyStartupResumePolicy(subject.state, 2_000, 30_000, 300_000, true)).toBe('auto-resume');
 
     // When: the public campaign-refresh request evaluates the ranked candidates.
     const outcome = await subject.automation.request('campaign-refresh');

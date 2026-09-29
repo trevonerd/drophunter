@@ -112,9 +112,10 @@ export function normalizeStoredAppState(value: unknown): AppState {
   const hiddenIdentityKeys = new Set(
     hiddenGames.flatMap((entry) => [entry.gameId, ...(entry.identityKeys ?? [])]),
   );
+  const { autoResumeOnStartup: _legacyAutoResumeOnStartup, ...persistedValue } = value;
   const storedState: AppState = {
     ...createInitialState(),
-    ...value,
+    ...persistedValue,
     queue: normalizeStoredGames(value.queue),
     selectedGame: normalizeStoredGame(value.selectedGame),
     availableGames: normalizeStoredGames(value.availableGames),

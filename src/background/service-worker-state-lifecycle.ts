@@ -18,7 +18,6 @@ import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logInfo } from './logging.ts';
 import { clearRotationMetadata, type ServiceWorkerState } from './runtime-state.ts';
 import { resetStreamTrackingState } from './session-lifecycle.ts';
-import type { StartupPauseSession } from './startup-pause.ts';
 import {
   broadcastStateUpdate,
   loadState as loadStateExt,
@@ -34,10 +33,11 @@ import { sanitizeTwitchSession } from './twitch-api/types.ts';
 
 const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000;
 
-interface StateLifecycleFarmingSession extends StartupPauseSession {
+interface StateLifecycleFarmingSession {
   readonly acquireStreamerForSelectedGame: () => Promise<boolean>;
   readonly advanceQueueIfCompleted: () => Promise<boolean>;
   readonly startMonitoring: () => void;
+  readonly stopMonitoring: () => void;
   readonly stop: (options?: { readonly skipTimingStateSave?: boolean }) => Promise<void>;
 }
 
@@ -139,7 +139,7 @@ export function createServiceWorkerStateLifecycle(
         STREAM_VALIDATION_GRACE_MS,
       },
     );
-    await prepareBrowserSessionResume(state, dependencies.getFarmingSession());
+    await prepareBrowserSessionResume(state);
   }
 
   async function ensureStateHydratedForCache(): Promise<void> {
@@ -156,6 +156,7 @@ export function createServiceWorkerStateLifecycle(
 
   function beginInitialization(afterLoad: () => Promise<void>): Promise<void> {
     initPromise = initializeAfterStorageMigration(loadState).then(async () => {
+      broadcastStateUpdate(state.appState);
       await dependencies.initializeFarmingAutomation?.();
       const farmingSession = dependencies.getFarmingSession();
       if (

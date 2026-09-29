@@ -33,7 +33,6 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
 
   type BooleanSettingKey =
     | 'monitorAutoOpen'
-    | 'autoResumeOnStartup'
     | 'muteFarmingTab'
     | 'autoClaimChannelPointsBonus'
     | 'autoClaimDrops';

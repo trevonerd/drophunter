@@ -191,7 +191,6 @@ export interface AppState {
   isRunning: boolean;
   isPaused: boolean;
   monitorAutoOpen: boolean;
-  autoResumeOnStartup: boolean;
   muteFarmingTab: boolean;
   notificationsEnabled: boolean;
   telegramAlertsEnabled: boolean;

@@ -67,7 +67,10 @@ export function broadcastStateUpdate(appState: AppState) {
     .catch(() => undefined);
 
   const badgeDrop = selectBadgeProgressDrop(appState);
-  if (badgeDrop && appState.isRunning) {
+  if (appState.isPaused) {
+    browser.action.setBadgeText({ text: '⏸' });
+    browser.action.setBadgeBackgroundColor({ color: '#B45309' });
+  } else if (badgeDrop && appState.isRunning) {
     browser.action.setBadgeText({ text: `${badgeDrop.progress}%` });
     browser.action.setBadgeBackgroundColor({ color: '#9146FF' });
   } else if (appState.isRunning) {

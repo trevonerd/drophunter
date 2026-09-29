@@ -24,7 +24,6 @@ describe('recovery after prolonged browser inactivity', () => {
       state.appState.stalledCampaignBlocksByKey = { 'campaign:saved-campaign': block };
       state.appState.manualQueueAuthorized = true;
       state.appState.farmingSessionOrigin = 'manual';
-      state.appState.autoResumeOnStartup = true;
       state.appState.autoStartFavoriteGames = false;
       state.appState.isRunning = true;
       state.appState.tabId = 9;
@@ -68,7 +67,6 @@ describe('recovery after prolonged browser inactivity', () => {
         queueEntryMetadataByKey: { 'campaign:saved-campaign': metadata },
         stalledCampaignBlocksByKey: { 'campaign:saved-campaign': block },
         manualQueueAuthorized: true,
-        autoResumeOnStartup: true,
         autoStartFavoriteGames: false,
         lastSuccessfulRefreshAt: 10,
         campaignSyncState: sync,

@@ -1,11 +1,7 @@
 import { isRewardFarmableNow, isRewardScheduledForFuture } from '../shared/reward-scheduling.ts';
 import type { AppState } from '../types/index.ts';
 
-export type StartupResumePolicyResult =
-  | 'not-stale'
-  | 'pause-after-restart'
-  | 'auto-resume'
-  | 'resume-recovery';
+export type StartupResumePolicyResult = 'not-stale' | 'auto-resume' | 'resume-recovery';
 
 const ACTIVE_NO_TAB_RECOVERY_REASONS = new Set(['no-streamers', 'offline', 'open-failed']);
 
@@ -42,7 +38,7 @@ export function applyStartupResumePolicy(
   state: StartupResumePolicyState,
   now: number,
   staleThresholdMs: number,
-  resumeRecoveryGraceMs: number,
+  _resumeRecoveryGraceMs: number,
   confirmedNewBrowserSession = false,
 ): StartupResumePolicyResult {
   if (state.appState.isPaused || state.appState.lastStopReason === 'user-stop') {
@@ -60,7 +56,6 @@ export function applyStartupResumePolicy(
       (state.lastHeartbeatAt > 0 && now - state.lastHeartbeatAt > staleThresholdMs));
   if (!shouldApply) return 'not-stale';
 
-  const heartbeatGap = now - state.lastHeartbeatAt;
   const recoveryReason = state.appState.recoveryReason;
   const hasActiveNoTabRecovery =
     typeof recoveryReason === 'string' &&
@@ -72,14 +67,7 @@ export function applyStartupResumePolicy(
     state.appState.queue.length > 0 &&
     state.appState.pendingDrops.some((drop) => isRewardScheduledForFuture(drop, now)) &&
     !state.appState.pendingDrops.some((drop) => isRewardFarmableNow(drop, now));
-  if (!state.appState.autoResumeOnStartup) {
-    // An authorized queue waiting for a streamer or a scheduled reward must
-    // continue checking after restart instead of becoming a manual Pause.
-    if ((hasActiveNoTabRecovery && state.appState.queue.length > 0) || hasScheduledQueueWait)
-      return 'resume-recovery';
-    state.appState.isPaused = true;
-    return 'pause-after-restart';
-  }
-  if (hasActiveNoTabRecovery && heartbeatGap < resumeRecoveryGraceMs) return 'resume-recovery';
+  if ((hasActiveNoTabRecovery && state.appState.queue.length > 0) || hasScheduledQueueWait)
+    return 'resume-recovery';
   return 'auto-resume';
 }

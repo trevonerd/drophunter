@@ -39,7 +39,6 @@ async function resume(game: TwitchGame, withNext: boolean, heartbeatAge = 1_000,
   const saved = createInitialState();
   saved.isRunning = true;
   saved.campaignEvidenceUserId = 'test-user';
-  saved.autoResumeOnStartup = true;
   saved.manualQueueAuthorized = true;
   saved.selectedGame = selected ? game : null;
   saved.queue = withNext ? [game, next] : [game];

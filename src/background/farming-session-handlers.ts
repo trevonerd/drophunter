@@ -43,7 +43,6 @@ type SuccessResult = { readonly success: true };
 
 export type FarmingSessionHandlers = {
   readonly handlePauseFarming: () => Promise<SuccessResult>;
-  readonly pauseAfterRestart: () => Promise<SuccessResult>;
   readonly handleResumeFarming: () => Promise<SuccessResult>;
   readonly handleStartFarming: (
     payload: StartFarmingPayload,
@@ -229,10 +228,6 @@ export function createFarmingSessionHandlers(
     return runFarmingSessionMutation(state, () => pause(true));
   }
 
-  function pauseAfterRestart(): Promise<SuccessResult> {
-    return runFarmingSessionMutation(state, () => pause(false));
-  }
-
   async function resume(): Promise<SuccessResult> {
     await adapters.trackActivity('resume-farming');
     state.appState.isPaused = false;
@@ -259,7 +254,6 @@ export function createFarmingSessionHandlers(
 
   return {
     handlePauseFarming,
-    pauseAfterRestart,
     handleResumeFarming,
     handleStartFarming,
     handleStopFarming,

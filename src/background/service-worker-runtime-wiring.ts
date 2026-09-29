@@ -91,7 +91,6 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
         },
       setSelectedGame: (message) => farmingSession.handleSetSelectedGame(message.payload),
       pauseFarming: userActions.pauseFarming,
-      setAutoResumeOnStartup: (message) => settingsHandlers.handleSetAutoResumeOnStartup(message.payload),
       resumeFarming: userActions.resumeFarming,
       retryFarming: () =>
         retryFarmingNow(dependencies.state, {

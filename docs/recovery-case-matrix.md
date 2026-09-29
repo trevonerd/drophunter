@@ -1,8 +1,12 @@
 # Matrice di recupero e aggiornamento
 
-Build candidata: `4.0.0-beta.46` (manifest tecnico `3.99.0.46`). Il 29 settembre 2026 `bun run release:check` è passato: TypeScript test/sorgente, Biome, suite unitaria, Chrome MV3 E2E con profilo persistente e terminazione effettiva del worker, audit dipendenze, build e archivi Chrome/Edge, verifica dei manifest. La build è destinata solo alla prerelease GitHub, non agli store.
+Build candidata: `4.0.0-beta.47` (manifest tecnico `3.99.0.47`). Il 29 settembre 2026 `bun run release:check` è passato: TypeScript test/sorgente, Biome, suite unitaria, Chrome MV3 E2E con profilo persistente e terminazione effettiva del worker, audit dipendenze, build e archivi Chrome/Edge, verifica dei manifest. La build è destinata solo alla prerelease GitHub, non agli store.
 
-La beta.46 mantiene le campagne con drop programmati nella coda, tenta le altre campagne dopo aver spostato in fondo quella non disponibile, e inserisce i nuovi preferiti per scadenza prima delle campagne già tentate nel giro corrente. Dopo tre giri senza streamer idonei conserva la coda per i controlli successivi, senza impostare Pause, e invia l'avviso tramite il notificatore con ricevute per browser e Telegram. I test coprono la coda mista con drop futuri e streamer non disponibili, la persistenza del prossimo giro, il riavvio del worker e la ripresa quando torna disponibile uno streamer.
+La beta.47 riprende al riavvio una sessione che era attiva, ignora il vecchio `autoResumeOnStartup: false` senza modificare le altre preferenze e conserva Pausa e Stop manuali. Il badge mostra `⏸` in ambra in pausa e ripristina l'avanzamento alla ripresa; l'automazione dei preferiti valuta le campagne dopo il riavvio.
+
+Archivi beta.47: `.output/drophunter-4.0.0-beta.47-chrome.zip` e `.output/drophunter-4.0.0-beta.47-edge.zip`, SHA-256 `21d1aef2cdd4396302e37015e7b92f6dc6d54afe7d3f7ac0531a9c77ba8cea53` per entrambi.
+
+Nella beta.46 le campagne con drop programmati restavano nella coda; dopo tre giri senza streamer idonei la coda veniva conservata e l'avviso inviato tramite il notificatore con ricevute per browser e Telegram. I test coprivano la coda mista, la persistenza del prossimo giro, il riavvio del worker e la ripresa quando tornava disponibile uno streamer.
 
 Archivi beta.46: `.output/drophunter-4.0.0-beta.46-chrome.zip` e `.output/drophunter-4.0.0-beta.46-edge.zip`, SHA-256 `65fd6c9323ed2a559654302b8f9044dedfb3bcd7e05b8dce36c85c6a59f68f24` per entrambi.
 
@@ -124,9 +128,10 @@ La beta.44 non verificava il riciclo di un worker mentre il farming era attivo. 
 | Worker | durante il tentativo | tests/crash-recovery.test.ts, tests/streamer-acquisition-cancellation.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
 | Worker | dopo il tentativo | tests/crash-recovery.test.ts, tests/streamer-acquisition-cancellation.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
 | Worker | riciclo dopo il primo aumento di progresso, auto-resume spento | tests/worker-recycle-progress.test.ts, e2e/extension-controls.spec.ts | A | CDP termina il vero worker Chrome MV3 all'1% e verifica la ripresa; conferma Twitch reale sul profilo interessato ancora necessaria |
-| Browser | restart con auto-resume acceso | tests/crash-recovery.test.ts, tests/manual-queue-startup-resume.test.ts | A | Passa con mock; Twitch reale da verificare |
-| Browser | restart con auto-resume spento | tests/crash-recovery.test.ts, tests/manual-queue-startup-resume.test.ts | A | Passa con mock; Twitch reale da verificare |
-| Browser | restart rapido con auto-resume spento | tests/crash-recovery.test.ts | A | Il nuovo browser sessione prevale sul heartbeat recente; Chrome reale da verificare |
+| Browser | restart di sessione attiva con vecchio valore acceso o spento | tests/crash-recovery.test.ts, tests/manual-queue-startup-resume.test.ts, e2e/extension-controls.spec.ts | A | La sessione riparte; Twitch reale da verificare |
+| Browser | restart rapido di sessione attiva | tests/crash-recovery.test.ts | A | Il marcatore di nuova sessione prevale sul heartbeat recente; Chrome reale da verificare |
+| Browser | Pausa o Stop manuale dopo restart | tests/manual-queue-startup-resume.test.ts, e2e/extension-controls.spec.ts | A | Il badge `⏸` segnala la pausa; Twitch reale da verificare |
+| Preferiti | nuova campagna dopo ripresa del browser | tests/farming-automation-preemption.test.ts | A | Preemption simulata; Twitch reale da verificare |
 | Sleep/wake | prima del retry | tests/monitoring-sleep-watchdog.test.ts, tests/activation-sync-wake-deadline.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
 | Sleep/wake | durante richiesta | tests/monitoring-sleep-watchdog.test.ts, tests/activation-sync-wake-deadline.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |
 | Sleep/wake | sospensione lunga | tests/monitoring-sleep-watchdog.test.ts, tests/activation-sync-wake-deadline.test.ts | P | Parziale; esercitare il flow Chrome/Twitch indicato |

@@ -146,31 +146,32 @@ describe('loadTimingState', () => {
 });
 
 describe('crash startup policy boundary', () => {
-  test('a confirmed new browser session honors auto-resume off even when the last heartbeat is recent', () => {
+  test('a confirmed new browser session resumes active farming despite the legacy setting', () => {
     const now = Date.now();
     const state = makeState({ lastHeartbeatAt: now - 1_000 });
     const game = { id: 'game', name: 'Game', imageUrl: '', campaignId: 'campaign' };
     state.appState.isRunning = true;
-    state.appState.autoResumeOnStartup = false;
+    Object.assign(state.appState, { autoResumeOnStartup: false });
     state.appState.selectedGame = game;
     state.appState.queue = [game];
 
     expect(applyStartupResumePolicy(state, now, CRASH_DETECTION_THRESHOLD_MS, 300_000, true)).toBe(
-      'pause-after-restart',
+      'auto-resume',
     );
+    expect(state.appState.isPaused).toBe(false);
   });
 
   test.each([
     ['recent heartbeat', CRASH_DETECTION_THRESHOLD_MS - 1, true, 'not-stale'],
     ['exact threshold', CRASH_DETECTION_THRESHOLD_MS, true, 'not-stale'],
     ['stale heartbeat with auto-resume', CRASH_DETECTION_THRESHOLD_MS + 1, true, 'auto-resume'],
-    ['stale heartbeat without auto-resume', CRASH_DETECTION_THRESHOLD_MS + 1, false, 'pause-after-restart'],
+    ['stale heartbeat with legacy setting off', CRASH_DETECTION_THRESHOLD_MS + 1, false, 'auto-resume'],
   ] as const)('%s resolves through the startup policy', (_scenario, heartbeatAge, autoResume, expected) => {
     const now = 100_000;
     const state = makeState({ lastHeartbeatAt: now - heartbeatAge });
     const game = { id: 'game', name: 'Game', imageUrl: '', campaignId: 'campaign' };
     state.appState.isRunning = true;
-    state.appState.autoResumeOnStartup = autoResume;
+    Object.assign(state.appState, { autoResumeOnStartup: autoResume });
     state.appState.selectedGame = game;
     state.appState.queue = [game];
 

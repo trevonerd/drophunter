@@ -62,11 +62,6 @@ test('a recycled worker keeps farming after the first progress update with brows
     stopMonitoring: () => {
       events.push('stop-monitor');
     },
-    pauseAfterRestart: async () => {
-      events.push('pause-after-restart');
-      state.appState.isPaused = true;
-      return { success: true as const };
-    },
     stop: async () => {},
   };
   const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });

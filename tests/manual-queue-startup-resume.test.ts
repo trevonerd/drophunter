@@ -29,8 +29,8 @@ afterEach(() => {
 });
 
 for (const idleHours of [1, 48]) {
-  for (const autoResumeOnStartup of [false, true]) {
-    test(`${autoResumeOnStartup ? 'resumes' : 'pauses'} an interrupted manual queue after ${idleHours} hours when auto-resume is ${autoResumeOnStartup ? 'enabled' : 'disabled'}`, async () => {
+  for (const legacyAutoResumeOnStartup of [false, true]) {
+    test(`resumes an interrupted manual queue after ${idleHours} hours with legacy setting ${legacyAutoResumeOnStartup}`, async () => {
       // Given: the same installed build restores a manually running queue with favorite automation disabled.
       const now = Date.now();
       const game = createGame({
@@ -44,7 +44,7 @@ for (const idleHours of [1, 48]) {
         manualQueueAuthorized: true,
         farmingSessionOrigin: 'manual' as const,
         autoStartFavoriteGames: false,
-        autoResumeOnStartup,
+        autoResumeOnStartup: legacyAutoResumeOnStartup,
         autoClaimDrops: false,
         totalDropsClaimed: 17,
         activeStreamer: createStreamer({ name: 'stale-streamer' }),
@@ -88,11 +88,6 @@ for (const idleHours of [1, 48]) {
           events.push('monitor');
         },
         stopMonitoring: () => {},
-        pauseAfterRestart: async () => {
-          events.push('pause-after-restart');
-          state.appState.isPaused = true;
-          return { success: true as const };
-        },
         stop: async () => {},
       };
       const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
@@ -119,19 +114,20 @@ for (const idleHours of [1, 48]) {
       });
       // When: worker initialization restores storage and browser startup validates fresh Twitch data.
       await lifecycle.beginInitialization(async () => {});
-      expect(state.appState.activeStreamer === null).toBe(autoResumeOnStartup);
-      expect(state.appState.tabId === null).toBe(autoResumeOnStartup);
+      expect(chrome.action.getBadgeState().text).toBe('42%');
+      expect(state.appState.activeStreamer).toBeNull();
+      expect(state.appState.tabId).toBeNull();
       await activation('browser-start', { signal: new AbortController().signal, isCurrent: () => true });
       // Then: prior manual intent, independent of favorites and the retired toggle, resumes only after validation.
       expect(state.appState.manualQueueAuthorized).toBe(true);
       expect(state.appState.farmingSessionOrigin).toBe('manual');
       expect(state.appState.isRunning).toBe(true);
-      expect(events.filter((event) => event === 'validated' || event.startsWith('acquire:'))).toEqual(
-        autoResumeOnStartup ? ['validated', 'acquire:manual-current'] : ['validated'],
-      );
-      expect(events.includes('monitor')).toBe(autoResumeOnStartup);
-      expect(events.includes('pause-after-restart')).toBe(!autoResumeOnStartup);
-      expect(state.appState.isPaused).toBe(!autoResumeOnStartup);
+      expect(events.filter((event) => event === 'validated' || event.startsWith('acquire:'))).toEqual([
+        'validated',
+        'acquire:manual-current',
+      ]);
+      expect(events).toContain('monitor');
+      expect(state.appState.isPaused).toBe(false);
       expect(state.appState.autoStartFavoriteGames).toBe(false);
       expect(state.appState.autoClaimDrops).toBe(false);
       expect(state.appState.totalDropsClaimed).toBe(17);
@@ -187,6 +183,7 @@ for (const idleHours of [1, 73]) {
       const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
       // When: browser state is restored after worker restart or an entire weekend.
       await lifecycle.beginInitialization(async () => {});
+      expect(chrome.action.getBadgeState().text).toBe(status === 'paused' ? '⏸' : '');
       await createServiceWorkerActivationSync({
         state,
         farmingSession: farming,

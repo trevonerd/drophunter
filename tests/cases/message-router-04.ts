@@ -29,7 +29,6 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
     startFarming: missing,
     setSelectedGame: missing,
     pauseFarming: missing,
-    setAutoResumeOnStartup: missing,
     resumeFarming: missing,
     retryFarming: missing,
     stopFarming: missing,

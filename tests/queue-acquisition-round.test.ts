@@ -15,46 +15,47 @@ describe('queue acquisition rounds', () => {
     spyOn(Date, 'now').mockRestore();
   });
 
-  test.each([
-    1, 4, 10,
-  ])('visits every campaign in a queue of %i before retrying a previous campaign', async (size) => {
-    // Given: earlier deadlines become retryable while later campaigns are still waiting for their first turn.
-    let now = Date.parse('2030-01-01T00:00:00Z');
-    spyOn(Date, 'now').mockImplementation(() => now);
-    const campaigns = Array.from({ length: size }, (_, index) =>
-      createGame({
-        id: 'shared-game',
-        campaignId: `campaign-${index}`,
-        name: `Campaign ${index}`,
-        endsAt: new Date(now + (index + 1) * 86_400_000).toISOString(),
-      }),
-    );
-    const state = createMinimalState();
-    state.appState.queue = [...campaigns];
-    state.appState.availableGames = [...campaigns];
-    state.appState.selectedGame = campaigns[0] ?? null;
-    state.appState.manualQueueAuthorized = true;
-    const visited: string[] = [];
-    // When: every attempted campaign returns a valid empty streamer directory after a variable delay.
-    for (let index = 0; index < size; index += 1) {
-      visited.push(state.appState.selectedGame?.campaignId ?? 'missing');
-      now += 35_000 + index * 5_000;
-      await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-        onSaveTimingState: async () => {},
-        onSaveState: async () => {},
-        onOpenStreamer: async () => false,
-      });
-    }
-    // Then: each identity is visited once, the queue remains intact, and retry has a future deadline.
-    expect(visited).toEqual(campaigns.map((game) => game.campaignId ?? 'missing'));
-    expect(state.appState.queue).toHaveLength(size);
-    expect(state.appState.manualQueueAuthorized).toBe(true);
-    expect(state.appState.recoveryBackoffUntil).toBeGreaterThan(now);
-    expect(prepareNextEligibleQueueHead(state, false)).toBeNull();
-    now += 120_000;
-    expect(prepareNextEligibleQueueHead(state, false)?.campaignId).toBe(campaigns[0]?.campaignId);
-    expect(state.appState.queueAcquisitionRound).toBeNull();
-  });
+  test.each([1, 4, 10])(
+    'visits every campaign in a queue of %i before retrying a previous campaign',
+    async (size) => {
+      // Given: earlier deadlines become retryable while later campaigns are still waiting for their first turn.
+      let now = Date.parse('2030-01-01T00:00:00Z');
+      spyOn(Date, 'now').mockImplementation(() => now);
+      const campaigns = Array.from({ length: size }, (_, index) =>
+        createGame({
+          id: 'shared-game',
+          campaignId: `campaign-${index}`,
+          name: `Campaign ${index}`,
+          endsAt: new Date(now + (index + 1) * 86_400_000).toISOString(),
+        }),
+      );
+      const state = createMinimalState();
+      state.appState.queue = [...campaigns];
+      state.appState.availableGames = [...campaigns];
+      state.appState.selectedGame = campaigns[0] ?? null;
+      state.appState.manualQueueAuthorized = true;
+      const visited: string[] = [];
+      // When: every attempted campaign returns a valid empty streamer directory after a variable delay.
+      for (let index = 0; index < size; index += 1) {
+        visited.push(state.appState.selectedGame?.campaignId ?? 'missing');
+        now += 35_000 + index * 5_000;
+        await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
+          onSaveTimingState: async () => {},
+          onSaveState: async () => {},
+          onOpenStreamer: async () => false,
+        });
+      }
+      // Then: each identity is visited once, the queue remains intact, and retry has a future deadline.
+      expect(visited).toEqual(campaigns.map((game) => game.campaignId ?? 'missing'));
+      expect(state.appState.queue).toHaveLength(size);
+      expect(state.appState.manualQueueAuthorized).toBe(true);
+      expect(state.appState.recoveryBackoffUntil).toBeGreaterThan(now);
+      expect(prepareNextEligibleQueueHead(state, false)).toBeNull();
+      now += 120_000;
+      expect(prepareNextEligibleQueueHead(state, false)?.campaignId).toBe(campaigns[0]?.campaignId);
+      expect(state.appState.queueAcquisitionRound).toBeNull();
+    },
+  );
 
   test('retains untried campaign precedence after a 72 hour restart', async () => {
     // Given: the first two campaigns failed before the laptop went to sleep.
@@ -147,7 +148,6 @@ describe('queue acquisition rounds', () => {
     // Given: authorized automatic resume has durable evidence of previous campaign attempts.
     const mocks = setupChromeMocks();
     const state = createMinimalState();
-    state.appState.autoResumeOnStartup = true;
     state.appState.manualQueueAuthorized = true;
     state.appState.queueAcquisitionRound = { attemptedCampaignKeys: ['campaign:first'], nextRoundAt: null };
     const expected = state.appState.queueAcquisitionRound;

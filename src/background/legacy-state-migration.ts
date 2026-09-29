@@ -38,7 +38,6 @@ export function transformLegacyAppState(value: unknown): AppState {
       defaults.totalChannelPointsClaimed,
     ),
     monitorAutoOpen: validBoolean(source.monitorAutoOpen, defaults.monitorAutoOpen),
-    autoResumeOnStartup: validBoolean(source.autoResumeOnStartup, defaults.autoResumeOnStartup),
     muteFarmingTab: validBoolean(source.muteFarmingTab, defaults.muteFarmingTab),
     notificationsEnabled: validBoolean(source.notificationsEnabled, defaults.notificationsEnabled),
     telegramAlertsEnabled: validBoolean(source.telegramAlertsEnabled, defaults.telegramAlertsEnabled),

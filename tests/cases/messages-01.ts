@@ -88,7 +88,6 @@ describe('runtime message protocol', () => {
   test('declares optional-boolean SET messages in a response-field table', () => {
     const expectedTypes = [
       'SET_MONITOR_AUTO_OPEN',
-      'SET_AUTO_RESUME_ON_STARTUP',
       'SET_MUTE_FARMING_TAB',
       'SET_NOTIFICATIONS_ENABLED',
       'SET_TELEGRAM_ALERTS_ENABLED',
@@ -101,7 +100,6 @@ describe('runtime message protocol', () => {
     expect(Object.keys(BOOLEAN_TOGGLE_MESSAGES)).toEqual([...expectedTypes]);
     expect(Object.values(BOOLEAN_TOGGLE_MESSAGES).map(({ responseField }) => responseField)).toEqual([
       'monitorAutoOpen',
-      'autoResumeOnStartup',
       'muteFarmingTab',
       'notificationsEnabled',
       'telegramAlertsEnabled',
@@ -121,6 +119,10 @@ describe('runtime message protocol', () => {
 
     expect(_responseFieldsAreAppStateKeys).toBe(true);
     expect(_toggleTypesAreResponseKeys).toBe(true);
+  });
+
+  test('rejects the retired browser auto-resume setting message', () => {
+    expect(isRuntimeRequest({ type: 'SET_AUTO_RESUME_ON_STARTUP', payload: { enabled: false } })).toBe(false);
   });
 
   test('declares no-payload minimal-response messages in a table', () => {

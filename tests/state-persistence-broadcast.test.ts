@@ -100,12 +100,22 @@ describe('broadcastStateUpdate', () => {
     expect(mocks.action.getBadgeState().text).toBe('');
   });
 
-  test('clears badge when isPaused even if isRunning is true', () => {
-    const appState = createAppState({ isRunning: true, isPaused: true });
+  test('shows a pause badge ahead of running progress', () => {
+    const appState = createAppState({
+      isRunning: true,
+      isPaused: true,
+      currentDrop: createTwitchDrop({ id: 'd1', progress: 55 }),
+    });
 
     broadcastStateUpdate(appState);
 
-    expect(mocks.action.getBadgeState().text).toBe('...');
+    expect(mocks.action.getBadgeState()).toEqual({ text: '⏸', color: '#B45309' });
+    appState.isPaused = false;
+    broadcastStateUpdate(appState);
+    expect(mocks.action.getBadgeState()).toEqual({ text: '55%', color: '#9146FF' });
+    appState.isRunning = false;
+    broadcastStateUpdate(appState);
+    expect(mocks.action.getBadgeState().text).toBe('');
   });
 
   test('sends UPDATE_STATE message via chrome.runtime.sendMessage', () => {

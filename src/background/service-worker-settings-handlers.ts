@@ -49,14 +49,6 @@ export function createServiceWorkerSettingsHandlers(
     return { success: true, monitorAutoOpen: state.appState.monitorAutoOpen };
   }
 
-  async function handleSetAutoResumeOnStartup(payload?: { readonly enabled?: boolean }) {
-    await dependencies.stateLifecycle.awaitInitialization();
-    await trackActivity('set-auto-resume-on-startup');
-    state.appState.autoResumeOnStartup = payload?.enabled === true;
-    await saveState(state);
-    return { success: true, autoResumeOnStartup: state.appState.autoResumeOnStartup };
-  }
-
   async function handleSetMuteFarmingTab(payload?: { readonly enabled?: boolean }) {
     await trackActivity('set-mute-farming-tab');
     state.appState.muteFarmingTab = payload?.enabled !== false;
@@ -130,7 +122,6 @@ export function createServiceWorkerSettingsHandlers(
     handleGetTelegramSettings,
     handleSetAutoClaimChannelPointsBonus,
     handleSetAutoClaimDrops,
-    handleSetAutoResumeOnStartup,
     handleSetMonitorAutoOpen,
     handleSetMuteFarmingTab,
     handleSetNotificationsEnabled,

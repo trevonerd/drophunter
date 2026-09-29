@@ -40,7 +40,6 @@ export interface RuntimeMessageHandlers {
   startQueuedCampaign: RuntimeMessageHandler<'START_QUEUED_CAMPAIGN'>;
   setSelectedGame: RuntimeMessageHandler<'SET_SELECTED_GAME'>;
   pauseFarming: RuntimeMessageHandler<'PAUSE_FARMING'>;
-  setAutoResumeOnStartup: RuntimeMessageHandler<'SET_AUTO_RESUME_ON_STARTUP'>;
   resumeFarming: RuntimeMessageHandler<'RESUME_FARMING'>;
   retryFarming: RuntimeMessageHandler<'RETRY_FARMING'>;
   stopFarming: RuntimeMessageHandler<'STOP_FARMING'>;
@@ -150,8 +149,6 @@ export function createRuntimeMessageListener(
         return respond(() => handlers.setSelectedGame(message, sender));
       case 'PAUSE_FARMING':
         return respond(() => handlers.pauseFarming(message, sender));
-      case 'SET_AUTO_RESUME_ON_STARTUP':
-        return respond(() => handlers.setAutoResumeOnStartup(message, sender));
       case 'RESUME_FARMING':
         return respond(() => handlers.resumeFarming(message, sender));
       case 'RETRY_FARMING':

@@ -110,7 +110,6 @@ describe('service-worker activation sync', () => {
     const game = createCampaignFixture();
     state.appState.selectedGame = game;
     state.appState.wasRunning = true;
-    state.appState.autoResumeOnStartup = true;
     const startEntered = createDeferred<void>();
     const startResult = createDeferred<{ readonly success: true }>();
     const automation: FarmingAutomation = {

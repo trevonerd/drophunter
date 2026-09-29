@@ -26,7 +26,6 @@ export function pickDurablePreferences(appState: AppState) {
     totalDropsClaimed: appState.totalDropsClaimed,
     totalChannelPointsClaimed: appState.totalChannelPointsClaimed,
     monitorAutoOpen: appState.monitorAutoOpen,
-    autoResumeOnStartup: appState.autoResumeOnStartup,
     muteFarmingTab: appState.muteFarmingTab,
     notificationsEnabled: appState.notificationsEnabled,
     telegramAlertsEnabled: appState.telegramAlertsEnabled,

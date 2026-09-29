@@ -11,7 +11,6 @@ describe('applyExtensionUpdateStateTransition', () => {
       totalDropsClaimed: 7,
       totalChannelPointsClaimed: 11,
       monitorAutoOpen: false,
-      autoResumeOnStartup: true,
       muteFarmingTab: false,
       notificationsEnabled: true,
       telegramAlertsEnabled: true,
@@ -58,7 +57,6 @@ describe('applyExtensionUpdateStateTransition', () => {
     expect(state.appState.totalDropsClaimed).toBe(7);
     expect(state.appState.totalChannelPointsClaimed).toBe(11);
     expect(state.appState.monitorAutoOpen).toBe(false);
-    expect(state.appState.autoResumeOnStartup).toBe(true);
     expect(state.appState.muteFarmingTab).toBe(false);
     expect(state.appState.notificationsEnabled).toBe(true);
     expect(state.appState.telegramAlertsEnabled).toBe(true);
