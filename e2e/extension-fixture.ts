@@ -32,6 +32,12 @@ export async function createExtensionProfile(userDataDir?: string): Promise<Exte
 
   const worker = await getExtensionWorker(context);
   const extensionId = new URL(worker.url()).host;
+  // Worker discovery precedes initialization and activation sync. Wait for both
+  // before tests seed storage, otherwise startup can overwrite the fixture.
+  const readyPage = await context.newPage();
+  await readyPage.goto(`chrome-extension://${extensionId}/icons/icon.svg`);
+  await readyPage.evaluate(() => chrome.runtime.sendMessage({ type: 'ACTIVATE_POPUP' }));
+  await readyPage.close();
   const shutdown = async () => {
     if (isShutdown) return;
     isShutdown = true;
@@ -77,14 +83,30 @@ export async function seedAppState(profile: ExtensionProfile, patch: Record<stri
     const { appState = {} } = await chrome.storage.local.get('appState');
     const currentState = appState && typeof appState === 'object' ? appState : {};
     await chrome.storage.local.set({
-      appState: { ...currentState, ...statePatch },
+      appState: {
+        ...currentState,
+        twitchSessionDetected: true,
+        campaignEvidenceUserId: '123456789',
+        // Control tests use verified local campaigns, not an offline API retry.
+        campaignSyncState: {
+          status: 'idle',
+          lastAttemptAt: Date.now(),
+          lastSuccessAt: Date.now(),
+          campaignCount: 1,
+          retryAttemptCount: 0,
+          lastErrorKind: null,
+          nextRetryAt: null,
+          attemptDeadlineAt: null,
+        },
+        ...statePatch,
+      },
       twitchSession: {
         oauthToken: 'playwright-local-token-0000000000000000',
         userId: '123456789',
         deviceId: 'playwright-device-0001',
         uuid: 'playwrighte2e0001',
       },
-      storageSchemaVersion: 3,
+      storageSchemaVersion: 4,
       lastInitializedExtensionVersion: chrome.runtime.getManifest().version,
       lastActivityAt: Date.now(),
       onboardingCompleted: true,

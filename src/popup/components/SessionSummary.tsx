@@ -130,7 +130,7 @@ export function SessionSummary(props: SessionSummaryProps) {
             {startLabel}
           </button>
         )}
-        {isRunning && (
+        {props.state.isRunning && !props.state.isPaused && (
           <button
             type="button"
             onClick={props.onPause}

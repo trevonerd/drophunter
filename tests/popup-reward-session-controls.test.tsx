@@ -239,4 +239,15 @@ test('non-blocking session retry never exposes Twitch recovery controls', () => 
   expect(authRecoveryMarkup).toContain('Pause</button>');
   expect(authRecoveryMarkup).toContain('Stop</button>');
   expect(otherRecoveryMarkup).not.toContain('Open Twitch Drops</button>');
+  expect(otherRecoveryMarkup).toContain('Pause</button>');
+});
+
+test('an inactive queue awaiting validation cannot pause an unstarted session', () => {
+  const selected = game();
+  const markup = renderMainView(
+    { ...appState(selected), isRunning: false, manualQueueAuthorized: true },
+    [],
+    { runtimeMode: 'recovering', recoveryNow: 1 },
+  );
+  expect(markup).not.toContain('Pause</button>');
 });

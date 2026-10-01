@@ -1,10 +1,10 @@
 # Matrice di recupero e aggiornamento
 
-Build verificata: `4.0.0-beta.48`, manifest tecnico `3.99.0.48`. Il 1 ottobre 2026 il gate completo è passato senza warning: TypeScript, lint, 2.301 test unitari, 9 E2E Chrome MV3, audit, build e archivi Chrome/Edge. Anche audit e rendering CTA/promo del progetto video sono passati. Questa beta è destinata alla prerelease GitHub e ai test locali, non agli store.
+Build verificata: `4.0.0-beta.48`, manifest tecnico `3.99.0.48`. Il 1 ottobre 2026 il gate completo è passato senza warning: TypeScript, lint, 2.302 test unitari, 9 E2E Chrome MV3, audit, build e archivi Chrome/Edge. Anche audit e rendering CTA/promo del progetto video sono passati. Questa beta è destinata alla prerelease GitHub e ai test locali, non agli store.
 
-La beta.48 evita claim e avvisi duplicati, distingue le campagne nei messaggi e mantiene indipendenti browser e Telegram. Gli errori di lettura/scrittura del registro non cancellano le acquisizioni esistenti né sopprimono il fallback di completamento. Conserva la ripresa delle sessioni attive introdotta nella beta.47 e il rispetto di Pausa e Stop.
+La beta.48 evita claim e avvisi duplicati, distingue le campagne nei messaggi e mantiene indipendenti browser e Telegram. Gli errori di lettura/scrittura del registro non cancellano le acquisizioni esistenti né sopprimono il fallback di completamento. Conserva la ripresa delle sessioni attive introdotta nella beta.47 e il rispetto di Pausa e Stop. Pausa resta disponibile anche durante il recovery di una sessione attiva.
 
-Archivi: `.output/drophunter-4.0.0-beta.48-chrome.zip` e `.output/drophunter-4.0.0-beta.48-edge.zip`. SHA-256 di entrambi: `e02b4ed2737b5384f132920642ac65e398328950b68a4939ff89845372a676e6`.
+Archivi: `.output/drophunter-4.0.0-beta.48-chrome.zip` e `.output/drophunter-4.0.0-beta.48-edge.zip`. SHA-256 di entrambi: `ce6f37462e96255e4d4029424684dd558ab2ddb092e45be6a4584ed7a8a16188`.
 
 **A** = asserzioni automatizzate dirette; **P** = copertura parziale o indiretta. Le chiamate Twitch dei test sono simulate; gli E2E usano un vero Chrome MV3 con profili persistenti. `—` indica che restano da verificare le varianti con Twitch reale. Questa esecuzione non ha svolto una sessione manuale su una campagna reale: progresso prolungato, sleep/wake, fallback hidden→managed, visione personale e notifiche restano verifiche prima della versione stabile.
 
