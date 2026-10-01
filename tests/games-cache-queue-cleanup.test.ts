@@ -1,7 +1,7 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics(['[DropHunter] Queue cleanup notification delivery failed']);
+verifyExpectedDiagnostics([['[DropHunter] Queue cleanup notification delivery failed', 1]]);
 
 import { describe, expect, test } from 'bun:test';
 import { refreshGamesCacheFromHiddenFetch } from '../src/background/games-cache-orchestration.ts';

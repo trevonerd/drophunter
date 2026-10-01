@@ -2,14 +2,14 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  '[DropHunter] Drops snapshot API skipped: Twitch session missing',
-  '[DropHunter] No Twitch session recovered from storage keys',
-  '[DropHunter] No eligible streamer found for current Drops; scheduling one retry',
-  '[DropHunter] No rewards found after selected game refresh',
-  '[DropHunter] No streamer found for selected game',
-  '[DropHunter] Parking campaign because no eligible Drops streamer was found',
-  '[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Demo Game" (slug: demo-game)',
-  '[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Next Game" (slug: next-game)',
+  ['[DropHunter] Drops snapshot API skipped: Twitch session missing', 4],
+  ['[DropHunter] No Twitch session recovered from storage keys', 4],
+  ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 3],
+  ['[DropHunter] No rewards found after selected game refresh', 5],
+  ['[DropHunter] No streamer found for selected game', 5],
+  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 2],
+  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Demo Game" (slug: demo-game)', 3],
+  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Next Game" (slug: next-game)', 2],
 ]);
 
 import { afterAll, afterEach, beforeEach, describe } from 'bun:test';

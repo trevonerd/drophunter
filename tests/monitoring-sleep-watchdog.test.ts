@@ -1,7 +1,7 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics(['[DropHunter] Expired monitoring operation invalidated after wake']);
+verifyExpectedDiagnostics([['[DropHunter] Expired monitoring operation invalidated after wake', 1]]);
 
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import {

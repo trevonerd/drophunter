@@ -2,8 +2,8 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  '[DropHunter] Farming automation activity presentation failed',
-  '[DropHunter] Farming automation deadline replacement failed',
+  ['[DropHunter] Farming automation activity presentation failed', 1],
+  ['[DropHunter] Farming automation deadline replacement failed', 1],
 ]);
 
 import { describe, expect, test } from 'bun:test';

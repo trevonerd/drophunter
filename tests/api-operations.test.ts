@@ -2,10 +2,19 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: TwitchHttpError: Twitch gql HTTP 429',
-  '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: TwitchInvalidResponseError: integrity check failed',
-  '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: TwitchInvalidResponseError: integrity error',
-  '[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Test Game" (slug: test-game)',
+  [
+    '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: TwitchHttpError: Twitch gql HTTP 429',
+    1,
+  ],
+  [
+    '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: TwitchInvalidResponseError: integrity check failed',
+    1,
+  ],
+  [
+    '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: TwitchInvalidResponseError: integrity error',
+    2,
+  ],
+  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Test Game" (slug: test-game)', 1],
 ]);
 
 import './cases/api-operations-01.ts';

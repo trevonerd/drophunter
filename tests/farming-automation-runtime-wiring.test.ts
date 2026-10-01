@@ -2,8 +2,8 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  '[DropHunter] Game preference saved, but authoritative favorite sync failed',
-  '[DropHunter] Game preference saved, but automation refresh failed',
+  ['[DropHunter] Game preference saved, but authoritative favorite sync failed', 1],
+  ['[DropHunter] Game preference saved, but automation refresh failed', 1],
 ]);
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';

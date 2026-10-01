@@ -2,8 +2,8 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  '[DropHunter] Parking campaign because eligible stream playback could not start',
-  '[DropHunter] Parking campaign because no eligible Drops streamer was found',
+  ['[DropHunter] Parking campaign because eligible stream playback could not start', 2],
+  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 6],
 ]);
 
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';

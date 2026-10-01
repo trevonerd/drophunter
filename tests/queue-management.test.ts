@@ -2,14 +2,14 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  '[DropHunter] Entering persistent recovery mode',
-  '[DropHunter] Finishing campaign because Twitch reward acquisition could not be verified',
-  '[DropHunter] Giving up on game after stalled drop progress',
-  '[DropHunter] No allowed streamers are live for selected game',
-  '[DropHunter] No eligible streamer found for current Drops; scheduling one retry',
-  '[DropHunter] No streamer found for selected game',
-  '[DropHunter] Parking campaign because no eligible Drops streamer was found',
-  '[DropHunter] Stalled progress recovery exhausted — skipping game',
+  ['[DropHunter] Entering persistent recovery mode', 5],
+  ['[DropHunter] Finishing campaign because Twitch reward acquisition could not be verified', 2],
+  ['[DropHunter] Giving up on game after stalled drop progress', 16],
+  ['[DropHunter] No allowed streamers are live for selected game', 2],
+  ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 3],
+  ['[DropHunter] No streamer found for selected game', 4],
+  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 4],
+  ['[DropHunter] Stalled progress recovery exhausted — skipping game', 1],
 ]);
 
 import { registerQueue01Part01 } from './cases/queue-01-normalizequeueselection-01.ts';

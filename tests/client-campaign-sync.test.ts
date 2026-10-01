@@ -2,7 +2,10 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  '[DropHunter] [TwitchApiClient] Campaign detail batch fetch failed; retaining valid partial data: temporary campaign detail outage',
+  [
+    '[DropHunter] [TwitchApiClient] Campaign detail batch fetch failed; retaining valid partial data: temporary campaign detail outage',
+    1,
+  ],
 ]);
 
 import { afterEach, describe, expect, test } from 'bun:test';
