@@ -3,10 +3,10 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
   ['[DropHunter] Farming recovery alarm unavailable; monitoring heartbeat remains active', 1],
-  ['[DropHunter] Runtime diagnostic storage unavailable', 1],
 ]);
 
 import { expect, test } from 'bun:test';
+import { flushRuntimeDiagnosticsForTests } from '../src/background/runtime-diagnostics.ts';
 import { saveState } from '../src/background/state-persistence.ts';
 import { createMinimalState } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
@@ -22,6 +22,7 @@ test('saving state again does not slide an existing near-term recovery alarm', a
     await saveState(state);
     expect(mocks.alarms._created.filter((alarm) => alarm.name === 'farmingRecoveryRetry')).toHaveLength(1);
   } finally {
+    await flushRuntimeDiagnosticsForTests();
     mocks.teardown();
   }
 });
@@ -43,6 +44,7 @@ test('failed farming alarm creation is persisted as a visible fallback status', 
       true,
     );
   } finally {
+    await flushRuntimeDiagnosticsForTests();
     mocks.teardown();
   }
 });
