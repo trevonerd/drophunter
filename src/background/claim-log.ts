@@ -10,7 +10,14 @@ export const CLAIM_LOG_MAX_ENTRIES = 5000;
 
 let writeQueue: Promise<unknown> = Promise.resolve();
 
-type ClaimRecordedHandler = (entries: ClaimLogEntry[]) => void | Promise<void>;
+export interface ClaimNotificationOptions {
+  readonly suppressBrowserNotifications?: boolean;
+}
+
+type ClaimRecordedHandler = (
+  entries: ClaimLogEntry[],
+  options: ClaimNotificationOptions,
+) => void | Promise<void>;
 let claimRecordedHandler: ClaimRecordedHandler | null = null;
 
 export function setClaimRecordedHandler(handler: ClaimRecordedHandler | null): void {
@@ -93,7 +100,11 @@ export async function appendClaimLogEntries(
     try {
       const existing = await loadClaimLog();
       const existingIds = new Set(existing.map((e) => e.id));
-      const toAdd = entries.filter((e) => !existingIds.has(e.id));
+      const toAdd = entries.filter((entry) => {
+        if (existingIds.has(entry.id)) return false;
+        existingIds.add(entry.id);
+        return true;
+      });
       if (toAdd.length === 0) {
         logDebug('appendClaimLogEntries: no new entries to add');
         return { added: 0, entries: [] as ClaimLogEntry[] };
@@ -142,6 +153,7 @@ export async function recordClaimedDrops(
   target: ClaimRecordTarget,
   drops: TwitchDrop[],
   claimedAt = Date.now(),
+  options: ClaimNotificationOptions = {},
 ): Promise<number> {
   const acquiredDrops = drops.filter(isRewardAcquired);
   if (acquiredDrops.length === 0) return 0;
@@ -152,7 +164,7 @@ export async function recordClaimedDrops(
   target.appState.totalDropsClaimed += added;
   if (added > 0 && claimRecordedHandler) {
     try {
-      await claimRecordedHandler(recordedEntries);
+      await claimRecordedHandler(recordedEntries, options);
     } catch (error) {
       logWarn('Claim recorded handler failed:', String(error));
     }

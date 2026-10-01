@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { setClaimRecordedHandler } from '../../src/background/claim-log.ts';
+import { createClaimRecordedHandler } from '../../src/background/claim-notifications.ts';
 import { createFarmingSession } from '../../src/background/farming-session.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
 import {
@@ -40,6 +42,14 @@ describe('farming session watch transport integration', () => {
       message?: string;
       telegramReason?: string;
     }> = [];
+    setClaimRecordedHandler(
+      createClaimRecordedHandler({
+        notifyBrowser: async (_title, message) => {
+          calls.push(`claim-alert:${message}`);
+        },
+        notifyTelegram: async () => undefined,
+      }),
+    );
     const session = createFarmingSession(
       state,
       createWatchTransportAdapters({
@@ -61,9 +71,13 @@ describe('farming session watch transport integration', () => {
       }),
     );
 
-    await session.refreshDropsData({ includeInventoryFetch: true });
+    try {
+      await session.refreshDropsData({ includeInventoryFetch: true });
+    } finally {
+      setClaimRecordedHandler(null);
+    }
 
-    expect(calls).toEqual(['legacy-alert:drop-complete', 'save:true', 'automatic:true', 'save:true']);
+    expect(calls).toEqual(['claim-alert:Claimed: Reward (Game)', 'save:true', 'automatic:true', 'save:true']);
     expect(events).toEqual([
       {
         event: 'completion',

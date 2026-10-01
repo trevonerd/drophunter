@@ -2,6 +2,7 @@ import { createAutomationEventNotifier } from './automation-event-notifier.ts';
 import { automationNotificationPersistence } from './automation-notification-persistence.ts';
 import { publishCampaignUnfarmableWarning } from './campaign-unfarmable-warning.ts';
 import { setClaimRecordedHandler } from './claim-log.ts';
+import { createClaimRecordedHandler } from './claim-notifications.ts';
 import { CAMPAIGN_SYNC_ALARM_NAME } from './constants.ts';
 import { createFarmingSession } from './farming-session.ts';
 import { logDebug, logWarn } from './logging.ts';
@@ -72,7 +73,12 @@ const automationEventNotifier = createAutomationEventNotifier({
   persistence: automationNotificationPersistence,
 });
 
-setClaimRecordedHandler((entries) => telegramNotifier.notifyClaimedDrops(entries));
+setClaimRecordedHandler(
+  createClaimRecordedHandler({
+    notifyBrowser: (_title, message) => browserEvents.sendAlert('drop-complete', message),
+    notifyTelegram: (entries) => telegramNotifier.notifyClaimedDrops(entries),
+  }),
+);
 
 const twitchGateway = createServiceWorkerTwitchGateway(state, {
   recoverTwitchSession: (options) =>

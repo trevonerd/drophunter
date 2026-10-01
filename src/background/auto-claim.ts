@@ -4,7 +4,7 @@ import { loadClaimLog, recordClaimedDrops } from './claim-log.ts';
 import { DROP_CLAIM_RETRY_COOLDOWN_MS } from './constants.ts';
 import { splitDropsForSelectedGame } from './drops-projection.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
-import type { ServiceWorkerState } from './service-worker.ts';
+import type { ServiceWorkerState } from './runtime-state.ts';
 import { ensureSessionIntegrity } from './session-management.ts';
 import { saveState } from './state-persistence.ts';
 import { TwitchApiClient } from './twitch-api/client.ts';

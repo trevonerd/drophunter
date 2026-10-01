@@ -231,11 +231,7 @@ export function createFarmingSessionMonitoring(
   }
 
   async function claimAvailableDrops(): Promise<boolean> {
-    return autoClaimClaimableDrops(
-      state,
-      () => adapters.ensureTwitchSession(),
-      (drop) => adapters.sendAlert('drop-complete', `Claimed: ${drop.name} (${drop.gameName})`),
-    );
+    return autoClaimClaimableDrops(state, () => adapters.ensureTwitchSession());
   }
 
   async function refreshDropsData(options: RefreshDropsOptions = {}): Promise<RefreshDropsOutcome> {
