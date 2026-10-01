@@ -1,3 +1,13 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] No Twitch session recovered from storage keys',
+  '[DropHunter] Unable to refresh Twitch Client-Integrity token TwitchHttpError: Twitch integrity HTTP 500',
+  '[DropHunter] executeScript session extraction failed',
+  '[DropHunter] executeScript session extraction returned empty payload',
+]);
+
 import './cases/session-management-01.ts';
 import './cases/session-management-02.ts';
 import './cases/session-management-03.ts';

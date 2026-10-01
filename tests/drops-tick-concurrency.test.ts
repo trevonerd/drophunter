@@ -1,3 +1,10 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] Monitoring tick watchdog fired — resetting stuck monitorTickInFlight flag',
+]);
+
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { TICK_WATCHDOG_TIMEOUT_MS } from '../src/background/constants.ts';
 import {

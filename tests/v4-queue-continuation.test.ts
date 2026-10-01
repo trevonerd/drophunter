@@ -1,3 +1,11 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] Giving up on game after stalled drop progress',
+  '[DropHunter] Parking campaign because no eligible Drops streamer was found',
+]);
+
 import { describe, expect, test } from 'bun:test';
 import { setGameFavorite } from '../src/background/favorite-games.ts';
 import {

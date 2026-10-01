@@ -1,3 +1,8 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics(['[DropHunter] Runtime diagnostic storage unavailable']);
+
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { applyGlobalStreamerRecoveryState } from '../src/background/recovery-state.ts';
 import {

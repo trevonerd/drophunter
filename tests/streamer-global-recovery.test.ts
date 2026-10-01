@@ -1,3 +1,10 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Test Game" (slug: test-game)',
+]);
+
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { fetchDirectoryStreamersFromApiWrapper } from '../src/background/api-secondary-wrappers.ts';
 import { acquireStreamerForSelectedGame } from '../src/background/streamer-acquisition.ts';
@@ -128,50 +135,50 @@ describe('global streamer recovery', () => {
     expect(state.apiBackoffUntil).toBe(now + 120_000);
   });
 
-  test.each([
-    true,
-    false,
-  ])('runs one silent session recovery before auth result (recovered=%s)', async (recovered) => {
-    const state = createMinimalState();
-    state.appState.isRunning = true;
-    state.appState.manualQueueAuthorized = true;
-    const session = createSession();
-    let requests = 0;
-    let recoveryCalls = 0;
-    let signInCalls = 0;
-    globalThis.fetch = async () => {
-      requests += 1;
-      return recovered && requests > 1
-        ? Response.json({ data: { game: { streams: { edges: [] } } } })
-        : new Response('', { status: 401 });
-    };
-    const pending = fetchDirectoryStreamersFromApiWrapper(
-      state,
-      createGame(),
-      false,
-      '',
-      {
-        onEnsureTwitchSession: async () => session,
-        onIsLikelyAuthError: (error) => classifyTwitchApiFailure(error).kind === 'auth',
-        onClearTwitchSessionCache: () => undefined,
-        onRecoverTwitchSessionAfterAuthError: async () => {
-          recoveryCalls += 1;
-          return recovered ? session : null;
+  test.each([true, false])(
+    'runs one silent session recovery before auth result (recovered=%s)',
+    async (recovered) => {
+      const state = createMinimalState();
+      state.appState.isRunning = true;
+      state.appState.manualQueueAuthorized = true;
+      const session = createSession();
+      let requests = 0;
+      let recoveryCalls = 0;
+      let signInCalls = 0;
+      globalThis.fetch = async () => {
+        requests += 1;
+        return recovered && requests > 1
+          ? Response.json({ data: { game: { streams: { edges: [] } } } })
+          : new Response('', { status: 401 });
+      };
+      const pending = fetchDirectoryStreamersFromApiWrapper(
+        state,
+        createGame(),
+        false,
+        '',
+        {
+          onEnsureTwitchSession: async () => session,
+          onIsLikelyAuthError: (error) => classifyTwitchApiFailure(error).kind === 'auth',
+          onClearTwitchSessionCache: () => undefined,
+          onRecoverTwitchSessionAfterAuthError: async () => {
+            recoveryCalls += 1;
+            return recovered ? session : null;
+          },
+          onStopFarmingSession: async () => {
+            signInCalls += 1;
+          },
         },
-        onStopFarmingSession: async () => {
-          signInCalls += 1;
-        },
-      },
-      { logWarn: () => undefined },
-    );
+        { logWarn: () => undefined },
+      );
 
-    if (recovered) expect(await pending).toHaveLength(0);
-    else await expect(pending).rejects.toBeInstanceOf(TwitchDirectoryUnavailableError);
-    expect(recoveryCalls).toBe(1);
-    expect(signInCalls).toBe(recovered ? 0 : 1);
-    expect(requests).toBe(recovered ? 2 : 1);
-    expect(state.appState.manualQueueAuthorized).toBe(true);
-  });
+      if (recovered) expect(await pending).toHaveLength(0);
+      else await expect(pending).rejects.toBeInstanceOf(TwitchDirectoryUnavailableError);
+      expect(recoveryCalls).toBe(1);
+      expect(signInCalls).toBe(recovered ? 0 : 1);
+      expect(requests).toBe(recovered ? 2 : 1);
+      expect(state.appState.manualQueueAuthorized).toBe(true);
+    },
+  );
 
   test('does not resync or block the session after Stop invalidates an auth failure', async () => {
     const state = createMinimalState();

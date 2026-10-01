@@ -1,3 +1,10 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] Inactivity reset was not persisted; retaining the current session state. Error: storage unavailable',
+]);
+
 import { describe, expect, test } from 'bun:test';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { resetStateForInactivity } from '../src/background/state-persistence.ts';

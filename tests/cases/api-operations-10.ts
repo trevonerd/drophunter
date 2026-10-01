@@ -54,6 +54,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       async () => {
         throw new Error('network error');
       },
+      async () => buildInventoryResponse(),
     ]);
 
     const before = Date.now();
@@ -76,6 +77,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       async () => {
         throw new Error('401 unauthorized');
       },
+      async () => buildInventoryResponse(),
     ]);
 
     await expect(fetchDropsSnapshotFromApi(state, session)).rejects.toThrow('401 unauthorized');
@@ -110,6 +112,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       async () => {
         throw new Error('network error');
       },
+      async () => buildInventoryResponse(),
     ]);
 
     await fetchDropsSnapshotFromApi(state, session);

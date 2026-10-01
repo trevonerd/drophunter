@@ -1,3 +1,12 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] No eligible streamer found for current Drops; scheduling one retry',
+  '[DropHunter] No streamer found for selected game',
+  '[DropHunter] Parking campaign because no eligible Drops streamer was found',
+]);
+
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createFarmingSession } from '../src/background/farming-session.ts';
 import { NO_STREAMERS_RETRY_MS } from '../src/background/stream-rotation.ts';

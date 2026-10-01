@@ -1,3 +1,8 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics(['[DropHunter] Entering persistent recovery mode']);
+
 import { describe, expect, test } from 'bun:test';
 import { enterPersistentRecovery } from '../src/background/recovery-state.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';

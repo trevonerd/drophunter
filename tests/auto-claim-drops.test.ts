@@ -1,3 +1,12 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] Auto-claim failed, scheduled retry',
+  '[DropHunter] Auto-claim skipped: missing claimId',
+  '[DropHunter] Drop claim attempt failed: TypeError: temporary network failure',
+]);
+
 import { registerClaimDropViaApiCases } from './cases/auto-claim-drops-api.ts';
 import { registerAutoClaimClaimableDropsCases } from './cases/auto-claim-drops-batch.ts';
 import {

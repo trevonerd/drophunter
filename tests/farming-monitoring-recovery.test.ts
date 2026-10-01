@@ -1,3 +1,11 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] No eligible streamer found for current Drops; scheduling one retry',
+  '[DropHunter] No streamer found for selected game',
+]);
+
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createFarmingSession } from '../src/background/farming-session.ts';
 import { createFarmingSessionContext } from '../src/background/farming-session-context.ts';

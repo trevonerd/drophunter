@@ -139,9 +139,17 @@ export class AutoClaimFetch {
       }
       case 'DirectoryPage_Game': {
         const streamerName = this.directories.shift();
-        if (streamerName === undefined) throw new Error('Unexpected directory fetch in auto-claim test');
-        const edges = streamerName
-          ? [{ node: { broadcaster: { login: streamerName, displayName: streamerName }, viewersCount: 123 } }]
+        // Unstaged directory checks see the stable seed stream; explicit null still means offline.
+        const availableStreamer = streamerName === undefined ? 'streamer-seed' : streamerName;
+        const edges = availableStreamer
+          ? [
+              {
+                node: {
+                  broadcaster: { login: availableStreamer, displayName: availableStreamer },
+                  viewersCount: 123,
+                },
+              },
+            ]
           : [];
         return jsonResponse({ data: { game: { streams: { edges } } } });
       }

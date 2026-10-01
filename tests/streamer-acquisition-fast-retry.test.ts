@@ -1,3 +1,10 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] No eligible streamer found for current Drops; scheduling one retry',
+]);
+
 import { afterEach, describe, expect, test } from 'bun:test';
 import { checkDropProgress } from '../src/background/drops-tick-monitoring.ts';
 import { applyApiBackoffRecoveryState } from '../src/background/recovery-state.ts';

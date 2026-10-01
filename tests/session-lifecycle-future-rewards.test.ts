@@ -1,3 +1,10 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] Removing campaign after an authoritative refresh proved it unfarmable',
+]);
+
 import { describe, expect, test } from 'bun:test';
 import { isKnownCompletedSelection } from '../src/background/session-lifecycle-completion.ts';
 import {

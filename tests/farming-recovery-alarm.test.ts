@@ -1,3 +1,11 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] Farming recovery alarm unavailable; monitoring heartbeat remains active',
+  '[DropHunter] Runtime diagnostic storage unavailable',
+]);
+
 import { expect, test } from 'bun:test';
 import { saveState } from '../src/background/state-persistence.ts';
 import { createMinimalState } from './fixtures/queue-management.ts';

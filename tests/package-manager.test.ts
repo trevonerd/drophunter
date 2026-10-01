@@ -7,8 +7,8 @@ const repoRoot = join(import.meta.dir, '..');
 
 describe('package manager', () => {
   test('uses Bun as the only committed package manager lockfile', () => {
-    expect(packageJson.packageManager).toBe('bun@1.3.13');
-    expect(packageJson.engines?.bun).toBe('>=1.3.9');
+    expect(packageJson.packageManager).toBe('bun@1.4.2');
+    expect(packageJson.engines?.bun).toBe('>=1.4.2');
     expect(packageJson.scripts?.preinstall).toContain("startsWith('bun/')");
 
     expect(existsSync(join(repoRoot, 'bun.lock'))).toBe(true);

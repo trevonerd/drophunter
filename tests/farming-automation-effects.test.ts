@@ -1,3 +1,11 @@
+import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+
+// These recovery/failure scenarios must emit only their declared diagnostic text.
+verifyExpectedDiagnostics([
+  '[DropHunter] Farming automation activity presentation failed',
+  '[DropHunter] Farming automation deadline replacement failed',
+]);
+
 import { describe, expect, test } from 'bun:test';
 import { createFarmingAutomation } from '../src/background/farming-automation.ts';
 import type { FarmingAutomationBrowser } from '../src/background/farming-automation-browser.ts';

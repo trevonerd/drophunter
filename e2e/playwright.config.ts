@@ -3,6 +3,9 @@ import { defineConfig } from '@playwright/test';
 
 const extensionPath = resolve(process.cwd(), '.output/chrome-mv3');
 
+// Playwright sets FORCE_COLOR for workers. Do not forward a conflicting NO_COLOR.
+delete process.env.NO_COLOR;
+
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.spec.ts',

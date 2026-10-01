@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { projectDropsSnapshot } from '../src/background/drops-projection.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import {
@@ -66,14 +66,19 @@ test('progressive campaign details cannot prove a game-less badge benefit is glo
 });
 
 test('a later conflicting campaign cannot leave an earlier partial native claim stuck in projection', () => {
-  const { context, partial, complete } = fixture();
-  const first = composeDropsSnapshot(context, partial);
-  const state = createServiceWorkerState();
-  state.appState.selectedGame = first.games[0] ?? null;
-  projectDropsSnapshot(state, first, 'inventory-partial');
-  projectDropsSnapshot(state, composeDropsSnapshot(context, complete, true), 'campaign-authoritative');
-  expect(state.appState.allDrops[0]).toMatchObject({ claimed: false, verificationState: 'unassessed' });
-  expect(state.appState.currentDrop?.id).toBe('drop-a');
+  const clock = spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-09T12:00:00Z'));
+  try {
+    const { context, partial, complete } = fixture();
+    const first = composeDropsSnapshot(context, partial);
+    const state = createServiceWorkerState();
+    state.appState.selectedGame = first.games[0] ?? null;
+    projectDropsSnapshot(state, first, 'inventory-partial');
+    projectDropsSnapshot(state, composeDropsSnapshot(context, complete, true), 'campaign-authoritative');
+    expect(state.appState.allDrops[0]).toMatchObject({ claimed: false, verificationState: 'unassessed' });
+    expect(state.appState.currentDrop?.id).toBe('drop-a');
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 test('complete unique campaign details accept a timestamped game-less native award', () => {
