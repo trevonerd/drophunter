@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import packageJson from '../package.json' with { type: 'json' };
+import { resolveReleaseVersion } from '../src/shared/release-version';
 import {
   createExtensionProfile,
   fixtureDrop,
@@ -240,7 +242,7 @@ for (const isPaused of [false, true]) {
           return [storageSchemaVersion, lastInitializedExtensionVersion, state.recoveryReason, state.recoveryBackoffUntil, state.isPaused, state.isRunning, state.wasRunning,
             state.manualQueueAuthorized,
             (state.queue as Array<{ campaignId: string }>)[0]?.campaignId];
-        })).toEqual([4, '3.99.0.47', null, null, isPaused, isPaused, !isPaused, true, 'e2e-campaign']);
+        })).toEqual([4, resolveReleaseVersion(packageJson.version).manifestVersion, null, null, isPaused, isPaused, !isPaused, true, 'e2e-campaign']);
       } finally {
         await upgraded.shutdown();
       }
