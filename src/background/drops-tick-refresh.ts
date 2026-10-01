@@ -1,6 +1,6 @@
 // Owns campaign/inventory snapshot refresh and projection into runtime state.
 import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
-import { detectNewlyClaimedDrops, loadClaimLog, recordClaimedDrops } from './claim-log.ts';
+import { detectNewlyClaimedDrops, recordClaimedDropsWithResult } from './claim-log.ts';
 import { completedDropKeys, type DropsSnapshotProvenance, dropStateKey } from './drops-projection.ts';
 import { snapshotProvenance } from './drops-snapshot-provenance.ts';
 import { cleanUnavailableQueueCampaigns } from './queue-availability-cleanup.ts';
@@ -170,12 +170,11 @@ export async function refreshDropsData(
 
   const newlyClaimed = detectNewlyClaimedDrops(drops, previousSnapshotForClaims);
   if (newlyClaimed.length > 0) {
-    await recordClaimedDrops(state, newlyClaimed, Date.now(), {
+    const { persistedKeys } = await recordClaimedDropsWithResult(state, newlyClaimed, Date.now(), {
       suppressBrowserNotifications: options.suppressNotifications,
     });
     if (!isCurrent()) return 'transient-failure';
-    const recordedKeys = new Set((await loadClaimLog()).map((entry) => entry.id));
-    if (!isCurrent()) return 'transient-failure';
+    const recordedKeys = new Set(persistedKeys);
     for (const drop of newlyClaimed) {
       const key = dropStateKey(drop);
       if (recordedKeys.has(key)) previousCompletedKeys.add(key);

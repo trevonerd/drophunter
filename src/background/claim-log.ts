@@ -80,25 +80,35 @@ export function createClaimLogEntry(
   };
 }
 
+async function readClaimLog(): Promise<ClaimLogEntry[]> {
+  const stored = await browser.storage.local.get([CLAIM_LOG_KEY]);
+  const raw = stored[CLAIM_LOG_KEY];
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeClaimLogEntry).filter((e): e is ClaimLogEntry => e !== null);
+}
+
 export async function loadClaimLog(): Promise<ClaimLogEntry[]> {
   try {
-    const stored = await browser.storage.local.get([CLAIM_LOG_KEY]);
-    const raw = stored[CLAIM_LOG_KEY];
-    if (!Array.isArray(raw)) return [];
-    return raw.map(normalizeClaimLogEntry).filter((e): e is ClaimLogEntry => e !== null);
+    return await readClaimLog();
   } catch (error) {
     logWarn('Failed to load claim log:', String(error));
     return [];
   }
 }
 
-export async function appendClaimLogEntries(
+interface ClaimAppendResult {
+  readonly added: number;
+  readonly entries: ClaimLogEntry[];
+  readonly persistedKeys: string[];
+}
+
+async function appendClaimLogEntriesWithResult(
   entries: ClaimLogEntry[],
   maxEntries = CLAIM_LOG_MAX_ENTRIES,
-): Promise<{ added: number; entries: ClaimLogEntry[] }> {
+): Promise<ClaimAppendResult> {
   const result = (writeQueue as Promise<unknown>).then(async () => {
     try {
-      const existing = await loadClaimLog();
+      const existing = await readClaimLog();
       const existingIds = new Set(existing.map((e) => e.id));
       const toAdd = entries.filter((entry) => {
         if (existingIds.has(entry.id)) return false;
@@ -107,7 +117,7 @@ export async function appendClaimLogEntries(
       });
       if (toAdd.length === 0) {
         logDebug('appendClaimLogEntries: no new entries to add');
-        return { added: 0, entries: [] as ClaimLogEntry[] };
+        return { added: 0, entries: [], persistedKeys: [...new Set(entries.map((entry) => entry.id))] };
       }
       const combined = [...existing, ...toAdd];
       const trimmed =
@@ -115,14 +125,26 @@ export async function appendClaimLogEntries(
           ? combined.sort((a, b) => a.claimedAt - b.claimedAt).slice(-maxEntries)
           : combined;
       await browser.storage.local.set({ [CLAIM_LOG_KEY]: trimmed });
-      return { added: toAdd.length, entries: toAdd };
+      return {
+        added: toAdd.length,
+        entries: toAdd,
+        persistedKeys: [...new Set(entries.map((entry) => entry.id))],
+      };
     } catch (error) {
       logWarn('Failed to append claim log entries:', String(error));
-      return { added: 0, entries: [] as ClaimLogEntry[] };
+      return { added: 0, entries: [], persistedKeys: [] };
     }
   });
   writeQueue = result;
-  return result as Promise<{ added: number; entries: ClaimLogEntry[] }>;
+  return result;
+}
+
+export async function appendClaimLogEntries(
+  entries: ClaimLogEntry[],
+  maxEntries = CLAIM_LOG_MAX_ENTRIES,
+): Promise<{ added: number; entries: ClaimLogEntry[] }> {
+  const result = await appendClaimLogEntriesWithResult(entries, maxEntries);
+  return { added: result.added, entries: result.entries };
 }
 
 export async function clearClaimLog(): Promise<void> {
@@ -149,18 +171,18 @@ export interface ClaimRecordTarget {
   appState: Pick<AppState, 'totalDropsClaimed' | 'availableGames'>;
 }
 
-export async function recordClaimedDrops(
+export async function recordClaimedDropsWithResult(
   target: ClaimRecordTarget,
   drops: TwitchDrop[],
   claimedAt = Date.now(),
   options: ClaimNotificationOptions = {},
-): Promise<number> {
+): Promise<{ added: number; persistedKeys: string[] }> {
   const acquiredDrops = drops.filter(isRewardAcquired);
-  if (acquiredDrops.length === 0) return 0;
+  if (acquiredDrops.length === 0) return { added: 0, persistedKeys: [] };
   const entries = acquiredDrops.map((drop) =>
     createClaimLogEntry(drop, target.appState.availableGames, claimedAt),
   );
-  const { added, entries: recordedEntries } = await appendClaimLogEntries(entries);
+  const { added, entries: recordedEntries, persistedKeys } = await appendClaimLogEntriesWithResult(entries);
   target.appState.totalDropsClaimed += added;
   if (added > 0 && claimRecordedHandler) {
     try {
@@ -169,5 +191,14 @@ export async function recordClaimedDrops(
       logWarn('Claim recorded handler failed:', String(error));
     }
   }
-  return added;
+  return { added, persistedKeys };
+}
+
+export async function recordClaimedDrops(
+  target: ClaimRecordTarget,
+  drops: TwitchDrop[],
+  claimedAt = Date.now(),
+  options: ClaimNotificationOptions = {},
+): Promise<number> {
+  return (await recordClaimedDropsWithResult(target, drops, claimedAt, options)).added;
 }
