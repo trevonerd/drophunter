@@ -15,6 +15,7 @@ Farming uses **twitch.tv** and your existing browser session. State stays local;
 - Rotate to a new streamer only when the current stream becomes invalid or progress stalls
 - Auto-claim completed drops across all campaigns when Twitch marks them claimable
 - Keep a local claim log so you can review recently claimed drops grouped by campaign
+- Back up and restore selected preferences, favorites, hidden games, statistics, and claim history
 - Pause and resume farming without losing your place in the queue
 - Resume an active farming session after a browser restart, preserving manual Pause and Stop
 - Choose how DropHunter picks streamers: lowest viewers, random, or most viewers
@@ -105,6 +106,8 @@ DropHunter includes a few runtime controls in the popup so you can tune how aggr
 - switch between low-view, random, and top-viewer streamer selection
 - prefer a specific streamer language when one is available
 - choose whether the farming tab stays muted
+
+DropHunter backup files are local JSON. They include settings, favorites, hidden games, claim totals, and claim history. They never include Twitch credentials, campaign progress, or queue/session state. You can choose which compatible sections to import. Favorite auto-start turns off after every import; desktop notifications turn off when you restore backup settings. See the [backup format](docs/backup-format.md) for the field list and merge behavior.
 
 ## Notes
 

@@ -70,6 +70,9 @@ export interface RuntimeMessageHandlers {
   openMonitorDashboard: RuntimeMessageHandler<'OPEN_MONITOR_DASHBOARD'>;
   getClaimLog: RuntimeMessageHandler<'GET_CLAIM_LOG'>;
   clearClaimLog: RuntimeMessageHandler<'CLEAR_CLAIM_LOG'>;
+  exportBackup: RuntimeMessageHandler<'EXPORT_BACKUP'>;
+  previewBackup: RuntimeMessageHandler<'PREVIEW_BACKUP'>;
+  importBackup: RuntimeMessageHandler<'IMPORT_BACKUP'>;
 }
 
 function respondAsync(handler: () => MaybePromise<unknown>, sendResponse: RuntimeSendResponse): true {
@@ -90,6 +93,7 @@ function unsupportedTarget(sendResponse: RuntimeSendResponse): true {
 
 export interface RuntimeMessageListenerOptions {
   beforeHandle?: () => MaybePromise<void>;
+  aroundHandle?: (handler: () => MaybePromise<unknown>, message: RuntimeRequest) => MaybePromise<unknown>;
 }
 
 export function createRuntimeMessageListener(
@@ -110,10 +114,16 @@ export function createRuntimeMessageListener(
     const respond = (handler: () => MaybePromise<unknown>) =>
       respondAsync(async () => {
         await options.beforeHandle?.();
-        return handler();
+        return options.aroundHandle ? options.aroundHandle(handler, message) : handler();
       }, sendResponse);
 
     switch (message.type) {
+      case 'EXPORT_BACKUP':
+        return respond(() => handlers.exportBackup(message, sender));
+      case 'PREVIEW_BACKUP':
+        return respond(() => handlers.previewBackup(message, sender));
+      case 'IMPORT_BACKUP':
+        return respond(() => handlers.importBackup(message, sender));
       case 'GET_TWITCH_SESSION':
       case 'GET_STREAM_CONTEXT':
       case 'PREPARE_STREAM_PLAYBACK':

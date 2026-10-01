@@ -1,0 +1,13 @@
+{
+  "format": "drophunter-backup",
+  "formatVersion": 1,
+  "extensionVersion": "4.0.0-beta.49",
+  "exportedAt": "2026-10-01T12:00:00.000Z",
+  "sections": {
+    "settings": { "version": 1, "data": { "muteFarmingTab": true, "monitorAutoOpen": false } },
+    "favorites": { "version": 1, "data": [{ "gameId": "game-a", "lastKnownName": "Game A", "addedAt": 1 }] },
+    "hidden": { "version": 1, "data": [] },
+    "statistics": { "version": 1, "data": { "totalDropsClaimed": 1, "totalChannelPointsClaimed": 100 } },
+    "history": { "version": 1, "data": [{ "id": "drop-a::campaign-a", "dropId": "drop-a", "dropName": "Reward", "gameId": "game-a", "gameName": "Game A", "campaignId": "campaign-a", "campaignLabel": "Game A · Campaign A", "claimedAt": 1 }] }
+  }
+}

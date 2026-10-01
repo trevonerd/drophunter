@@ -40,7 +40,7 @@ export async function handleStartFarming(
   payload: StartFarmingPayload,
   options?: StartFarmingOptions,
 ): Promise<StartFarmingResult> {
-  const isCurrent = options?.isCurrent ?? (() => true);
+  const isCurrent = () => !state.backupImportInProgress && (options?.isCurrent?.() ?? true);
   const cancelled = (): StartFarmingResult => ({ success: false, error: 'Farming start was superseded.' });
   if (!isCurrent()) return cancelled();
   if (options?.onTrackActivity) {

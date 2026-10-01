@@ -4,6 +4,10 @@ import type { TwitchSession } from './twitch-api/types.ts';
 
 export interface ServiceWorkerState {
   appState: AppState;
+  backupImportInProgress: boolean;
+  backupImportCompletion: Promise<void> | null;
+  backupImportRequested: boolean;
+  runtimeHandlersInFlight: number;
   monitorTickInFlight: boolean;
   monitorTickDeadlineAt: number;
   streamerAcquisitionInFlight: Promise<boolean> | null;

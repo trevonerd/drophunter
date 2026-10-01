@@ -64,6 +64,8 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - No `cookies` permission and no `chrome.cookies` fallback. Session recovery uses Twitch page storage, content-script extraction, open Twitch tabs, and integrity interceptor data.
 - Keep `notifications` optional. Request/use it only through the existing user-facing setting flow.
 - Required host permissions remain Twitch-only; Telegram uses optional `api.telegram.org` access. Never include Twitch credentials in alerts.
+- Portable backup must follow [docs/backup-format.md](docs/backup-format.md): use a DropHunter-owned format identifier, independently versioned sections, and an explicit field allowlist. Export only settings, favorites, hidden games, statistics, and claim log; exclude credentials, sessions, campaign/progress state, queue authorization, runtime state, and transport data. Treat backup JSON as untrusted input and enforce the 10 MiB limit.
+- Backup evolution must retain published fixtures and pure migrations. Optional additions keep the section version; absent fields preserve local values or fresh-install defaults. Surface ignored data and unavailable sections before import. Incompatible representation changes require a tested migration or an explicit preview error and release note; reserve root version changes for radical envelope changes. Merge adds channel-point totals and deduplicates history before retention, flooring the drop count at the local total. Replace only selected present sections. Imports require Stop, disable favorite auto-start, and require explicit reactivation of restored notifications; never import authorization or override Pause.
 
 ## Runtime Message Rules
 - Runtime message changes must update all contracts together: `RUNTIME_MESSAGE_TYPES`, `RuntimeRequest`, `RuntimeResponseByType`, payload validation, background router handling, and tests.
@@ -88,7 +90,8 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - When changing Twitch API parsing, prefer explicit guards and typed normalization helpers over trusting nested fields.
 
 ## Common Change Recipes
-- New popup setting: add state default/type, storage normalization, runtime message contract, background handler, hook/UI toggle, and source tests.
+- New popup setting: add state default/type, storage normalization, runtime message contract, background handler, hook/UI toggle, and source tests. Declare portability, default, sensitivity, and missing-field/import behavior in the backup contract; portable fields must join the modular registry without breaking published fixtures.
+- Backup format changes: update [docs/backup-format.md](docs/backup-format.md) and this file first, then keep `AGENTS.md` compressed copy aligned. Keep migrations pure and covered by permanent historical fixtures.
 - New background action: add runtime message contract, payload validator, router handler, state persistence/broadcast behavior, and failure response tests.
 - New campaign identity behavior: update shared helper first, then queue, popup selector/chips, drop matching, and campaign label tests.
 - New recovery behavior: update runtime status helpers if user-visible, timing persistence if durable, monitor/popup display, and soak-test notes if manual QA changes.

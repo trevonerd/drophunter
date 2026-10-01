@@ -2,6 +2,7 @@ import { AdvancedSettings } from './AdvancedSettings.tsx';
 import { FarmingAutomationSettings } from './FarmingAutomationSettings.tsx';
 import { BackIcon } from './icons.tsx';
 import { SettingsAbout } from './SettingsAbout.tsx';
+import { SettingsBackup } from './SettingsBackup.tsx';
 import { SettingsStatistics } from './SettingsStatistics.tsx';
 import type { SettingsViewProps } from './settings-view-types.ts';
 
@@ -52,6 +53,7 @@ export function SettingsView(props: SettingsViewProps) {
           onWatchTransportModeChange={onWatchTransportModeChange}
         />
         <AdvancedSettings {...props} />
+        <SettingsBackup state={state} />
         <SettingsAbout />
       </main>
     </div>

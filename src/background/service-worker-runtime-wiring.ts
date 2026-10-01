@@ -1,7 +1,9 @@
+import { createBackupController } from './backup-controller.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
 import type { createFarmingSession } from './farming-session.ts';
 import { retryFarmingNow } from './manual-farming-retry.ts';
 import { registerRuntimeMessageRouter } from './message-router.ts';
+import { withRuntimeBackupGuard } from './runtime-backup-guard.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
 import type { createServiceWorkerContentHandlers } from './service-worker-content-handlers.ts';
@@ -52,8 +54,13 @@ export function createFarmingAutomationUserActionHandlers(
 export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeDependencies): void {
   const { browserEvents, contentHandlers, farmingSession, settingsHandlers, stateLifecycle } = dependencies;
   const userActions = createFarmingAutomationUserActionHandlers(dependencies.automation, farmingSession);
+  const backup = createBackupController(dependencies.state, () => dependencies.automation.invalidate?.());
   registerRuntimeMessageRouter(
     {
+      exportBackup: () => backup.exportBackup(),
+      previewBackup: (message) => backup.previewBackup(message.payload.backup, message.payload.options),
+      importBackup: (message) =>
+        backup.importBackup(message.payload.backup, message.payload.options, message.payload.revision),
       activatePopup: async () => {
         const result = await contentHandlers.activatePopup();
         return {
@@ -133,7 +140,14 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
       getClaimLog: settingsHandlers.handleGetClaimLog,
       clearClaimLog: settingsHandlers.handleClearClaimLog,
     },
-    { beforeHandle: stateLifecycle.awaitInitialization },
+    {
+      aroundHandle: (handler, message) => withRuntimeBackupGuard(dependencies.state, handler, message),
+      beforeHandle: async () => {
+        await stateLifecycle.awaitInitialization();
+        if (dependencies.state.backupImportInProgress)
+          throw new Error('Backup restore is in progress. Try again shortly.');
+      },
+    },
   );
 }
 

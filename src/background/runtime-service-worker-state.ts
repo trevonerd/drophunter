@@ -5,6 +5,10 @@ import type { ServiceWorkerState } from './runtime-state-types.ts';
 export function createServiceWorkerState(): ServiceWorkerState {
   return {
     appState: createInitialState(),
+    backupImportInProgress: false,
+    backupImportCompletion: null,
+    backupImportRequested: false,
+    runtimeHandlersInFlight: 0,
     monitorTickInFlight: false,
     monitorTickDeadlineAt: 0,
     streamerAcquisitionInFlight: null,

@@ -57,6 +57,9 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
     openMonitorDashboard: missing,
     getClaimLog: missing,
     clearClaimLog: missing,
+    exportBackup: missing,
+    previewBackup: missing,
+    importBackup: missing,
   };
   Object.assign(handlers, overrides);
   return handlers;

@@ -10,6 +10,7 @@ import { recordRuntimeDiagnostic } from './runtime-diagnostics.ts';
 import { pickDurablePreferences } from './runtime-state';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
+import { withStateStorageTransaction } from './state-storage-transaction.ts';
 import type { TwitchSession } from './twitch-api/types';
 
 export {
@@ -93,17 +94,20 @@ export function resetSaveStateBroadcastCacheForTests() {
 }
 
 export async function saveState(state: ServiceWorkerState) {
-  await reconcileFarmingRecoveryAlarm(state.appState);
-  await browser.storage.local.set({
-    appState: state.appState,
-    [DROPS_SNAPSHOT_CACHE_KEY]: state.cachedDropsSnapshot,
+  await state.backupImportCompletion;
+  return withStateStorageTransaction(state, async () => {
+    await reconcileFarmingRecoveryAlarm(state.appState);
+    await browser.storage.local.set({
+      appState: state.appState,
+      [DROPS_SNAPSHOT_CACHE_KEY]: state.cachedDropsSnapshot,
+    });
+    recordRuntimeDiagnostic(state.appState);
+    const signature = JSON.stringify(state.appState);
+    if (signature !== lastBroadcastAppStateSignature) {
+      lastBroadcastAppStateSignature = signature;
+      broadcastStateUpdate(state.appState);
+    }
   });
-  recordRuntimeDiagnostic(state.appState);
-  const signature = JSON.stringify(state.appState);
-  if (signature !== lastBroadcastAppStateSignature) {
-    lastBroadcastAppStateSignature = signature;
-    broadcastStateUpdate(state.appState);
-  }
 }
 
 export interface LoadStateCallbacks {

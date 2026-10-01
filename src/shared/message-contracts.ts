@@ -13,6 +13,7 @@ import type {
   TwitchStreamer,
   WatchTransportMode,
 } from '../types';
+import type { BackupFile, BackupImportOptions, BackupInspection, BackupSummary } from './backup.ts';
 
 export const RUNTIME_MESSAGE_TYPES = [
   'GET_TWITCH_SESSION',
@@ -65,6 +66,9 @@ export const RUNTIME_MESSAGE_TYPES = [
   'OPEN_STREAMER',
   'GET_CLAIM_LOG',
   'CLEAR_CLAIM_LOG',
+  'EXPORT_BACKUP',
+  'PREVIEW_BACKUP',
+  'IMPORT_BACKUP',
 ] as const;
 
 export type RuntimeMessageType = (typeof RUNTIME_MESSAGE_TYPES)[number];
@@ -126,6 +130,9 @@ export type RuntimeRequest =
   | { type: 'OPEN_DROPS_AND_SYNC' }
   | { type: 'GET_CLAIM_LOG' }
   | { type: 'CLEAR_CLAIM_LOG' }
+  | { type: 'EXPORT_BACKUP' }
+  | { type: 'PREVIEW_BACKUP'; payload: { backup: unknown; options: BackupImportOptions } }
+  | { type: 'IMPORT_BACKUP'; payload: { backup: unknown; options: BackupImportOptions; revision: string } }
   | { type: 'SET_STREAMER_SELECTION_MODE'; payload?: { mode?: StreamerSelectionMode } }
   | { type: 'SET_PREFERRED_STREAMER_LANGUAGE'; payload?: { language?: string | null } }
   | { type: 'SET_GAME_FAVORITE'; payload: { game: TwitchGame; favorite: boolean } }
@@ -197,4 +204,9 @@ export type RuntimeResponseByType = BooleanToggleResponseByType &
     OPEN_STREAMER: BasicResponse;
     GET_CLAIM_LOG: BasicResponse & { entries?: ClaimLogEntry[] };
     CLEAR_CLAIM_LOG: BasicResponse;
+    EXPORT_BACKUP: BasicResponse & { backup?: BackupFile };
+    PREVIEW_BACKUP: BasicResponse & {
+      preview?: { revision: string; inspection: BackupInspection; summary: BackupSummary };
+    };
+    IMPORT_BACKUP: BasicResponse;
   };

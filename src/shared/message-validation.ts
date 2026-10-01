@@ -1,4 +1,5 @@
 import type { GamePreference, TwitchGame } from '../types';
+import { isBackupPayloadValid } from './backup-message-validation.ts';
 import {
   BOOLEAN_TOGGLE_MESSAGES,
   NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES,
@@ -6,6 +7,7 @@ import {
   type RuntimeMessageType,
   type RuntimeRequest,
 } from './message-contracts.ts';
+import { isValidReorderPayload } from './message-reorder-validation.ts';
 
 const runtimeMessageTypeSet = new Set<string>(RUNTIME_MESSAGE_TYPES);
 
@@ -80,20 +82,6 @@ export function isTwitchGameLike(value: unknown): value is TwitchGame {
 function hasGamePayload(value: unknown, allowMissingGame = false): boolean {
   if (!isRecord(value)) return allowMissingGame && value === undefined;
   return value.game === undefined ? allowMissingGame : isTwitchGameLike(value.game);
-}
-
-function isValidReorderPayload(payload: unknown): boolean {
-  if (!isRecord(payload)) return false;
-  const { fromIndex, toIndex } = payload;
-  return (
-    typeof fromIndex === 'number' &&
-    typeof toIndex === 'number' &&
-    Number.isInteger(fromIndex) &&
-    Number.isInteger(toIndex) &&
-    fromIndex >= 0 &&
-    toIndex >= 0 &&
-    fromIndex !== toIndex
-  );
 }
 
 function isValidSettingsPayload(type: RuntimeMessageType, payload: unknown): boolean | undefined {
@@ -204,6 +192,11 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
   const optionalResult = isValidOptionalPayload(type, payload);
   if (optionalResult !== undefined) return optionalResult;
   switch (type) {
+    case 'EXPORT_BACKUP':
+      return payload === undefined;
+    case 'PREVIEW_BACKUP':
+    case 'IMPORT_BACKUP':
+      return isBackupPayloadValid(payload, type === 'IMPORT_BACKUP');
     case 'START_FARMING':
       return hasGamePayload(payload, true);
     case 'START_QUEUED_CAMPAIGN':

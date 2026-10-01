@@ -64,6 +64,8 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - No `cookies` permission, no `chrome.cookies` fallback. Session recovery uses Twitch page storage, content-script extraction, open Twitch tabs, integrity interceptor data.
 - Keep `notifications` optional. Request/use only via existing user-facing setting flow.
 - Required hosts Twitch-only; Telegram uses optional `api.telegram.org`. Never include Twitch credentials in alerts.
+- Portable JSON backup follows [docs/backup-format.md](docs/backup-format.md): DropHunter format ID, root + independent section versions, strict allowlist for settings/favorites/hidden/history/statistics, max 10 MiB. Exclude secrets/session/runtime/campaign progress. Unknown data is ignored and surfaced; incompatible root rejects, incompatible sections skip. Keep migrations pure with permanent historical fixtures. Merge adds channel-point totals and unions distinct history (drop total floored by local count, history capped at 5,000); replacement affects selected present sections. Favorite auto-start turns off after every import; desktop notifications turn off when backup settings apply. Import requires farming stopped and never resumes Pause.
+- Backup evolution: optional additions keep section versions; missing fields preserve local/default values. Incompatible changes need tested migrations or explicit preview errors + release notes. Root version bumps only for radical envelope changes; retain all published fixtures.
 
 ## Runtime Message Rules
 - Runtime message changes must update all contracts: `RUNTIME_MESSAGE_TYPES`, `RuntimeRequest`, `RuntimeResponseByType`, payload validation, background router handling, tests.
@@ -88,7 +90,8 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - Twitch API parsing: prefer explicit guards + typed normalization helpers over trusting nested fields.
 
 ## Common Change Recipes
-- New popup setting: add state default/type, storage normalization, runtime message contract, background handler, hook/UI toggle, source tests.
+- New popup setting: add default/type, storage normalization, messages, handler, hook/UI, tests; declare backup portability/default/sensitivity/import behavior. Add portable fields to the registry and preserve published fixtures.
+- Backup format changes: document field portability/default/sensitivity/import behavior in [docs/backup-format.md](docs/backup-format.md); update `AGENTS.original.md` first, then this compressed copy.
 - New background action: add runtime message contract, payload validator, router handler, state persistence/broadcast behavior, failure response tests.
 - New campaign identity behavior: update shared helper first, then queue, popup selector/chips, drop matching, campaign label tests.
 - New recovery behavior: update runtime status helpers if user-visible, timing persistence if durable, monitor/popup display, soak-test notes if manual QA changes.

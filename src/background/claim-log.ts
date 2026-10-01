@@ -10,6 +10,17 @@ export const CLAIM_LOG_MAX_ENTRIES = 5000;
 
 let writeQueue: Promise<unknown> = Promise.resolve();
 
+// Backups share the claim-history write boundary; failures must not poison later writes.
+export function withClaimLogTransaction<T>(operation: () => Promise<T>): Promise<T> {
+  const result = writeQueue.then(operation);
+  writeQueue = result.catch(() => undefined);
+  return result;
+}
+
+export async function readClaimLogStrict(): Promise<ClaimLogEntry[]> {
+  return readClaimLog();
+}
+
 export interface ClaimNotificationOptions {
   readonly suppressBrowserNotifications?: boolean;
 }
