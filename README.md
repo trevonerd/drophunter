@@ -4,7 +4,7 @@
 
 DropHunter is a Chrome, Chromium, and Edge extension for tracking and farming Twitch Drops with less manual busywork. It helps you pick a campaign, open an eligible stream, monitor progress, auto-claim rewards when possible, and move through queued campaigns with a cleaner workflow than juggling Twitch tabs by hand.
 
-It works only on **twitch.tv**, uses your existing Twitch session locally in the browser, and does not send data to any developer-owned servers.
+Farming uses **twitch.tv** and your existing browser session. State stays local; optional Telegram alerts use your own bot and chat. Nothing is sent to developer-owned servers.
 
 ## Features
 
@@ -16,7 +16,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Auto-claim completed drops across all campaigns when Twitch marks them claimable
 - Keep a local claim log so you can review recently claimed drops grouped by campaign
 - Pause and resume farming without losing your place in the queue
-- Optionally resume an active farming session after a browser restart
+- Resume an active farming session after a browser restart, preserving manual Pause and Stop
 - Choose how DropHunter picks streamers: lowest viewers, random, or most viewers
 - Filter streamers by preferred language (30+ languages supported)
 - Automatically claim free channel points bonuses on open Twitch channel tabs
@@ -26,7 +26,7 @@ It works only on **twitch.tv**, uses your existing Twitch session locally in the
 - Let you choose whether the monitor opens automatically when farming starts
 - Control whether farming tabs are muted from Settings
 - Warn you when Twitch playback likely needs manual attention
-- Handle duplicate game campaigns more clearly by labeling campaigns with suffixes like "Game · Campaign A" and "Game · Campaign B" at refresh time, making it easy to distinguish and select identical-game variants from the dropdown and queue
+- Distinguish campaigns for the same game with labels such as "Game · Campaign A"
 
 ## Installation
 
@@ -81,7 +81,7 @@ missing from a complete, verified Twitch update are removed too; failed or parti
 updates do not establish that a campaign has disappeared. The remaining queue
 continues only when its farming session was authorized.
 
-If Twitch blocks playback or needs a manual interaction, DropHunter can notify you so you can click the player and resume progress. The auto-resume setting applies when the browser stops while a farming session is active: when disabled, that interrupted session returns paused and waits for Resume. A session you manually paused or stopped stays paused or stopped after restart.
+If Twitch blocks playback or needs a manual interaction, DropHunter can notify you. An active session resumes after a browser restart once Twitch is available. Manual Pause and Stop survive restart and updates; the retired auto-resume preference no longer blocks active-session recovery.
 
 ## Monitor Window
 
@@ -96,7 +96,6 @@ DropHunter includes a compact monitor popup for quick progress checks while farm
 DropHunter includes a few runtime controls in the popup so you can tune how aggressive or quiet the automation feels:
 
 - enable or disable desktop notifications
-- choose whether an active farming session should resume after a browser restart
 - toggle auto-claim for channel points bonuses
 - toggle auto-claim for completed drops
 - review and clear the local drop claim log
@@ -172,7 +171,7 @@ Beta builds are GitHub prereleases for unpacked/local testing only. Do not uploa
 
 Before publishing a beta or handing off a stable store build:
 
-1. Run `bun run release:check`, `bun audit`, and `cd video && bun audit` when video sources changed.
+1. Run `bun run release:check`. If video dependencies or sources changed, also run `cd video && bun audit` and render the affected compositions.
 2. Confirm Chrome and Edge manifests, archive names, package version, tag, and release all agree.
 3. Load the freshly generated Chrome and Edge artifacts and check connection, campaign discovery, favorites, manual queue start, pause/resume/stop, hidden and managed watching, progress, auto-claim, monitor, recovery, and optional notifications.
 4. Verify `PRIVACY.md`, screenshots, permission justifications, and store copy still match the shipped behavior.

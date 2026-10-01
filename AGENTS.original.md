@@ -45,9 +45,9 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 ## Runtime And Recovery Rules
 - MV3 service workers restart often. Persist durable state, restore timing state, and avoid relying on in-memory variables surviving.
 - `PROGRESS_POLL_MS` must stay compatible with Chrome alarm minimums. Chrome alarms enforce a 0.5 minute minimum; keep alarm period at or above that floor.
-- Crash/restart handling depends on `lastHeartbeatAt`, `CRASH_DETECTION_THRESHOLD_MS`, `autoResumeOnStartup`, and `resumedFromCrash`. Cover changes with crash/recovery tests.
-- Never infer a browser restart from a stale heartbeat alone: Chrome may recycle an MV3 worker between one-minute progress alarms. `chrome.storage.session` survives that recycle but clears on browser restart or extension update. `autoResumeOnStartup: false` must pause only for a confirmed new browser session; a worker recycle after progress must keep active farming running. Test both paths, including the first nonzero progress update.
-- Manual **Pause** preserves the authorized queue and session position in `AppState`; playback and monitoring stay stopped until an explicit Resume or Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends the session, and clears manual queue authorization until an explicit Start. Explicitly enabling favorite auto-start may clear either block; merely adding a favorite must not restart farming. `autoResumeOnStartup` applies only to a session that was actively running when the browser stopped and never overrides Pause or Stop.
+- Crash/restart handling depends on `lastHeartbeatAt`, `CRASH_DETECTION_THRESHOLD_MS`, and `resumedFromCrash`. Resume sessions that were active when the browser stopped; the retired `autoResumeOnStartup` preference must not block recovery. Cover changes with crash/recovery tests.
+- Never infer a browser restart from a stale heartbeat alone: Chrome may recycle an MV3 worker between progress alarms. `chrome.storage.session` survives recycling but clears on browser restart or extension update. Preserve active farming across both paths, including after the first nonzero progress update.
+- Manual **Pause** preserves the authorized queue and session position in `AppState`; playback and monitoring stay stopped until an explicit Resume or Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends the session, and clears manual queue authorization until an explicit Start. Explicitly enabling favorite auto-start may clear either block; merely adding a favorite must not restart farming. Browser recovery never overrides Pause or Stop.
 - `resumedFromCrash` is transient UI state. Clear it lazily through normal ticks/save paths rather than adding timer-only cleanup paths.
 - Recovery should prefer self-heal/backoff/rotation before terminal stop. Terminal stops are for real end states like manual stop, queue complete, no active campaigns, or sign-in required.
 - Keep Twitch directory/API failures separate from local watch-transport failures. A successful directory lookup followed by failed playback must not consume API backoff or reset the Twitch session. Bound candidate attempts and recovery cycles; park a failed campaign and continue eligible queued campaigns, then recheck at a spaced deadline.
@@ -59,11 +59,11 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Inactivity reset is long-horizon cleanup. Preserve lifetime stats and user preferences while clearing volatile farming/session/timing data.
 
 ## Privacy And Session Rules
-- DropHunter is local-only. Do not add analytics, remote logging, or developer-owned backend calls.
+- DropHunter stores operational state locally. Do not add analytics, remote logging, or developer-owned backend calls. Optional Telegram alerts use the user's bot and chat after explicit configuration and optional host permission.
 - Twitch session credentials are read from the user's browser context only to call Twitch endpoints. Never send them anywhere except Twitch.
 - No `cookies` permission and no `chrome.cookies` fallback. Session recovery uses Twitch page storage, content-script extraction, open Twitch tabs, and integrity interceptor data.
 - Keep `notifications` optional. Request/use it only through the existing user-facing setting flow.
-- Keep host permissions Twitch-only unless product scope explicitly changes.
+- Required host permissions remain Twitch-only; Telegram uses optional `api.telegram.org` access. Never include Twitch credentials in alerts.
 
 ## Runtime Message Rules
 - Runtime message changes must update all contracts together: `RUNTIME_MESSAGE_TYPES`, `RuntimeRequest`, `RuntimeResponseByType`, payload validation, background router handling, and tests.
@@ -117,6 +117,10 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Do not amend commits unless explicitly asked.
 - Do not use destructive git commands unless the user explicitly asks and the risk is clear.
 - Run the smallest relevant tests during development. `bun run test:types` and `bun run test:ts` are mandatory before handoff for every change; run the full release gate before release/store handoff.
+- Use stable Bun 1.4.2 or newer; CI reads the pinned package-manager version from `package.json`.
+- Commit subjects use short English Conventional Commits. Author and committer: `trevonerd <marco.trevisani81@gmail.com>`; preserve historical ImgBotApp attribution. No co-author or generated-by trailers.
+- Repo skills are limited to review, debugging, TDD, code design, domain modeling, research, and merge conflicts. Keep their references valid; do not vendor a general skill catalog.
+- Vexp indices and machine-specific tool configuration stay local and untracked. Use Vexp for orientation and `verify_done` for multi-file checks when available; native search is the fallback. RTK may summarize exploration output, but release validation must inspect full logs.
 
 ## Release And Store Handoff
 - Treat `4.0.0-beta.N` as GitHub/local-only builds. The manifest uses technical version `3.99.0.N` plus visible `version_name`; never upload these betas to browser stores.

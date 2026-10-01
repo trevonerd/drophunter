@@ -17,7 +17,7 @@ Pause persists the authorized queue and position while playback and monitoring r
 _Avoid_: Pause or Stop automatically restarting favorite farming
 
 **Startup auto-resume**:
-The optional recovery of a farming session that was active when the browser stopped. When disabled, a stale active playback session is restored as paused and waits for Resume; an authorized queue already waiting for a streamer or scheduled reward continues its checks. It does not restart a session the user manually paused or stopped.
+Recovery of a farming session that was active when the browser stopped, once Twitch is available. The retired `autoResumeOnStartup` preference does not block this recovery. Manual Pause and Stop remain authoritative; authorized queues waiting for streamers or scheduled rewards continue their checks.
 _Avoid_: Resume after any browser restart
 
 **Farming automation**:
@@ -59,6 +59,9 @@ _Avoid_: Debug status, recovery trace, polling status
 **Notification event**:
 A durable farming transition delivered independently to enabled browser and Telegram channels, with one receipt per channel. Routine retries and internal recovery attempts are not notification events.
 _Avoid_: Retry log, channel-specific event, polling alert
+
+**Recorded claim**:
+A reward acquisition saved to the local claim log under its campaign-aware drop identity. Repeated observations do not increase the lifetime count or resend claim alerts. Browser and Telegram delivery are independent; refreshes that suppress browser alerts still record claims and retain Telegram delivery.
 
 **Confirmed progress stall**:
 The absence of authoritative watch-time progress for the configured stall window. Stream metadata such as offline status, category mismatch, or missing Drops labels is diagnostic evidence only after this condition is established.

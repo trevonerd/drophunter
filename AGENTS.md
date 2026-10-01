@@ -45,9 +45,9 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 ## Runtime And Recovery Rules
 - MV3 service workers restart often. Persist durable state, restore timing state; don't rely on in-memory vars surviving.
 - `PROGRESS_POLL_MS` must stay ≥ Chrome alarm minimum (0.5 min floor).
-- Crash/restart depends on `lastHeartbeatAt`, `CRASH_DETECTION_THRESHOLD_MS`, `autoResumeOnStartup`, `resumedFromCrash`. Cover changes with crash/recovery tests.
-- A stale heartbeat alone is not a browser restart: MV3 workers recycle between progress alarms. `chrome.storage.session` survives worker recycle and clears on browser restart/update. With auto-resume off, pause only on a confirmed new browser session. Test first progress plus worker recycle and actual browser restart.
-- Manual **Pause** preserves the authorized queue and session position in `AppState`; playback and monitoring stay stopped until an explicit Resume or Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends the session, and clears manual queue authorization until an explicit Start. Explicitly enabling favorite auto-start may clear either block; merely adding a favorite must not restart farming. `autoResumeOnStartup` applies only to a session that was actively running when the browser stopped and never overrides Pause or Stop.
+- Crash/restart depends on `lastHeartbeatAt`, `CRASH_DETECTION_THRESHOLD_MS`, `resumedFromCrash`. Resume previously active sessions; retired `autoResumeOnStartup` never blocks recovery. Cover crash/recovery tests.
+- Stale heartbeat alone is not browser restart. `chrome.storage.session` survives worker recycle and clears on browser restart/update. Preserve active farming across both paths; test first progress, worker recycle, browser restart.
+- Manual **Pause** preserves authorized queue/position; playback and monitoring stop until explicit Resume/Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends session, clears manual authorization until Start. Explicit favorite auto-start enable may clear either block; adding a favorite never restarts farming. Browser recovery never overrides Pause/Stop.
 - `resumedFromCrash` = transient UI state. Clear lazily via normal ticks/save paths, not timer-only cleanup.
 - Recovery: prefer self-heal/backoff/rotation before terminal stop. Terminal stops = manual stop/queue complete/no active campaigns/sign-in required.
 - Separate Twitch API/directory errors from local playback failures. Playback failure must not cause API backoff/session reset. Bound candidate/cycle retries, park the failed campaign, continue eligible queue entries, and recheck later.
@@ -59,11 +59,11 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - Inactivity reset = long-horizon cleanup. Preserve lifetime stats/preferences; clear volatile farming/session/timing data.
 
 ## Privacy And Session Rules
-- DropHunter = local-only. No analytics, remote logging, dev-owned backend calls.
+- Operational state stays local. No analytics, remote logging, dev-owned backend calls. Optional Telegram alerts use user's bot/chat after configuration and optional host permission.
 - Twitch session credentials: read from user's browser context only to call Twitch endpoints. Never send elsewhere.
 - No `cookies` permission, no `chrome.cookies` fallback. Session recovery uses Twitch page storage, content-script extraction, open Twitch tabs, integrity interceptor data.
 - Keep `notifications` optional. Request/use only via existing user-facing setting flow.
-- Host permissions Twitch-only unless scope explicitly changes.
+- Required hosts Twitch-only; Telegram uses optional `api.telegram.org`. Never include Twitch credentials in alerts.
 
 ## Runtime Message Rules
 - Runtime message changes must update all contracts: `RUNTIME_MESSAGE_TYPES`, `RuntimeRequest`, `RuntimeResponseByType`, payload validation, background router handling, tests.
@@ -117,6 +117,10 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
 - Don't amend commits unless asked.
 - No destructive git commands unless explicitly asked + risk clear.
 - Run smallest relevant tests during dev. `bun run test:types` and `bun run test:ts` are mandatory before handoff; run the full release gate before release/store handoff.
+- Stable Bun ≥1.4.2; CI reads pinned package-manager version from `package.json`.
+- Short English Conventional Commits; author/committer `trevonerd <marco.trevisani81@gmail.com>`. Preserve historical ImgBotApp attribution. No co-author/generated-by trailers.
+- Keep only review/debugging/TDD/code design/domain/research/conflict skills; maintain valid references.
+- Vexp indices/machine configs stay local, untracked. Use orientation + `verify_done` when available, native search fallback. RTK exploration summaries OK; inspect full release logs.
 
 ## Release And Store Handoff
 - Treat `4.0.0-beta.N` as GitHub/local-only builds. The manifest uses technical version `3.99.0.N` plus visible `version_name`; never upload these betas to browser stores.
