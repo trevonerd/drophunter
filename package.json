@@ -3,9 +3,9 @@
   "private": true,
   "version": "4.0.0-beta.47",
   "type": "module",
-  "packageManager": "bun@1.3.13",
+  "packageManager": "bun@1.4.2",
   "engines": {
-    "bun": ">=1.3.9"
+    "bun": ">=1.4.2"
   },
   "repository": {
     "type": "git",
@@ -43,7 +43,7 @@
     "test:e2e": "bun run build:chrome && playwright test -c e2e/playwright.config.ts",
     "check:typescript-scope": "bun scripts/check-typescript-change-scope.ts",
     "test": "bun test tests/",
-    "lint": "biome lint .",
+    "lint": "biome lint --error-on-warnings .",
     "format": "biome format --write .",
     "deps:outdated": "bun outdated && cd video && bun outdated",
     "deps:audit": "bun audit",
@@ -54,23 +54,19 @@
     "update:safe:all": "bun update && bun install && cd video && bun update && bun install",
     "deps:list": "bun pm ls",
     "deps:cache:clear": "bun pm cache rm",
-    "bump:patch": "npm version patch --no-git-tag-version",
-    "bump:minor": "npm version minor --no-git-tag-version",
-    "bump:major": "npm version major --no-git-tag-version",
     "postinstall": "wxt prepare",
     "prepare": "husky"
   },
   "dependencies": {
-    "brace-expansion": "^5.0.12",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
+    "@biomejs/biome": "2.5.15",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/bun": "^1.4.2",
-    "@types/chrome": "0.3.0",
+    "@types/chrome": "0.3.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
@@ -80,25 +76,12 @@
     "postcss": "8.5.28",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
-    "vite": "8.3.0",
+    "vite": "8.3.1",
     "wxt": "0.21.4"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,css}": [
       "biome check --write --no-errors-on-unmatched"
     ]
-  },
-  "overrides": {
-    "esbuild": "^0.28.1",
-    "adm-zip": "^0.6.1",
-    "brace-expansion": "^5.0.9",
-    "browserslist": "^4.28.7",
-    "nanoid": "^3.3.18",
-    "fast-uri": "^3.1.6",
-    "postcss": "8.5.28",
-    "shell-quote": "^1.10.0",
-    "tmp": "^0.2.6",
-    "uuid": "^11.1.1",
-    "vite": "^8.2.0"
   }
 }
