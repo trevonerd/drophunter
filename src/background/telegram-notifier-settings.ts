@@ -17,13 +17,20 @@ export function createTelegramNotifierSettings(
   options: TelegramNotifierOptions,
   deps: TelegramSettingsDependencies,
 ) {
-  const setTelegramAlertsEnabled = async (enabled: boolean) => {
+  const setTelegramAlertsEnabled = async (enabled: boolean, isCurrent: () => boolean = () => true) => {
     if (!enabled) {
       state.appState.telegramAlertsEnabled = false;
       await options.saveState();
       return { success: true, telegramAlertsEnabled: false };
     }
-    if (!(await deps.hasPermission())) {
+    const granted = await deps.hasPermission();
+    if (!isCurrent())
+      return {
+        success: false,
+        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+        error: 'Setting changed while permission was pending',
+      };
+    if (!granted) {
       state.appState.telegramAlertsEnabled = false;
       await options.saveState();
       return {

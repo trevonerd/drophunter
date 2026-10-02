@@ -9,6 +9,7 @@ export function createServiceWorkerState(): ServiceWorkerState {
     backupImportCompletion: null,
     backupImportRequested: false,
     runtimeHandlersInFlight: 0,
+    optionalPermissionRevisions: { notificationsEnabled: 0, telegramAlertsEnabled: 0 },
     monitorTickInFlight: false,
     monitorTickDeadlineAt: 0,
     streamerAcquisitionInFlight: null,

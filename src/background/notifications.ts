@@ -151,13 +151,21 @@ export function createNotificationController(
   // surfaces the permission error. Caller owns the activity-side-effect.
   const setNotificationsEnabled = async (
     enabled: boolean,
+    isCurrent: () => boolean = () => true,
   ): Promise<{ success: boolean; notificationsEnabled: boolean; error?: string }> => {
     if (!enabled) {
       state.appState.notificationsEnabled = false;
       await options.saveState();
       return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
     }
-    if (!(await hasNotificationPermission())) {
+    const granted = await hasNotificationPermission();
+    if (!isCurrent())
+      return {
+        success: false,
+        notificationsEnabled: state.appState.notificationsEnabled,
+        error: 'Setting changed while permission was pending',
+      };
+    if (!granted) {
       state.appState.notificationsEnabled = false;
       await options.saveState();
       return {

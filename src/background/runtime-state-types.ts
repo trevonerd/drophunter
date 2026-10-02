@@ -8,6 +8,7 @@ export interface ServiceWorkerState {
   backupImportCompletion: Promise<void> | null;
   backupImportRequested: boolean;
   runtimeHandlersInFlight: number;
+  optionalPermissionRevisions: { notificationsEnabled: number; telegramAlertsEnabled: number };
   monitorTickInFlight: boolean;
   monitorTickDeadlineAt: number;
   streamerAcquisitionInFlight: Promise<boolean> | null;

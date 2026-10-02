@@ -57,9 +57,13 @@ export function createServiceWorkerSettingsHandlers(
   }
 
   async function handleSetNotificationsEnabled(payload?: { readonly enabled?: boolean }) {
+    const revision = state.optionalPermissionRevisions.notificationsEnabled;
     await trackActivity('set-notifications-enabled');
+    const isCurrent = () => state.optionalPermissionRevisions.notificationsEnabled === revision;
+    if (!isCurrent()) return { success: false, error: 'Setting changed while permission was pending' };
     const result = await dependencies.notificationController.setNotificationsEnabled(
       payload?.enabled !== false,
+      isCurrent,
     );
     return result;
   }
@@ -128,8 +132,11 @@ export function createServiceWorkerSettingsHandlers(
     handleSetPreferredStreamerLanguage,
     handleSetStreamerSelectionMode,
     handleSetTelegramAlertsEnabled: async (payload?: { readonly enabled?: boolean }) => {
+      const revision = state.optionalPermissionRevisions.telegramAlertsEnabled;
       await trackActivity('set-telegram-alerts-enabled');
-      return dependencies.telegramNotifier.setTelegramAlertsEnabled(payload?.enabled !== false);
+      const isCurrent = () => state.optionalPermissionRevisions.telegramAlertsEnabled === revision;
+      if (!isCurrent()) return { success: false, error: 'Setting changed while permission was pending' };
+      return dependencies.telegramNotifier.setTelegramAlertsEnabled(payload?.enabled !== false, isCurrent);
     },
     handleSetTelegramSystemAlertsEnabled: async (payload?: { readonly enabled?: boolean }) => {
       await trackActivity('set-telegram-system-alerts-enabled');

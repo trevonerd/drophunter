@@ -3,6 +3,7 @@ import type { FarmingAutomation } from './farming-automation.ts';
 import type { createFarmingSession } from './farming-session.ts';
 import { retryFarmingNow } from './manual-farming-retry.ts';
 import { registerRuntimeMessageRouter } from './message-router.ts';
+import { prepareOptionalPermissionConsent } from './optional-permission-consent.ts';
 import { withRuntimeBackupGuard } from './runtime-backup-guard.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
@@ -142,6 +143,8 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
     },
     {
       aroundHandle: (handler, message) => withRuntimeBackupGuard(dependencies.state, handler, message),
+      prepareHandle: (message, sender) =>
+        prepareOptionalPermissionConsent(dependencies.state, message, sender),
       beforeHandle: async () => {
         await stateLifecycle.awaitInitialization();
         if (dependencies.state.backupImportInProgress)

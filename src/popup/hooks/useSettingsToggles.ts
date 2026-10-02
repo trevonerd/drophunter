@@ -1,9 +1,7 @@
 // Extracted from src/popup/App.tsx (settings toggle + select handlers).
 import { type Dispatch, type SetStateAction, useLayoutEffect, useRef, useState } from 'react';
-import { browser } from '../../shared/browser-api.ts';
 import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState, FarmCategoryScope, StreamerSelectionMode, WatchTransportMode } from '../../types';
-import { NOTIFICATION_PERMISSION } from '../constants';
 import { createSettingsTransactionCoordinator } from '../settings-transaction.ts';
 
 interface UseSettingsTogglesArgs {
@@ -82,22 +80,23 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
   const handleNotificationsEnabledToggle = async () => {
     const next = !stateRef.current.notificationsEnabled;
     setNotificationPermissionDenied(false);
+    let permissionDenied = false;
     const result = await transactions.run({
       key: 'notificationsEnabled',
       next,
-      authorize: next
-        ? () => browser.permissions.request(NOTIFICATION_PERMISSION).catch(() => false)
-        : undefined,
-      send: () =>
-        sendRuntimeMessage({
+      send: async () => {
+        const response = await sendRuntimeMessage({
           type: 'SET_NOTIFICATIONS_ENABLED',
           payload: { enabled: next },
-        }),
+        });
+        permissionDenied = response?.error === 'Notification permission was not granted';
+        return response;
+      },
       successPatch: (response) => ({
         notificationsEnabled: response.notificationsEnabled ?? next,
       }),
     });
-    if (result.kind === 'rejected' && result.reason === 'permission') {
+    if (permissionDenied && result.kind === 'rejected') {
       setNotificationPermissionDenied(true);
     }
   };

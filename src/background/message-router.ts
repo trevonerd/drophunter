@@ -92,6 +92,12 @@ function unsupportedTarget(sendResponse: RuntimeSendResponse): true {
 }
 
 export interface RuntimeMessageListenerOptions {
+  prepareHandle?: (
+    message: RuntimeRequest,
+    sender: RuntimeSender,
+  ) =>
+    | ((handler: () => MaybePromise<unknown>, initialize: () => MaybePromise<void>) => MaybePromise<unknown>)
+    | undefined;
   beforeHandle?: () => MaybePromise<void>;
   aroundHandle?: (handler: () => MaybePromise<unknown>, message: RuntimeRequest) => MaybePromise<unknown>;
 }
@@ -112,9 +118,15 @@ export function createRuntimeMessageListener(
     }
 
     const respond = (handler: () => MaybePromise<unknown>) =>
-      respondAsync(async () => {
-        await options.beforeHandle?.();
-        return options.aroundHandle ? options.aroundHandle(handler, message) : handler();
+      respondAsync(() => {
+        const prepared = options.prepareHandle?.(message, sender);
+        const dispatch = () => (options.aroundHandle ? options.aroundHandle(handler, message) : handler());
+        const initialize = () => options.beforeHandle?.();
+        const initializedHandler = async () => {
+          await initialize();
+          return dispatch();
+        };
+        return prepared ? prepared(handler, initialize) : initializedHandler();
       }, sendResponse);
 
     switch (message.type) {

@@ -107,6 +107,11 @@ DropHunter includes a few runtime controls in the popup so you can tune how aggr
 - prefer a specific streamer language when one is available
 - choose whether the farming tab stays muted
 
+Accepting the optional browser-notification or Telegram permission automatically
+saves and enables that setting, even when the browser closes the popup during the
+permission dialog. Reopen Settings to continue Telegram setup; its details appear
+only while Telegram alerts are enabled.
+
 DropHunter backup files are local JSON. They include settings, favorites, hidden games, claim totals, and claim history. They never include Twitch credentials, campaign progress, or queue/session state. You can choose which compatible sections to import. Favorite auto-start turns off after every import; desktop notifications turn off when you restore backup settings. See the [backup format](docs/backup-format.md) for the field list and merge behavior.
 
 ## Notes
