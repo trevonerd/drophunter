@@ -109,7 +109,7 @@ test.each(['manual', 'automatic', 'stale-session-proof'] as const)(
   },
 );
 
-test('missing marker and user navigation fail closed; sole proven tab is neutralized', async () => {
+test('missing marker and user navigation fail closed; sole proven tab is retained', async () => {
   const mocks = setupChromeMocks();
   const tabs = installManagedWatchPages(mocks);
   try {
@@ -120,11 +120,9 @@ test('missing marker and user navigation fail closed; sole proven tab is neutral
     owned.url = 'https://www.twitch.tv/user_choice';
     expect(await releaseManagedTabOwnership(ownership, host)).toEqual({ kind: 'abandoned-unproven' });
     owned.url = url;
-    expect(await releaseManagedTabOwnership(ownership, host)).toEqual({
-      kind: 'released',
-      method: 'neutralized',
-    });
-    expect(owned.url).toBe('about:blank');
+    expect(await releaseManagedTabOwnership(ownership, host)).toEqual({ kind: 'not-required' });
+    expect(owned.url).toBe(url);
+    expect(tabs.updated).toEqual([]);
     expect(tabs.removed).toEqual([]);
   } finally {
     mocks.teardown();
@@ -147,8 +145,7 @@ test('retained uncertain historical handles cannot block a new proven watch', as
     expect(await managedWatchMarker.write(page.id, ownership.ownershipToken, url)).toBe(true);
     expect(await listManagedWatches()).toHaveLength(33);
     expect(await releaseManagedTabOwnership(ownership, createChromeFarmingAutomationHost())).toEqual({
-      kind: 'released',
-      method: 'neutralized',
+      kind: 'not-required',
     });
   } finally {
     mocks.teardown();

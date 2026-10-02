@@ -18,6 +18,8 @@ test.each(['complete', 'timeout', 'stop', 'user-navigation'] as const)(
     const mocks = setupChromeMocks();
     const tabs = installManagedWatchPages(mocks);
     const state = createServiceWorkerState();
+    state.appState.manualQueueAuthorized = true;
+    state.appState.farmingSessionOrigin = 'manual';
     const session = createFarmingSession(state, createFarmingSessionAdapters());
     const waiting = createDeferred<void>();
     const nativeUpdate = mocks.chrome.tabs.update;
@@ -72,7 +74,8 @@ test.each(['complete', 'timeout', 'stop', 'user-navigation'] as const)(
         expect(page.url).toBe(
           stage === 'user-navigation' ? 'https://www.twitch.tv/user_choice' : 'about:blank',
         );
-        expect(page.pendingUrl).toBeUndefined();
+        expect(page.pendingUrl).toBe(stage === 'user-navigation' ? undefined : url);
+        expect(tabs.removed).toEqual([]);
       }
     } finally {
       globalThis.setTimeout = timer;
@@ -81,7 +84,7 @@ test.each(['complete', 'timeout', 'stop', 'user-navigation'] as const)(
   },
 );
 
-test('native Stop after update response cancels proven pending navigation in the sole active tab', async () => {
+test('native Stop after update response retains pending navigation in the sole active tab', async () => {
   const mocks = setupChromeMocks();
   const tabs = installManagedWatchPages(mocks);
   let current = true;
@@ -100,10 +103,12 @@ test('native Stop after update response cancels proven pending navigation in the
       await createChromeFarmingAutomationHost().tabs.create(
         { url, muted: true, active: false },
         () => current,
+        true,
       ),
     ).toBeNull();
     expect(tabs.pages.get(20)?.url).toBe('about:blank');
-    expect(tabs.pages.get(20)?.pendingUrl).toBeUndefined();
+    expect(tabs.pages.get(20)?.pendingUrl).toBe(url);
+    expect(tabs.removed).toEqual([]);
   } finally {
     mocks.teardown();
   }
@@ -114,6 +119,8 @@ test('ordinary unready playback retains proven tab and requests user attention',
   const tabs = installManagedWatchPages(mocks);
   try {
     const state = createServiceWorkerState();
+    state.appState.manualQueueAuthorized = true;
+    state.appState.farmingSessionOrigin = 'manual';
     state.appState.selectedGame = createGame();
     state.appState.watchTransportPreference = 'managed-tab';
     mocks.chrome.tabs.sendMessage = async () => ({ isPlaybackReady: false, userInteractionRequired: true });

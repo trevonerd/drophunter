@@ -59,7 +59,7 @@ export function createWatchTransportCoordinator(
         const transport = createManaged();
         return {
           transport,
-          health: await transport.start(nextTarget),
+          health: await transport.start(nextTarget, isCurrent),
           dispose: () => transport.stop(),
         };
       },
@@ -144,7 +144,7 @@ export function createWatchTransportCoordinator(
           state.appState.watchTransportPreference === 'tabless' ? createTabless() : createManaged();
         return {
           transport,
-          health: await transport.start(nextTarget),
+          health: await transport.start(nextTarget, isCurrentStart),
           dispose: () => transport.stop(),
         };
       },

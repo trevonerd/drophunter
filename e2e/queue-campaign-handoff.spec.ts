@@ -35,8 +35,8 @@ const games: FixtureGame[] = [
 ];
 
 const streamers = new Map([
-  ['local-game-one', 'local-stream-one'],
-  ['local-game-two', 'local-stream-two'],
+  ['local-game-one', 'local_stream_one'],
+  ['local-game-two', 'local_stream_two'],
 ]);
 
 type ProgressPhase = 'starting' | 'progressed' | 'complete';
@@ -207,6 +207,15 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
             };
             draw();
             const video = document.querySelector('video');
+            const nativePlay = video.play.bind(video);
+            video.play = () => sessionStorage.getItem('fixture-playback-authorized') === 'yes'
+              ? nativePlay()
+              : Promise.reject(new DOMException('Initial interaction required', 'NotAllowedError'));
+            video.addEventListener('click', (event) => {
+              if (!event.isTrusted) return;
+              sessionStorage.setItem('fixture-playback-authorized', 'yes');
+              video.play().catch(() => undefined);
+            });
             video.srcObject = canvas.captureStream(5);
             video.play().catch(() => undefined);
           </script>
@@ -286,17 +295,45 @@ test('completes the first queued campaign and reuses its managed tab for the nex
     await expect.poll(async () => {
       const state = await readAppState(popup);
       return [state.activeStreamer?.name, typeof state.tabId === 'number'];
-    }, { timeout: 30_000 }).toEqual(['local-stream-one', true]);
+    }, { timeout: 30_000 }).toEqual(['local_stream_one', true]);
     const first = await readAppState(popup);
     expect(first.selectedGame?.campaignId).toBe(games[0]?.campaignId);
     expect(first.queue.map((game) => game.campaignId)).toEqual(games.map((game) => game.campaignId));
     expect(first.tabId).not.toBeNull();
     const originalTabId = first.tabId;
+    const managedPage = profile.context.pages().find((page) => page.url() === 'https://www.twitch.tv/local_stream_one');
+    if (!managedPage) throw new Error('Missing managed stream page');
+    await managedPage.locator('video').click();
+    const assertPlaying = async () => {
+      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+      const previousTime = await managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
+      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(previousTime);
+    };
+    await assertPlaying();
+    const removedTabIds: number[] = [];
+    await popup.exposeFunction('recordRemovedVideoTab', (id: number) => { removedTabIds.push(id); });
+    await popup.evaluate(() => {
+      chrome.tabs.onRemoved.addListener((id) => {
+        void Reflect.get(globalThis, 'recordRemovedVideoTab')(id);
+      });
+    });
+    const originalDocument = await managedPage.evaluate(() => {
+      Reflect.set(globalThis, '__fixtureDocument', 'first-document');
+      return Reflect.get(globalThis, '__fixtureDocument');
+    });
 
     twitch.setPhase('progressed');
     await refreshCampaigns(popup);
     await expect.poll(async () => (await readAppState(popup)).currentDrop?.currentMinutes).toBe(1);
     expect((await readAppState(popup)).tabId).toBe(originalTabId);
+    const cdp = await profile.context.newCDPSession(popup);
+    await cdp.send('ServiceWorker.enable');
+    await cdp.send('ServiceWorker.stopAllWorkers');
+    await cdp.detach();
+    expect(await runtimeMessage(popup, { type: 'GET_CLAIM_LOG' })).toMatchObject({ success: true });
+    expect((await readAppState(popup)).tabId).toBe(originalTabId);
+    expect(await managedPage.evaluate(() => Reflect.get(globalThis, '__fixtureDocument'))).toBe(originalDocument);
+    await assertPlaying();
 
     twitch.setPhase('complete');
     await refreshCampaigns(popup);
@@ -310,7 +347,10 @@ test('completes the first queued campaign and reuses its managed tab for the nex
 
     const tabs = await popup.evaluate(() => chrome.tabs.query({ url: ['https://www.twitch.tv/*'] }));
     expect(tabs.filter((tab) => tab.id === originalTabId)).toHaveLength(1);
-    expect(tabs.find((tab) => tab.id === originalTabId)?.url).toBe('https://www.twitch.tv/local-stream-two');
+    expect(tabs.find((tab) => tab.id === originalTabId)?.url).toBe('https://www.twitch.tv/local_stream_two');
+    await assertPlaying();
+    expect(removedTabIds).not.toContain(originalTabId);
+    expect(profile.context.pages().filter((page) => /\/local_stream_(one|two)$/.test(page.url()))).toEqual([managedPage]);
   } finally {
     await profile.close();
   }

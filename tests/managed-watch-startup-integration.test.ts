@@ -18,6 +18,8 @@ const url = 'https://www.twitch.tv/test_streamer';
 function runningState() {
   const state = createServiceWorkerState();
   state.appState.isRunning = true;
+  state.appState.manualQueueAuthorized = true;
+  state.appState.farmingSessionOrigin = 'manual';
   state.appState.watchTransportPreference = 'managed-tab';
   state.appState.selectedGame = createGame();
   state.appState.activeStreamer = createStreamer({ name: 'test_streamer' });
@@ -173,6 +175,43 @@ test('stopped farming keeps its owned tab available for the next session after w
   } finally {
     mocks.teardown();
   }
+});
+
+test('startup retains a unique managed tab even when the queued channel changed', async () => {
+  const mocks = setupChromeMocks();
+  const tabs = installManagedWatchPages(mocks);
+  try {
+    const page = tabs.add('https://www.twitch.tv/previous_streamer');
+    await managedWatchMarker.write(page.id, 'previous-owned', page.url);
+    const state = runningState();
+    expect(await reconcileManagedWatchesOnStartup(state, null)).toMatchObject({
+      tabId: page.id,
+      expectedChannel: 'previous_streamer',
+    });
+    expect(state.appState.tabId).toBe(page.id);
+    expect(tabs.created).toEqual([]);
+    expect(tabs.updated).toEqual([]);
+    expect(tabs.removed).toEqual([]);
+  } finally {
+    mocks.teardown();
+  }
+});
+
+test('switching to tabless watching retains the registered tab for managed recovery', async () => {
+  await withManagedIncumbent(async ({ tabs, browserEvents, incumbent }) => {
+    const adapter = automationBrowserFor(browserEvents, true, 'next-owned');
+    const prepared = await adapter.watch.prepare(nextTarget, 'tabless');
+    if (prepared.kind !== 'prepared') throw new Error('Expected a tabless candidate');
+    prepared.watch.promote();
+    await adapter.watch.release(incumbent);
+    expect((await listManagedWatches()).some((item) => item.tabId === incumbent.tabId)).toBe(true);
+    const nextManaged = await adapter.watch.prepare(nextTarget, 'managed-tab');
+    expect(nextManaged.kind).toBe('prepared');
+    if (nextManaged.kind === 'prepared')
+      expect(nextManaged.watch.ownership).toMatchObject({ tabId: incumbent.tabId });
+    expect(tabs.created).toHaveLength(1);
+    expect(tabs.removed).toEqual([]);
+  });
 });
 
 test('managed farming reuses the same tab when the streamer and campaign change', async () => {

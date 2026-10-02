@@ -100,7 +100,9 @@ test('automatic queue defers native creation on transient old-tab proof failure 
     ).toBe(true);
     mocks.chrome.scripting.executeScript = execute;
     expect(await automation.request('periodic')).toMatchObject({ kind: 'started' });
-    expect(tabs.removed).toEqual([old.id]);
+    expect(tabs.removed).toEqual([]);
+    expect(tabs.created).toEqual([]);
+    expect(state.appState.tabId).toBe(old.id);
     expect(tabs.pages.size).toBe(2);
   } finally {
     mocks.teardown();

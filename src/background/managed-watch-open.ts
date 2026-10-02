@@ -8,7 +8,6 @@ import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   managedTabOwnershipKey,
   releaseManagedTabOwnership,
-  reuseManagedTabOwnership,
   streamerWatchUrl,
   waitForTabComplete,
 } from './tab-management.ts';
@@ -19,10 +18,11 @@ export async function openOwnedManagedWatch(
   target: FarmingTarget,
   preparePlayback: (tabId: number, isCurrent: () => boolean) => Promise<PlaybackPrepResult>,
   currentOwnership: () => WatchOwnershipV1 | null = () => null,
+  externalIsCurrent: () => boolean = () => true,
 ): Promise<ManagedTabOpenResult> {
   const epoch = currentFarmingSessionEpoch(state);
-  const isCurrent = () => currentFarmingSessionEpoch(state) === epoch;
-  const host = createChromeFarmingAutomationHost();
+  const isCurrent = () => externalIsCurrent() && currentFarmingSessionEpoch(state) === epoch;
+  const host = createChromeFarmingAutomationHost(currentOwnership);
   const ownershipToken = globalThis.crypto.randomUUID();
   const expectedUrl = streamerWatchUrl(target.channelName);
   const ownershipKey = managedTabOwnershipKey(ownershipToken);
@@ -32,19 +32,13 @@ export async function openOwnedManagedWatch(
   try {
     await host.sessionStorage.set({ [ownershipKey]: { version: 1, expectedUrl } });
     if (!isCurrent()) return null;
-    const previous = currentOwnership();
-    const reused =
-      previous?.kind === 'managed-tab'
-        ? await reuseManagedTabOwnership(previous, expectedUrl, host, waitForTabComplete, isCurrent)
-        : null;
-    if (previous?.kind === 'managed-tab' && !reused) {
-      const incumbentTab = await host.tabs.get(previous.tabId).catch(() => null);
-      if (incumbentTab?.id === previous.tabId) return null;
-    }
-    const tab =
-      reused ?? (await host.tabs.create({ url: expectedUrl, active: false, muted: true }, isCurrent));
+    const tab = await host.tabs.create(
+      { url: expectedUrl, active: false, muted: true },
+      isCurrent,
+      state.appState.manualQueueAuthorized && state.appState.farmingSessionOrigin === 'manual',
+    );
     if (typeof tab?.id !== 'number') return null;
-    restorePrevious = 'restorePrevious' in tab ? tab.restorePrevious : undefined;
+    restorePrevious = tab.restorePrevious;
     const ownership = {
       kind: 'managed-tab' as const,
       tabId: tab.id,
@@ -89,7 +83,7 @@ export async function openOwnedManagedWatch(
     return null;
   } finally {
     if (preparingTabId !== null) state.preparingManagedTabIds.delete(preparingTabId);
-    if (!retained) {
+    if (!retained && (preparingTabId === null || restorePrevious)) {
       await host.sessionStorage.remove(ownershipKey).catch(() => undefined);
       await host.managedWatchMarker?.forget?.(ownershipToken).catch(() => undefined);
     }

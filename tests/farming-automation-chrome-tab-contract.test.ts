@@ -1,10 +1,12 @@
 import { expect, test } from 'bun:test';
 import { createChromeFarmingAutomationHost } from '../src/background/farming-automation-browser.ts';
+import { rememberManagedWatch } from '../src/background/managed-watch-registry.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { createAdapter, target } from './support/farming-automation-browser-fixture.ts';
 
 test('production Chrome host prepares a muted candidate using valid create and update API properties', async () => {
   const mocks = setupChromeMocks();
+  await rememberManagedWatch(70, 'closed-watch', 'https://www.twitch.tv/closed_channel');
   const operations: string[] = [];
   mocks.chrome.tabs.create = async (properties = {}) => {
     if ('muted' in properties) throw new TypeError("Unexpected property: 'muted'.");
@@ -34,43 +36,41 @@ test('production Chrome host prepares a muted candidate using valid create and u
 });
 
 test.each([
-  { tabCount: 2, changedUrl: false, expectedRemoved: [22] },
+  { tabCount: 2, changedUrl: false, expectedRemoved: [] },
   { tabCount: 1, changedUrl: false, expectedRemoved: [] },
   { tabCount: 2, changedUrl: true, expectedRemoved: [] },
-])(
-  'failed candidate navigation cleans only an untouched non-sole blank tab: %j',
-  async ({ tabCount, changedUrl, expectedRemoved }) => {
-    const mocks = setupChromeMocks();
-    const removed: number[] = [];
-    mocks.chrome.tabs.create = async (properties) => ({
-      id: 22,
-      windowId: 4,
-      url: properties.url,
-      active: false,
+])('failed candidate navigation retains its tab: %j', async ({ tabCount, changedUrl, expectedRemoved }) => {
+  const mocks = setupChromeMocks();
+  await rememberManagedWatch(70, 'closed-watch', 'https://www.twitch.tv/closed_channel');
+  const removed: number[] = [];
+  mocks.chrome.tabs.create = async (properties) => ({
+    id: 22,
+    windowId: 4,
+    url: properties.url,
+    active: false,
+  });
+  mocks.chrome.tabs.update = async () => {
+    throw new Error('Navigation unavailable');
+  };
+  mocks.chrome.tabs.get = async () => ({
+    id: 22,
+    windowId: 4,
+    url: changedUrl ? 'https://www.twitch.tv/user-choice' : 'about:blank',
+    active: false,
+  });
+  mocks.chrome.tabs.query = async () =>
+    Array.from({ length: tabCount }, (_, index) => ({ id: 22 + index, windowId: 4 }));
+  mocks.chrome.tabs.remove = async (id) => {
+    removed.push(id);
+  };
+  try {
+    const adapter = createAdapter(createChromeFarmingAutomationHost(), []);
+    expect(await adapter.watch.prepare(target, 'managed-tab')).toEqual({
+      kind: 'failed',
+      reason: 'candidate-unavailable',
     });
-    mocks.chrome.tabs.update = async () => {
-      throw new Error('Navigation unavailable');
-    };
-    mocks.chrome.tabs.get = async () => ({
-      id: 22,
-      windowId: 4,
-      url: changedUrl ? 'https://www.twitch.tv/user-choice' : 'about:blank',
-      active: false,
-    });
-    mocks.chrome.tabs.query = async () =>
-      Array.from({ length: tabCount }, (_, index) => ({ id: 22 + index, windowId: 4 }));
-    mocks.chrome.tabs.remove = async (id) => {
-      removed.push(id);
-    };
-    try {
-      const adapter = createAdapter(createChromeFarmingAutomationHost(), []);
-      expect(await adapter.watch.prepare(target, 'managed-tab')).toEqual({
-        kind: 'failed',
-        reason: 'candidate-unavailable',
-      });
-      expect(removed).toEqual(Array.from(expectedRemoved));
-    } finally {
-      mocks.teardown();
-    }
-  },
-);
+    expect(removed).toEqual(Array.from(expectedRemoved));
+  } finally {
+    mocks.teardown();
+  }
+});

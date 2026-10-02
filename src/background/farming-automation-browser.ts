@@ -13,7 +13,6 @@ import {
   managedTabOwnershipKey,
   releaseManagedTabOwnership,
   retireManagedTabOwnership,
-  reuseManagedTabOwnership,
   streamerWatchUrl,
 } from './tab-management.ts';
 import { prepareTablessProvisionalWatch } from './tabless-transport.ts';
@@ -28,7 +27,11 @@ import {
 export const FARMING_AUTOMATION_DEADLINE_ALARM = 'favoriteCampaignDeadline';
 export const FARMING_AUTOMATION_PERIODIC_ALARM = 'favoriteCampaignCheck';
 
-export type FarmingAutomationTab = ManualPlaybackTab;
+export type FarmingAutomationTab = ManualPlaybackTab & {
+  readonly status?: string;
+  readonly pendingUrl?: string;
+  readonly restorePrevious?: () => Promise<void>;
+};
 
 export interface FarmingAutomationChromeHost {
   readonly managedWatchMarker?: ManagedWatchMarker;
@@ -40,6 +43,7 @@ export interface FarmingAutomationChromeHost {
         readonly muted: true;
       },
       isCurrent?: () => boolean,
+      allowInitialCreation?: boolean,
     ): Promise<FarmingAutomationTab | null>;
     get(tabId: number): Promise<FarmingAutomationTab | null>;
     query(query: {
@@ -145,23 +149,17 @@ export function createFarmingAutomationBrowser(
     );
   const now = options.watch.now ?? Date.now;
   let watch: WatchTransportTransition | null = null;
-  const retainedOwnershipTokens = new Set<string>();
   const currentOwnership = (): WatchOwnershipV1 | null =>
     options.watchRuntime?.currentOwnership() ?? watch?.currentOwnership() ?? options.currentOwnership ?? null;
 
   const release = async (ownership: WatchOwnershipV1): Promise<WatchReleaseResult> => {
     if (ownership.kind === 'tabless') return { kind: 'not-required' };
-    if (retainedOwnershipTokens.delete(ownership.ownershipToken)) {
-      await retireManagedTabOwnership(ownership, host);
-      return { kind: 'not-required' };
-    }
     const current = currentOwnership();
     if (
       current?.kind === 'managed-tab' &&
       current.tabId === ownership.tabId &&
       current.ownershipToken !== ownership.ownershipToken
     ) {
-      retainedOwnershipTokens.delete(ownership.ownershipToken);
       await retireManagedTabOwnership(ownership, host);
       return { kind: 'not-required' };
     }
@@ -169,8 +167,6 @@ export function createFarmingAutomationBrowser(
   };
 
   const prepareManaged = (target: FarmingTarget, isCurrent = () => true) => {
-    const incumbent = currentOwnership();
-    if (incumbent?.kind === 'managed-tab') retainedOwnershipTokens.add(incumbent.ownershipToken);
     return prepareManagedProvisionalWatch(target, streamerWatchUrl(target.channelName), {
       createOwnershipToken: options.createOwnershipToken ?? (() => globalThis.crypto.randomUUID()),
       isCurrent,
@@ -190,22 +186,8 @@ export function createFarmingAutomationBrowser(
           return true;
         });
       },
-      openTab: async (expectedUrl) => {
-        const current = currentOwnership();
-        if (current?.kind === 'managed-tab') {
-          const reused = await reuseManagedTabOwnership(
-            current,
-            expectedUrl,
-            host,
-            options.watch.waitForTabComplete,
-            isCurrent,
-          );
-          if (reused) return reused;
-          const incumbentTab = await attempt(() => host.tabs.get(current.tabId));
-          if (incumbentTab?.id === current.tabId) return null;
-        }
-        return attempt(() => host.tabs.create({ url: expectedUrl, active: false, muted: true }, isCurrent));
-      },
+      openTab: (expectedUrl) =>
+        attempt(() => host.tabs.create({ url: expectedUrl, active: false, muted: true }, isCurrent)),
       waitForTabComplete: options.watch.waitForTabComplete,
       preparePlayback: async (tabId, preparationOptions) => {
         const preparation = await options.watch.preparePlayback(tabId, preparationOptions);
@@ -219,8 +201,6 @@ export function createFarmingAutomationBrowser(
   };
 
   const prepareTabless = (target: FarmingTarget) => {
-    const incumbent = currentOwnership();
-    if (incumbent?.kind === 'managed-tab') retainedOwnershipTokens.add(incumbent.ownershipToken);
     return prepareTablessProvisionalWatch(target, {
       enabled: options.watch.tablessEnabled,
       heartbeat: options.watch.heartbeat,

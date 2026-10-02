@@ -63,7 +63,7 @@ describe('farming automation browser', () => {
 
     // Then: B is disposed without probing, and A remains the current ownership.
     expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
-    expect(operations).toEqual(['open:false:true', 'wait:15000', 'prep:false:false:true', 'remove:22']);
+    expect(operations).toEqual(['open:false:true', 'wait:15000', 'prep:false:false:true']);
     expect(adapter.watch.currentOwnership()).toEqual(incumbent);
   });
 
@@ -149,16 +149,16 @@ describe('farming automation browser', () => {
 
   test.each([
     {
-      name: 'closes a proven owned tab when another window tab exists',
+      name: 'retains a proven owned tab when another window tab exists',
       host: { windowTabCount: 2 },
-      expectedResult: { kind: 'released', method: 'closed' },
-      expectedDestructive: ['remove:22'],
+      expectedResult: { kind: 'not-required' },
+      expectedDestructive: [],
     },
     {
-      name: 'neutralizes a proven sole owned tab',
+      name: 'retains a proven sole owned tab',
       host: { windowTabCount: 1 },
-      expectedResult: { kind: 'released', method: 'neutralized' },
-      expectedDestructive: ['update:22:about:blank'],
+      expectedResult: { kind: 'not-required' },
+      expectedDestructive: [],
     },
     {
       name: 'preserves A and abandons unproven cleanup',

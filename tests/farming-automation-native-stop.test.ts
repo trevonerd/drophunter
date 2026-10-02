@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createFarmingAutomationBrowser } from '../src/background/farming-automation-browser.ts';
 import { createFarmingSession } from '../src/background/farming-session.ts';
+import { rememberManagedWatch } from '../src/background/managed-watch-registry.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { transitionAutomaticFarmingSession } from '../src/background/session-lifecycle-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
@@ -22,6 +23,7 @@ test.each([
   'tabless-heartbeat',
 ] as const)('public Stop prevents later automatic preparation effects while %s is pending', async (stage) => {
   const mocks = setupChromeMocks();
+  await rememberManagedWatch(70, 'closed-native-watch', 'https://www.twitch.tv/closed_channel');
   const state = createServiceWorkerState();
   const game = createGame({
     campaignId: 'native-stop',
@@ -140,14 +142,8 @@ test.each([
     const navigationBeforeRelease = [...navigation];
     release.resolve(undefined);
     await starting;
-    if (stage === 'native-update-sole') {
-      expect(currentUrl).toBe('about:blank');
-      expect(navigation).toEqual([...navigationBeforeRelease, 'about:blank']);
-    } else {
-      expect(navigation).toEqual(navigationBeforeRelease);
-      if (stage === 'native-update-user-changed')
-        expect(currentUrl).toBe('https://www.twitch.tv/user-choice');
-    }
+    expect(navigation).toEqual(navigationBeforeRelease);
+    if (stage === 'native-update-user-changed') expect(currentUrl).toBe('https://www.twitch.tv/user-choice');
     expect(playbackCalls).toBe(stage === 'playback-prep' ? 1 : 0);
     expect(probeCalls).toBe(0);
     expect(commits).toBe(0);

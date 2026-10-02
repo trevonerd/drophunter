@@ -28,11 +28,7 @@ export async function reconcileManagedWatchesOnStartup(
       ownership.expectedChannel.toLowerCase() === state.appState.activeStreamer?.name.toLowerCase(),
   );
   const selected =
-    matching.length === 1
-      ? (matching[0] ?? null)
-      : !resumable && recovered.length === 1
-        ? (recovered[0] ?? null)
-        : null;
+    matching.length === 1 ? (matching[0] ?? null) : recovered.length === 1 ? (recovered[0] ?? null) : null;
   if (selected && currentFarmingSessionEpoch(state) === epoch) {
     await rememberManagedWatch(
       selected.tabId,

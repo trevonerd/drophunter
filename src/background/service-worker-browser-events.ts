@@ -13,7 +13,6 @@ import type { StreamContext } from './farming-session.ts';
 import { logInfo, logWarn } from './logging.ts';
 import { managedWatchMarker } from './managed-watch-marker.ts';
 import { openOwnedManagedWatch } from './managed-watch-open.ts';
-import { forgetClosedManagedWatch } from './managed-watch-registry.ts';
 import { openMonitorDashboardWindow as openMonitorDashboardWindowController } from './monitor-dashboard.ts';
 import { needsPlaybackAttention } from './playback.ts';
 import { createPlaybackAttentionPolicy } from './playback-attention-policy.ts';
@@ -64,7 +63,13 @@ export function createServiceWorkerBrowserEvents(
 ) {
   const playbackTransport = createPlaybackTransport({
     ensureContentScriptOnTab: dependencies.ensureContentScriptOnTab,
-    ensureManagedTab,
+    ensureManagedTab: (tabId, url, active) =>
+      ensureManagedTab(
+        tabId,
+        url,
+        active,
+        state.appState.manualQueueAuthorized && state.appState.farmingSessionOrigin === 'manual',
+      ),
     waitForTabComplete,
   });
   const playbackAttention = createPlaybackAttentionPolicy(state, {
@@ -84,7 +89,7 @@ export function createServiceWorkerBrowserEvents(
     enabled: true,
     heartbeat: dependencies.heartbeat,
     managedTab: {
-      open: (target) =>
+      open: (target, options) =>
         openOwnedManagedWatch(
           state,
           target,
@@ -98,6 +103,7 @@ export function createServiceWorkerBrowserEvents(
             return prepared;
           },
           () => watchTransport.currentOwnership(),
+          options.isCurrent,
         ),
       probe: async (session, target) => {
         const context = await dependencies.fetchStreamContext(session.tabId);
@@ -183,7 +189,6 @@ export function createServiceWorkerBrowserEvents(
   }
 
   async function handleManagedTabRemoved(removedTabId: number): Promise<void> {
-    await forgetClosedManagedWatch(removedTabId);
     if (state.appState.tabId !== removedTabId) return;
     clearManagedTabOwnership(state);
     await saveState(state);

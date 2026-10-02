@@ -12,6 +12,12 @@ export async function rememberManagedWatch(
   const expectedChannel = new URL(expectedUrl).pathname.slice(1);
   const ownership: ManagedOwnership = { kind: 'managed-tab', tabId, ownershipToken, expectedChannel };
   await browser.storage.local.set({ [`${PREFIX}${ownershipToken}`]: ownership });
+  const registered = await listManagedWatches();
+  await Promise.all(
+    registered
+      .filter((item) => item.tabId === tabId && item.ownershipToken !== ownershipToken)
+      .map((item) => forgetManagedWatch(item.ownershipToken)),
+  );
 }
 
 export async function forgetManagedWatch(ownershipToken: string): Promise<void> {

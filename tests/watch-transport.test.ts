@@ -51,7 +51,7 @@ describe('ManagedTabTransport', () => {
     const ticked = await transport.tick();
     await transport.stop();
 
-    expect(startOptions.current).toEqual({ active: false, focus: false });
+    expect(startOptions.current).toMatchObject({ active: false, focus: false });
     expect(calls).toEqual(['open', 'probe']);
     expect(transport.currentOwnership()).toEqual(ownership);
     expect(started).toMatchObject({

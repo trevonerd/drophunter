@@ -101,7 +101,7 @@ export function registerWatchTransportCoordinatorStartCases() {
       heartbeat: async () => ({ accepted: false, reason: 'heartbeat-failed' }),
       managedTab: {
         open: async (_target, options) => {
-          expect(options).toEqual({ active: false, focus: false });
+          expect(options).toMatchObject({ active: false, focus: false });
           fixture.counters.opens += 1;
           return { owner: 'drophunter', tabId: 18 };
         },
@@ -141,7 +141,7 @@ export function registerWatchTransportCoordinatorStartCases() {
       heartbeat: async () => ({ accepted: true }),
       managedTab: {
         open: async (_target, options) => {
-          expect(options).toEqual({ active: false, focus: false });
+          expect(options).toMatchObject({ active: false, focus: false });
           opens += 1;
           return { owner: 'drophunter', tabId: 17 };
         },

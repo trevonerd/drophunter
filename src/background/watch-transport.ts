@@ -74,6 +74,7 @@ export type ManagedTabOpenResult = ManagedTabSession | UnmanagedTabSession | nul
 export interface ManagedTabStartOptions {
   readonly active: false;
   readonly focus: false;
+  readonly isCurrent?: () => boolean;
 }
 
 export interface ManagedTabOperations {
@@ -86,7 +87,7 @@ export interface WatchTransport {
   readonly mode: WatchTransportMode;
   adopt(target: FarmingTarget, ownership: WatchOwnershipV1, health: WatchHealth): boolean;
   currentOwnership(): WatchOwnershipV1 | null;
-  start(target: FarmingTarget): Promise<WatchHealth>;
+  start(target: FarmingTarget, isCurrent?: () => boolean): Promise<WatchHealth>;
   tick(): Promise<WatchHealth>;
   stop(): Promise<void>;
 }

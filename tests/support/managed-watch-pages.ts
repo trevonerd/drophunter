@@ -13,6 +13,8 @@ export interface ManagedWatchPage {
 export function installManagedWatchPages(mocks: ChromeMocks) {
   const pages = new Map<number, ManagedWatchPage>();
   const removed: number[] = [];
+  const created: number[] = [];
+  const updated: { id: number; properties: chrome.tabs.UpdateProperties }[] = [];
   let nextId = 20;
   const add = (url: string, id = nextId++) => {
     const page: ManagedWatchPage = { id, windowId: 1, url, status: 'complete', storage: new Map() };
@@ -30,8 +32,13 @@ export function installManagedWatchPages(mocks: ChromeMocks) {
         (query.windowId === undefined || page.windowId === query.windowId) &&
         (query.url === undefined || [query.url].flat().includes(page.url)),
     );
-  mocks.chrome.tabs.create = async (properties) => add(properties.url ?? 'about:blank');
+  mocks.chrome.tabs.create = async (properties) => {
+    const page = add(properties.url ?? 'about:blank');
+    created.push(page.id);
+    return page;
+  };
   mocks.chrome.tabs.update = async (id, properties = {}) => {
+    updated.push({ id, properties });
     const page = pages.get(id);
     if (!page) throw new Error('No tab');
     if (properties.url) {
@@ -67,5 +74,5 @@ export function installManagedWatchPages(mocks: ChromeMocks) {
       else Reflect.deleteProperty(globalThis, 'sessionStorage');
     }
   };
-  return { pages, add, removed };
+  return { pages, add, removed, created, updated };
 }

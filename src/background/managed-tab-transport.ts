@@ -159,10 +159,10 @@ export class ManagedTabTransport implements WatchTransport {
     return this.session?.ownership ?? null;
   }
 
-  async start(target: FarmingTarget): Promise<WatchHealth> {
+  async start(target: FarmingTarget, isCurrent: () => boolean = () => true): Promise<WatchHealth> {
     const previousSession = this.session;
     const previousTarget = this.target;
-    const session = await this.operations.open(target, { active: false, focus: false });
+    const session = await this.operations.open(target, { active: false, focus: false, isCurrent });
     if (!isManagedSession(session)) {
       if (!previousSession) this.target = target;
       else this.target = previousTarget;

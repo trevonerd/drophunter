@@ -3,20 +3,17 @@ import type { FarmingAutomationChromeHost } from './farming-automation-browser.t
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import { managedWatchMarker } from './managed-watch-marker.ts';
 import { reconcileManagedWatchesBeforeCreate } from './managed-watch-preflight.ts';
-import { closeUntouchedRecoveryTab, type RecoveryTab } from './session-recovery-lifecycle.ts';
+import { rememberManagedWatch } from './managed-watch-registry.ts';
+import {
+  managedTabOwnershipKey,
+  reuseManagedTabOwnership,
+  streamerWatchUrl,
+  waitForTabComplete,
+} from './tab-management.ts';
 
-async function discardCancelledNavigation(tab: RecoveryTab, expectedUrl: string): Promise<void> {
-  await closeUntouchedRecoveryTab({ ...tab, url: expectedUrl }, browser.tabs);
-  if (typeof tab.id !== 'number') return;
-  const current = await browser.tabs.get(tab.id).catch(() => null);
-  if (
-    current?.id === tab.id &&
-    (current.url === expectedUrl || (current.url === 'about:blank' && current.pendingUrl === expectedUrl)) &&
-    current.windowId === tab.windowId
-  ) {
-    await browser.tabs.update(tab.id, { url: 'about:blank', muted: true }).catch(() => undefined);
-  }
-}
+// ponytail: one browser-wide acquisition queue; split only for independent farming tabs.
+let acquisitionTail: Promise<void> = Promise.resolve();
+const unregisteredWatches = new WeakMap<object, Extract<WatchOwnershipV1, { kind: 'managed-tab' }>>();
 
 export function createChromeFarmingAutomationHost(
   currentOwnership: () => WatchOwnershipV1 | null = () => null,
@@ -24,37 +21,68 @@ export function createChromeFarmingAutomationHost(
   const host: FarmingAutomationChromeHost = {
     managedWatchMarker,
     tabs: {
-      create: async (properties, isCurrent = () => true) => {
-        if (!isCurrent()) return null;
-        const current = currentOwnership();
-        if (
-          !(await reconcileManagedWatchesBeforeCreate(
-            host,
-            current?.kind === 'managed-tab' ? current.ownershipToken : null,
-            isCurrent,
-          ))
-        )
-          return null;
-        const tab = await browser.tabs.create({ url: 'about:blank', active: properties.active });
-        if (typeof tab.id !== 'number') return null;
-        if (!isCurrent()) {
-          await closeUntouchedRecoveryTab(tab, browser.tabs);
-          return null;
-        }
-        try {
+      create: (properties, isCurrent = () => true, allowInitialCreation = false) => {
+        const acquisition = acquisitionTail.then(async () => {
+          if (!isCurrent()) return null;
+          const pending = unregisteredWatches.get(browser.tabs);
+          if (pending) {
+            const tabs = await browser.tabs.query({});
+            if (tabs.some((tab) => tab.id === pending.tabId)) {
+              const url = streamerWatchUrl(pending.expectedChannel);
+              await host.sessionStorage.set({
+                [managedTabOwnershipKey(pending.ownershipToken)]: {
+                  version: 1,
+                  expectedUrl: url,
+                  opening: true,
+                },
+              });
+              await rememberManagedWatch(pending.tabId, pending.ownershipToken, url);
+            }
+            unregisteredWatches.delete(browser.tabs);
+          }
+          const decision = await reconcileManagedWatchesBeforeCreate(host, currentOwnership(), isCurrent);
+          if (!isCurrent() || decision.kind === 'blocked') return null;
+          if (decision.kind === 'reuse') {
+            return reuseManagedTabOwnership(
+              decision.ownership,
+              properties.url,
+              host,
+              waitForTabComplete,
+              isCurrent,
+            );
+          }
+          if (!allowInitialCreation && !decision.previouslyOwned) return null;
+          const tab = await browser.tabs.create({ url: 'about:blank', active: properties.active });
+          if (typeof tab.id !== 'number') return null;
+          const token = globalThis.crypto.randomUUID();
+          unregisteredWatches.set(browser.tabs, {
+            kind: 'managed-tab',
+            tabId: tab.id,
+            ownershipToken: token,
+            expectedChannel: new URL(properties.url).pathname.slice(1),
+          });
+          await host.sessionStorage.set({
+            [managedTabOwnershipKey(token)]: { version: 1, expectedUrl: properties.url, opening: true },
+          });
+          await rememberManagedWatch(tab.id, token, properties.url);
+          unregisteredWatches.delete(browser.tabs);
+          if (!isCurrent()) return null;
           const configured = await browser.tabs.update(tab.id, {
             url: properties.url,
             muted: properties.muted,
           });
-          if (!isCurrent()) {
-            await discardCancelledNavigation(tab, properties.url);
-            return null;
-          }
+          if (!isCurrent()) return null;
+          await host.sessionStorage.set({
+            [managedTabOwnershipKey(token)]: { version: 1, expectedUrl: properties.url },
+          });
+          await managedWatchMarker.write(tab.id, token, properties.url);
           return configured ?? { ...tab, url: properties.url };
-        } catch (error) {
-          await closeUntouchedRecoveryTab(tab, browser.tabs);
-          throw error;
-        }
+        });
+        acquisitionTail = acquisition.then(
+          () => undefined,
+          () => undefined,
+        );
+        return acquisition;
       },
       get: (tabId) => browser.tabs.get(tabId),
       query: (query) => browser.tabs.query(query),

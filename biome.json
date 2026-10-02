@@ -9,7 +9,8 @@
       "tests/**/*.mjs",
       "tests/**/*.ts",
       "vite.config.ts",
-      "!!.codegraph"
+      "!!.codegraph",
+      "!!.claude"
     ]
   },
   "formatter": {
