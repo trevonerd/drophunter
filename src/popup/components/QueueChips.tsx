@@ -22,6 +22,7 @@ export interface QueueChipsProps {
   onClear: () => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
   onStartQueuedCampaign?: (game: TwitchGame) => void;
+  onShowCampaign?: (game: TwitchGame) => void;
   actionLoading?: boolean;
 }
 
@@ -36,6 +37,7 @@ export function QueueChips({
   onClear,
   onReorder,
   onStartQueuedCampaign,
+  onShowCampaign,
   actionLoading,
 }: QueueChipsProps) {
   const visibleQueueGames =
@@ -166,25 +168,34 @@ export function QueueChips({
                   {index + 1}
                 </span>
               )}
-              <span className="min-w-0 flex-1">
-                <span
-                  className="block truncate font-semibold leading-snug text-[color:var(--dh-text)]"
-                  title={label}
-                >
-                  {label}
-                </span>
-                <span className="block truncate text-[10px] leading-snug text-[color:var(--dh-muted)]">
-                  {provenanceLabel(game)} · {availabilityLabel(game) ?? formatEndsIn(game)}
-                </span>
-              </span>
-              <span className="flex min-w-0 items-center justify-end gap-1 overflow-hidden">
-                {isFavoriteGame(game, favorites) && (
-                  <span className="shrink-0 text-[color:var(--dh-warning)]" title="Favorite game">
-                    ★
+              <button
+                type="button"
+                onClick={() => onShowCampaign?.(game)}
+                disabled={!onShowCampaign}
+                aria-label={`Show Drops for ${label}`}
+                title={`Show Drops for ${label}`}
+                className="dh-focus col-span-2 flex min-w-0 self-stretch items-center gap-1.5 rounded text-left hover:bg-[color:var(--dh-surface-2)]"
+              >
+                <span className="min-w-0 flex-1">
+                  <span
+                    className="block truncate font-semibold leading-snug text-[color:var(--dh-text)]"
+                    title={label}
+                  >
+                    {label}
                   </span>
-                )}
-                <CampaignStatusIndicators game={game} />
-              </span>
+                  <span className="block truncate text-[10px] leading-snug text-[color:var(--dh-muted)]">
+                    {provenanceLabel(game)} · {availabilityLabel(game) ?? formatEndsIn(game)}
+                  </span>
+                </span>
+                <span className="flex min-w-0 items-center justify-end gap-1 overflow-hidden">
+                  {isFavoriteGame(game, favorites) && (
+                    <span className="shrink-0 text-[color:var(--dh-warning)]" title="Favorite game">
+                      ★
+                    </span>
+                  )}
+                  <CampaignStatusIndicators game={game} />
+                </span>
+              </button>
               <span className="flex items-center gap-1">
                 <button
                   type="button"

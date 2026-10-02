@@ -1,5 +1,13 @@
-import { type ReactNode, useEffect, useState } from 'react';
-import { isFavoriteGame, isHiddenGame } from '../../shared/game-selection';
+import {
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import { gameKey, isFavoriteGame, isHiddenGame } from '../../shared/game-selection';
 import type { CampaignPriorityMode, GamePreference, TwitchDrop, TwitchGame } from '../../types';
 import type { CampaignProgressLookup } from './campaign-list-model';
 import { GameCampaignGroup } from './GameCampaignGroup';
@@ -13,7 +21,12 @@ export type {
 } from './campaign-list-model';
 export { resolveStoredCatalogFilter, shouldShowOtherDrops } from './useCampaignListState';
 
+export interface CampaignListHandle {
+  showCampaign: (game: TwitchGame) => void;
+}
+
 export interface CampaignListProps {
+  readonly ref?: Ref<CampaignListHandle>;
   readonly campaigns: readonly TwitchGame[];
   readonly drops?: readonly TwitchDrop[];
   readonly favoriteGameIds?: ReadonlySet<string> | readonly string[];
@@ -46,6 +59,7 @@ function favoriteIdSet(value: ReadonlySet<string> | readonly string[] | undefine
 }
 
 export function CampaignList({
+  ref,
   campaigns,
   drops = [],
   favoriteGameIds,
@@ -83,6 +97,7 @@ export function CampaignList({
     activeHighlightKey,
     expandedGameKey,
     toggleGame,
+    showCampaign,
     favorites,
     hidden,
     groups,
@@ -103,6 +118,23 @@ export function CampaignList({
     onSetFavorite,
     onSetGamePreference,
   });
+  const catalogRef = useRef<HTMLElement>(null);
+  const [scrollTargetKey, setScrollTargetKey] = useState<string | null>(null);
+  useImperativeHandle(ref, () => ({
+    showCampaign(game) {
+      showCampaign(game);
+      setScrollTargetKey(gameKey(game));
+    },
+  }));
+  useLayoutEffect(() => {
+    if (!scrollTargetKey) return;
+    const target = Array.from(
+      catalogRef.current?.querySelectorAll<HTMLElement>('[data-campaign-key]') ?? [],
+    ).find((element) => element.dataset.campaignKey === scrollTargetKey);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: 'start' });
+    setScrollTargetKey(null);
+  }, [scrollTargetKey]);
   const loadedKeys = favoriteIdSet(loadedCampaignKeys);
   const [refreshNow, setRefreshNow] = useState(() => Date.now());
   useEffect(() => {
@@ -115,7 +147,7 @@ export function CampaignList({
     refreshInProgress && refreshStartedAt !== null && refreshNow - refreshStartedAt >= 15_000;
 
   return (
-    <section aria-label="Campaigns" className="dh-group min-w-0">
+    <section ref={catalogRef} aria-label="Campaigns" className="dh-group min-w-0">
       <div className="dh-campaign-browser-heading flex items-center justify-between gap-2">
         <h2 className="dh-title text-xs">Games and campaigns</h2>
         <span className="text-right text-[10px] text-[color:var(--dh-muted)]">

@@ -60,6 +60,8 @@ export function CampaignDetail(props: CampaignDetailProps) {
 
   return (
     <article
+      tabIndex={-1}
+      aria-label={label}
       data-campaign-key={key}
       data-highlighted={props.highlightedCampaignKey === key ? 'true' : 'false'}
       data-running={props.running ? 'true' : 'false'}

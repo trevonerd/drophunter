@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from '../../shared/browser-api.ts';
-import { dropMatchesGame, isFavoriteGame, isHiddenGame } from '../../shared/game-selection';
+import { dropMatchesGame, gameCategoryKey, isFavoriteGame, isHiddenGame } from '../../shared/game-selection';
 import type { CampaignPriorityMode, GamePreference, TwitchDrop, TwitchGame } from '../../types';
 import {
   type CampaignCatalogFilter,
@@ -193,6 +193,11 @@ export function useCampaignListState({
     return () => globalThis.clearTimeout(timeout);
   }, [catalogFeedback]);
   const toggleGame = (key: string) => setExpandedGameKey((current) => (current === key ? null : key));
+  const showCampaign = (game: TwitchGame) => {
+    setQuery('');
+    setFilter(isHiddenGame(game, hidden) ? 'hidden-only' : 'available');
+    setExpandedGameKey(gameCategoryKey(game));
+  };
   const showOtherDrops = shouldShowOtherDrops(filter, query, groups.length);
   const visibleCampaignCount = groups.reduce((count, group) => count + group.campaigns.length, 0);
 
@@ -210,6 +215,7 @@ export function useCampaignListState({
     activeHighlightKey,
     expandedGameKey,
     toggleGame,
+    showCampaign,
     favorites,
     hidden,
     groups,

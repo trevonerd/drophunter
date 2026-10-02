@@ -1,6 +1,7 @@
+import { useRef } from 'react';
 import { classifyStartupPresentation } from '../../shared/startup-presentation.ts';
 import { AutomationSummary } from './AutomationSummary';
-import { CampaignList } from './CampaignList';
+import { CampaignList, type CampaignListHandle } from './CampaignList';
 import { CampaignQueueControls } from './CampaignQueueControls';
 import { CampaignSyncPanel } from './CampaignSyncPanel';
 import { CheckIcon } from './icons';
@@ -51,6 +52,7 @@ export function MainView({
   onStart,
   onRetry,
 }: MainViewProps) {
+  const campaignListRef = useRef<CampaignListHandle>(null);
   const model = createMainViewModel({
     state,
     campaignSyncStatus,
@@ -156,6 +158,7 @@ export function MainView({
                   onClear={onClearQueue}
                   onReorder={onReorderQueue}
                   onStartQueuedCampaign={onStartQueuedCampaign}
+                  onShowCampaign={(game) => campaignListRef.current?.showCampaign(game)}
                   actionLoading={actionLoading}
                 />
               </section>
@@ -163,6 +166,7 @@ export function MainView({
 
             <div className={onboardingStep === 'selector' ? 'onboarding-pulse rounded-lg' : ''}>
               <CampaignList
+                ref={campaignListRef}
                 campaigns={sortedGames}
                 drops={model.catalogDrops}
                 favoriteGameIds={model.favoriteIds}
