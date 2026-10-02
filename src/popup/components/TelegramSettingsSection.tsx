@@ -34,15 +34,18 @@ export function TelegramSettingsSection({
   const [guideOpen, setGuideOpen] = useState(false);
 
   useEffect(() => {
-    void onLoadSettings().then((response) => {
-      if (!response?.success) {
-        return;
-      }
-      setTokenConfigured(Boolean(response.configured));
-      if (response.chatId) {
-        setChatId(response.chatId);
-      }
-    });
+    void onLoadSettings()
+      .then((response) => {
+        if (!response?.success) {
+          setStatusMessage(response?.error ?? 'Unable to load Telegram settings.');
+          return;
+        }
+        setTokenConfigured(Boolean(response.configured));
+        if (response.chatId) {
+          setChatId(response.chatId);
+        }
+      })
+      .catch(() => setStatusMessage('Unable to load Telegram settings.'));
   }, [onLoadSettings]);
 
   const runAction = async (action: () => Promise<{ success: boolean; error?: string } | undefined>) => {
@@ -55,6 +58,8 @@ export function TelegramSettingsSection({
         return;
       }
       setStatusMessage('Telegram settings updated.');
+    } catch {
+      setStatusMessage('Telegram action failed. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -75,6 +80,8 @@ export function TelegramSettingsSection({
         setChatId(response.chatId);
       }
       setStatusMessage('Telegram credentials saved.');
+    } catch {
+      setStatusMessage('Unable to save Telegram credentials. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -95,114 +102,113 @@ export function TelegramSettingsSection({
           aria-checked={enabled}
           aria-label="Telegram alerts"
           onClick={() => void runAction(onToggle)}
-          disabled={busy || (!enabled && !tokenConfigured)}
-          title={!enabled && !tokenConfigured ? 'Save bot token and chat ID first' : undefined}
+          disabled={busy}
           className={`dh-switch shrink-0 dh-focus ${enabled ? 'dh-switch--on' : ''}`}
         >
           <span className="dh-switch__thumb" />
         </button>
       </div>
-      {!enabled && !tokenConfigured && (
-        <p className="dh-copy mt-1.5 text-[11px] leading-snug opacity-80">
-          Save a bot token and chat ID below before enabling alerts.
-        </p>
-      )}
-
       {enabled && (
-        <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-[color:var(--dh-border)] pt-2.5">
-          <div className="min-w-0">
-            <p className="dh-title text-[11px]">System notifications</p>
-            <p className="dh-copy mt-0.5 text-[11px] leading-snug">
-              Also send auto-start, campaign-skip, queue-complete and recovery updates.
+        <>
+          {!tokenConfigured && (
+            <p className="dh-copy mt-1.5 text-[11px] leading-snug opacity-80">
+              Save a bot token and chat ID below to start receiving alerts.
             </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={systemAlertsEnabled}
-            aria-label="Telegram system notifications"
-            onClick={() => void runAction(onSystemAlertsToggle)}
-            disabled={busy}
-            className={`dh-switch shrink-0 dh-focus ${systemAlertsEnabled ? 'dh-switch--on' : ''}`}
-          >
-            <span className="dh-switch__thumb" />
-          </button>
-        </div>
-      )}
-
-      <div className="mt-3 space-y-2">
-        <label className="block">
-          <span className="dh-copy text-[10px] uppercase tracking-wide">Bot token</span>
-          <input
-            type="password"
-            value={botToken}
-            onChange={(event) => setBotToken(event.target.value)}
-            placeholder={
-              tokenConfigured ? 'Saved token (enter to replace)' : 'Paste bot token from BotFather'
-            }
-            autoComplete="off"
-            className="dh-input mt-1 w-full rounded-md px-2 py-1.5 text-[11px]"
-          />
-        </label>
-        <label className="block">
-          <span className="dh-copy text-[10px] uppercase tracking-wide">Chat ID</span>
-          <input
-            type="text"
-            value={chatId}
-            onChange={(event) => setChatId(event.target.value)}
-            placeholder="Your chat ID or @channel"
-            autoComplete="off"
-            className="dh-input mt-1 w-full rounded-md px-2 py-1.5 text-[11px]"
-          />
-        </label>
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => void handleSaveCredentials()}
-            disabled={busy}
-            className="dh-focus rounded-md border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--dh-text)]"
-          >
-            Save credentials
-          </button>
-          <button
-            type="button"
-            onClick={() => void runAction(onTestAlerts)}
-            disabled={busy}
-            className="dh-focus rounded-md border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--dh-text)]"
-          >
-            Send test message
-          </button>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setGuideOpen((open) => !open)}
-        className="dh-focus mt-3 text-[11px] font-semibold text-purple-300/90"
-        aria-expanded={guideOpen}
-      >
-        {guideOpen ? 'Hide setup guide' : 'Show setup guide'}
-      </button>
-      {guideOpen ? (
-        <ol className="dh-copy mt-2 list-decimal space-y-1 pl-4 text-[11px] leading-snug">
-          <li>
-            Open{' '}
-            <a
-              href="https://t.me/BotFather"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-purple-300 no-underline hover:text-purple-100"
+          )}
+          <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-[color:var(--dh-border)] pt-2.5">
+            <div className="min-w-0">
+              <p className="dh-title text-[11px]">System notifications</p>
+              <p className="dh-copy mt-0.5 text-[11px] leading-snug">
+                Also send auto-start, campaign-skip, queue-complete and recovery updates.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={systemAlertsEnabled}
+              aria-label="Telegram system notifications"
+              onClick={() => void runAction(onSystemAlertsToggle)}
+              disabled={busy}
+              className={`dh-switch shrink-0 dh-focus ${systemAlertsEnabled ? 'dh-switch--on' : ''}`}
             >
-              @BotFather
-            </a>{' '}
-            and run <code className="text-[color:var(--dh-text)]">/newbot</code> to create a bot.
-          </li>
-          <li>Copy the bot token and paste it above.</li>
-          <li>Start a chat with your bot in Telegram.</li>
-          <li>Get your chat ID (for example via @userinfobot) and paste it above.</li>
-          <li>Save credentials, send a test message, then enable Telegram alerts.</li>
-        </ol>
-      ) : null}
+              <span className="dh-switch__thumb" />
+            </button>
+          </div>
+          <div className="mt-3 space-y-2">
+            <label className="block">
+              <span className="dh-copy text-[10px] uppercase tracking-wide">Bot token</span>
+              <input
+                type="password"
+                value={botToken}
+                onChange={(event) => setBotToken(event.target.value)}
+                placeholder={
+                  tokenConfigured ? 'Saved token (enter to replace)' : 'Paste bot token from BotFather'
+                }
+                autoComplete="off"
+                className="dh-input mt-1 w-full rounded-md px-2 py-1.5 text-[11px]"
+              />
+            </label>
+            <label className="block">
+              <span className="dh-copy text-[10px] uppercase tracking-wide">Chat ID</span>
+              <input
+                type="text"
+                value={chatId}
+                onChange={(event) => setChatId(event.target.value)}
+                placeholder="Your chat ID or @channel"
+                autoComplete="off"
+                className="dh-input mt-1 w-full rounded-md px-2 py-1.5 text-[11px]"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => void handleSaveCredentials()}
+                disabled={busy}
+                className="dh-focus rounded-md border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--dh-text)]"
+              >
+                Save credentials
+              </button>
+              <button
+                type="button"
+                onClick={() => void runAction(onTestAlerts)}
+                disabled={busy || !tokenConfigured}
+                className="dh-focus rounded-md border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--dh-text)]"
+              >
+                Send test message
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setGuideOpen((open) => !open)}
+            className="dh-focus mt-3 text-[11px] font-semibold text-purple-300/90"
+            aria-expanded={guideOpen}
+          >
+            {guideOpen ? 'Hide setup guide' : 'Show setup guide'}
+          </button>
+          {guideOpen ? (
+            <ol className="dh-copy mt-2 list-decimal space-y-1 pl-4 text-[11px] leading-snug">
+              <li>
+                Open{' '}
+                <a
+                  href="https://t.me/BotFather"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-300 no-underline hover:text-purple-100"
+                >
+                  @BotFather
+                </a>{' '}
+                and run <code className="text-[color:var(--dh-text)]">/newbot</code> to create a bot.
+              </li>
+              <li>Copy the bot token and paste it above.</li>
+              <li>Start a chat with your bot in Telegram.</li>
+              <li>Get your chat ID (for example via @userinfobot) and paste it above.</li>
+              <li>Save credentials, then send a test message.</li>
+            </ol>
+          ) : null}
+        </>
+      )}
 
       {statusMessage ? (
         <p className="dh-copy mt-2 text-[11px]" role="status" aria-live="polite">

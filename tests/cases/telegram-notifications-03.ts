@@ -71,23 +71,28 @@ describe('telegram notifier setTelegramAlertsEnabled', () => {
     expect(saveCount).toBe(1);
   });
 
-  test('errors and flips the preference off when no credentials are stored', async () => {
+  test('enables setup with host permission before credentials are stored', async () => {
     const harness = createNotifierHarness({ credentials: null });
 
     const result = await harness.notifier.setTelegramAlertsEnabled(true);
 
-    expect(result.success).toBe(false);
-    expect(result.telegramAlertsEnabled).toBe(false);
-    expect(result.error).toBe('Telegram bot token and chat ID are required');
-    expect(harness.state.appState.telegramAlertsEnabled).toBe(false);
+    expect(result).toEqual({ success: true, telegramAlertsEnabled: true });
+    expect(harness.state.appState.telegramAlertsEnabled).toBe(true);
     expect(harness.stats.saveCount).toBe(1);
+    expect(harness.fetchCalls).toEqual([]);
+    await harness.notifier.notifyClaimedDrops([_sampleEntry]);
+    expect(await harness.notifier.notifySystemEvent('queue-complete', 'Queue complete.')).toBe(false);
+    expect(await harness.notifier.sendTestAlert()).toEqual({
+      success: false,
+      error: 'Telegram bot token and chat ID are required',
+    });
     expect(harness.fetchCalls).toEqual([]);
   });
 
-  test('errors and flips the preference off when host permission is missing and request denied', async () => {
+  test('rejects missing host permission even if a background request would succeed', async () => {
     const harness = createNotifierHarness({
       permissionGranted: false,
-      permissionRequestGranted: false,
+      permissionRequestGranted: true,
       credentials: { botToken: '123:abc', chatId: '999' },
     });
 
@@ -101,7 +106,7 @@ describe('telegram notifier setTelegramAlertsEnabled', () => {
     expect(harness.fetchCalls).toEqual([]);
   });
 
-  test('enables the preference when credentials, host permission, and getMe all succeed', async () => {
+  test('enables saved credentials with host permission without an API probe', async () => {
     const harness = createNotifierHarness({
       permissionGranted: true,
       credentials: { botToken: '123:abc', chatId: '999' },
@@ -113,10 +118,10 @@ describe('telegram notifier setTelegramAlertsEnabled', () => {
     expect(result).toEqual({ success: true, telegramAlertsEnabled: true });
     expect(harness.state.appState.telegramAlertsEnabled).toBe(true);
     expect(harness.stats.saveCount).toBe(1);
-    expect(harness.fetchCalls[0]).toContain('/getMe');
+    expect(harness.fetchCalls).toEqual([]);
   });
 
-  test('errors and flips the preference off when the getMe probe fails', async () => {
+  test('allows setup to repair credentials even when the bot would reject an API probe', async () => {
     const harness = createNotifierHarness({
       permissionGranted: true,
       credentials: { botToken: '123:abc', chatId: '999' },
@@ -126,10 +131,9 @@ describe('telegram notifier setTelegramAlertsEnabled', () => {
 
     const result = await harness.notifier.setTelegramAlertsEnabled(true);
 
-    expect(result.success).toBe(false);
-    expect(result.telegramAlertsEnabled).toBe(false);
-    expect(result.error).toBe('Error: Unauthorized');
-    expect(harness.state.appState.telegramAlertsEnabled).toBe(false);
+    expect(result).toEqual({ success: true, telegramAlertsEnabled: true });
+    expect(harness.state.appState.telegramAlertsEnabled).toBe(true);
     expect(harness.stats.saveCount).toBe(1);
+    expect(harness.fetchCalls).toEqual([]);
   });
 });

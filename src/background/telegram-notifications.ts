@@ -41,13 +41,6 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       return false;
     }
   };
-  const requestTelegramHostPermission = async (): Promise<boolean> => {
-    try {
-      return await permissionsApi.request(TELEGRAM_HOST_PERMISSION);
-    } catch {
-      return false;
-    }
-  };
   const syncPermissionState = async () => {
     if (!state.appState.telegramAlertsEnabled || (await hasTelegramHostPermission())) return;
     state.appState.telegramAlertsEnabled = false;
@@ -151,12 +144,10 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
   };
   const settings = createTelegramNotifierSettings(state, options, {
     hasPermission: hasTelegramHostPermission,
-    requestPermission: requestTelegramHostPermission,
     validateSetup,
   });
   return {
     hasTelegramHostPermission,
-    requestTelegramHostPermission,
     syncPermissionState,
     notifyClaimedDrops,
     notifySystemEvent,

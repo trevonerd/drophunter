@@ -9,7 +9,6 @@ import {
 
 interface TelegramSettingsDependencies {
   hasPermission: () => Promise<boolean>;
-  requestPermission: () => Promise<boolean>;
   validateSetup: (credentials: TelegramCredentials) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -24,33 +23,13 @@ export function createTelegramNotifierSettings(
       await options.saveState();
       return { success: true, telegramAlertsEnabled: false };
     }
-    const credentials = await options.loadCredentials();
-    if (!credentials) {
-      state.appState.telegramAlertsEnabled = false;
-      await options.saveState();
-      return {
-        success: false,
-        telegramAlertsEnabled: false,
-        error: 'Telegram bot token and chat ID are required',
-      };
-    }
-    if (!(await deps.hasPermission()) && !(await deps.requestPermission())) {
+    if (!(await deps.hasPermission())) {
       state.appState.telegramAlertsEnabled = false;
       await options.saveState();
       return {
         success: false,
         telegramAlertsEnabled: false,
         error: 'Telegram host permission was not granted',
-      };
-    }
-    const validation = await deps.validateSetup(credentials);
-    if (!validation.success) {
-      state.appState.telegramAlertsEnabled = false;
-      await options.saveState();
-      return {
-        success: false,
-        telegramAlertsEnabled: false,
-        error: validation.error ?? 'Telegram bot validation failed',
       };
     }
     state.appState.telegramAlertsEnabled = true;
@@ -81,7 +60,7 @@ export function createTelegramNotifierSettings(
     if (!isValidChatId(nextChatId)) return { success: false, error: 'Telegram chat ID format is invalid' };
     const credentials = normalizeTelegramCredentials({ botToken: nextToken, chatId: nextChatId });
     if (!credentials) return { success: false, error: 'Telegram credentials are invalid' };
-    if (!(await deps.hasPermission()) && !(await deps.requestPermission())) {
+    if (!(await deps.hasPermission())) {
       return { success: false, error: 'Telegram host permission was not granted' };
     }
     const validation = await deps.validateSetup(credentials);

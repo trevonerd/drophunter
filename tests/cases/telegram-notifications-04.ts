@@ -137,11 +137,11 @@ describe('telegram notifier setTelegramCredentials', () => {
     expect(harness.savedCredentials).toEqual([{ botToken: '123:abc', chatId: '1000' }]);
   });
 
-  test('errors when host permission cannot be obtained', async () => {
+  test('rejects missing host permission without requesting it from the background', async () => {
     const harness = createCredentialHarness({
       existing: null,
       permissionGranted: false,
-      permissionRequestGranted: false,
+      permissionRequestGranted: true,
     });
 
     const result = await harness.notifier.setTelegramCredentials({

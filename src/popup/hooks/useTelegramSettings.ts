@@ -1,5 +1,5 @@
 // Telegram alerts settings: credentials + enable/test handlers.
-import type { Dispatch, SetStateAction } from 'react';
+import { type Dispatch, type SetStateAction, useCallback } from 'react';
 import { browser } from '../../shared/browser-api.ts';
 import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState } from '../../types';
@@ -10,23 +10,24 @@ interface UseTelegramSettingsArgs {
   setState: Dispatch<SetStateAction<AppState>>;
 }
 
+async function requestTelegramPermission() {
+  // Request before any await so Chrome still sees the popup's user gesture.
+  const granted = await browser.permissions.request(TELEGRAM_HOST_PERMISSION).catch(() => false);
+  return granted ? null : { success: false as const, error: 'Telegram host permission was not granted' };
+}
+
 export function useTelegramSettings({ state, setState }: UseTelegramSettingsArgs) {
   const handleTelegramAlertsToggle = async () => {
     const next = !state.telegramAlertsEnabled;
-    setState((prev) => ({ ...prev, telegramAlertsEnabled: next }));
     if (next) {
-      const granted = await browser.permissions.request(TELEGRAM_HOST_PERMISSION).catch(() => false);
-      if (!granted) {
-        setState((prev) => ({ ...prev, telegramAlertsEnabled: false }));
-        return { success: false, error: 'Telegram host permission was not granted' };
-      }
+      const error = await requestTelegramPermission();
+      if (error) return error;
     }
     const response = await sendRuntimeMessage({
       type: 'SET_TELEGRAM_ALERTS_ENABLED',
       payload: { enabled: next },
     });
     if (!response?.success) {
-      setState((prev) => ({ ...prev, telegramAlertsEnabled: !next }));
       return response;
     }
     setState((prev) => ({
@@ -38,13 +39,11 @@ export function useTelegramSettings({ state, setState }: UseTelegramSettingsArgs
 
   const handleTelegramSystemAlertsToggle = async () => {
     const next = !state.telegramSystemAlertsEnabled;
-    setState((prev) => ({ ...prev, telegramSystemAlertsEnabled: next }));
     const response = await sendRuntimeMessage({
       type: 'SET_TELEGRAM_SYSTEM_ALERTS_ENABLED',
       payload: { enabled: next },
     });
     if (!response?.success) {
-      setState((prev) => ({ ...prev, telegramSystemAlertsEnabled: !next }));
       return response;
     }
     setState((prev) => ({
@@ -55,6 +54,8 @@ export function useTelegramSettings({ state, setState }: UseTelegramSettingsArgs
   };
 
   const saveTelegramCredentials = async (botToken: string, chatId: string) => {
+    const error = await requestTelegramPermission();
+    if (error) return error;
     return sendRuntimeMessage({
       type: 'SET_TELEGRAM_CREDENTIALS',
       payload: { botToken, chatId },
@@ -62,12 +63,14 @@ export function useTelegramSettings({ state, setState }: UseTelegramSettingsArgs
   };
 
   const testTelegramAlerts = async () => {
+    const error = await requestTelegramPermission();
+    if (error) return error;
     return sendRuntimeMessage({ type: 'TEST_TELEGRAM_ALERTS' });
   };
 
-  const loadTelegramSettings = async () => {
+  const loadTelegramSettings = useCallback(async () => {
     return sendRuntimeMessage({ type: 'GET_TELEGRAM_SETTINGS' });
-  };
+  }, []);
 
   return {
     handleTelegramAlertsToggle,
