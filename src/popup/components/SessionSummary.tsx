@@ -42,7 +42,6 @@ const labelClasses: Record<UserStatusModel['tone'], string> = {
 };
 
 export function SessionSummary(props: SessionSummaryProps) {
-  const [diagnosticFeedback, setDiagnosticFeedback] = useState<string | null>(null);
   const model = createUserStatusModel(props);
   const transport = effectiveTransport(props.state);
   const remainingDrops = remainingSessionDrops(props.state);
@@ -179,33 +178,7 @@ export function SessionSummary(props: SessionSummaryProps) {
             Open Twitch
           </button>
         )}
-        {(isRecovering || model.mode === 'attention-required') && (
-          <button
-            type="button"
-            onClick={() => {
-              void (async () => {
-                try {
-                  const stored = await browser.storage.local.get('runtimeDiagnostics');
-                  await navigator.clipboard.writeText(
-                    buildRuntimeDiagnosticReport(stored.runtimeDiagnostics),
-                  );
-                  setDiagnosticFeedback('Diagnostics copied.');
-                } catch {
-                  setDiagnosticFeedback('Could not copy diagnostics.');
-                }
-              })();
-            }}
-            className="dh-focus min-h-8 rounded-lg border border-[color:var(--dh-border-strong)] px-2 py-1.5 text-xs font-semibold text-[color:var(--dh-text)]"
-          >
-            Copy diagnostics
-          </button>
-        )}
       </div>
-      {diagnosticFeedback && (
-        <p role="status" aria-live="polite" className="px-3 text-[10px]">
-          {diagnosticFeedback}
-        </p>
-      )}
       {continuationNote && (
         <p className="border-t border-[color:var(--dh-border)] px-3 py-1.5 text-[10px] leading-snug text-[color:var(--dh-muted)]">
           {continuationNote}
@@ -214,7 +187,3 @@ export function SessionSummary(props: SessionSummaryProps) {
     </section>
   );
 }
-
-import { useState } from 'react';
-import { browser } from '../../shared/browser-api.ts';
-import { buildRuntimeDiagnosticReport } from '../../shared/runtime-diagnostic-report.ts';
