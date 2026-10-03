@@ -13,15 +13,3 @@ export const BACKUP_SETTINGS = {
   watchTransportPreference: ['managed-tab', 'tabless'],
 } as const;
 export type BackupSettings = Partial<Pick<AppState, keyof typeof BACKUP_SETTINGS>>;
-/** Defaults come from createInitialState; absent fields preserve the initialized/local value. */
-export const BACKUP_SETTING_POLICY = Object.fromEntries(
-  Object.keys(BACKUP_SETTINGS).map((key) => [
-    key,
-    {
-      portable: true,
-      sensitive: false,
-      missing: 'preserve-current',
-      requiresReactivation: key === 'notificationsEnabled' || key === 'autoStartFavoriteGames',
-    },
-  ]),
-);

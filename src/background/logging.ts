@@ -17,12 +17,6 @@ export function logWarn(...args: unknown[]) {
   console.warn(LOG_PREFIX, ...args);
 }
 
-export function logVerboseInfo(...args: unknown[]) {
-  if (DEBUG_LOGS_ENABLED) {
-    console.info(LOG_PREFIX, ...args);
-  }
-}
-
 export function logVerboseWarn(...args: unknown[]) {
   if (DEBUG_LOGS_ENABLED) {
     console.warn(LOG_PREFIX, ...args);

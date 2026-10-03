@@ -33,11 +33,6 @@ export function parkCampaignAtQueueTail(state: ServiceWorkerState, campaign: Twi
   if (metadata) state.appState.queueEntryMetadataByKey[key] = metadata;
 }
 
-export function rotateBlockedQueueHead(state: ServiceWorkerState): void {
-  const [head, ...tail] = state.appState.queue;
-  if (head) state.appState.queue = [...tail, head];
-}
-
 export function prepareNextEligibleQueueHead(
   state: ServiceWorkerState,
   restrictUnauthorizedManualContinuation: boolean,

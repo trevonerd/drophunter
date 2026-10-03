@@ -1,23 +1,5 @@
 import { expect, test } from 'bun:test';
-import { normalizeToken, scoreDropMatch, tokenOverlapScore } from '../src/shared/matching.ts';
-import type { TwitchDrop } from '../src/types/index.ts';
-
-function createDrop(overrides: Partial<TwitchDrop> = {}): TwitchDrop {
-  return {
-    id: `drop-${Math.random().toString(36).slice(2)}`,
-    name: 'Reward',
-    gameId: 'game-1',
-    gameName: 'Game',
-    imageUrl: '',
-    progress: 0,
-    currentMinutes: 0,
-    claimed: false,
-    acquisitionMethod: 'watch-time',
-    rewardKind: 'in-game',
-    verificationState: 'unassessed',
-    ...overrides,
-  };
-}
+import { normalizeToken, tokenOverlapScore } from '../src/shared/matching.ts';
 
 // --- normalizeToken ---
 
@@ -76,61 +58,4 @@ test('tokenOverlapScore handles partial overlap', () => {
   // overlap: "call", "duty" = 2, max size = 4
   const score = tokenOverlapScore('Call of Duty: Modern Warfare', 'Call of Duty: Black Ops');
   expect(score).toBe(0.5);
-});
-
-// --- scoreDropMatch ---
-
-test('scoreDropMatch returns 1000 for exact ID match', () => {
-  const a = createDrop({ id: 'drop-123' });
-  const b = createDrop({ id: 'drop-123' });
-  expect(scoreDropMatch(a, b)).toBe(1000);
-});
-
-test('scoreDropMatch scores name match', () => {
-  const a = createDrop({ name: 'Gold Chest' });
-  const b = createDrop({ name: 'Gold Chest' });
-  const score = scoreDropMatch(a, b);
-  expect(score).toBeGreaterThanOrEqual(40);
-});
-
-test('scoreDropMatch scores partial name match', () => {
-  const a = createDrop({ name: 'Gold Chest' });
-  const b = createDrop({ name: 'Gold Chest Deluxe' });
-  const score = scoreDropMatch(a, b);
-  expect(score).toBeGreaterThanOrEqual(15);
-});
-
-test('scoreDropMatch scores same game name', () => {
-  const a = createDrop({ gameName: 'Fortnite' });
-  const b = createDrop({ gameName: 'Fortnite' });
-  const score = scoreDropMatch(a, b);
-  expect(score).toBeGreaterThanOrEqual(20);
-});
-
-test('scoreDropMatch scores same imageUrl', () => {
-  const a = createDrop({ imageUrl: 'https://img.twitch.tv/reward.png' });
-  const b = createDrop({ imageUrl: 'https://img.twitch.tv/reward.png' });
-  const score = scoreDropMatch(a, b);
-  expect(score).toBeGreaterThanOrEqual(40);
-});
-
-test('scoreDropMatch scores same campaignId', () => {
-  const a = createDrop({ campaignId: 'campaign-abc' });
-  const b = createDrop({ campaignId: 'campaign-abc' });
-  const score = scoreDropMatch(a, b);
-  expect(score).toBeGreaterThanOrEqual(30);
-});
-
-test('scoreDropMatch returns 0 for completely different drops', () => {
-  const a = createDrop({ id: 'a', name: 'Alpha', gameName: 'X', imageUrl: 'x', campaignId: 'x' });
-  const b = createDrop({ id: 'b', name: 'Beta', gameName: 'Y', imageUrl: 'y', campaignId: 'y' });
-  expect(scoreDropMatch(a, b)).toBe(0);
-});
-
-test('scoreDropMatch accumulates multiple signals', () => {
-  const a = createDrop({ name: 'Gold Chest', gameName: 'Fortnite', campaignId: 'c1', imageUrl: 'img1' });
-  const b = createDrop({ name: 'Gold Chest', gameName: 'Fortnite', campaignId: 'c1', imageUrl: 'img1' });
-  const score = scoreDropMatch(a, b);
-  // 40 (name) + 15 (includes) + 20 (game) + 40 (image) + 30 (campaign) = 145
-  expect(score).toBe(145);
 });

@@ -55,11 +55,6 @@ export function matchingFavoriteKey(game: TwitchGame, favorites: readonly Favori
   return favorite?.gameId ?? null;
 }
 
-export function favoriteDeadline(game: TwitchGame): number {
-  const parsed = game.endsAt ? Date.parse(game.endsAt) : Number.NaN;
-  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
-}
-
 export function reconcileQueueEntryMetadata(state: AppState, now: number): void {
   state.queueEntryMetadataByKey = Object.fromEntries(
     state.queue.map((game) => {

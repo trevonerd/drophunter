@@ -120,26 +120,6 @@ export function formatCampaignOptionLabel(game: TwitchGame, queuedGames: readonl
   return prefix ? `${prefix} ${label}` : label;
 }
 
-export function formatLastUpdated(timestamp?: number): string {
-  if (!timestamp) {
-    return 'Waiting for first sync';
-  }
-  const elapsedMs = Date.now() - timestamp;
-  if (elapsedMs < 60_000) {
-    return 'Updated just now';
-  }
-  const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60_000));
-  if (elapsedMinutes < 60) {
-    return `Updated ${elapsedMinutes}m ago`;
-  }
-  const elapsedHours = Math.round(elapsedMinutes / 60);
-  if (elapsedHours < 24) {
-    return `Updated ${elapsedHours}h ago`;
-  }
-  const elapsedDays = Math.round(elapsedHours / 24);
-  return `Updated ${elapsedDays}d ago`;
-}
-
 export function expiryLabel(status?: ExpiryStatus) {
   switch (status) {
     case 'urgent':

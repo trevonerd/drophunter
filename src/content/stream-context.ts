@@ -1,21 +1,5 @@
+import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import { extractStreamCategory } from './stream-category.ts';
-
-const RESERVED_TWITCH_PATH_SEGMENTS = new Set([
-  'directory',
-  'drops',
-  'settings',
-  'subscriptions',
-  'wallet',
-  'privacy',
-  'inventory',
-  'search',
-  'videos',
-  'downloads',
-  'turbo',
-  'jobs',
-  'p',
-  'store',
-]);
 
 export function normalizeText(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -34,27 +18,7 @@ export function normalizeForCompare(value: string): string {
 }
 
 export function extractChannelNameFromPath(): string | null {
-  try {
-    const parsed = new URL(window.location.href);
-    const hostname = parsed.hostname.toLowerCase();
-
-    if (hostname === 'player.twitch.tv') {
-      return parsed.searchParams.get('channel')?.trim().toLowerCase() || null;
-    }
-
-    if (!/(\.|^)twitch\.tv$/i.test(hostname)) {
-      return null;
-    }
-
-    const segment = parsed.pathname.split('/').filter(Boolean)[0]?.trim().toLowerCase() ?? '';
-    if (!segment || RESERVED_TWITCH_PATH_SEGMENTS.has(segment)) {
-      return null;
-    }
-
-    return segment;
-  } catch {
-    return null;
-  }
+  return getFarmableTwitchChannelNameFromUrl(window.location.href);
 }
 
 function extractStreamTitleText(): string {

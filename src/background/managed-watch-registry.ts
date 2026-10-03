@@ -24,13 +24,6 @@ export async function forgetManagedWatch(ownershipToken: string): Promise<void> 
   await browser.storage.local.remove(`${PREFIX}${ownershipToken}`);
 }
 
-export async function forgetClosedManagedWatch(tabId: number): Promise<void> {
-  const registered = await listManagedWatches();
-  await Promise.all(
-    registered.filter((item) => item.tabId === tabId).map((item) => forgetManagedWatch(item.ownershipToken)),
-  );
-}
-
 export async function listManagedWatches(): Promise<readonly ManagedOwnership[]> {
   const stored = await browser.storage.local.get(null);
   return Object.entries(stored).flatMap(([key, value]): ManagedOwnership[] => {

@@ -21,8 +21,6 @@
   },
   "devDependencies": {
     "@remotion/cli": "4.0.532",
-    "@remotion/eslint-config": "4.0.532",
-    "@remotion/transitions": "4.0.532",
-    "@remotion/webcodecs": "4.0.532"
+    "@remotion/transitions": "4.0.532"
   }
 }

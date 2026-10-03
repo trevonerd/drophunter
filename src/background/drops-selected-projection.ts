@@ -1,6 +1,5 @@
 import { mergeDropProgressMonotonic } from '../shared/drops.ts';
 import { dropMatchesGame } from '../shared/game-selection.ts';
-import { normalizeToken, tokenOverlapScore } from '../shared/matching.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import { clearRecoveryStatus } from '../shared/runtime-status.ts';
@@ -29,19 +28,7 @@ export function dropMatchesSelectedGame(drop: TwitchDrop, selected: TwitchGame):
 }
 
 function selectRelevantDrops(allDrops: TwitchDrop[], selected: TwitchGame): TwitchDrop[] {
-  const strictRelevant = allDrops.filter((drop) => dropMatchesSelectedGame(drop, selected));
-  if (strictRelevant.length > 0 || selected.campaignId) return strictRelevant;
-
-  const selectedName = normalizeToken(selected.name);
-  return allDrops.filter((drop) => {
-    const dropName = normalizeToken(drop.gameName);
-    return (
-      selectedName.length > 0 &&
-      (dropName.includes(selectedName) ||
-        selectedName.includes(dropName) ||
-        tokenOverlapScore(dropName, selectedName) > 0.5)
-    );
-  });
+  return allDrops.filter((drop) => dropMatchesSelectedGame(drop, selected));
 }
 
 function mergeRelevantDrops(

@@ -34,14 +34,6 @@ export interface AutomationNotificationResult {
   readonly notificationId?: string;
 }
 
-export function getAutomationNotificationKey(
-  event: AutomationNotificationEvent,
-  campaignId: string,
-  transitionId: string,
-): string {
-  return `${event}:${campaignId}:${transitionId}`;
-}
-
 export function getAutomationNotificationId(
   event: AutomationNotificationEvent,
   campaignId: string,
