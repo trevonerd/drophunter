@@ -237,10 +237,16 @@ async function readAppState(popup: Awaited<ReturnType<typeof openPopup>>) {
     return appState as {
       readonly isRunning: boolean;
       readonly selectedGame: FixtureGame | null;
-      readonly currentDrop: { readonly currentMinutes: number } | null;
+      readonly currentDrop: { readonly currentMinutes: number; readonly campaignId?: string } | null;
       readonly activeStreamer: { readonly name: string } | null;
       readonly tabId: number | null;
       readonly queue: readonly FixtureGame[];
+      readonly isPaused: boolean;
+      readonly manualQueueAuthorized: boolean;
+      readonly recoveryReason: string | null;
+      readonly recoveryAttempts: number | null;
+      readonly recoveryBackoffUntil: number | null;
+      readonly queueAcquisitionRound: { readonly attemptedCampaignKeys: readonly string[]; readonly nextRoundAt: number | null } | null;
     };
   });
 }
@@ -351,6 +357,135 @@ test('completes the first queued campaign and reuses its managed tab for the nex
     await assertPlaying();
     expect(removedTabIds).not.toContain(originalTabId);
     expect(profile.context.pages().filter((page) => /\/local_stream_(one|two)$/.test(page.url()))).toEqual([managedPage]);
+  } finally {
+    await profile.close();
+  }
+});
+
+test('stalled rounds retain one authorized video tab and replace it only after actual closure', async () => {
+  test.setTimeout(360_000);
+  const profile = await createExtensionProfile();
+  try {
+    await installLocalTwitchFixture(profile);
+    await seedAppState(profile, { availableGames: games, selectedGame: games[0], queue: games,
+      isRunning: false, isPaused: false, autoStartFavoriteGames: false, monitorAutoOpen: false,
+      watchTransportPreference: 'managed-tab', activeStreamer: null, tabId: null });
+    const popup = await openPopup(profile);
+    await runtimeMessage(popup, { type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'managed-tab' } });
+    await runtimeMessage(popup, { type: 'UPDATE_GAMES', payload: games });
+    await runtimeMessage(popup, { type: 'ADD_TO_QUEUE', payload: { game: games[0] } });
+    await runtimeMessage(popup, { type: 'ADD_TO_QUEUE', payload: { game: games[1] } });
+    expect(await runtimeMessage(popup, { type: 'START_FARMING', payload: { game: games[0] } })).toEqual({ success: true });
+    await expect.poll(async () => (await readAppState(popup)).activeStreamer?.name, { timeout: 30_000 }).toBe('local_stream_one');
+    const originalTabId = (await readAppState(popup)).tabId;
+    const managedPage = profile.context.pages().find((page) => page.url().endsWith('/local_stream_one'));
+    if (!managedPage) throw new Error('Missing managed video tab');
+    await managedPage.locator('video').click();
+
+    // A Twitch tab update drives the real monitoring listener, including missed alarms.
+    // Only wall-clock time is accelerated; attempt budgets and playback stay unchanged.
+    const tickPage = await profile.context.newPage();
+    await tickPage.goto('https://www.twitch.tv/drops/inventory');
+    let clockStep = 0;
+    let wallOffset = 0;
+    const advanceAndTick = async (milliseconds: number) => {
+      wallOffset += milliseconds;
+      const worker = await getExtensionWorker(profile.context);
+      const target = await worker.evaluate(async (offset) => {
+        if (!Reflect.has(globalThis, '__roundClock')) {
+          const realNow = Date.now.bind(Date);
+          const clock = { realNow, offset: 0 };
+          Reflect.set(globalThis, '__roundClock', clock);
+          Date.now = () => clock.realNow() + clock.offset;
+          // Observe the existing tick/acquisition watchdogs without changing timers.
+          // A heartbeat can be saved before playback acquisition has finished.
+          const operations = new Set<ReturnType<typeof setTimeout>>();
+          Reflect.set(globalThis, '__roundOperations', operations);
+          const schedule = globalThis.setTimeout.bind(globalThis);
+          const cancel = globalThis.clearTimeout.bind(globalThis);
+          Reflect.set(globalThis, 'setTimeout', (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+            const timer = schedule(() => { operations.delete(timer); callback(...args); }, delay);
+            if (delay === 60_000) operations.add(timer);
+            return timer;
+          });
+          Reflect.set(globalThis, 'clearTimeout', (timer: ReturnType<typeof setTimeout>) => {
+            operations.delete(timer);
+            cancel(timer);
+          });
+        }
+        const clock = Reflect.get(globalThis, '__roundClock') as { realNow: () => number; offset: number };
+        clock.offset = offset;
+        return Date.now();
+      }, wallOffset);
+      await tickPage.goto(`https://www.twitch.tv/drops/inventory?clock=${++clockStep}`);
+      if (!(await readAppState(popup)).isRunning) return;
+      await expect.poll(async () => {
+        const heartbeat = await popup.evaluate(async () => {
+          const { timingState } = await chrome.storage.local.get('timingState');
+          return timingState && typeof timingState === 'object' && 'lastHeartbeatAt' in timingState
+            && typeof timingState.lastHeartbeatAt === 'number' ? timingState.lastHeartbeatAt : 0;
+        });
+        if (heartbeat < target) await tickPage.goto(`https://www.twitch.tv/drops/inventory?clock=${++clockStep}`);
+        return heartbeat;
+      }, { timeout: 30_000, intervals: [6_000] }).toBeGreaterThanOrEqual(target);
+      await expect.poll(() => worker.evaluate(() =>
+        (Reflect.get(globalThis, '__roundOperations') as Set<ReturnType<typeof setTimeout>>).size),
+        { timeout: 30_000 }).toBe(0);
+    };
+    for (let round = 0; round < 2; round += 1) {
+      for (let campaign = 0; campaign < games.length; campaign += 1) {
+        const expectedCampaign = games[campaign]?.campaignId;
+        await expect.poll(async () => (await readAppState(popup)).selectedGame?.campaignId, { timeout: 25_000 }).toBe(expectedCampaign);
+        // Each new watch needs an inventory baseline before its stall window begins.
+        await advanceAndTick(6 * 60_000);
+        await expect.poll(async () => (await readAppState(popup)).currentDrop?.campaignId).toBe(expectedCampaign);
+        await expect.poll(() => popup.evaluate(async (campaignId) => {
+          const { timingState } = await chrome.storage.local.get('timingState');
+          return timingState && typeof timingState === 'object' && 'lastTrackedDropKey' in timingState
+            && typeof timingState.lastTrackedDropKey === 'string' && timingState.lastTrackedDropKey.includes(campaignId ?? '');
+        }, expectedCampaign), { timeout: 15_000, intervals: [6_000] }).toBe(true);
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          const before = await readAppState(popup);
+          const previousAttempts = before.recoveryReason === 'stalled-progress' ? (before.recoveryAttempts ?? 0) : 0;
+          await advanceAndTick(previousAttempts === 0 ? 25 * 60_000 : 61_000);
+          await expect.poll(async () => {
+            const state = await readAppState(popup);
+            return (previousAttempts < 3 && state.recoveryAttempts === previousAttempts + 1) ||
+              state.queueAcquisitionRound?.attemptedCampaignKeys.includes(`campaign:${expectedCampaign}`);
+          }, { timeout: 25_000 }).toBe(true);
+          if ((await readAppState(popup)).queueAcquisitionRound?.attemptedCampaignKeys.includes(`campaign:${expectedCampaign}`)) break;
+        }
+        expect((await readAppState(popup)).queueAcquisitionRound?.attemptedCampaignKeys).toContain(`campaign:${expectedCampaign}`);
+        expect((await readAppState(popup)).tabId).toBe(originalTabId);
+      }
+      await expect.poll(async () => (await readAppState(popup)).queueAcquisitionRound?.nextRoundAt).not.toBeNull();
+      const waiting = await readAppState(popup);
+      expect(waiting.isRunning).toBe(true);
+      expect(waiting.manualQueueAuthorized).toBe(true);
+      await expect(popup.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+      await expect(popup.getByRole('button', { name: 'Start', exact: true })).toHaveCount(0);
+      expect(waiting.queueAcquisitionRound?.attemptedCampaignKeys).toHaveLength(2);
+      const roundDeadline = waiting.queueAcquisitionRound?.nextRoundAt;
+      if (roundDeadline == null) throw new Error('Missing round deadline');
+      const workerNow = Date.now() + wallOffset;
+      await advanceAndTick(Math.max(0, roundDeadline - workerNow - 60_000));
+      await expect.poll(async () => (await readAppState(popup)).queueAcquisitionRound?.nextRoundAt).toBe(waiting.queueAcquisitionRound?.nextRoundAt);
+      await advanceAndTick(60_001);
+      await expect.poll(async () => (await readAppState(popup)).activeStreamer?.name, { timeout: 25_000 }).toBe('local_stream_one');
+      expect((await readAppState(popup)).tabId).toBe(originalTabId);
+      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+    }
+    await managedPage.close();
+    await advanceAndTick(61_000);
+    await expect.poll(async () => (await readAppState(popup)).tabId, { timeout: 25_000 }).not.toBeNull();
+    const replacement = (await readAppState(popup)).tabId;
+    expect(replacement).not.toBe(originalTabId);
+    expect(profile.context.pages().filter((page) => /\/local_stream_(one|two)$/.test(page.url()))).toHaveLength(1);
+    await runtimeMessage(popup, { type: 'STOP_FARMING' });
+    await profile.context.pages().find((page) => /\/local_stream_(one|two)$/.test(page.url()))?.close();
+    await advanceAndTick(25 * 60_000);
+    expect((await readAppState(popup)).isRunning).toBe(false);
+    expect(profile.context.pages().filter((page) => /\/local_stream_(one|two)$/.test(page.url()))).toHaveLength(0);
   } finally {
     await profile.close();
   }

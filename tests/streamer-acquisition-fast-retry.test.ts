@@ -81,7 +81,7 @@ describe('fast streamer acquisition retry', () => {
     expect(state.appState.recoveryAttempts).toBe(1);
   });
 
-  test('clears campaign retry metadata after playback opens and preserves queue provenance', async () => {
+  test('keeps unresolved retry metadata after playback opens and preserves queue provenance', async () => {
     const state = createMinimalState();
     const game = createGame();
     state.appState.selectedGame = game;
@@ -97,6 +97,8 @@ describe('fast streamer acquisition retry', () => {
       source: 'manual',
       addedAt: 100,
       reason: 'user-added',
+      streamerRetryAt: 1_000_000,
+      streamerRetryReason: 'no-streamers',
     });
   });
 

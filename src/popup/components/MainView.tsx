@@ -69,19 +69,25 @@ export function MainView({
     campaignSyncState: state.campaignSyncState,
   });
   const showStartupSyncPanel = startupPresentation === 'blocked';
-  const queueCampaignRemovalNotice = queueCleanupActivity ? (
-    <QueueCleanupNotice
-      summary={
-        queueCleanupActivity.kind === 'queue-retries-exhausted'
-          ? 'Farming stopped'
-          : queueCleanupActivity.kind === 'queue-campaign-skipped'
-            ? 'Campaign skipped'
-            : 'Queue updated'
-      }
-      message={queueCleanupActivity.message}
-      onDismiss={() => onDismissQueueCleanup(queueCleanupActivity.id)}
-    />
-  ) : null;
+  const queueCampaignRemovalNotice =
+    model.queueRecoveryEntries.length > 0 ? (
+      <QueueCleanupNotice
+        summary={`Campaigns awaiting recovery (${model.queueRecoveryEntries.length})`}
+        entries={model.queueRecoveryEntries}
+      />
+    ) : queueCleanupActivity ? (
+      <QueueCleanupNotice
+        summary={
+          queueCleanupActivity.kind === 'queue-retries-exhausted'
+            ? 'Farming stopped'
+            : queueCleanupActivity.kind === 'queue-campaign-skipped'
+              ? 'Campaign skipped'
+              : 'Queue updated'
+        }
+        message={queueCleanupActivity.message}
+        onDismiss={() => onDismissQueueCleanup(queueCleanupActivity.id)}
+      />
+    ) : null;
   const syncPanel = (
     <CampaignSyncPanel
       status={campaignSyncStatus}

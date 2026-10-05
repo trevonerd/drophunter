@@ -4,6 +4,7 @@ import {
   gameKey,
   hiddenGameIdentityKeys,
 } from '../../shared/game-selection.ts';
+import { queueRecoveryNotice } from '../../shared/queue-recovery-notice.ts';
 import { isRewardAutomatable } from '../../shared/reward-semantics.ts';
 import type { AppState, TwitchDrop, TwitchGame } from '../../types/index.ts';
 import type { CampaignSyncStatus } from '../constants.ts';
@@ -63,10 +64,7 @@ export function createMainViewModel({
   const startup = startupRecovery(state, campaignSyncStatus);
   const automationActivity = state.automationActivity ?? [];
   const latestQueueCleanupActivity = automationActivity.find(
-    (entry) =>
-      entry.kind === 'queue-campaigns-removed' ||
-      entry.kind === 'queue-campaign-skipped' ||
-      entry.kind === 'queue-retries-exhausted',
+    (entry) => entry.kind === 'queue-campaigns-removed',
   );
   const queueCleanupActivity =
     latestQueueCleanupActivity?.id === dismissedQueueCleanupActivityId
@@ -97,6 +95,7 @@ export function createMainViewModel({
     favoriteIds: favoriteGameIdentityKeys(state.favoriteGames ?? []),
     hiddenIds: hiddenGameIdentityKeys(state.hiddenGames ?? []),
     queueCleanupActivity,
+    queueRecoveryEntries: queueRecoveryNotice(state, now),
     highlightedCampaignKey: highlightedGame ? gameKey(highlightedGame) : null,
     hasVisibleQueue: queueGames.some(
       (game) => !state.isRunning || !state.selectedGame || !isSameQueuedGame(game, state.selectedGame),

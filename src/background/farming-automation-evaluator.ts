@@ -97,7 +97,7 @@ export function createFarmingAutomationEvaluator(
         : { kind: 'failed', reason: 'persistence-failed' };
     }
 
-    resumeQueuedCampaignsWithAvailableStreamers(dependencies.state, discovery);
+    resumeQueuedCampaignsWithAvailableStreamers(dependencies.state, discovery, now);
 
     const parked = reconcileParkedCampaigns(facts, discovery.availability, now);
     if (parked.changed) {

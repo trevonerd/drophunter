@@ -87,6 +87,24 @@ describe('loadTimingState / saveTimingState', () => {
     );
   });
 
+  test.each(['no-streamers', 'open-failed', 'directory-unavailable'])(
+    'restores the full round deadline for %s even with stale or missing timing',
+    async (reason) => {
+      const state = createMinimalState();
+      const nextRoundAt = Date.now() + 600_000;
+      state.appState.isRunning = true;
+      state.appState.recoveryReason = reason;
+      state.appState.recoveryBackoffUntil = nextRoundAt;
+      state.appState.queueAcquisitionRound = { attemptedCampaignKeys: ['campaign:first'], nextRoundAt };
+      await loadTimingState(state);
+      expect(state.recoveryBackoffUntil).toBe(nextRoundAt);
+      mocks.storage.local._store.set('timingState', { recoveryBackoffUntil: Date.now() + 30_000 });
+      await loadTimingState(state);
+      expect(state.recoveryBackoffUntil).toBe(nextRoundAt);
+      expect(state.appState.recoveryBackoffUntil).toBe(nextRoundAt);
+    },
+  );
+
   test('loadTimingState rejects malformed unverifiable reward markers without touching other timing fields', async () => {
     const state = createMinimalState({
       lastTrackedProgress: 77,

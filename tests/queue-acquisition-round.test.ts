@@ -58,7 +58,7 @@ describe('queue acquisition rounds', () => {
       expect(state.appState.manualQueueAuthorized).toBe(true);
       expect(state.appState.recoveryBackoffUntil).toBeGreaterThan(now);
       expect(prepareNextEligibleQueueHead(state, false)).toBeNull();
-      now += 120_000;
+      now += 600_000;
       expect(prepareNextEligibleQueueHead(state, false)?.campaignId).toBe(campaigns[0]?.campaignId);
       expect(state.appState.queueAcquisitionRound).toBeNull();
     },

@@ -47,7 +47,6 @@ export async function stopFarmingSession(
           streamerWaitState: _waitState,
           streamerRetryCycles: _cycles,
           streamerRetryAt: _retryAt,
-          streamerRetryReason: _retryReason,
           streamerRetryAttempts: _attempts,
           ...ready
         } = metadata;

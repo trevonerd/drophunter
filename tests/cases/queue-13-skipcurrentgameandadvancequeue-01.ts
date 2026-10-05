@@ -134,7 +134,7 @@ export function registerQueue13Part01() {
       });
     });
 
-    test('clears a terminal manual authorization without retaining a blocked campaign as a new implicit queue', async () => {
+    test('retains manual authorization while the blocked campaign waits for another round', async () => {
       // Given: the only authorized manual campaign is blocked after exhausted recovery.
       const current = createGame({ id: 'game-1', campaignId: 'campaign-1', name: 'Blocked Game' });
       const state = createMinimalState();
@@ -155,11 +155,11 @@ export function registerQueue13Part01() {
         onStopFarmingSession: async () => undefined,
       });
 
-      // Then: the session cannot authorize later manual campaigns implicitly, while retry evidence retains context.
+      // Then: the authorized campaign stays queued for the next recovery round.
       expect({
         manualQueueAuthorized: state.appState.manualQueueAuthorized,
         queue: state.appState.queue.map((game) => game.campaignId),
-      }).toEqual({ manualQueueAuthorized: false, queue: ['campaign-1'] });
+      }).toEqual({ manualQueueAuthorized: true, queue: ['campaign-1'] });
     });
 
     test('skips farming-complete queue entries after a stalled campaign', async () => {
@@ -208,7 +208,7 @@ export function registerQueue13Part01() {
 
       expect(refreshCalls).toBe(2);
       expect(state.appState.selectedGame).toBe(farmableGame);
-      expect(state.appState.queue).toEqual([farmableGame]);
+      expect(state.appState.queue).toEqual([farmableGame, current]);
     });
 
     test('waits without a terminal stop when only a temporarily unavailable campaign remains', async () => {
@@ -257,12 +257,12 @@ export function registerQueue13Part01() {
 
       expect(state.appState.recoveryReason).toBe('no-streamers');
       expect(state.appState.recoveryBackoffUntil).toBeGreaterThan(Date.now());
-      expect(state.appState.recoveryAttempts).toBe(1);
+      expect(state.appState.recoveryAttempts).toBe(0);
       expect(state.stalledRecoveryAttempts).toBe(0);
-      expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 60_000);
+      expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 600_000);
     });
 
-    test('uses stalled-progress-specific terminal notification when no games remain', async () => {
+    test('keeps the only stalled campaign active for a new round without a terminal notification', async () => {
       const current = createGame({ id: 'game-1', name: 'Stalled Game' });
       const state = createMinimalState();
       state.appState.selectedGame = current;
@@ -277,10 +277,9 @@ export function registerQueue13Part01() {
         },
       });
 
-      expect(observation.notification?.title).toBe('Farming stopped: no drop progress');
-      expect(observation.notification?.message).toContain('Stalled Game');
-      expect(observation.notification?.message).toContain('opened a stream but drop progress did not resume');
-      expect(observation.notification?.message).not.toContain('No eligible streamer was found');
+      expect(observation.notification).toBeUndefined();
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeGreaterThan(Date.now());
     });
   });
 }

@@ -1,5 +1,6 @@
 import { browser } from '../shared/browser-api.ts';
 import { gameKey, getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection.ts';
+import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
 import { autoClaimClaimableDrops } from './auto-claim.ts';
 import { ALARM_NAME, PROGRESS_POLL_MS } from './constants.ts';
 import { completedDropKeys, dropStateKey, projectDropsSnapshot } from './drops-projection.ts';
@@ -65,6 +66,11 @@ export function createFarmingSessionMonitoring(
   const { state, adapters } = context;
 
   async function tickWatchTransport(isCurrent: () => boolean): Promise<boolean> {
+    // The retained tab still belongs to the previous watch while a campaign is parked.
+    // Its old health must not start rotations or override the acquisition deadline.
+    if (!state.appState.activeStreamer && isStreamerAcquisitionRecovery(state.appState.recoveryReason)) {
+      return false;
+    }
     const directive = await context.manualWatchController.reconcileTransport({
       target: state.appState.selectedGame,
       managedTabId: state.appState.tabId,

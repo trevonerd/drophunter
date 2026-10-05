@@ -221,7 +221,11 @@ export async function refreshGamesCacheFromHiddenFetch(
     // If a campaign refresh succeeded, the selected campaign split should reflect it,
     // including the valid "no rewards left" case.
     if (state.appState.selectedGame && apiSnapshot) {
-      deps.splitDropsForSelectedGame(state, state.cachedDropsSnapshot);
+      deps.splitDropsForSelectedGame(
+        state,
+        state.cachedDropsSnapshot,
+        apiSnapshot.inventoryVerified === true,
+      );
     }
     const selectedGame = state.appState.selectedGame;
     const refreshedSelectedGame = selectedGame
@@ -232,7 +236,9 @@ export async function refreshGamesCacheFromHiddenFetch(
     if (!preserveTerminalInspection) {
       deps.clearSelectedCompletedIdleCampaign(state);
     }
-    deps.resetStreamTrackingState(state);
+    if (!previousSelectedGame || !selectedGame || !isSameGameIdentity(previousSelectedGame, selectedGame)) {
+      deps.resetStreamTrackingState(state);
+    }
     state.lastGamesCacheRefreshAt = Date.now();
     if (options.isCurrent?.() === false) return { kind: 'unavailable', games: state.appState.availableGames };
     recordQueueCleanupActivity(state, queueCleanup);

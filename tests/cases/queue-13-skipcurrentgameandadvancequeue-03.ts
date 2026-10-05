@@ -43,6 +43,6 @@ describe('skipCurrentGameAndAdvanceQueue', () => {
     expect(refreshCalls).toBe(2);
     expect(openedCampaigns).toEqual(['campaign-3']);
     expect(state.appState.selectedGame).toBe(farmableGame);
-    expect(state.appState.queue).toEqual([farmableGame]);
+    expect(state.appState.queue).toEqual([farmableGame, current]);
   });
 });

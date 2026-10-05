@@ -143,7 +143,7 @@ describe('v4 queue continuation authorization', () => {
     expect({
       authorized: state.appState.manualQueueAuthorized,
       queue: state.appState.queue.map(gameKey),
-    }).toEqual({ authorized: false, queue: [gameKey(manualA)] });
+    }).toEqual({ authorized: true, queue: [gameKey(manualA)] });
   });
 
   test('does not continue into an unauthorized manual tail after a skip', async () => {

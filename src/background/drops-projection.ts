@@ -127,6 +127,18 @@ export function projectDropsSnapshot(
         state.appState.stalledCampaignBlocksByKey,
         game,
       );
+      const metadata = state.appState.queueEntryMetadataByKey[gameKey(game)];
+      if (metadata?.streamerRetryReason === 'stalled-progress') {
+        const {
+          streamerRetryAt: _at,
+          streamerRetryReason: _reason,
+          streamerRetryAttempts: _attempts,
+          streamerRetryCycles: _cycles,
+          streamerWaitState: _wait,
+          ...ready
+        } = metadata;
+        state.appState.queueEntryMetadataByKey[gameKey(game)] = ready;
+      }
     }
   }
   normalizeGameSelection(state, annotatedGames);

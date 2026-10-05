@@ -13,6 +13,7 @@ export function registerQueue20Part01() {
   describe('farming session streamer acquisition semantics', () => {
     async function runFarmingSessionStreamerAcquisition(rewardOverrides: Partial<TwitchDrop>) {
       const state = createMinimalState();
+      state.appState.isRunning = true;
       const game = createGame({ campaignId: 'native-campaign', categorySlug: 'native-game' });
       const reward = createDrop({
         campaignId: game.campaignId,

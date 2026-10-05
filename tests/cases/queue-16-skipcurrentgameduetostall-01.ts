@@ -16,7 +16,7 @@ export function registerQueue16Part01() {
       mocks.teardown();
     });
 
-    test('removes current game from queue', async () => {
+    test('parks current game in the queue for the next round', async () => {
       const state = createMinimalState();
       const game1 = createGame({ id: 'game-1', name: 'Game One' });
       const game2 = createGame({ id: 'game-2', name: 'Game Two' });
@@ -27,7 +27,7 @@ export function registerQueue16Part01() {
         onOpenStreamer: async () => true,
       });
 
-      expect(state.appState.queue.some((g) => g.id === 'game-1')).toBe(false);
+      expect(state.appState.queue.some((g) => g.id === 'game-1')).toBe(true);
     });
 
     test('advances to next game in queue', async () => {
@@ -59,7 +59,7 @@ export function registerQueue16Part01() {
       expect(state.noProgressRotationAttempts).toBe(0);
     });
 
-    test('stops farming when no more games in queue', async () => {
+    test('retains the selected campaign when no successor is queued', async () => {
       const state = createMinimalState();
       state.appState.selectedGame = createGame({ id: 'game-1', name: 'Game One' });
       state.appState.queue = [];
@@ -80,12 +80,11 @@ export function registerQueue16Part01() {
         },
       });
 
-      expect(stopFarmingCalled).toBe(true);
-      expect(captured.stopParams?.stopReason).toBe('stall-skipped');
-      expect(captured.stopParams?.notification.title).toBe('Farming stopped: no drop progress');
-      expect(captured.stopParams?.notification.message).toContain(
-        'opened a stream but drop progress did not resume',
-      );
+      expect(stopFarmingCalled).toBe(false);
+      expect(captured.stopParams).toBeNull();
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.queue).toHaveLength(1);
+      expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeGreaterThan(Date.now());
     });
 
     test('calls onSaveState after skipping', async () => {

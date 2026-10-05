@@ -1,5 +1,5 @@
 import type { AppState, TwitchDrop } from '../types';
-import { getGameDisplayLabel } from './game-selection';
+import { gameKey, getGameDisplayLabel } from './game-selection';
 import { getRecoveryPresentation, type RecoveryPresentation } from './recovery-presentation.ts';
 import {
   formatEtaMinutes,
@@ -47,10 +47,6 @@ export type UserStatusModelInput = {
   readonly automaticStartPending?: boolean;
 };
 
-function campaignSubject(state: AppState): string {
-  return state.selectedGame ? getGameDisplayLabel(state.selectedGame) : 'No campaign selected';
-}
-
 function recoveryDetail(state: AppState, now: number): string {
   const recovery = getRecoveryPresentation(state, now);
   const reason = formatRecoveryReason(state.recoveryReason) ?? 'Restoring farming';
@@ -89,7 +85,7 @@ export function createUserStatusModel({
   recoveryNow,
   automaticStartPending,
 }: UserStatusModelInput): UserStatusModel {
-  const subject = campaignSubject(state);
+  const subject = state.selectedGame ? getGameDisplayLabel(state.selectedGame) : 'No campaign selected';
   const manualWatchState = state.manualWatchState ?? 'inactive';
   const campaignSyncStatus = state.campaignSyncState?.status;
 
@@ -109,11 +105,14 @@ export function createUserStatusModel({
   }
 
   if (runtimeMode === 'recovering') {
+    const queueRetry = state.queueAcquisitionRound !== null;
+    const waiting =
+      (state.queueAcquisitionRound?.nextRoundAt ?? state.recoveryBackoffUntil ?? 0) > recoveryNow;
     return {
       mode: 'recovering',
       progressState: 'recovering',
-      label: 'Recovering',
-      badge: 'RECOVERING',
+      label: queueRetry ? (waiting ? 'Waiting for next retry' : 'Attempt in progress') : 'Recovering',
+      badge: queueRetry ? (waiting ? 'WAITING' : 'RETRYING') : 'RECOVERING',
       subject,
       detail: recoveryDetail(state, recoveryNow),
       recovery: getRecoveryPresentation(state, recoveryNow) ?? undefined,
@@ -136,6 +135,20 @@ export function createUserStatusModel({
   }
 
   if (runtimeMode === 'running') {
+    if (
+      state.selectedGame &&
+      state.queueEntryMetadataByKey[gameKey(state.selectedGame)]?.streamerRetryReason
+    ) {
+      return {
+        mode: 'recovering',
+        progressState: 'recovering',
+        label: 'Attempt in progress',
+        badge: 'RETRYING',
+        subject,
+        detail: 'Checking playback and waiting for Twitch progress.',
+        tone: 'warning',
+      };
+    }
     if (currentAutomatableDrop) {
       const eta = formatEtaMinutes(currentAutomatableDrop.remainingMinutes);
       return {

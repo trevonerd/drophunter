@@ -3,7 +3,6 @@ import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
 import { applyApiBackoff, getLastTwitchApiFailure } from './api-operations.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logWarn } from './logging.ts';
-import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import {
   applyGlobalStreamerRecoveryState,
   applyNoStreamersRecoveryState,
@@ -129,15 +128,12 @@ async function acquireStreamer(
   if (opts?.isCurrent?.() === false) return false;
   if (opened) {
     clearStreamerAcquisitionRecoveryState(state);
-    resetQueueAcquisitionRound(state);
     const selectedKey = gameKey(state.appState.selectedGame);
     const metadata = state.appState.queueEntryMetadataByKey[selectedKey];
     if (metadata) {
       const {
-        streamerRetryAt: _retryAt,
-        streamerRetryReason: _retryReason,
         streamerRetryAttempts: _attempts,
-        streamerRetryCycles: _cycles,
+        streamerWaitState: _waitState,
         ...retainedMetadata
       } = metadata;
       state.appState.queueEntryMetadataByKey[selectedKey] = retainedMetadata;

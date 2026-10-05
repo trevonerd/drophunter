@@ -80,8 +80,9 @@ export function registerQueue23Part01() {
       await createStalledRecoverySession(state).checkDropProgress();
 
       expect(state.unverifiableRewardsByKey).toEqual({});
-      expect(state.appState.lastStopReason).toBe('stall-skipped');
-      expect(state.appState.lastStopMessage).toContain('drop progress did not resume');
+      expect(state.appState.lastStopReason).toBeNull();
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeGreaterThan(Date.now());
     });
 
     for (const rewardKind of ['in-game', 'unknown'] as const) {
@@ -95,8 +96,9 @@ export function registerQueue23Part01() {
         await createStalledRecoverySession(state).checkDropProgress();
 
         expect(state.unverifiableRewardsByKey).toEqual({});
-        expect(state.appState.lastStopReason).toBe('stall-skipped');
-        expect(state.appState.lastStopMessage).toContain('drop progress did not resume');
+        expect(state.appState.lastStopReason).toBeNull();
+        expect(state.appState.isRunning).toBe(true);
+        expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeGreaterThan(Date.now());
       });
     }
 

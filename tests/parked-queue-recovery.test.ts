@@ -7,6 +7,7 @@ verifyExpectedDiagnostics([
 ]);
 
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import { splitDropsForSelectedGame } from '../src/background/drops-selected-projection.ts';
 import {
   advanceQueueIfCompleted,
   skipCurrentGameAndAdvanceQueue,
@@ -118,7 +119,7 @@ describe('temporarily unavailable campaign queue', () => {
     expect(state.appState.manualQueueAuthorized).toBe(true);
     expect(notifications).toEqual([]);
     expect(state.recoveryBackoffUntil).toBeGreaterThan(now);
-    expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(now + 60_000);
+    expect(state.recoveryBackoffUntil).toBe(now + 600_000);
   });
 
   test('completion skips cooling campaign, then restores its deadline priority after cooldown', async () => {
@@ -128,6 +129,17 @@ describe('temporarily unavailable campaign queue', () => {
       onOpenStreamer: async () => true,
     });
     spyOn(Date, 'now').mockReturnValue(now + 60_001);
+    // Completion provides fresh progress evidence; playback alone cannot reset the round.
+    splitDropsForSelectedGame(
+      state,
+      [createDrop({ campaignId: urgent.campaignId, progress: 10, currentMinutes: 1 })],
+      true,
+    );
+    splitDropsForSelectedGame(
+      state,
+      [createDrop({ campaignId: urgent.campaignId, progress: 100, currentMinutes: 10, claimed: true })],
+      true,
+    );
     state.appState.allDrops = [createDrop({ campaignId: urgent.campaignId, claimed: true })];
     state.appState.pendingDrops = [];
     state.appState.currentDrop = null;

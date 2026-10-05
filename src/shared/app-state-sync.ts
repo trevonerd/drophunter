@@ -1,4 +1,4 @@
-import type { AppState, TwitchGame, TwitchStreamer } from '../types/index.ts';
+import type { AppState, TwitchGame } from '../types/index.ts';
 import {
   normalizeAutomationActivity,
   normalizeCampaignAvailability,
@@ -11,8 +11,10 @@ import {
 } from './app-state-collection-normalizers.ts';
 import {
   normalizeCampaignSyncState,
+  normalizeStoredStreamer,
   normalizeTwitchSessionSyncState,
   normalizeWatchHealth,
+  restoreAuthorizedQueueRetry,
 } from './app-state-runtime-normalizers.ts';
 import { browser } from './browser-api.ts';
 import { isTwitchGameLike } from './message-validation.ts';
@@ -40,29 +42,6 @@ function normalizeStoredGames(value: unknown): TwitchGame[] {
   return Array.isArray(value)
     ? value.map(normalizeStoredGame).filter((game): game is TwitchGame => game !== null)
     : [];
-}
-
-function normalizeStoredStreamer(value: unknown): TwitchStreamer | null {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== 'string' ||
-    typeof value.name !== 'string' ||
-    typeof value.displayName !== 'string' ||
-    typeof value.isLive !== 'boolean'
-  )
-    return null;
-  return {
-    id: value.id,
-    name: value.name,
-    displayName: value.displayName,
-    isLive: value.isLive,
-    ...(typeof value.viewerCount === 'number' && Number.isFinite(value.viewerCount)
-      ? { viewerCount: value.viewerCount }
-      : {}),
-    ...(typeof value.broadcasterLanguage === 'string'
-      ? { broadcasterLanguage: value.broadcasterLanguage }
-      : {}),
-  };
 }
 
 const RECOVERY_REASONS = new Set([
@@ -225,6 +204,7 @@ export function normalizeStoredAppState(value: unknown): AppState {
         : Math.min(value.recoveryAttempts, 100),
     recoverySchedulerUnavailable: value.recoverySchedulerUnavailable === true,
   };
+  restoreAuthorizedQueueRetry(storedState);
   if (storedState.isRunning && !storedState.selectedGame && storedState.queue.length > 0) {
     storedState.selectedGame = storedState.queue[0] ?? null;
   }

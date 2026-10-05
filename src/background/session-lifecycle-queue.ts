@@ -1,3 +1,4 @@
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { haveAllDropsExpiredOrVanished } from '../shared/drops.ts';
 import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
@@ -21,7 +22,6 @@ import type {
   QueueSkipReason,
   SkipCurrentGameOptions,
 } from './session-lifecycle-types.ts';
-import { isCampaignStallBlocked } from './stalled-campaign-block.ts';
 
 export async function advanceQueueIfCompleted(
   state: ServiceWorkerState,
@@ -138,16 +138,8 @@ export async function skipCurrentGameAndAdvanceQueue(
   });
   if (skippedGame) {
     if (state.appState.forcedCampaignKey === gameKey(skippedGame)) state.appState.forcedCampaignKey = null;
-    if (
-      (reason === 'no-streamers' || reason === 'directory-unavailable' || reason === 'open-failed') &&
-      !isExpiredGame(skippedGame)
-    ) {
+    if (isQueueRecoveryReason(reason) && campaignRejectionReason(skippedGame) === null) {
       parkCampaignForStreamerRetry(state, skippedGame, reason);
-    } else if (
-      reason === 'stalled-progress' &&
-      isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, skippedGame)
-    ) {
-      parkCampaignAtQueueTail(state, skippedGame);
     } else {
       removeQueueEntriesForGame(state, skippedGame);
     }

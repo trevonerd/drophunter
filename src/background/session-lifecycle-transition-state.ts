@@ -155,10 +155,7 @@ export function candidateWorkingState(
   const selectedMetadata = working.appState.queueEntryMetadataByKey[candidateKey];
   if (selectedMetadata) {
     const {
-      streamerRetryAt: _retryAt,
-      streamerRetryReason: _retryReason,
       streamerRetryAttempts: _attempts,
-      streamerRetryCycles: _cycles,
       streamerWaitState: _waitState,
       ...readyMetadata
     } = selectedMetadata;

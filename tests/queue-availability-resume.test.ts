@@ -50,7 +50,7 @@ function drop(game: TwitchGame): TwitchDrop {
   };
 }
 
-describe('availability suspended queue', () => {
+describe('continuous availability recovery queue', () => {
   test('a future reward does not hide a queue whose streamer checks are exhausted', async () => {
     spyOn(Date, 'now').mockReturnValue(now);
     const state = createMinimalState();
@@ -94,9 +94,9 @@ describe('availability suspended queue', () => {
         waitingTransitions.push(transitionAt);
       },
     });
-    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.isRunning).toBe(true);
     expect(state.appState.isPaused).toBe(false);
-    expect(state.appState.queueResumeOnAvailability).toBe(true);
+    expect(state.appState.queueResumeOnAvailability).toBe(false);
     expect(state.appState.queue).toHaveLength(2);
     expect(waitingTransitions).toEqual([now]);
   });
@@ -204,11 +204,13 @@ describe('availability suspended queue', () => {
         throw new Error('No acquisition should run while waiting');
       },
     });
-    expect(state.appState.isRunning).toBe(false);
-    expect(state.appState.queueResumeOnAvailability).toBe(true);
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.queueResumeOnAvailability).toBe(false);
+    const deadline = state.appState.queueAcquisitionRound?.nextRoundAt;
+    expect(deadline).toBe(now + 600_000);
     expect(state.appState.queue).toHaveLength(3);
     expect(waitingTransitions).toEqual([now]);
-    expect(stoppedMonitoring).toBe(1);
+    expect(stoppedMonitoring).toBe(0);
     expect(
       games.every(
         (game) => state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerWaitState === 'availability',
@@ -219,21 +221,27 @@ describe('availability suspended queue', () => {
     restarted.state.appState = normalizeStoredAppState(structuredClone(state.appState));
     directoryFails = true;
     await restarted.automation.request('campaign-refresh');
-    expect(restarted.state.appState.isRunning).toBe(false);
+    expect(restarted.state.appState.isRunning).toBe(true);
+    expect(restarted.state.appState.queueAcquisitionRound?.nextRoundAt).toBe(deadline);
     expect(restarted.state.appState.queueEntryMetadataByKey[gameKey(games[1])]?.streamerWaitState).toBe(
       'availability',
     );
     const before = checks;
     await restarted.automation.request('periodic');
     expect(checks).toBeGreaterThan(before);
-    expect(restarted.state.appState.isRunning).toBe(false);
+    expect(restarted.state.appState.isRunning).toBe(true);
+    expect(restarted.state.appState.queueAcquisitionRound?.nextRoundAt).toBe(deadline);
 
     directoryFails = false;
     availableCampaign = 'second';
     const outcome = await restarted.automation.request('campaign-refresh');
-    expect(outcome).toMatchObject({ kind: 'started', campaignKey: gameKey(games[1]) });
+    expect(outcome.kind).toBe('unchanged');
     expect(restarted.state.appState.selectedGame?.campaignId).toBe('second');
     expect(restarted.state.appState.queueResumeOnAvailability).toBe(false);
+    expect(restarted.state.appState.recoveryBackoffUntil).toBe(now);
+    expect(restarted.state.appState.queueAcquisitionRound?.attemptedCampaignKeys).not.toContain(
+      gameKey(games[1]),
+    );
     expect(
       restarted.state.appState.queueEntryMetadataByKey[gameKey(games[1])]?.streamerWaitState,
     ).toBeUndefined();

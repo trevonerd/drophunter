@@ -262,7 +262,7 @@ export function registerRecoveryCases() {
       );
       expect(finalState.manualQueueAuthorized).toBe(true);
       expect(finalState.recoveryBackoffUntil).toBeGreaterThan(now);
-      expect(finalState.recoveryBackoffUntil).toBeLessThanOrEqual(now + 60_000);
+      expect(finalState.recoveryBackoffUntil).toBeLessThanOrEqual(now + 600_000);
       expect(notifications.some((notification) => notification.title === 'Queue completed')).toBe(false);
     } finally {
       Date.now = realDateNow;

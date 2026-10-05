@@ -121,10 +121,11 @@ export async function loadTimingState(state: ServiceWorkerState) {
         state.appState.recoveryReason === 'directory-unavailable' ||
         state.appState.recoveryReason === 'open-failed';
       state.recoveryBackoffUntil = localRecovery
-        ? Math.min(
+        ? (state.appState.queueAcquisitionRound?.nextRoundAt ??
+          Math.min(
             state.recoveryBackoffUntil,
             Date.now() + (state.appState.recoveryReason === 'open-failed' ? 600_000 : 60_000),
-          )
+          ))
         : Math.max(state.recoveryBackoffUntil, state.apiBackoffUntil);
       state.appState.recoveryBackoffUntil = state.recoveryBackoffUntil;
     }

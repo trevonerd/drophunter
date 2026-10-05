@@ -1,10 +1,11 @@
 import { mergeDropProgressMonotonic } from '../shared/drops.ts';
-import { dropMatchesGame } from '../shared/game-selection.ts';
+import { dropMatchesGame, gameKey } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import { clearRecoveryStatus } from '../shared/runtime-status.ts';
 import type { TwitchDrop, TwitchGame } from '../types/index.ts';
 import { completedDropKeys, dropStateKey, isDropCampaignExpired } from './drops-projection-semantics.ts';
+import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { clearCampaignStallBlock } from './stalled-campaign-block.ts';
 import { detectRecoveryProof, didDropMinutesAdvance } from './stream-rotation.ts';
@@ -61,6 +62,19 @@ function resetSelectedProjection(state: ServiceWorkerState): void {
 }
 
 function clearRecoveredStall(state: ServiceWorkerState, selected: TwitchGame): void {
+  resetQueueAcquisitionRound(state);
+  const metadata = state.appState.queueEntryMetadataByKey[gameKey(selected)];
+  if (metadata?.streamerRetryReason) {
+    const {
+      streamerRetryAt: _retryAt,
+      streamerRetryReason: _retryReason,
+      streamerRetryAttempts: _attempts,
+      streamerRetryCycles: _cycles,
+      streamerWaitState: _waitState,
+      ...retained
+    } = metadata;
+    state.appState.queueEntryMetadataByKey[gameKey(selected)] = retained;
+  }
   state.lastProgressAdvanceAt = Date.now();
   state.noProgressRotationAttempts = 0;
   state.offlineChecks = 0;
@@ -137,5 +151,10 @@ export function splitDropsForSelectedGame(
   });
   const minuteAdvance =
     !recoveryProof && nextKey !== null && didDropMinutesAdvance(previousMinutes, nextMinutes);
-  if (hasFreshProgressEvidence && (recoveryProof || minuteAdvance)) clearRecoveredStall(state, selected);
+  const acquiredTrackedReward =
+    previousKey !== null &&
+    !previousCompletedKeys.has(previousKey) &&
+    completedDropKeys(completed).has(previousKey);
+  if (hasFreshProgressEvidence && (recoveryProof || minuteAdvance || acquiredTrackedReward))
+    clearRecoveredStall(state, selected);
 }

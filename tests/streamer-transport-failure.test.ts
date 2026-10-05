@@ -11,6 +11,7 @@ import {
 
 test('failed tabless playback preserves the campaign and enters local playback recovery', async () => {
   const state = createServiceWorkerState();
+  state.appState.isRunning = true;
   const game = createGame();
   const drop = createDrop({ gameId: game.id });
   state.appState.selectedGame = game;

@@ -151,7 +151,8 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
             ...(validRetry &&
             (streamerRetryReason === 'no-streamers' ||
               streamerRetryReason === 'directory-unavailable' ||
-              streamerRetryReason === 'open-failed')
+              streamerRetryReason === 'open-failed' ||
+              streamerRetryReason === 'stalled-progress')
               ? { streamerRetryReason }
               : {}),
             ...(streamerWaitState === 'availability' ? { streamerWaitState } : {}),

@@ -117,7 +117,7 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
 }
 
 describe('farming session watch transport integration', () => {
-  test('an exhausted Hidden recovery keeps the existing terminal stop when the queue is empty', async () => {
+  test('an exhausted Hidden recovery waits for the next round when no successor exists', async () => {
     const realDateNow = Date.now;
     const now = 5_000_000;
     Date.now = () => now;
@@ -154,10 +154,11 @@ describe('farming session watch transport integration', () => {
 
       await session.checkDropProgress();
 
-      expect(state.appState.isRunning).toBe(false);
-      expect(state.appState.selectedGame).toBeNull();
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
       expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([game.campaignId]);
-      expect(state.appState.lastStopReason).toBe('stall-skipped');
+      expect(state.appState.lastStopReason).toBeNull();
+      expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(now + 600_000);
     } finally {
       Date.now = realDateNow;
     }

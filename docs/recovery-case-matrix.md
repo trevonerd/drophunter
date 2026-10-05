@@ -1,5 +1,30 @@
 # Matrice di recupero e aggiornamento
 
+## Ciclo continuo della coda — 5 ottobre 2026
+
+La sessione autorizzata conserva le campagne temporaneamente senza streamer, con playback fallito o progresso fermo. Ogni campagna mantiene i tentativi e le attese già previste; solo dopo un giro esaurito parte l'attesa di dieci minuti, persistita in `queueAcquisitionRound.nextRoundAt`. L'apertura del video non azzera il giro: servono nuovi minuti, progresso o acquisizione confermati da Twitch. Nuovi streamer idonei possono anticipare una riprova; una directory invariata conserva la scadenza.
+
+Verifica automatizzata della modifica con Bun 1.4.2: TypeScript sorgenti e test, lint senza warning, 2.360 test unitari, 19 E2E Chrome MV3 e build Chrome/Edge superati. Il nuovo E2E percorre due giri completi di campagne senza progresso, verifica il timer tra i giri, conserva il medesimo ID della tab dopo un solo clic iniziale e controlla sostituzione dopo chiusura e assenza di riaperture dopo Stop.
+
+La successiva `4.0.0-beta.56` ha superato anche il gate completo `release:check`: controllo dimensione e regole TypeScript, audit dipendenze, archivi Chrome/Edge e verifica dei manifest `3.99.0.56` con `version_name` coerente.
+
+Popup e monitor mostrano attesa o tentativo in corso e tutte le campagne ancora da recuperare, ricavate da coda, metadati e blocchi persistenti. Pausa e Stop restano autoritativi anche per callback di recupero tardive. La tab gestita resta riutilizzabile durante attesa e cambio campagna; una chiusura effettiva consente una sola sostituzione tramite il registro e la serializzazione esistenti.
+
+| Caso | Evidenza |
+|---|---|
+| Tre campagne problematiche, più giri, ordine e pausa tra giri | `tests/continuous-queue-recovery.test.ts`, `tests/queue-acquisition-round.test.ts` |
+| Directory invariata, comparsa streamer e ripristino worker | `tests/queue-availability-resume.test.ts`, `tests/state-persistence-timing-load.test.ts` |
+| Recupero solo con progresso fresco; refresh invariato conserva tentativi e scadenza | `tests/continuous-queue-recovery.test.ts`, `tests/parked-queue-recovery.test.ts`, `tests/games-cache-continuous-recovery.test.ts` |
+| Stop/Pausa e callback tardive o duplicate | `tests/farming-recovery-authorization.test.ts`, `tests/farming-stop-pending-acquisition.test.ts` |
+| Warning completo, nomi lunghi, oltre venti eventi, campagne risolte/scadute/eliminate | `tests/queue-recovery-notice.test.tsx` |
+| Un clic iniziale, tab invariata, riciclo worker e sostituzione dopo chiusura | `e2e/queue-campaign-handoff.spec.ts` |
+
+Per la verifica su Twitch reale in Brave: osservare il progresso prima e dopo un cambio campagna, lasciare esaurire un giro senza progresso, controllare la scadenza reale e la permanenza di Pausa/Stop, verificare il riuso della tab e una sola sostituzione dopo chiusura. Verificare inoltre che Stop impedisca riaperture e che sleep/wake non anticipi o perda il timer. Le simulazioni automatiche non sostituiscono una prova prolungata con Twitch reale.
+
+Prova reale del 5 ottobre: ricaricata in Brave la build locale `4.0.0-beta.55` da `.output/chrome-mv3`, conservando la sessione e la coda esistenti. Su Albion Online · Dragonfire 6 - #1/7, canale ElPelotasssss, il progresso osservato dopo il primo ricaricamento è passato dal 72% all'80%; dopo il ricaricamento della build finale è avanzato dal 94% al 96%, quindi al 100% con stato Claimable. Popup e monitor in stato RUNNING, Pausa/Stop disponibili e warning recuperato rimosso. Verificati Pausa e Riprendi nel monitor reale, lasciando la sessione di nuovo in RUNNING. Questa osservazione breve conferma il progresso reale; il giro completo di campagne tutte bloccate e sleep/wake restano simulati nei test, non verificati durante una notte reale.
+
+## Verifiche delle build precedenti
+
 Build verificata: `4.0.0-beta.48`, manifest tecnico `3.99.0.48`. Il 1 ottobre 2026 il gate completo è passato senza warning: TypeScript, lint, 2.302 test unitari, 9 E2E Chrome MV3, audit, build e archivi Chrome/Edge. Anche audit e rendering CTA/promo del progetto video sono passati. Questa beta è destinata alla prerelease GitHub e ai test locali, non agli store.
 
 La beta.48 evita claim e avvisi duplicati, distingue le campagne nei messaggi e mantiene indipendenti browser e Telegram. Gli errori di lettura/scrittura del registro non cancellano le acquisizioni esistenti né sopprimono il fallback di completamento. Conserva la ripresa delle sessioni attive introdotta nella beta.47 e il rispetto di Pausa e Stop. Pausa resta disponibile anche durante il recovery di una sessione attiva.

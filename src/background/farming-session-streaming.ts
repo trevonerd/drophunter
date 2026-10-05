@@ -128,12 +128,18 @@ export function createFarmingSessionStreaming(
   }
 
   async function acquireStreamerForSelectedGame(isCurrent: () => boolean = () => true): Promise<boolean> {
+    const authorized = () =>
+      isCurrent() &&
+      state.appState.isRunning &&
+      !state.appState.isPaused &&
+      state.appState.lastStopReason !== 'user-stop';
+    if (!authorized()) return false;
     return acquireStreamer(state, {
       onOpenStreamer: (current) => openBestStreamerForSelectedGame(current),
       onSkipCurrentGame: skipCurrentGameDueToNoStreamers,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
-      isCurrent,
+      isCurrent: authorized,
     });
   }
 

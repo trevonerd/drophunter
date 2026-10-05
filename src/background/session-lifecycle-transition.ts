@@ -15,7 +15,6 @@ import {
   isFarmingSessionEpochCurrent,
   runInFarmingSessionCriticalSection,
 } from './farming-session-revision.ts';
-import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   candidateWorkingState,
@@ -138,7 +137,6 @@ export async function transitionAutomaticFarmingSession(
       });
     }
     const working = workingCandidate.state;
-    resetQueueAcquisitionRound(working);
     working.appState.activeStreamer = structuredClone(streamer);
     working.appState.watchTransportMode = preparation.watch.health.mode;
     working.appState.watchHealth = structuredClone(preparation.watch.health);

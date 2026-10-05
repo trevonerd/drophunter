@@ -85,7 +85,7 @@ export function createFarmingSessionContext(
   state: ServiceWorkerState,
   adapters: FarmingSessionAdapters,
 ): FarmingSessionContext {
-  const now = adapters.now ?? Date.now;
+  const now = adapters.now ?? (() => Date.now());
   const manualWatchController: FarmingAutomationManualWatchController = adapters.manualWatchController ?? {
     evaluate: async () => ({ kind: 'inactive' }),
     reconcileTransport: async ({ transportSuspended }) =>

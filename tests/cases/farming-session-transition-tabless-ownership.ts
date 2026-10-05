@@ -70,8 +70,8 @@ export function registerTablessOwnershipCases() {
 
     // Then: null incumbent ownership is stable and B commits normally.
     expect(result.kind).toBe('committed');
-    expect(state.appState.queueAcquisitionRound).toBeNull();
-    expect(committedRound).toBeNull();
+    expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).toEqual(['campaign:campaign-a']);
+    expect(committedRound).toEqual(state.appState.queueAcquisitionRound);
   });
 
   test('records no cleanup requirement for obsolete tabless ownership', async () => {

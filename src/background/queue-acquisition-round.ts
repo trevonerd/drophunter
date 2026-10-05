@@ -2,7 +2,7 @@ import { gameKey } from '../shared/game-selection.ts';
 import type { TwitchGame } from '../types/index.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
-const MIN_ROUND_RETRY_MS = 30_000;
+export const QUEUE_ROUND_RETRY_MS = 10 * 60_000;
 
 export function resetQueueAcquisitionRound(state: ServiceWorkerState): void {
   state.appState.queueAcquisitionRound = null;
@@ -45,7 +45,7 @@ export function queueRoundCandidates(
   );
   state.appState.queueAcquisitionRound = {
     attemptedCampaignKeys: attempted,
-    nextRoundAt: round.nextRoundAt ?? Math.max(now + MIN_ROUND_RETRY_MS, earliestRetryAt),
+    nextRoundAt: round.nextRoundAt ?? Math.max(now + QUEUE_ROUND_RETRY_MS, earliestRetryAt),
   };
   return [];
 }

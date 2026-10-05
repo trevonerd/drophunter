@@ -236,3 +236,28 @@ body {
     transition: none;
   }
 }
+.monitor-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 1rem 1rem;
+}
+
+.monitor-controls button {
+  cursor: pointer;
+  border: 1px solid var(--dh-border, #4b5563);
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  background: transparent;
+  color: inherit;
+}
+
+.monitor-controls button:focus-visible {
+  outline: 2px solid #9147ff;
+  outline-offset: 2px;
+}
+
+.monitor-controls button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}

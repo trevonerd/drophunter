@@ -196,7 +196,7 @@ test('queue cleanup remains visible when favorite auto-start is disabled', () =>
   expect(markup).toContain('aria-label="Dismiss queue update"');
 });
 
-test('retry exhaustion is shown as a dismissible queue disclosure', () => {
+test('historical retry exhaustion is hidden when no unresolved campaign remains', () => {
   const state = {
     ...appState(null),
     autoStartFavoriteGames: true,
@@ -214,11 +214,8 @@ test('retry exhaustion is shown as a dismissible queue disclosure', () => {
 
   const markup = renderMainView(state);
 
-  expect(markup).toContain('aria-label="Queue campaign update"');
-  expect(markup).toContain('<details');
-  expect(markup).toContain('>Farming stopped</summary>');
-  expect(markup).toContain('Favorite auto-start remains available');
-  expect(markup).toContain('aria-label="Dismiss queue update"');
+  expect(markup).not.toContain('aria-label="Queue campaign update"');
+  expect(markup).not.toContain('>Farming stopped</summary>');
 });
 
 test('a dismissed queue cleanup stays hidden until a new update arrives', () => {

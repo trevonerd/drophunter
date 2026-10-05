@@ -81,7 +81,7 @@ test('main view model owns popup campaign, queue, and transient activity project
   expect(dismissed.sessionRequired).toBe(true);
 });
 
-test('main view model exposes and dismisses a queue recovery update', () => {
+test('main view model does not display recovered historical skips as current problems', () => {
   const activity = {
     id: 'queue-recovery:no-streamers:campaign:campaign-1:1000',
     kind: 'queue-retries-exhausted' as const,
@@ -102,7 +102,7 @@ test('main view model exposes and dismisses a queue recovery update', () => {
 
   expect(
     createMainViewModel({ ...input, dismissedQueueCleanupActivityId: null }).queueCleanupActivity,
-  ).toEqual(activity);
+  ).toBeUndefined();
   expect(
     createMainViewModel({
       ...input,

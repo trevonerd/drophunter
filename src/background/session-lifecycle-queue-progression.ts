@@ -1,7 +1,7 @@
 import { haveAllDropsExpiredOrVanished } from '../shared/drops.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
-import { markQueueCampaignAttempted, resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
+import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
 import { removeQueueEntriesForHeadGame } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
@@ -9,7 +9,7 @@ import {
   isWaitingForScheduledRewards,
   selectedFarmingCompleteGame,
 } from './session-lifecycle-completion.ts';
-import { suspendQueueUntilStreamerAvailable, waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
+import { waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
 import { refreshQueueHead } from './session-lifecycle-queue-refresh.ts';
 import {
   parkCampaignAtQueueTail,
@@ -67,7 +67,6 @@ export async function progressFarmingQueue(
 
     const opened = (await request.options?.onOpenStreamer?.(request.options.isCurrent)) ?? false;
     if (request.options?.isCurrent?.() === false) return { kind: 'cancelled' };
-    if (opened) resetQueueAcquisitionRound(state);
     await request.options?.onSaveState?.();
     return { kind: 'advanced', game: nextGame, opened };
   }
@@ -75,7 +74,6 @@ export async function progressFarmingQueue(
   if (await waitForParkedQueue(state, request.restrictUnauthorizedManualContinuation, request.options)) {
     return { kind: 'waiting' };
   }
-  if (await suspendQueueUntilStreamerAvailable(state, request.options)) return { kind: 'waiting' };
   if (hasScheduledWaiting && state.appState.queue.length > 0) {
     await request.options?.onSaveState?.();
     return { kind: 'waiting' };

@@ -1,6 +1,6 @@
 import { gameKey } from '../shared/game-selection.ts';
 import { isExpiredGame } from '../shared/utils.ts';
-import type { TwitchGame } from '../types/index.ts';
+import type { QueueEntryMetadata, TwitchGame } from '../types/index.ts';
 import type { AutomationEventNotification } from './automation-event-notifier.ts';
 import { expiryTime } from './campaign-priority.ts';
 import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
@@ -13,8 +13,6 @@ import type { ServiceWorkerState } from './runtime-state.ts';
 import { parkCampaignAtQueueTail } from './session-lifecycle-queue-selection.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { QueueProgressOptions } from './session-lifecycle-types.ts';
-import { isCampaignStallBlocked } from './stalled-campaign-block.ts';
-import { MAX_NO_STREAMERS_RETRIES } from './stream-rotation.ts';
 
 const PARKED_QUEUE_RETRY_MS = 60_000;
 export const MAX_PARKED_QUEUE_RETRY_CYCLES = 3;
@@ -34,7 +32,7 @@ export function queueWaitingNotification(transitionAt: number): AutomationEventN
 export function parkCampaignForStreamerRetry(
   state: ServiceWorkerState,
   game: TwitchGame,
-  reason: 'no-streamers' | 'directory-unavailable' | 'open-failed',
+  reason: NonNullable<QueueEntryMetadata['streamerRetryReason']>,
 ): void {
   const key = gameKey(game);
   const previousMetadata = state.appState.queueEntryMetadataByKey[key];
@@ -42,7 +40,6 @@ export function parkCampaignForStreamerRetry(
     reason === 'no-streamers' || reason === 'open-failed'
       ? (previousMetadata?.streamerRetryCycles ?? 0) + 1
       : 0;
-  const awaitingAvailability = reason === 'no-streamers' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES;
   markQueueCampaignAttempted(state, game);
   parkCampaignAtQueueTail(state, game);
   state.appState.queueEntryMetadataByKey[key] = {
@@ -51,17 +48,16 @@ export function parkCampaignForStreamerRetry(
       reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
       addedAt: Date.now(),
     }),
-    streamerRetryAt: awaitingAvailability
-      ? undefined
-      : Date.now() +
-        (reason === 'open-failed' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES
-          ? 10 * PARKED_QUEUE_RETRY_MS
-          : PARKED_QUEUE_RETRY_MS),
-    streamerRetryReason: awaitingAvailability ? undefined : reason,
+    streamerRetryAt:
+      Date.now() +
+      (reason === 'open-failed' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES
+        ? 10 * PARKED_QUEUE_RETRY_MS
+        : PARKED_QUEUE_RETRY_MS),
+    streamerRetryReason: reason,
     streamerRetryAttempts: undefined,
     streamerRetryCycles:
       reason === 'no-streamers' || reason === 'open-failed' ? cycles : previousMetadata?.streamerRetryCycles,
-    streamerWaitState: awaitingAvailability ? 'availability' : undefined,
+    streamerWaitState: reason === 'no-streamers' ? 'availability' : undefined,
   };
 }
 
@@ -79,11 +75,7 @@ export async function waitForParkedQueue(
         ((metadata?.streamerRetryAt ?? 0) > now ||
           (state.appState.queueAcquisitionRound?.nextRoundAt ?? 0) > now) &&
         (!restrictUnauthorizedManualContinuation || metadata?.source === 'favorite-auto') &&
-        !isExpiredGame(game) &&
-        !isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, game) &&
-        metadata?.streamerWaitState !== 'availability' &&
-        (metadata?.streamerRetryReason !== 'no-streamers' ||
-          (metadata.streamerRetryCycles ?? 0) < MAX_PARKED_QUEUE_RETRY_CYCLES)
+        !isExpiredGame(game)
       );
     })
     .sort((left, right) => {
@@ -94,9 +86,16 @@ export async function waitForParkedQueue(
   const next = parked[0];
   if (!next) return false;
   const metadata = state.appState.queueEntryMetadataByKey[gameKey(next)];
-  if (!metadata?.streamerRetryAt) return false;
+  const retryAt = Math.max(
+    metadata?.streamerRetryAt ?? 0,
+    state.appState.queueAcquisitionRound?.nextRoundAt ?? 0,
+  );
+  if (retryAt <= now) return false;
+  const alreadyWaiting = state.appState.recoveryBackoffUntil === retryAt;
   resetStreamTrackingState(state);
   state.appState.selectedGame = next;
+  state.appState.isRunning = true;
+  state.appState.queueResumeOnAvailability = false;
   state.appState.activeStreamer = null;
   state.appState.currentDrop = null;
   state.appState.allDrops = [];
@@ -104,46 +103,15 @@ export async function waitForParkedQueue(
   state.appState.completedDrops = [];
   state.previousAllDropsCount = 0;
   const applyRecovery =
-    metadata.streamerRetryReason === 'directory-unavailable'
+    metadata?.streamerRetryReason === 'directory-unavailable'
       ? applyDirectoryUnavailableRecoveryState
-      : metadata.streamerRetryReason === 'open-failed'
+      : metadata?.streamerRetryReason === 'open-failed'
         ? applyPlaybackStartRecoveryState
         : applyNoStreamersRecoveryState;
-  applyRecovery(
-    state,
-    Math.max(metadata.streamerRetryAt, state.appState.queueAcquisitionRound?.nextRoundAt ?? 0),
-    MAX_NO_STREAMERS_RETRIES,
-  );
+  applyRecovery(state, retryAt, 0);
   await options?.onSaveState?.();
   if (options?.isCurrent?.() === false) return true;
   await options?.onSaveTimingState?.(state);
-  return true;
-}
-
-export async function suspendQueueUntilStreamerAvailable(
-  state: ServiceWorkerState,
-  options?: QueueProgressOptions,
-): Promise<boolean> {
-  if (
-    !state.appState.queue.some(
-      (game) => state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerWaitState === 'availability',
-    )
-  )
-    return false;
-  if (options?.isCurrent?.() === false) return false;
-  resetStreamTrackingState(state);
-  await options?.onStopMonitoring?.();
-  await options?.onCloseManagedTabIfSafe?.(state.appState.tabId);
-  if (options?.isCurrent?.() === false) return true;
-  state.appState.isRunning = false;
-  state.appState.isPaused = false;
-  state.appState.selectedGame = null;
-  state.appState.activeStreamer = null;
-  state.appState.tabId = null;
-  state.appState.queueResumeOnAvailability = true;
-  state.appState.forcedCampaignKey = null;
-  await options?.onSaveState?.();
-  await options?.onSaveTimingState?.(state);
-  await options?.onQueueWaiting?.(Date.now());
+  if (!alreadyWaiting && options?.isCurrent?.() !== false) await options?.onQueueWaiting?.(now);
   return true;
 }

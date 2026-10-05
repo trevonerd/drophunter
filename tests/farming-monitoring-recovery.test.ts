@@ -106,6 +106,51 @@ describe('farming monitoring recovery', () => {
     expect(ticks).toBe(0);
   });
 
+  test('retained video health cannot rotate or reopen a parked campaign before its round deadline', async () => {
+    const state = runningState();
+    const now = Date.now();
+    state.appState.activeStreamer = null;
+    state.appState.tabId = 123;
+    state.appState.recoveryReason = 'no-streamers';
+    state.appState.recoveryBackoffUntil = now + 600_000;
+    state.recoveryBackoffUntil = now + 600_000;
+    state.appState.queueAcquisitionRound = {
+      attemptedCampaignKeys: ['campaign:campaign'],
+      nextRoundAt: now + 600_000,
+    };
+    let ticks = 0;
+    let acquisitions = 0;
+    const health = createWatchHealth('managed-tab', 'failed', 'playback-inactive', () => now, {
+      shouldFallback: true,
+    });
+    const session = createFarmingSession(
+      state,
+      createFarmingSessionAdapters({
+        now: () => now,
+        fetchDirectoryStreamersFromApi: async () => {
+          acquisitions += 1;
+          return Object.assign([], { languageFilterApplied: true });
+        },
+        watchTransport: {
+          start: async () => health,
+          tick: async () => {
+            ticks += 1;
+            return health;
+          },
+          stop: async () => {},
+          setPreference: async () => {},
+        },
+      }),
+    );
+    await session.checkDropProgress();
+    await session.checkDropProgress();
+    expect(ticks).toBe(0);
+    expect(acquisitions).toBe(0);
+    expect(state.appState.tabId).toBe(123);
+    expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(now + 600_000);
+    expect(state.recoveryBackoffUntil).toBe(now + 600_000);
+  });
+
   test('reacquires a failed managed transport without skipping the unfinished campaign', async () => {
     const state = runningState();
     const health = createWatchHealth('managed-tab', 'failed', 'managed-tab-unavailable', Date.now, {

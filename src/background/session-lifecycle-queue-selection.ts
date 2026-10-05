@@ -2,7 +2,7 @@ import { gameKey } from '../shared/game-selection.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
 import { expiryTime } from './campaign-priority.ts';
-import { queueRoundCandidates } from './queue-acquisition-round.ts';
+import { markQueueCampaignAttempted, queueRoundCandidates } from './queue-acquisition-round.ts';
 import { promoteQueueHead, removeQueueEntriesForGame } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
@@ -38,6 +38,27 @@ export function prepareNextEligibleQueueHead(
   restrictUnauthorizedManualContinuation: boolean,
 ): TwitchGame | null {
   for (const game of [...state.appState.queue]) {
+    const key = gameKey(game);
+    const metadata = state.appState.queueEntryMetadataByKey[key];
+    const legacyStall =
+      isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, game) &&
+      metadata?.streamerRetryReason !== 'stalled-progress';
+    if (
+      !isExpiredGame(game) &&
+      (legacyStall ||
+        (metadata?.streamerWaitState === 'availability' && metadata.streamerRetryAt === undefined))
+    ) {
+      markQueueCampaignAttempted(state, game);
+      state.appState.queueEntryMetadataByKey[key] = {
+        ...(metadata ?? {
+          source: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-auto' : 'manual',
+          reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
+          addedAt: Date.now(),
+        }),
+        streamerRetryReason: legacyStall ? 'stalled-progress' : 'no-streamers',
+        streamerRetryAt: Date.now() + 60_000,
+      };
+    }
     if (
       state.appState.queueAcquisitionRound?.attemptedCampaignKeys.includes(gameKey(game)) &&
       isExpiredGame(game)
@@ -66,11 +87,7 @@ export function prepareNextEligibleQueueHead(
   }
   const authorized = state.appState.queue.filter((game) => {
     const metadata = state.appState.queueEntryMetadataByKey[gameKey(game)];
-    return (
-      (!restrictUnauthorizedManualContinuation || metadata?.source === 'favorite-auto') &&
-      metadata?.streamerWaitState !== 'availability' &&
-      !isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, game)
-    );
+    return !restrictUnauthorizedManualContinuation || metadata?.source === 'favorite-auto';
   });
   const candidates = new Set(queueRoundCandidates(state, authorized).map(gameKey));
   const index = state.appState.queue.findIndex(
@@ -85,6 +102,12 @@ export function prepareNextEligibleQueueHead(
   const nextGame = promoteQueueHead(state);
   if (!nextGame) return null;
   resetStreamTrackingState(state);
+  const nextKey = gameKey(nextGame);
+  const metadata = state.appState.queueEntryMetadataByKey[nextKey];
+  if (metadata) {
+    const { streamerWaitState: _waitState, streamerRetryAttempts: _attempts, ...ready } = metadata;
+    state.appState.queueEntryMetadataByKey[nextKey] = ready;
+  }
   state.appState.completionNotified = false;
   state.appState.activeStreamer = null;
   state.appState.currentDrop = null;

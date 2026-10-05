@@ -31,7 +31,11 @@ export interface GamesCacheRefreshDeps {
   ) => TwitchGame[];
   normalizeGameSelection: (state: ServiceWorkerState, games: TwitchGame[], dropVanished?: boolean) => void;
   normalizeQueueSelection: (state: ServiceWorkerState, games: TwitchGame[], hasSnapshot: boolean) => void;
-  splitDropsForSelectedGame: (state: ServiceWorkerState, drops: TwitchDrop[]) => void;
+  splitDropsForSelectedGame: (
+    state: ServiceWorkerState,
+    drops: TwitchDrop[],
+    hasFreshProgressEvidence?: boolean,
+  ) => void;
   resetStateForAuthoritativeEmptyCampaign: (state: ServiceWorkerState) => void;
   clearSelectedCompletedIdleCampaign: (state: ServiceWorkerState) => void;
   resetStreamTrackingState: (state: ServiceWorkerState) => void;

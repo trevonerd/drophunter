@@ -7,34 +7,58 @@ import {
   PARKED_CAMPAIGN_RETRY_MS,
 } from './farming-automation-gates.ts';
 import { rehabilitateCampaignsWithNewStreamers } from './farming-automation-stall-rehabilitation.ts';
-import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
+import { applyNoStreamersRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { prepareNextEligibleQueueHead } from './session-lifecycle-queue-selection.ts';
 
 type ReadyDiscovery = Extract<FarmingAutomationDiscoveryResult, { readonly kind: 'ready' }>;
 
 export function resumeQueuedCampaignsWithAvailableStreamers(
   state: ServiceWorkerState,
   discovery: ReadyDiscovery,
+  now = Date.now(),
 ): void {
+  const previousBlocks = state.appState.stalledCampaignBlocksByKey;
   rehabilitateCampaignsWithNewStreamers(
     state,
     discovery.snapshot.games.map(cloneFarmingAutomationGame),
     discovery.directories,
   );
-  let newlyAvailable = false;
+  const readyKeys = new Set<string>();
   for (const game of state.appState.queue) {
     const key = gameKey(game);
     const metadata = state.appState.queueEntryMetadataByKey[key];
+    if (discovery.directoryFailures.has(key)) continue;
     if (
-      metadata?.streamerWaitState !== 'availability' ||
+      (metadata?.streamerWaitState !== 'availability' &&
+        !(previousBlocks[key] && !state.appState.stalledCampaignBlocksByKey[key])) ||
       (discovery.availability[key]?.eligibleStreamerCount ?? 0) === 0
     )
       continue;
-    const { streamerWaitState: _waitState, streamerRetryCycles: _cycles, ...ready } = metadata;
-    state.appState.queueEntryMetadataByKey[key] = ready;
-    newlyAvailable = true;
+    if (!metadata) continue;
+    const {
+      streamerWaitState: _waitState,
+      streamerRetryCycles: _cycles,
+      streamerRetryAttempts: _attempts,
+      ...ready
+    } = metadata;
+    state.appState.queueEntryMetadataByKey[key] = { ...ready, streamerRetryAt: now };
+    readyKeys.add(key);
   }
-  if (newlyAvailable) resetQueueAcquisitionRound(state);
+  const round = state.appState.queueAcquisitionRound;
+  if (readyKeys.size > 0 && round) {
+    state.appState.queueAcquisitionRound = {
+      attemptedCampaignKeys: round.attemptedCampaignKeys.filter((key) => !readyKeys.has(key)),
+      nextRoundAt: null,
+    };
+    if (state.appState.isRunning && !state.appState.isPaused && !state.appState.activeStreamer) {
+      const next = prepareNextEligibleQueueHead(
+        state,
+        !state.appState.manualQueueAuthorized && state.appState.farmingSessionOrigin === 'automatic',
+      );
+      if (next) applyNoStreamersRecoveryState(state, now, 0);
+    }
+  }
 }
 
 export function buildFarmingAutomationQueuePlan(
@@ -66,6 +90,7 @@ export function buildFarmingAutomationQueuePlan(
     if (metadata?.source !== 'favorite-auto' || discovery.directoryFailures.has(key)) continue;
     if ((discovery.availability[key]?.eligibleStreamerCount ?? 0) > 0) continue;
     needsAvailabilityRetry = true;
+    if (metadata.streamerRetryReason) continue;
     retryMetadata[key] = {
       ...metadata,
       streamerRetryAt:

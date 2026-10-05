@@ -155,7 +155,9 @@ export function rankFarmingAutomationCandidates(
   const eligible = filterEligibleFarmingAutomationCandidates(candidates).filter(
     (candidate) =>
       !isHiddenGame(candidate.game, hiddenGameIdentityKeys(snapshot.hiddenGames ?? [])) &&
-      snapshot.stalledCampaignBlocksByKey?.[gameKey(candidate.game)] === undefined,
+      (snapshot.stalledCampaignBlocksByKey?.[gameKey(candidate.game)] === undefined ||
+        snapshot.queueEntryMetadataByKey[gameKey(candidate.game)]?.streamerRetryReason ===
+          'stalled-progress'),
   );
   const favoriteIds = favoriteGameIdentityKeys(snapshot.favoriteGames);
   const candidateByKey = new Map(eligible.map((candidate) => [gameKey(candidate.game), candidate]));

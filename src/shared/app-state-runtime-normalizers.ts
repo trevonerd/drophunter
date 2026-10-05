@@ -1,7 +1,48 @@
-import type { AppState } from '../types/index.ts';
+import type { AppState, TwitchStreamer } from '../types/index.ts';
+
+/** Upgrade suspended availability without granting new queue authorization. */
+export function restoreAuthorizedQueueRetry(state: AppState): void {
+  if (
+    state.queueResumeOnAvailability &&
+    state.queue.length > 0 &&
+    (state.manualQueueAuthorized || state.farmingSessionOrigin === 'automatic') &&
+    state.lastStopReason !== 'user-stop' &&
+    state.lastStopReason !== 'sign-in-required'
+  ) {
+    state.isRunning = true;
+    state.queueResumeOnAvailability = false;
+    state.recoveryReason = 'no-streamers';
+    state.recoveryBackoffUntil =
+      state.queueAcquisitionRound?.nextRoundAt ?? state.recoveryBackoffUntil ?? Date.now();
+    state.recoveryAttempts = 0;
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function normalizeStoredStreamer(value: unknown): TwitchStreamer | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.displayName !== 'string' ||
+    typeof value.isLive !== 'boolean'
+  )
+    return null;
+  return {
+    id: value.id,
+    name: value.name,
+    displayName: value.displayName,
+    isLive: value.isLive,
+    ...(typeof value.viewerCount === 'number' && Number.isFinite(value.viewerCount)
+      ? { viewerCount: value.viewerCount }
+      : {}),
+    ...(typeof value.broadcasterLanguage === 'string'
+      ? { broadcasterLanguage: value.broadcasterLanguage }
+      : {}),
+  };
 }
 
 export function normalizeWatchHealth(value: unknown): AppState['watchHealth'] {

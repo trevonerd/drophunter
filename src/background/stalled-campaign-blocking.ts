@@ -54,7 +54,7 @@ export async function blockSelectedCampaignForStall(input: StalledCampaignBlocki
     event: 'exclusion',
     campaignId: selectedGame.campaignId ?? selectedGame.id,
     title: 'Campaign temporarily excluded',
-    message: `DropHunter paused ${getGameDisplayLabel(selectedGame)} after confirmed stalled progress. It will retry only when Twitch reports new eligible streamers, progress resumes, or you start it again.`,
+    message: `DropHunter queued ${getGameDisplayLabel(selectedGame)} for another attempt after confirmed stalled progress. It will check the other campaigns, then retry the queue in ten minutes or sooner if new eligible streamers appear.`,
     priority: 1,
     telegramReason: 'campaign-excluded',
   });
