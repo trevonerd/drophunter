@@ -1,7 +1,7 @@
 {
   "name": "drophunter",
   "private": true,
-  "version": "4.0.0-beta.56",
+  "version": "4.0.0-beta.57",
   "type": "module",
   "packageManager": "bun@1.4.2",
   "engines": {

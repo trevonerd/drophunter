@@ -2,6 +2,7 @@ import { browser } from '../shared/browser-api.ts';
 import type { FarmingAutomationChromeHost } from './farming-automation-browser.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import { managedWatchMarker } from './managed-watch-marker.ts';
+import { resolveManagedWatchTabIds } from './managed-watch-observation.ts';
 import { reconcileManagedWatchesBeforeCreate } from './managed-watch-preflight.ts';
 import { rememberManagedWatch } from './managed-watch-registry.ts';
 import {
@@ -20,6 +21,7 @@ export function createChromeFarmingAutomationHost(
 ): FarmingAutomationChromeHost {
   const host: FarmingAutomationChromeHost = {
     managedWatchMarker,
+    resolveManagedTabIds: () => resolveManagedWatchTabIds(host),
     tabs: {
       create: (properties, isCurrent = () => true, allowInitialCreation = false) => {
         const acquisition = acquisitionTail.then(async () => {

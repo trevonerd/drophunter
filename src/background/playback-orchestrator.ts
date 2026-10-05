@@ -27,10 +27,15 @@ export async function observeManualPlayback(
   },
   getStreamContext: (tabId: number) => Promise<ManualStreamContext | null>,
   managedTabId: number | null = null,
+  resolveManagedTabIds?: () => Promise<readonly number[] | null>,
 ): Promise<ManualPlaybackObservationResult> {
   let tabs: readonly ManualPlaybackTab[];
+  let managedTabIds: readonly number[];
   try {
     tabs = await tabsApi.query({});
+    const resolved = resolveManagedTabIds ? await resolveManagedTabIds() : [];
+    if (resolved === null) return { kind: 'failed' };
+    managedTabIds = resolved;
   } catch (error) {
     if (error instanceof Error) return { kind: 'failed' };
     throw error;
@@ -40,6 +45,7 @@ export async function observeManualPlayback(
     if (
       typeof tab.id !== 'number' ||
       tab.id === managedTabId ||
+      managedTabIds.includes(tab.id) ||
       getFarmableTwitchChannelNameFromUrl(tab.url) === null
     ) {
       continue;

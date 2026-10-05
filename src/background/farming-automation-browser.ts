@@ -35,6 +35,7 @@ export type FarmingAutomationTab = ManualPlaybackTab & {
 
 export interface FarmingAutomationChromeHost {
   readonly managedWatchMarker?: ManagedWatchMarker;
+  readonly resolveManagedTabIds?: () => Promise<readonly number[] | null>;
   readonly tabs: {
     create(
       properties: {
@@ -256,7 +257,12 @@ export function createFarmingAutomationBrowser(
   const observeManualTabs = () => {
     const ownership = watch.currentOwnership();
     const managedTabId = ownership?.kind === 'managed-tab' ? ownership.tabId : null;
-    return observeManualPlayback(host.tabs, options.getManualStreamContext, managedTabId);
+    return observeManualPlayback(
+      host.tabs,
+      options.getManualStreamContext,
+      managedTabId,
+      host.resolveManagedTabIds,
+    );
   };
   return {
     watch,

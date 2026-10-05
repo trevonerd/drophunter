@@ -134,6 +134,7 @@ export function createFarmingAutomationEvaluator(
       observed = await dependencies.manualWatch.evaluate({
         target: plan.rankedCandidates[0]?.game ?? null,
         managedTabId: dependencies.state.appState.tabId,
+        preparingManagedTabIds: [...dependencies.state.preparingManagedTabIds],
         automationActive: true,
       });
     } catch (error) {

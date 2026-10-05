@@ -1,5 +1,20 @@
 # Matrice di recupero e aggiornamento
 
+## Falso rilevamento della visione manuale — 5 ottobre 2026
+
+Una scheda video conservata da DropHunter dopo il passaggio al trasporto nascosto non è una scheda personale. L'osservazione manuale esclude tutte le schede la cui proprietà è confermata dal registro e dalle prove di sessione o dal marker della pagina, prima di richiedere la telemetria. Un vecchio ID da solo non basta: la navigazione personale resta rilevabile. Se le prove non sono disponibili o sono ambigue, l'osservazione fallisce senza generare una nuova sospensione; la valutazione automatica riceve anche gli ID in preparazione.
+
+Verifica automatizzata con Bun 1.4.2: TypeScript sorgenti e test, lint senza warning, 2.372 test unitari, 20 E2E Chrome MV3, audit dipendenze e build/archivi Chrome/Edge superati con il gate completo `release:check` per `4.0.0-beta.57` (manifest tecnico `3.99.0.57`). Il nuovo E2E verifica il vecchio video gestito durante il farming nascosto, la precedenza di un vero stream personale in background e la ripresa dopo la sua chiusura. Questa modifica è inclusa nella prerelease GitHub beta.57.
+
+| Caso | Evidenza |
+|---|---|
+| Trasporto nascosto con vecchio video gestito ancora attivo; nessun evento di sospensione | `tests/retained-managed-manual-watch.test.ts`, `e2e/queue-campaign-handoff.spec.ts` |
+| Ricostruzione senza trasporto corrente, ID rimappato, più schede gestite e scheda in preparazione | `tests/retained-managed-manual-watch.test.ts` |
+| Navigazione personale, registro obsoleto, marker ambiguo o indisponibile, errore storage | `tests/retained-managed-manual-watch.test.ts` |
+| Vera visione personale in background e ripresa al termine | `tests/manual-watch-detector.test.ts`, `tests/farming-automation-manual-watch.test.ts` |
+
+Verifica reale sul profilo interessato: caricare la build corretta mantenendo la coda; osservare almeno due tick dopo un cambio campagna e dopo il passaggio al farming nascosto con la vecchia scheda ancora in riproduzione. Non devono comparire stato manuale o avviso Telegram senza una scheda personale. Ripetere dopo riciclo del worker e sleep/wake; aprire poi uno stream personale e verificarne la precedenza e la ripresa al termine. La riproduzione automatizzata conferma il difetto del codice, ma non ricostruisce da sola la sequenza dell'avviso originale delle 21:34.
+
 ## Ciclo continuo della coda — 5 ottobre 2026
 
 La sessione autorizzata conserva le campagne temporaneamente senza streamer, con playback fallito o progresso fermo. Ogni campagna mantiene i tentativi e le attese già previste; solo dopo un giro esaurito parte l'attesa di dieci minuti, persistita in `queueAcquisitionRound.nextRoundAt`. L'apertura del video non azzera il giro: servono nuovi minuti, progresso o acquisizione confermati da Twitch. Nuovi streamer idonei possono anticipare una riprova; una directory invariata conserva la scadenza.

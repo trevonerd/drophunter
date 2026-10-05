@@ -178,12 +178,23 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
       case 'CoreActionsCurrentUser':
         await route.fulfill({ json: { data: { currentUser: { id: '123456789' } } } });
         return;
+      case 'StreamInfo': {
+        const game = games.find((candidate) => streamers.get(candidate.categorySlug) === query?.variables?.channel);
+        await route.fulfill({ json: { data: { user: game ? {
+          id: 'fixture-channel', stream: { id: 'fixture-broadcast', type: 'live', game: { id: `campaign-${game.campaignId}`, name: game.name } },
+        } : null } } });
+        return;
+      }
       default:
         await route.fulfill({ json: { data: {} } });
     }
   });
 
   await profile.context.route('https://www.twitch.tv/**', async (route) => {
+    if (new URL(route.request().url()).pathname === '/fixture-spade') {
+      await route.fulfill({ status: 204 });
+      return;
+    }
     const channel = new URL(route.request().url()).pathname.split('/').filter(Boolean)[0] ?? '';
     const category = [...streamers.entries()].find(([, login]) => login === channel)?.[0] ?? '';
     const game = games.find((candidate) => candidate.categorySlug === category);
@@ -196,6 +207,7 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
           <a data-a-target="stream-game-link" href="/directory/category/${category}">${game?.name ?? 'Fixture Game'}</a>
           <div data-a-target="video-player"><video autoplay muted playsinline></video></div>
           <script>
+            const fixtureSettings = { "spade_url": "https://www.twitch.tv/fixture-spade" };
             const canvas = document.createElement('canvas');
             canvas.width = 16;
             canvas.height = 16;
@@ -242,6 +254,9 @@ async function readAppState(popup: Awaited<ReturnType<typeof openPopup>>) {
       readonly tabId: number | null;
       readonly queue: readonly FixtureGame[];
       readonly isPaused: boolean;
+      readonly manualWatchState: string;
+      readonly watchTransportMode: string;
+      readonly watchHealth: { readonly checkedAt: number; readonly isHealthy: boolean } | null;
       readonly manualQueueAuthorized: boolean;
       readonly recoveryReason: string | null;
       readonly recoveryAttempts: number | null;
@@ -357,6 +372,59 @@ test('completes the first queued campaign and reuses its managed tab for the nex
     await assertPlaying();
     expect(removedTabIds).not.toContain(originalTabId);
     expect(profile.context.pages().filter((page) => /\/local_stream_(one|two)$/.test(page.url()))).toEqual([managedPage]);
+  } finally {
+    await profile.close();
+  }
+});
+
+test('retained managed video does not become manual viewing after switching to hidden farming', async () => {
+  test.setTimeout(120_000);
+  const profile = await createExtensionProfile();
+  try {
+    await installLocalTwitchFixture(profile);
+    await seedAppState(profile, {
+      availableGames: games, selectedGame: games[0], queue: [], isRunning: false, isPaused: false,
+      autoStartFavoriteGames: false, monitorAutoOpen: false, watchTransportPreference: 'managed-tab',
+      activeStreamer: null, tabId: null,
+    });
+    const popup = await openPopup(profile);
+    await runtimeMessage(popup, { type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'managed-tab' } });
+    await runtimeMessage(popup, { type: 'UPDATE_GAMES', payload: games });
+    expect(await runtimeMessage(popup, { type: 'START_FARMING', payload: { game: games[0] } })).toEqual({ success: true });
+    await expect.poll(async () => (await readAppState(popup)).activeStreamer?.name, { timeout: 30_000 }).toBe('local_stream_one');
+    await expect.poll(async () => typeof (await readAppState(popup)).tabId, { timeout: 30_000 }).toBe('number');
+    const managedPage = profile.context.pages().find((page) => page.url().endsWith('/local_stream_one'));
+    if (!managedPage) throw new Error('Missing managed video');
+    await managedPage.locator('video').click();
+    await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+    expect(await runtimeMessage(popup, { type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'tabless' } })).toMatchObject({ success: true });
+    await expect.poll(async () => (await readAppState(popup)).tabId).toBeNull();
+    const tickAt = ((await readAppState(popup)).watchHealth?.checkedAt ?? 0) + 1;
+    const tickPage = await profile.context.newPage();
+    let tickAttempt = 0;
+    // Tab navigation invokes the same production monitoring listener as the alarm.
+    await expect.poll(async () => {
+      const checkedAt = (await readAppState(popup)).watchHealth?.checkedAt ?? 0;
+      if (checkedAt < tickAt) await tickPage.goto(`https://www.twitch.tv/drops/inventory?tick=${++tickAttempt}`);
+      return checkedAt;
+    }, { timeout: 75_000, intervals: [6_000] }).toBeGreaterThanOrEqual(tickAt);
+    expect(await readAppState(popup)).toMatchObject({ manualWatchState: 'inactive', isRunning: true, watchTransportMode: 'tabless' });
+    await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+
+    // A real personal stream must still take precedence, including in a background tab.
+    const personalPage = await profile.context.newPage();
+    await personalPage.goto('https://www.twitch.tv/local_stream_two');
+    await personalPage.locator('video').click();
+    await popup.bringToFront();
+    await expect.poll(async () => {
+      await tickPage.goto(`https://www.twitch.tv/drops/inventory?personal=${++tickAttempt}`);
+      return (await readAppState(popup)).manualWatchState;
+    }, { timeout: 30_000, intervals: [2_000] }).toBe('automation-paused');
+    await personalPage.close();
+    await expect.poll(async () => {
+      await tickPage.goto(`https://www.twitch.tv/drops/inventory?resume=${++tickAttempt}`);
+      return (await readAppState(popup)).manualWatchState;
+    }, { timeout: 30_000, intervals: [2_000] }).toBe('inactive');
   } finally {
     await profile.close();
   }
