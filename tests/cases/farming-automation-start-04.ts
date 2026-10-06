@@ -13,6 +13,7 @@ import { createServiceWorkerState } from '../../src/background/runtime-state.ts'
 import { createWatchTransportTransition } from '../../src/background/watch-transport-transition.ts';
 import { gameKey } from '../../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
+import { createQueueAvailabilityReconciler } from '../support/queue-progression.ts';
 
 function campaign(campaignId: string, endsAt: string): TwitchGame {
   return {
@@ -135,6 +136,7 @@ function startFixture(
     viewerCount: 1,
   };
   const automation = createFarmingAutomation({
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
     state,
     persistence,
     browser,

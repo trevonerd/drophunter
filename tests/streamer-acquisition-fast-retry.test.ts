@@ -8,11 +8,11 @@ verifyExpectedDiagnostics([
 import { afterEach, describe, expect, test } from 'bun:test';
 import { checkDropProgress } from '../src/background/drops-tick-monitoring.ts';
 import { applyApiBackoffRecoveryState } from '../src/background/recovery-state.ts';
-import { advanceQueueIfCompleted } from '../src/background/session-lifecycle-queue.ts';
 import { acquireStreamerForSelectedGame } from '../src/background/streamer-acquisition.ts';
 import { TwitchDirectoryUnavailableError } from '../src/background/twitch-api/errors.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { createGame, createMinimalState } from './fixtures/queue-management.ts';
+import { createQueueProgressionFixture } from './support/queue-progression.ts';
 
 describe('fast streamer acquisition retry', () => {
   const realDateNow = Date.now;
@@ -128,7 +128,7 @@ describe('fast streamer acquisition retry', () => {
         onRotateStreamerIfInvalid: async () => {},
         onAttemptAutoClaimChannelPointsBonus: async () => false,
         onAutoClaimClaimableDrops: async () => false,
-        onAdvanceQueueIfCompleted: () => advanceQueueIfCompleted(state),
+        onAdvanceQueueIfCompleted: () => createQueueProgressionFixture(state).advanceIfCompleted(),
         onRefreshDropsData: async () => {
           throw new Error('Unexpected refresh');
         },

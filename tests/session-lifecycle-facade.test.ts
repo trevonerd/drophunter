@@ -1,17 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import {
-  advanceQueueIfCompleted,
   handleStartFarming,
   resetStreamTrackingState,
-  skipCurrentGameAndAdvanceQueue,
-  skipCurrentGameDueToStall,
   stopFarmingSession,
 } from '../src/background/session-lifecycle.ts';
-import * as queueLifecycle from '../src/background/session-lifecycle-queue.ts';
 import * as startLifecycle from '../src/background/session-lifecycle-start.ts';
 import * as stopLifecycle from '../src/background/session-lifecycle-stop.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
+import { createQueueProgressionFixture } from './support/queue-progression.ts';
 
 function game(id: string): TwitchGame {
   return {
@@ -45,23 +42,13 @@ describe('session lifecycle facade', () => {
   test('re-exports every focused lifecycle implementation', () => {
     // Given
     const focusedImplementations = [
-      queueLifecycle.advanceQueueIfCompleted,
-      queueLifecycle.skipCurrentGameAndAdvanceQueue,
-      queueLifecycle.skipCurrentGameDueToStall,
       startLifecycle.handleStartFarming,
       stopLifecycle.resetStreamTrackingState,
       stopLifecycle.stopFarmingSession,
     ];
 
     // When
-    const facadeImplementations = [
-      advanceQueueIfCompleted,
-      skipCurrentGameAndAdvanceQueue,
-      skipCurrentGameDueToStall,
-      handleStartFarming,
-      resetStreamTrackingState,
-      stopFarmingSession,
-    ];
+    const facadeImplementations = [handleStartFarming, resetStreamTrackingState, stopFarmingSession];
 
     // Then
     expect(facadeImplementations).toEqual(focusedImplementations);
@@ -93,47 +80,6 @@ describe('session lifecycle facade', () => {
     expect(state.appState.selectedGame).toEqual(selectedGame);
     expect(state.appState.isRunning).toBe(true);
     expect(saveCalls).toBe(1);
-  });
-
-  test('persists the selected campaign before refresh and again after acquisition', async () => {
-    // Given
-    const completedGame = game('completed');
-    const nextGame = game('next');
-    const nextDrop = drop(nextGame);
-    const state = createServiceWorkerState();
-    state.appState.isRunning = true;
-    state.appState.selectedGame = completedGame;
-    state.appState.availableGames = [completedGame, nextGame];
-    state.appState.queue = [completedGame, nextGame];
-    state.appState.allDrops = [drop(completedGame, true)];
-    state.appState.pendingDrops = [];
-    state.appState.currentDrop = null;
-    let openCalls = 0;
-    let saveCalls = 0;
-
-    // When
-    const running = await advanceQueueIfCompleted(state, {
-      onSaveTimingState: async () => {},
-      onRefreshDropsData: async () => {
-        state.appState.allDrops = [nextDrop];
-        state.appState.pendingDrops = [nextDrop];
-        state.appState.currentDrop = nextDrop;
-      },
-      onOpenStreamer: async () => {
-        openCalls += 1;
-        return true;
-      },
-      onSaveState: async () => {
-        saveCalls += 1;
-      },
-    });
-
-    // Then
-    expect(running).toBe(true);
-    expect(state.appState.queue).toEqual([nextGame]);
-    expect(state.appState.selectedGame).toEqual(nextGame);
-    expect(openCalls).toBe(1);
-    expect(saveCalls).toBe(2);
   });
 
   test('preserves stop callback order and persistence count', async () => {
@@ -223,12 +169,11 @@ describe('session lifecycle facade', () => {
     const systemAlerts: Array<{ reason: string; message: string }> = [];
 
     // When
-    const running = await advanceQueueIfCompleted(state, {
-      onSaveTimingState: async () => {},
-      onSystemAlert: async (reason, message) => {
+    const running = await createQueueProgressionFixture(state, {
+      telegramSystemAlert: async (reason, message) => {
         systemAlerts.push({ reason, message });
       },
-    });
+    }).advanceIfCompleted();
 
     // Then
     expect(running).toBe(false);

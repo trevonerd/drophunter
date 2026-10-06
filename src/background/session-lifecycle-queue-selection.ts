@@ -36,6 +36,7 @@ export function parkCampaignAtQueueTail(state: ServiceWorkerState, campaign: Twi
 export function prepareNextEligibleQueueHead(
   state: ServiceWorkerState,
   restrictUnauthorizedManualContinuation: boolean,
+  now = Date.now(),
 ): TwitchGame | null {
   for (const game of [...state.appState.queue]) {
     const key = gameKey(game);
@@ -53,10 +54,10 @@ export function prepareNextEligibleQueueHead(
         ...(metadata ?? {
           source: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-auto' : 'manual',
           reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
-          addedAt: Date.now(),
+          addedAt: now,
         }),
         streamerRetryReason: legacyStall ? 'stalled-progress' : 'no-streamers',
-        streamerRetryAt: Date.now() + 60_000,
+        streamerRetryAt: now + 60_000,
       };
     }
     if (
@@ -89,11 +90,11 @@ export function prepareNextEligibleQueueHead(
     const metadata = state.appState.queueEntryMetadataByKey[gameKey(game)];
     return !restrictUnauthorizedManualContinuation || metadata?.source === 'favorite-auto';
   });
-  const candidates = new Set(queueRoundCandidates(state, authorized).map(gameKey));
+  const candidates = new Set(queueRoundCandidates(state, authorized, now).map(gameKey));
   const index = state.appState.queue.findIndex(
     (game) =>
       candidates.has(gameKey(game)) &&
-      (state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt ?? 0) <= Date.now(),
+      (state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt ?? 0) <= now,
   );
   if (index < 0) return null;
   const [next] = state.appState.queue.splice(index, 1);
@@ -116,14 +117,4 @@ export function prepareNextEligibleQueueHead(
   state.appState.completedDrops = [];
   state.previousAllDropsCount = 0;
   return nextGame;
-}
-
-export function prepareQueueAcquisitionRound(state: ServiceWorkerState): boolean {
-  const deadline = state.appState.queueAcquisitionRound?.nextRoundAt;
-  if (deadline == null) return true;
-  if (deadline > Date.now()) return false;
-  return (
-    prepareNextEligibleQueueHead(state, isAutomaticFavoriteSession(state, state.appState.selectedGame)) !==
-    null
-  );
 }

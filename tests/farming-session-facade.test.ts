@@ -64,6 +64,7 @@ describe('farming session facade', () => {
       'handleSetSelectedGame',
       'handleStartFarming',
       'handleStopFarming',
+      'reconcileQueueAvailability',
       'recoverTwitchSession',
       'refreshDropsData',
       'resumeAfterAuthRecovery',

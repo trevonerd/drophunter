@@ -6,6 +6,7 @@ import type { WatchHealth } from '../src/background/watch-transport.ts';
 import { createWatchTransportCoordinator } from '../src/background/watch-transport-coordinator.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
+import { preparedWatch } from './support/prepared-watch.ts';
 
 let mocks: ChromeMocks;
 beforeAll(() => {
@@ -131,6 +132,7 @@ function fixture(drop: TwitchDrop, nextDrops: TwitchDrop[], now: () => number, r
           },
         })
       : {
+          prepare: async (target) => preparedWatch(target, healthy),
           start: async () => ({ kind: 'started', health: healthy }),
           stop: async () => {},
           setPreference: async () => {},
@@ -179,6 +181,7 @@ test('exhausted native reward hands off to an ordinary reward in the same campai
     const { state, session } = fixture(reward('twitch-badge', 99), [nextDrop], () => now);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await session.checkDropProgress();
+      if (Object.keys(state.unverifiableRewardsByKey).length > 0) break;
       now += computeEffectiveStallThreshold(100);
     }
     expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(1);
@@ -188,7 +191,7 @@ test('exhausted native reward hands off to an ordinary reward in the same campai
     expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
     expect(state.appState.selectedGame?.rewardSummary?.completion).toBe('farmable');
     expect(state.stalledRecoveryAttempts).toBe(0);
-    expect(state.appState.recoveryReason).toBe('no-streamers');
+    expect(state.appState.recoveryReason).toBeNull();
   } finally {
     Date.now = originalNow;
   }

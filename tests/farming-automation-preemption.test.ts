@@ -18,6 +18,7 @@ import { applyStartupResumePolicy, createServiceWorkerState } from '../src/backg
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { campaign, reward, streamer } from './support/farming-automation-preemption-fixture.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 function fixture(candidateEndsAt: string, deduplicated = false, separateCategories = false) {
   const incumbent = {
@@ -122,6 +123,7 @@ function fixture(candidateEndsAt: string, deduplicated = false, separateCategori
     schedulePeriodicAlarm: async () => 'scheduled',
   };
   const automation = createFarmingAutomation({
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
     state,
     persistence,
     browser,

@@ -6,12 +6,14 @@ import type {
 } from './farming-automation-contracts.ts';
 import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
 import type { FarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
+import type { FarmingQueueProgression } from './farming-queue-progression.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 export type FarmingAutomationRuntime = { generation: number };
 
 export type FarmingAutomationEvaluatorDependencies = {
   readonly state: ServiceWorkerState;
+  readonly reconcileQueueAvailability: FarmingQueueProgression['reconcileAvailability'];
   readonly persistence: FarmingAutomationPersistence;
   readonly browser: FarmingAutomationBrowser;
   readonly manualWatch: FarmingAutomationManualWatchController;

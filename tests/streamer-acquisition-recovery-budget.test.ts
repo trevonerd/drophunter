@@ -1,4 +1,5 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+import { preparedWatch } from './support/prepared-watch.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
@@ -82,6 +83,20 @@ describe('streamer acquisition recovery budget', () => {
           openedChannels.push(streamer.name);
         },
         watchTransport: {
+          prepare: async (target) => {
+            openedChannels.push(target.channelName);
+            return preparedWatch(target, {
+              mode: 'managed-tab',
+              status: 'healthy',
+              reason: 'started',
+              isHealthy: true,
+              consecutiveFailures: 0,
+              consecutiveStalls: 0,
+              progress: null,
+              shouldFallback: false,
+              checkedAt: now,
+            });
+          },
           start: async (streamer) => {
             openedChannels.push(streamer.name);
             return {

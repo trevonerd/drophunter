@@ -8,12 +8,9 @@ verifyExpectedDiagnostics([
 
 import { describe, expect, test } from 'bun:test';
 import { setGameFavorite } from '../src/background/favorite-games.ts';
-import {
-  advanceQueueIfCompleted,
-  handleStartFarming,
-  skipCurrentGameAndAdvanceQueue,
-} from '../src/background/session-lifecycle.ts';
+import { handleStartFarming } from '../src/background/session-lifecycle.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
+import { commitPreparedCampaign, createQueueProgressionFixture } from './support/queue-progression.ts';
 import {
   campaign,
   createContinuationProbe,
@@ -32,7 +29,7 @@ describe('v4 queue continuation authorization', () => {
     await createManualQueue(state, [manualA, manualB]);
     setAutomaticCompletion(state, automaticC, [automaticC, manualA, manualB]);
     const probe = createContinuationProbe(state, manualA);
-    const advanced = await advanceQueueIfCompleted(state, probe.options);
+    const advanced = await probe.progression.advanceIfCompleted();
 
     expect({
       advanced,
@@ -55,7 +52,7 @@ describe('v4 queue continuation authorization', () => {
     setGameFavorite(state.appState, starredC, true, 10);
     setAutomaticCompletion(state, starredC, [starredC, manualA, manualB], { preserveQueueSource: true });
     const probe = createContinuationProbe(state, manualA);
-    const advanced = await advanceQueueIfCompleted(state, probe.options);
+    const advanced = await probe.progression.advanceIfCompleted();
 
     expect({
       advanced,
@@ -80,7 +77,7 @@ describe('v4 queue continuation authorization', () => {
     setAutomaticCompletion(state, automaticC, [automaticC, manualA, manualB]);
     state.appState.manualQueueAuthorized = true;
     const probe = createContinuationProbe(state, manualA);
-    const advanced = await advanceQueueIfCompleted(state, probe.options);
+    const advanced = await probe.progression.advanceIfCompleted();
 
     expect({
       advanced,
@@ -105,7 +102,7 @@ describe('v4 queue continuation authorization', () => {
     state.appState.queue = [manualA];
     state.appState.allDrops = [reward(manualA, true)];
     const session = await createManualQueue(state, []);
-    await advanceQueueIfCompleted(state);
+    await createQueueProgressionFixture(state).advanceIfCompleted();
     const addResult = await session.handleAddToQueue({ game: manualD });
 
     expect({
@@ -136,9 +133,7 @@ describe('v4 queue continuation authorization', () => {
         rewardProgressByKey: {},
       },
     };
-    await skipCurrentGameAndAdvanceQueue(state, 'stalled-progress', {
-      onStopFarmingSession: async () => undefined,
-    });
+    await createQueueProgressionFixture(state).skipCurrent('stalled-progress');
 
     expect({
       authorized: state.appState.manualQueueAuthorized,
@@ -153,18 +148,17 @@ describe('v4 queue continuation authorization', () => {
     setAutomaticCompletion(state, automaticC, [automaticC, manualA]);
     let opened = 0;
     let stopped = 0;
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onRefreshDropsData: async () => setFarmableDrops(state, manualA),
-      onOpenStreamer: async () => {
+    await createQueueProgressionFixture(state, {
+      transitionCampaign: async (game) => {
         opened += 1;
-        return true;
+        return commitPreparedCampaign(state, game);
       },
-      onStopFarmingSession: async () => {
+      stopSession: async () => {
         stopped += 1;
         state.appState.isRunning = false;
         state.appState.selectedGame = null;
       },
-    });
+    }).skipCurrent('no-streamers');
 
     expect({
       opened,
@@ -189,7 +183,7 @@ describe('v4 queue continuation authorization', () => {
     state.appState.allDrops = [];
     state.previousAllDropsCount = 1;
     const probe = createContinuationProbe(state, manualA);
-    const advanced = await advanceQueueIfCompleted(state, probe.options);
+    const advanced = await probe.progression.advanceIfCompleted();
 
     expect({
       advanced,
@@ -206,7 +200,7 @@ describe('v4 queue continuation authorization', () => {
     state.appState.autoStartFavoriteGames = false;
     setAutomaticCompletion(state, automaticC, [automaticC, manualA]);
     const probe = createContinuationProbe(state, manualA);
-    const advanced = await advanceQueueIfCompleted(state, probe.options);
+    const advanced = await probe.progression.advanceIfCompleted();
 
     expect({
       advanced,

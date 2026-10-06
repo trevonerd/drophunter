@@ -1,9 +1,9 @@
 import { formatFarmingCompleteStatusLines } from '../shared/runtime-status.ts';
+import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
 import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { clearRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type {
-  AdvanceQueueOptions,
   CompletedQueueContext,
   QueueSkipCopy,
   QueueSkipReason,
@@ -121,7 +121,7 @@ export async function stopFarmingSession(
 export async function finalizeCompletedQueue(
   state: ServiceWorkerState,
   context: CompletedQueueContext,
-  options?: AdvanceQueueOptions,
+  options: QueueProgressionExecution,
 ): Promise<void> {
   if (options?.isCurrent?.() === false) return;
   resetQueueAcquisitionRound(state);
@@ -166,7 +166,8 @@ export async function finalizeCompletedQueue(
     if (options.isCurrent?.() === false) return;
   }
   if (options?.onStopMonitoring) {
-    options.onStopMonitoring();
+    await options.onStopMonitoring();
+    if (!options.isCurrent()) return;
   }
   if (!context.terminalFarmingCompleteGame) {
     if (context.completedWhileNoStreamers) {

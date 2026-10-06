@@ -24,6 +24,7 @@ import {
   createStreamer,
 } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 let chrome: ReturnType<typeof setupChromeMocks>;
 const realNow = Date.now;
@@ -128,6 +129,7 @@ function fixture(manualAuthorized = true, availableStreamers = true) {
     schedulePeriodicAlarm: async () => 'scheduled',
   };
   const automation = createFarmingAutomation({
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
     state,
     persistence,
     browser,

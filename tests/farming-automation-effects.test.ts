@@ -1,4 +1,5 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
@@ -153,6 +154,7 @@ function fixture(failure: PostCommitFailure = null) {
     viewerCount: 1,
   };
   const automation = createFarmingAutomation({
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
     state,
     persistence,
     browser,

@@ -12,6 +12,7 @@ import type { TwitchSession } from '../src/background/twitch-api/types.ts';
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../src/types/index.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 const session: TwitchSession = {
   oauthToken: 'oauth-token',
@@ -114,6 +115,7 @@ test('campaign refresh persists the first farmable favorite immediately', async 
     schedulePeriodicAlarm: async () => 'scheduled',
   };
   const automation = createFarmingAutomation({
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
     state,
     persistence,
     browser,

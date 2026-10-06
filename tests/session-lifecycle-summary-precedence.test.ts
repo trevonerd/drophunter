@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { applyStopState } from '../src/background/recovery-state.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
-import { advanceQueueIfCompleted, handleStartFarming } from '../src/background/session-lifecycle.ts';
+import { handleStartFarming } from '../src/background/session-lifecycle.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
+import { createQueueProgressionFixture } from './support/queue-progression.ts';
 
 function createGame(overrides: Partial<TwitchGame> = {}): TwitchGame {
   return {
@@ -55,15 +55,15 @@ describe('farming-complete summary precedence', () => {
     let stopCalls = 0;
 
     // When
-    const running = await advanceQueueIfCompleted(state, {
-      onRefreshDropsData: async () => {
+    const running = await createQueueProgressionFixture(state, {
+      transitionCampaign: async () => {
         refreshCalls += 1;
+        return { kind: 'completed' };
       },
-      onSaveTimingState: async () => {},
-      onApplyStopState: () => {
+      stopMonitoring: () => {
         stopCalls += 1;
       },
-    });
+    }).advanceIfCompleted();
 
     // Then
     expect(running).toBe(true);
@@ -72,51 +72,6 @@ describe('farming-complete summary precedence', () => {
     expect(state.appState.isRunning).toBe(true);
     expect(refreshCalls).toBe(0);
     expect(stopCalls).toBe(0);
-  });
-
-  test('starts the refreshed queued campaign when pending reward evidence contradicts its stale summary', async () => {
-    // Given
-    const state = createServiceWorkerState();
-    const completed = createGame({ id: 'game-1', campaignId: 'campaign-complete' });
-    const queued = createGame({
-      id: 'game-2',
-      name: 'Queued Game',
-      campaignId: 'campaign-queued',
-      rewardSummary: { completion: 'farming-complete', remainderReasons: ['unverifiable-twitch'] },
-    });
-    const completedReward = createDrop(completed, { claimed: true, progress: 100, remainingMinutes: 0 });
-    const queuedReward = createDrop(queued, { id: 'queued-drop' });
-    state.appState.isRunning = true;
-    state.appState.selectedGame = completed;
-    state.appState.availableGames = [completed, queued];
-    state.appState.queue = [completed, queued];
-    state.appState.allDrops = [completedReward];
-    state.appState.pendingDrops = [];
-    state.appState.currentDrop = null;
-    let openCalls = 0;
-
-    // When
-    const running = await advanceQueueIfCompleted(state, {
-      onSaveTimingState: async () => {},
-      onRefreshDropsData: async () => {
-        state.appState.allDrops = [queuedReward];
-        state.appState.pendingDrops = [queuedReward];
-        state.appState.currentDrop = queuedReward;
-      },
-      onOpenStreamer: async () => {
-        openCalls += 1;
-        return true;
-      },
-      onApplyStopState: applyStopState,
-    });
-
-    // Then
-    expect(running).toBe(true);
-    expect(state.appState.selectedGame).toEqual(queued);
-    expect(state.appState.queue).toEqual([queued]);
-    expect(state.appState.isRunning).toBe(true);
-    expect(state.appState.lastStopReason).toBeNull();
-    expect(openCalls).toBe(1);
   });
 
   test('starts a requested campaign when its current automatable reward contradicts a stale summary', async () => {
@@ -231,7 +186,7 @@ describe('farming-complete summary precedence', () => {
     state.appState.currentDrop = null;
 
     // When
-    const running = await advanceQueueIfCompleted(state, { onApplyStopState: applyStopState });
+    const running = await createQueueProgressionFixture(state).advanceIfCompleted();
 
     // Then
     expect(running).toBe(false);
@@ -259,7 +214,7 @@ describe('farming-complete summary precedence', () => {
     state.appState.currentDrop = null;
 
     // When
-    const running = await advanceQueueIfCompleted(state, { onApplyStopState: applyStopState });
+    const running = await createQueueProgressionFixture(state).advanceIfCompleted();
 
     // Then
     expect(running).toBe(false);

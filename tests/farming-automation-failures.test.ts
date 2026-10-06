@@ -18,6 +18,7 @@ import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 type FailureStage =
   | 'session'
@@ -159,6 +160,7 @@ function fixture(stage: FailureStage) {
     schedulePeriodicAlarm: async () => 'scheduled',
   };
   const automation = createFarmingAutomation({
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
     state,
     persistence,
     browser,

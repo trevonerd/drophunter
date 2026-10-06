@@ -28,7 +28,7 @@ import {
 import { reconcileParkedCampaigns } from './farming-automation-parked-campaigns.ts';
 import {
   buildFarmingAutomationQueuePlan,
-  resumeQueuedCampaignsWithAvailableStreamers,
+  collectQueueAvailabilityEvidence,
 } from './farming-automation-queue-planning.ts';
 import { transitionAutomaticFarmingSession } from './session-lifecycle-transition.ts';
 import { pickStreamerForPreferences } from './streamer-selection.ts';
@@ -99,7 +99,10 @@ export function createFarmingAutomationEvaluator(
         : { kind: 'failed', reason: 'persistence-failed' };
     }
 
-    resumeQueuedCampaignsWithAvailableStreamers(dependencies.state, discovery, now);
+    dependencies.reconcileQueueAvailability(
+      collectQueueAvailabilityEvidence(dependencies.state, discovery),
+      now,
+    );
 
     const parked = reconcileParkedCampaigns(facts, discovery.availability, now);
     if (parked.changed) {

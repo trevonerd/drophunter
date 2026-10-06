@@ -6,6 +6,7 @@ import type { WatchHealth } from '../../src/background/watch-transport.ts';
 import { gameKey } from '../../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
+import { createQueueAvailabilityReconciler } from '../support/queue-progression.ts';
 
 let chromeMocks: ChromeMocks;
 
@@ -182,6 +183,7 @@ describe('farming session watch transport integration', () => {
     state.appState.favoriteGames = [{ gameId: game.id, lastKnownName: game.name, addedAt: 1 }];
     const suppressedKeys: string[] = [];
     const automation = createFarmingAutomation({
+      reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
       evaluateBatch: async () => ({ kind: 'unchanged', reason: 'no-eligible-campaign' }),
       persistCampaignSuppression: async (campaignKey) => {
         suppressedKeys.push(campaignKey);

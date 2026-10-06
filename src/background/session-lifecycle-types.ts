@@ -9,24 +9,6 @@ export type LifecycleRefreshOptions = {
   readonly suppressNotifications: boolean;
 };
 
-export type QueueProgressOptions = {
-  readonly onTransitionToCampaign?: (
-    game: TwitchGame,
-    isCurrent?: () => boolean,
-  ) => Promise<import('./farming-campaign-transition.ts').CampaignTransitionResult>;
-  readonly isCurrent?: () => boolean;
-  /** Allows the queue's own committed head promotion while retaining the operation guard. */
-  readonly isCurrentAfterQueueAdvance?: (game: TwitchGame) => boolean;
-  readonly onOpenStreamer?: (isCurrent?: () => boolean) => Promise<boolean>;
-  readonly onEnsureWorkspace?: (isCurrent?: () => boolean) => Promise<void>;
-  readonly onRefreshDropsData?: (options: LifecycleRefreshOptions) => Promise<void>;
-  readonly onSaveState?: () => Promise<void>;
-  readonly onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
-  readonly onStopMonitoring?: () => void | Promise<void>;
-  readonly onCloseManagedTabIfSafe?: (tabId: number | null) => Promise<boolean>;
-  readonly onQueueWaiting?: (transitionAt: number) => Promise<void>;
-};
-
 export type StopFarmingSessionOptions = {
   readonly skipTimingStateSave?: boolean;
   readonly notification?: { readonly title: string; readonly message: string };
@@ -45,16 +27,6 @@ export type StopFarmingSessionOptions = {
   readonly onSystemAlert?: (reason: string, message: string) => Promise<void>;
   readonly onSaveState?: () => Promise<void>;
   readonly onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
-};
-
-export type AdvanceQueueOptions = QueueProgressOptions & {
-  readonly onSendAlert?: (kind: 'drop-complete' | 'all-complete', message: string) => Promise<void>;
-  readonly onQueueCompleteNotification?: (title: string, message: string) => Promise<void>;
-  readonly isCampaignValidationCurrent?: () => boolean;
-  readonly onClearManagedTabOwnership?: () => void;
-  readonly onApplyStopState?: (state: ServiceWorkerState, reason: string, message: string | null) => void;
-  readonly onNotify?: (title: string, message: string) => Promise<void>;
-  readonly onSystemAlert?: (reason: string, message: string) => Promise<void>;
 };
 
 export type CompletedQueueContext = {
@@ -88,14 +60,13 @@ export type StopFarmingSessionRequest = {
   readonly suppressNotifications?: boolean;
 };
 
-export type SkipCurrentGameOptions = QueueProgressOptions & {
-  readonly onStopFarmingSession?: (options: StopFarmingSessionRequest) => Promise<void>;
-  readonly onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
-};
-
 export type StartFarmingPayload = { readonly game?: TwitchGame };
 
-export type StartFarmingOptions = QueueProgressOptions & {
+export type StartFarmingOptions = {
+  readonly onEnsureWorkspace?: (isCurrent?: () => boolean) => Promise<void>;
+  readonly onRefreshDropsData?: (options: LifecycleRefreshOptions) => Promise<void>;
+  readonly onSaveState?: () => Promise<void>;
+  readonly onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
   readonly preserveQueueContext?: boolean;
   readonly isCurrent?: () => boolean;
   readonly onBroadcastStateUpdate?: () => void;

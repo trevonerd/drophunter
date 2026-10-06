@@ -12,12 +12,13 @@ import {
   type FarmingAutomationTwitchAdapter,
   type FarmingAutomationTwitchSnapshot,
 } from '../src/background/farming-automation-twitch.ts';
-import { skipCurrentGameAndAdvanceQueue, stopFarmingSession } from '../src/background/session-lifecycle.ts';
+import { stopFarmingSession } from '../src/background/session-lifecycle.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
-import { createDrop, createGame, createMinimalState } from './fixtures/queue-management.ts';
+import { createGame, createMinimalState } from './fixtures/queue-management.ts';
 import { fixture } from './support/farming-automation-queue-fixture.ts';
+import { createQueueProgressionFixture } from './support/queue-progression.ts';
 
 const now = Date.parse('2026-09-23T12:00:00.000Z');
 afterEach(() => mock.restore());
@@ -74,26 +75,12 @@ describe('continuous availability recovery queue', () => {
       addedAt: now,
     };
     const waitingTransitions: number[] = [];
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onRefreshDropsData: async () => {
-        state.appState.allDrops = [
-          createDrop({
-            gameId: scheduled.id,
-            campaignId: scheduled.campaignId,
-            startsAt: new Date(now + 3_600_000).toISOString(),
-          }),
-        ];
-        state.appState.pendingDrops = [...state.appState.allDrops];
+    await createQueueProgressionFixture(state, {
+      transitionCampaign: async () => ({ kind: 'waiting' }),
+      automationNotify: async (notification) => {
+        waitingTransitions.push(Number(notification.transitionId.split(':')[1]));
       },
-      onOpenStreamer: async () => {
-        throw new Error('Future reward cannot start playback');
-      },
-      onSaveState: async () => {},
-      onSaveTimingState: async () => {},
-      onQueueWaiting: async (transitionAt) => {
-        waitingTransitions.push(transitionAt);
-      },
-    });
+    }).skipCurrent('no-streamers');
     expect(state.appState.isRunning).toBe(true);
     expect(state.appState.isPaused).toBe(false);
     expect(state.appState.queueResumeOnAvailability).toBe(false);
@@ -191,19 +178,17 @@ describe('continuous availability recovery queue', () => {
     );
     let stoppedMonitoring = 0;
     const waitingTransitions: number[] = [];
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onStopMonitoring: () => {
+    await createQueueProgressionFixture(state, {
+      stopMonitoring: () => {
         stoppedMonitoring += 1;
       },
-      onSaveState: async () => {},
-      onSaveTimingState: async () => {},
-      onQueueWaiting: async (transitionAt) => {
-        waitingTransitions.push(transitionAt);
+      automationNotify: async (notification) => {
+        waitingTransitions.push(Number(notification.transitionId.split(':')[1]));
       },
-      onOpenStreamer: async () => {
+      transitionCampaign: async () => {
         throw new Error('No acquisition should run while waiting');
       },
-    });
+    }).skipCurrent('no-streamers');
     expect(state.appState.isRunning).toBe(true);
     expect(state.appState.queueResumeOnAvailability).toBe(false);
     const deadline = state.appState.queueAcquisitionRound?.nextRoundAt;

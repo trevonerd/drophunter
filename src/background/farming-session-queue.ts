@@ -11,22 +11,15 @@ import {
   handleSetSelectedGame as setSelectedGame,
 } from './drops-tick.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
-import {
-  currentFarmingSessionEpoch,
-  isFarmingSessionEpochCurrent,
-  runFarmingSessionMutation,
-} from './farming-session-revision.ts';
+import { runFarmingSessionMutation } from './farming-session-revision.ts';
 import { logDebug, logWarn } from './logging.ts';
 import { removeGameFromQueue, resolveGameFromState } from './queue-operations.ts';
-import { applyStopState } from './recovery-state.ts';
-import { advanceQueueIfCompleted as advanceQueue } from './session-lifecycle.ts';
-import { parkCampaignForStreamerRetry, queueWaitingNotification } from './session-lifecycle-queue-parking.ts';
+import { parkCampaignForStreamerRetry } from './session-lifecycle-queue-parking.ts';
 
 type FarmingSessionQueueDependencies = {
   readonly onEnsureWorkspace: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<unknown>;
   readonly onAcquireStreamer: (isCurrent?: () => boolean) => Promise<boolean>;
-  readonly onStopMonitoring: () => void;
 };
 
 type RemoveQueuePayload = {
@@ -36,7 +29,6 @@ type RemoveQueuePayload = {
 };
 
 export type FarmingSessionQueue = {
-  readonly advanceQueueIfCompleted: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly handleAddToQueue: (payload: { readonly game?: TwitchGame }) => ReturnType<typeof addToQueue>;
   readonly handleClearQueue: () => Promise<{ readonly success: true; readonly queueLength: number }>;
   readonly handleRemoveFromQueue: (payload: RemoveQueuePayload) => ReturnType<typeof removeFromQueue>;
@@ -67,56 +59,6 @@ export function createFarmingSessionQueue(
   dependencies: FarmingSessionQueueDependencies,
 ): FarmingSessionQueue {
   const { state, adapters } = context;
-
-  async function advanceQueueIfCompleted(isCurrent?: () => boolean): Promise<boolean> {
-    const epoch = currentFarmingSessionEpoch(state);
-    const tickGeneration = state.tickGeneration;
-    return advanceQueue(state, {
-      isCurrent: () =>
-        (isCurrent?.() ?? true) &&
-        isFarmingSessionEpochCurrent(state, epoch) &&
-        state.tickGeneration === tickGeneration,
-      onOpenStreamer: dependencies.onAcquireStreamer,
-      onTransitionToCampaign: context.transitionCampaign,
-      onEnsureWorkspace: dependencies.onEnsureWorkspace,
-      onSendAlert: async (kind, message) => {
-        if (kind === 'all-complete' && state.appState.completionNotified && adapters.automationNotify) {
-          return;
-        }
-        await adapters.sendAlert(kind, message);
-      },
-      onQueueCompleteNotification: adapters.notifyQueueComplete,
-      isCampaignValidationCurrent: () => state.hasCurrentGenerationCampaignValidation,
-      onStopMonitoring: () => {
-        dependencies.onStopMonitoring();
-        context.manualWatchTransportSuspended = false;
-        void adapters.watchTransport?.stop();
-      },
-      onCloseManagedTabIfSafe: adapters.closeManagedTabIfSafe,
-      onQueueWaiting: async (transitionAt) => {
-        await adapters.automationNotify?.(queueWaitingNotification(transitionAt));
-      },
-      onClearManagedTabOwnership: adapters.clearManagedTabOwnership,
-      onApplyStopState: applyStopState,
-      onNotify: async (title, message) => {
-        await adapters.notify(title, message);
-      },
-      onSystemAlert: async (reason, message) => {
-        const completionWasAlreadyDelivered =
-          state.appState.completionNotified &&
-          adapters.automationNotify &&
-          (reason === 'queue-complete' || reason === 'farming-complete');
-        if (!completionWasAlreadyDelivered) {
-          await adapters.telegramSystemAlert?.(reason, message);
-        }
-      },
-      onRefreshDropsData: async (options) => {
-        await dependencies.onRefreshDropsData(options);
-      },
-      onSaveState: () => adapters.saveState(state),
-      onSaveTimingState: adapters.saveTimingState,
-    });
-  }
 
   async function selectGame(payload: { readonly game: TwitchGame }) {
     if (context.transitionCampaign && state.appState.isRunning && !state.appState.isPaused) {
@@ -228,7 +170,6 @@ export function createFarmingSessionQueue(
   }
 
   return {
-    advanceQueueIfCompleted,
     handleAddToQueue,
     handleClearQueue,
     handleRemoveFromQueue,

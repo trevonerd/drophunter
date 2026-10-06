@@ -8,17 +8,12 @@ import {
 } from './drops-projection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import { EligibleStreamerDiscoveryUnavailableError } from './eligible-streamer-discovery.ts';
+import type { FarmingQueueProgression } from './farming-queue-progression.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
-import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { createFarmingSessionStallRecovery } from './farming-session-stall-recovery.ts';
 import { createPersistentRecoveryHandler } from './persistent-recovery-notification.ts';
 import { clearRecoveryState } from './recovery-state.ts';
-import { skipCurrentGameAndAdvanceQueue, skipCurrentGameDueToStall } from './session-lifecycle.ts';
-import { queueWaitingNotification } from './session-lifecycle-queue-parking.ts';
-import { progressFarmingQueue } from './session-lifecycle-queue-progression.ts';
-import { isAutomaticFavoriteSession } from './session-lifecycle-queue-selection.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
-import type { StopFarmingSessionRequest } from './session-lifecycle-types.ts';
 import { blockSelectedCampaignForStall } from './stalled-campaign-blocking.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 import type { StreamRotationReason } from './stream-rotation.ts';
@@ -34,9 +29,8 @@ import { NoEligibleStreamerError, WatchPlaybackUnavailableError } from './stream
 
 type FarmingSessionStreamingDependencies = {
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<RefreshDropsOutcome>;
-  readonly onStopFarmingSession: (options: StopFarmingSessionRequest) => Promise<void>;
+  readonly queueProgression: Pick<FarmingQueueProgression, 'skipCurrent' | 'retryWaitingQueue'>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
-  readonly onStopMonitoring: () => void;
 };
 
 export type FarmingSessionStreaming = {
@@ -65,9 +59,6 @@ export function createFarmingSessionStreaming(
   dependencies: FarmingSessionStreamingDependencies,
 ): FarmingSessionStreaming {
   const { state, adapters } = context;
-  const onQueueWaiting = async (transitionAt: number): Promise<void> => {
-    await adapters.automationNotify?.(queueWaitingNotification(transitionAt));
-  };
   const enterPersistentRecovery = createPersistentRecoveryHandler({
     automationNotify: adapters.automationNotify,
     notify: adapters.notify,
@@ -122,25 +113,7 @@ export function createFarmingSessionStreaming(
     reason: 'no-streamers' | 'directory-unavailable' | 'open-failed' = 'no-streamers',
     isCurrent?: () => boolean,
   ): Promise<void> {
-    await skipCurrentGameAndAdvanceQueue(state, reason, {
-      onTransitionToCampaign: context.transitionCampaign,
-      isCurrent,
-      onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-      onRefreshDropsData: async (options) => {
-        await dependencies.onRefreshDropsData(options);
-      },
-      onOpenStreamer: acquireStreamerForSelectedGame,
-      onSaveState: () => adapters.saveState(state),
-      onSaveTimingState: adapters.saveTimingState,
-      onStopMonitoring: async () => {
-        dependencies.onStopMonitoring();
-        await adapters.watchTransport?.stop();
-      },
-      onCloseManagedTabIfSafe: adapters.closeManagedTabIfSafe,
-      onQueueWaiting,
-      onStopFarmingSession: dependencies.onStopFarmingSession,
-      onNotify: adapters.notify,
-    });
+    await dependencies.queueProgression.skipCurrent(reason, isCurrent);
   }
 
   async function acquireStreamerForSelectedGame(isCurrent: () => boolean = () => true): Promise<boolean> {
@@ -150,23 +123,8 @@ export function createFarmingSessionStreaming(
       !state.appState.isPaused &&
       state.appState.lastStopReason !== 'user-stop';
     if (!authorized()) return false;
-    if (context.transitionCampaign && state.appState.queueAcquisitionRound?.nextRoundAt != null) {
-      if (state.appState.queueAcquisitionRound.nextRoundAt > context.now()) return false;
-      const result = await progressFarmingQueue(state, {
-        restrictUnauthorizedManualContinuation: isAutomaticFavoriteSession(
-          state,
-          state.appState.selectedGame,
-        ),
-        terminalFarmingCompleteGame: null,
-        options: {
-          isCurrent: authorized,
-          onTransitionToCampaign: context.transitionCampaign,
-          onSaveState: () => adapters.saveState(state),
-          onSaveTimingState: adapters.saveTimingState,
-          onQueueWaiting,
-        },
-      });
-      return result.kind === 'advanced' && result.opened;
+    if (state.appState.queueAcquisitionRound?.nextRoundAt != null) {
+      return dependencies.queueProgression.retryWaitingQueue(authorized);
     }
     return acquireStreamer(state, {
       onOpenStreamer: (current) => openBestStreamerForSelectedGame(current),
@@ -240,29 +198,7 @@ export function createFarmingSessionStreaming(
       if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
     }
 
-    const queueAdvanceEpoch = currentFarmingSessionEpoch(state);
-    const queueAdvanceGeneration = state.tickGeneration;
-    await skipCurrentGameDueToStall(state, {
-      onTransitionToCampaign: context.transitionCampaign,
-      isCurrent,
-      isCurrentAfterQueueAdvance: (game) =>
-        currentFarmingSessionEpoch(state) === queueAdvanceEpoch &&
-        state.tickGeneration === queueAdvanceGeneration &&
-        state.appState.isRunning &&
-        !state.appState.isPaused &&
-        state.appState.selectedGame !== null &&
-        gameKey(state.appState.selectedGame) === gameKey(game),
-      onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-      onRefreshDropsData: async (options) => {
-        await dependencies.onRefreshDropsData(options);
-      },
-      onOpenStreamer: acquireStreamerForSelectedGame,
-      onSaveState: () => adapters.saveState(state),
-      onSaveTimingState: adapters.saveTimingState,
-      onStopFarmingSession: dependencies.onStopFarmingSession,
-      onQueueWaiting,
-      onNotify: adapters.notify,
-    });
+    await dependencies.queueProgression.skipCurrent('stalled-progress', isCurrent);
   }
 
   async function handleAuthoritativeCampaignUnavailable(
@@ -272,19 +208,7 @@ export function createFarmingSessionStreaming(
       return;
     }
     await adapters.notifyCampaignUnavailable?.(game);
-    await skipCurrentGameAndAdvanceQueue(state, 'unfarmable', {
-      onTransitionToCampaign: context.transitionCampaign,
-      onEnsureWorkspace: ensureWorkspaceForSelectedGame,
-      onRefreshDropsData: async (options) => {
-        await dependencies.onRefreshDropsData(options);
-      },
-      onOpenStreamer: acquireStreamerForSelectedGame,
-      onSaveState: () => adapters.saveState(state),
-      onSaveTimingState: adapters.saveTimingState,
-      onStopFarmingSession: (options) =>
-        dependencies.onStopFarmingSession({ ...options, suppressNotifications: true }),
-      onQueueWaiting,
-    });
+    await dependencies.queueProgression.skipCurrent('unfarmable');
   }
 
   const recoverStalledProgress = createFarmingSessionStallRecovery(context, {

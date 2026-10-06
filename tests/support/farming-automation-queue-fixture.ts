@@ -16,6 +16,7 @@ import { createServiceWorkerState } from '../../src/background/runtime-state.ts'
 import { createWatchTransportTransition } from '../../src/background/watch-transport-transition.ts';
 import { gameKey } from '../../src/shared/game-selection.ts';
 import type { CampaignPriorityMode, TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
+import { createQueueAvailabilityReconciler } from '../support/queue-progression.ts';
 
 export function campaign(id: string, endsAt: string): TwitchGame {
   return {
@@ -180,6 +181,7 @@ export function fixture(mode: CampaignPriorityMode, options: QueueFixtureOptions
     viewerCount: 1,
   };
   const automation = createFarmingAutomation({
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
     state,
     persistence,
     browser,

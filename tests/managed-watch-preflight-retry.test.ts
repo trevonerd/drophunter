@@ -13,6 +13,7 @@ import { gameKey } from '../src/shared/game-selection.ts';
 import { createDrop, createGame, createStreamer } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { installManagedWatchPages } from './support/managed-watch-pages.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 test('automatic queue defers native creation on transient old-tab proof failure and retries without duplicates', async () => {
   const mocks = setupChromeMocks();
@@ -66,6 +67,7 @@ test('automatic queue defers native creation on transient old-tab proof failure 
       campaignChannelsMap: {},
     };
     const automation = createFarmingAutomation({
+      reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
       state,
       persistence,
       browser: { ...adapter, observeManualTabs: async () => ({ kind: 'observed', tabs: [] }) },

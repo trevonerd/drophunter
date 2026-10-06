@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { loadClaimLog } from '../src/background/claim-log.ts';
 import { dropStateKey } from '../src/background/drops-projection.ts';
 import { createFarmingSession, type FarmingSessionAdapters } from '../src/background/farming-session.ts';
@@ -252,6 +252,85 @@ describe('campaign handoff through the farming session', () => {
     expect(coordinator.currentTarget()?.campaignId).toBe('smite-campaign');
     expect(coordinator.currentOwnership()).toMatchObject({ expectedChannel: 'smite-streamer' });
   });
+
+  test('completion cannot promote a successor whose prepared state cannot be saved', async () => {
+    const { state, session, coordinator, games, drops, disposed } = fixture({
+      candidateSucceeds: true,
+      saveState: async (next) => {
+        if (next.appState.selectedGame?.campaignId === 'r6-campaign') throw new Error('storage unavailable');
+      },
+    });
+    await coordinator.start(createStreamer({ name: 'smite-streamer' }));
+    drops[0]!.claimed = true;
+    state.appState.pendingDrops = [];
+    state.appState.currentDrop = null;
+    await session.advanceQueueIfCompleted();
+    expect(disposed).toEqual(['r6-streamer']);
+    expect(state.appState.selectedGame?.campaignId).toBe('smite-campaign');
+    expect(coordinator.currentOwnership()).toMatchObject({ expectedChannel: 'smite-streamer' });
+    expect(state.appState.queue).toEqual([games[1]!]);
+    expect(state.appState.manualQueueAuthorized).toBe(true);
+    expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeGreaterThan(Date.now());
+  });
+
+  test('transport cleanup failure still persists terminal completion for reconstruction', async () => {
+    let saved: ReturnType<typeof createMinimalState>['appState'] | undefined;
+    const { state, session, coordinator, drops } = fixture({
+      saveState: async (next) => {
+        saved = structuredClone(next.appState);
+      },
+    });
+    await coordinator.start(createStreamer({ name: 'smite-streamer' }));
+    for (const drop of drops) drop.claimed = true;
+    state.appState.pendingDrops = [];
+    state.appState.currentDrop = null;
+    const cleanup = spyOn(coordinator, 'stop').mockRejectedValue(new Error('cleanup unavailable'));
+    try {
+      expect(await session.advanceQueueIfCompleted()).toBe(false);
+      expect(saved!.isRunning).toBe(false);
+      expect(saved!.lastStopReason).toBe('queue-complete');
+      expect(saved!.manualQueueAuthorized).toBe(false);
+      expect(saved!.queue).toEqual([]);
+    } finally {
+      cleanup.mockRestore();
+    }
+  });
+
+  test.each(['Stop', 'Pause'] as const)(
+    '%s cancels completion while a real successor is preparing',
+    async (action) => {
+      let entered!: () => void;
+      let resume!: () => void;
+      const preparing = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const release = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      const { state, session, coordinator, drops } = fixture({
+        candidateSucceeds: true,
+        beforeCandidateOpen: async () => {
+          entered();
+          await release;
+        },
+      });
+      await coordinator.start(createStreamer({ name: 'smite-streamer' }));
+      drops[0]!.claimed = true;
+      state.appState.pendingDrops = [];
+      state.appState.currentDrop = null;
+      const pending = session.advanceQueueIfCompleted();
+      await preparing;
+      if (action === 'Stop') await session.handleStopFarming();
+      else await session.handlePauseFarming();
+      resume();
+      await pending;
+      expect(state.appState.selectedGame?.campaignId).toBe('smite-campaign');
+      expect(coordinator.currentTarget()?.campaignId).not.toBe('r6-campaign');
+      expect(state.appState.isRunning).toBe(action === 'Pause');
+      expect(state.appState.isPaused).toBe(action === 'Pause');
+      expect(state.appState.manualQueueAuthorized).toBe(action === 'Pause');
+    },
+  );
 
   test('a persistent storage outage returns a failure after discarding the candidate', async () => {
     const { state, session, coordinator, games, disposed } = fixture({

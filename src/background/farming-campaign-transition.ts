@@ -1,6 +1,6 @@
 import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
-import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isRewardFarmableNow, isRewardScheduledForFuture } from '../shared/reward-scheduling.ts';
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import type { TwitchDrop, TwitchGame } from '../types/index.ts';
 import { STREAM_VALIDATION_GRACE_MS } from './constants.ts';
@@ -33,6 +33,7 @@ import type { PreparedWatch } from './watch-transport-transition.ts';
 
 export type CampaignTransitionResult =
   | { readonly kind: 'started' }
+  | { readonly kind: 'waiting' }
   | { readonly kind: 'cancelled' }
   | { readonly kind: 'completed' }
   | {
@@ -117,6 +118,9 @@ export function createFarmingCampaignTransition(
         error: 'Unable to verify rewards for this campaign right now.',
       };
     if (!candidateDrops.some((drop) => !isRewardAcquired(drop) && isRewardFarmableNow(drop))) {
+      if (candidateDrops.some((drop) => !isRewardAcquired(drop) && isRewardScheduledForFuture(drop))) {
+        return { kind: 'waiting' };
+      }
       return { kind: 'completed' };
     }
     const candidateWatch: { watch: PreparedWatch | null } = { watch: null };
@@ -219,6 +223,15 @@ export function createFarmingCampaignTransition(
       !working.appState.pendingDrops.some((drop) => isRewardFarmableNow(drop))
     ) {
       await prepared.dispose();
+      if (
+        rebasedSelection &&
+        !campaignRejectionReason(rebasedSelection) &&
+        working.appState.pendingDrops.some(
+          (drop) => !isRewardAcquired(drop) && isRewardScheduledForFuture(drop),
+        )
+      ) {
+        return { kind: 'waiting' };
+      }
       return { kind: 'completed' };
     }
     const key = gameKey(selected);

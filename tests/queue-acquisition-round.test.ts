@@ -2,7 +2,7 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 18],
+  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 5],
 ]);
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
@@ -11,7 +11,6 @@ import {
   resetQueueAcquisitionRound,
 } from '../src/background/queue-acquisition-round.ts';
 import { pushGameToQueue, removeGameFromQueue } from '../src/background/queue-operations.ts';
-import { skipCurrentGameAndAdvanceQueue } from '../src/background/session-lifecycle-queue.ts';
 import { prepareNextEligibleQueueHead } from '../src/background/session-lifecycle-queue-selection.ts';
 import { stopFarmingSession } from '../src/background/session-lifecycle-stop.ts';
 import { resetStateForInactivity } from '../src/background/state-persistence.ts';
@@ -20,6 +19,7 @@ import { gameKey } from '../src/shared/game-selection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import { createGame, createMinimalState } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
+import { commitPreparedCampaign, createQueueProgressionFixture } from './support/queue-progression.ts';
 
 describe('queue acquisition rounds', () => {
   afterEach(() => {
@@ -81,17 +81,15 @@ describe('queue acquisition rounds', () => {
       state.appState.availableGames = [...campaigns];
       state.appState.selectedGame = campaigns[0] ?? null;
       state.appState.manualQueueAuthorized = true;
-      const visited: string[] = [];
-      // When: every attempted campaign returns a valid empty streamer directory after a variable delay.
-      for (let index = 0; index < size; index += 1) {
-        visited.push(state.appState.selectedGame?.campaignId ?? 'missing');
-        now += 35_000 + index * 5_000;
-        await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-          onSaveTimingState: async () => {},
-          onSaveState: async () => {},
-          onOpenStreamer: async () => false,
-        });
-      }
+      const visited = [campaigns[0]?.campaignId ?? 'missing'];
+      const progression = createQueueProgressionFixture(state, {
+        transitionCampaign: async (candidate) => {
+          visited.push(candidate.campaignId ?? 'missing');
+          now += 35_000;
+          return { kind: 'failed', reason: 'no-streamers', error: 'empty directory' };
+        },
+      });
+      await progression.skipCurrent('no-streamers');
       // Then: each identity is visited once, the queue remains intact, and retry has a future deadline.
       expect(visited).toEqual(campaigns.map((game) => game.campaignId ?? 'missing'));
       expect(state.appState.queue).toHaveLength(size);
@@ -118,14 +116,14 @@ describe('queue acquisition rounds', () => {
     state.appState.queue = campaigns;
     state.appState.selectedGame = campaigns[0] ?? null;
     state.appState.manualQueueAuthorized = true;
-    for (let index = 0; index < 2; index += 1) {
-      await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-        onSaveTimingState: async () => {},
-        onSaveState: async () => {},
-        onOpenStreamer: async () => false,
-      });
-      now += 35_000;
-    }
+    await createQueueProgressionFixture(state, {
+      transitionCampaign: async (candidate) => {
+        now += 35_000;
+        return candidate.campaignId === 'restart-1'
+          ? { kind: 'failed', reason: 'no-streamers', error: 'empty' }
+          : commitPreparedCampaign(state, candidate);
+      },
+    }).skipCurrent('no-streamers');
     // When: durable state is restored after a simulated weekend.
     const restored = createMinimalState();
     restored.appState = normalizeStoredAppState(JSON.parse(JSON.stringify(state.appState)));
@@ -147,10 +145,7 @@ describe('queue acquisition rounds', () => {
     const state = createMinimalState();
     state.appState.selectedGame = first;
     state.appState.queue = [first];
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onSaveTimingState: async () => {},
-      onSaveState: async () => {},
-    });
+    await createQueueProgressionFixture(state).skipCurrent('no-streamers');
     // When: the user adds another campaign during the waiting period.
     state.appState.queue.push(added);
     const next = prepareNextEligibleQueueHead(state, false);

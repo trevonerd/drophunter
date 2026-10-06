@@ -4,6 +4,7 @@ import { createServiceWorkerState } from '../../src/background/runtime-state.ts'
 import type { WatchHealth } from '../../src/background/watch-transport.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
+import { preparedWatch } from '../support/prepared-watch.ts';
 
 let chromeMocks: ChromeMocks;
 
@@ -152,6 +153,10 @@ describe('farming session watch transport integration', () => {
             updatedAt: now,
           }),
           watchTransport: {
+            prepare: async (target) => {
+              hiddenStarts += 1;
+              return preparedWatch(target, createHealth('tabless'));
+            },
             start: async () => {
               hiddenStarts += 1;
               return { kind: 'started', health: createHealth('tabless') };

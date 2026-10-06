@@ -1,5 +1,22 @@
 # Matrice di recupero e aggiornamento
 
+## Progressione della coda e premi futuri — 6 ottobre 2026
+
+La progressione è composta una volta nella sessione e possiede selezione, parcheggio, giri di riprova, attesa, persistenza e completamento. La discovery automatica passa solo prove positive di disponibilità e identità riabilitate; non avvia playback. Il cambio campagna conserva la preparazione e il commit già esistenti. Un successore con soli premi watch-time futuri verificati resta in coda: viene parcheggiato e non rimosso come completato.
+
+| Caso | Evidenza automatizzata |
+|---|---|
+| Campagna corrente e successori futuri; code miste o tutte future; id gioco duplicati | `tests/farming-queue-scheduled-successor.test.ts` |
+| Scadenza reale di riprova, futura idoneità, ricostruzione worker, Stop e Pausa | `tests/farming-queue-scheduled-successor.test.ts`, `tests/queue-advancement-cancellation.test.ts` |
+| Autorizzazione manuale dopo preemption dei preferiti; priorità; giri esauriti e sleep di 72 ore simulato | `tests/v4-queue-continuation.test.ts`, `tests/parked-queue-recovery.test.ts`, `tests/queue-acquisition-round.test.ts`, `tests/continuous-queue-recovery.test.ts` |
+| Prove positive rispetto a directory indisponibile; riconciliazione sincrona senza playback; watch corrente protetto | `tests/farming-queue-progression.test.ts`, `tests/queue-availability-resume.test.ts` |
+| Handoff fallito, errore storage, Stop/Pausa durante preparazione e completamento terminale | `tests/farming-campaign-handoff.test.ts`, `tests/farming-queue-progression.test.ts`, `tests/session-lifecycle-summary-precedence.test.ts` |
+| Chrome MV3: cambio campagna, due giri di recupero, riuso della tab, chiusura e Stop; intenti preservati dopo riciclo worker | `e2e/queue-campaign-handoff.spec.ts`, `e2e/extension-controls.spec.ts` |
+
+Verifica finale: Bun 1.4.2, 2.522 test unitari, 28 E2E Chrome MV3, TypeScript sorgenti/test, lint senza warning e build Chrome/Edge superati. Review indipendenti Standards e Spec senza rilievi aperti dopo le correzioni dei casi senza selezione e del cleanup transport fallito. `vexp verify_done` non segnala errori di parsing o deriva documentale; i suoi 10 avvisi di import riguardano re-export presenti, verificati con i compilatori. I 457 test delle suite interessate dall'indice sono superati.
+
+Prima della modifica: baseline mirata di 38 test superati; riproduzione in memoria, senza scritture sul profilo, della rimozione errata del successore futuro. Le nuove prove ricostruiscono il worker e avanzano l'orologio per restart/sleep; non costituiscono osservazioni manuali con Twitch reale. In questa esecuzione non è stata avviata una sessione sul profilo personale. Restano da osservare con una campagna reale il passaggio dal premio futuro a quello idoneo, due avanzamenti dei drop, riciclo worker e sleep/wake, conservando le verifiche manuali già documentate.
+
 ## Coerenza campagna, playback e progresso — 6 ottobre 2026
 
 L'esito di avvio riguarda il candidato, non la salute del player precedente. Se il cambio fallisce, selezione e ownership restano riferite al watch reale; il problema viene registrato sulla campagna candidata. Completamento e stallo possono parcheggiare il successore senza dichiararlo attivo. Campagna, streamer e proiezione dei drop vengono preparati prima della persistenza e promossi insieme. Stop, Pausa e risultati superati impediscono la promozione.

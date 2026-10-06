@@ -16,6 +16,7 @@ import { gameKey } from '../src/shared/game-selection.ts';
 import { createDrop, createGame, createStreamer } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { installManagedWatchPages } from './support/managed-watch-pages.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 let mocks: ReturnType<typeof setupChromeMocks>;
 beforeEach(() => {
@@ -66,6 +67,7 @@ test('a stopped queued Play authorizes the first managed tab while automatic pre
   expect(await listManagedWatches()).toEqual([]);
 
   const automation = createFarmingAutomation({
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
     state,
     browser,
     persistence: createInMemoryFarmingAutomationPersistence({

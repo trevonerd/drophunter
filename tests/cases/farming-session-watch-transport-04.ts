@@ -5,6 +5,7 @@ import { computeEffectiveStallThreshold } from '../../src/background/stream-rota
 import type { WatchHealth } from '../../src/background/watch-transport.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
+import { preparedWatch } from '../support/prepared-watch.ts';
 
 let chromeMocks: ChromeMocks;
 
@@ -164,6 +165,10 @@ describe('farming session watch transport integration', () => {
           fetchDirectoryStreamersFromApi: async () =>
             Object.assign([streamer, replacementStreamer], { languageFilterApplied: true }),
           watchTransport: {
+            prepare: async (target) => {
+              starts.push(target.channelName);
+              return preparedWatch(target, createHealth('tabless'));
+            },
             start: async (candidate) => {
               starts.push(candidate.name);
               return { kind: 'started', health: createHealth('tabless') };
@@ -235,6 +240,10 @@ describe('farming session watch transport integration', () => {
             return 'suppressed';
           },
           watchTransport: {
+            prepare: async (target) => {
+              hiddenStarts += 1;
+              return preparedWatch(target, createHealth('tabless'));
+            },
             start: async () => {
               hiddenStarts += 1;
               return { kind: 'started', health: createHealth('tabless') };

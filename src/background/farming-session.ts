@@ -1,6 +1,7 @@
 import { dropMatchesSelectedGame } from './drops-projection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import { createFarmingCampaignTransition } from './farming-campaign-transition.ts';
+import { createFarmingQueueProgression } from './farming-queue-progression.ts';
 import type { FarmingSessionAdapters, RefreshDropsOptions } from './farming-session-context.ts';
 import { createFarmingSessionContext } from './farming-session-context.ts';
 import { createFarmingSessionHandlers, type FarmingSessionStopOptions } from './farming-session-handlers.ts';
@@ -39,11 +40,14 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
       }),
     );
   }
+  const progression = createFarmingQueueProgression(context, {
+    onStopFarmingSession: stop,
+    onStopMonitoring: () => stopMonitoring(),
+  });
   const streaming = createFarmingSessionStreaming(context, {
     onRefreshDropsData: refreshDropsData,
-    onStopFarmingSession: stop,
+    queueProgression: progression,
     onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
-    onStopMonitoring: () => stopMonitoring(),
   });
   const {
     acquireStreamerForSelectedGame,
@@ -65,7 +69,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onEnsureWorkspace: ensureWorkspaceForSelectedGame,
     onRefreshDropsData: refreshDropsData,
     onAcquireStreamer: acquireStreamerForSelectedGame,
-    onStopMonitoring: stopMonitoring,
   });
   const {
     handleAddToQueue,
@@ -100,7 +103,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   }
 
   function advanceQueueIfCompleted(isCurrent?: () => boolean): Promise<boolean> {
-    return queue.advanceQueueIfCompleted(isCurrent);
+    return progression.advanceIfCompleted(isCurrent);
   }
 
   return {
@@ -119,6 +122,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     handleStopFarming,
     recoverTwitchSession,
     refreshDropsData,
+    reconcileQueueAvailability: progression.reconcileAvailability,
     resumeAfterAuthRecovery,
     startMonitoring,
     stop,

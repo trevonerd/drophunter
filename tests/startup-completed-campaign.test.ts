@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { LAST_ACTIVITY_AT_KEY, TIMING_STATE_KEY } from '../src/background/constants.ts';
-import { applyStopState } from '../src/background/recovery-state.ts';
+
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createServiceWorkerStateLifecycle } from '../src/background/service-worker-state-lifecycle.ts';
-import { advanceQueueIfCompleted } from '../src/background/session-lifecycle-queue.ts';
 import { saveState } from '../src/background/state-persistence.ts';
 import {
   EXTENSION_VERSION_STORAGE_KEY,
@@ -13,6 +12,7 @@ import {
 import { createInitialState } from '../src/shared/utils.ts';
 import type { TwitchGame } from '../src/types';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
+import { commitPreparedCampaign, createQueueProgressionFixture } from './support/queue-progression.ts';
 
 const completed: TwitchGame = {
   id: 'game',
@@ -67,22 +67,24 @@ async function resume(game: TwitchGame, withNext: boolean, heartbeatAge = 1_000,
     },
     stop: async () => {},
     advanceQueueIfCompleted: async () =>
-      advanceQueueIfCompleted(state, {
-        onOpenStreamer: acquireStreamerForSelectedGame,
-        onCloseManagedTabIfSafe: async (tabId) => {
+      createQueueProgressionFixture(state, {
+        transitionCampaign: async (game) => {
+          const result = commitPreparedCampaign(state, game);
+          await acquireStreamerForSelectedGame();
+          return result;
+        },
+        closeManagedTabIfSafe: async (tabId) => {
           events.push(`close:${tabId}`);
           return true;
         },
-        onClearManagedTabOwnership: () => {
+        clearManagedTabOwnership: () => {
           state.appState.tabId = null;
         },
-        onStopMonitoring: () => {
+        stopMonitoring: () => {
           events.push('stop-monitoring');
         },
-        onApplyStopState: applyStopState,
-        onSaveState: () => saveState(state),
-        onSaveTimingState: async () => {},
-      }),
+        saveState: () => saveState(state),
+      }).advanceIfCompleted(),
   };
   const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farmingSession });
   await lifecycle.beginInitialization(async () => {});

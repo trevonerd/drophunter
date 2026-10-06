@@ -1,14 +1,14 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { projectDropsSnapshot } from '../src/background/drops-projection.ts';
-import { resumeQueuedCampaignsWithAvailableStreamers } from '../src/background/farming-automation-queue-planning.ts';
+import { collectQueueAvailabilityEvidence } from '../src/background/farming-automation-queue-planning.ts';
 import { normalizeFarmingAutomationSnapshot } from '../src/background/farming-automation-twitch.ts';
-import { skipCurrentGameAndAdvanceQueue } from '../src/background/session-lifecycle-queue.ts';
 import { prepareNextEligibleQueueHead } from '../src/background/session-lifecycle-queue-selection.ts';
 import { acquireStreamerForSelectedGame } from '../src/background/streamer-acquisition.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { createDrop, createGame, createMinimalState } from './fixtures/queue-management.ts';
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
+import { createQueueProgressionFixture } from './support/queue-progression.ts';
 
 verifyExpectedDiagnostics([
   ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 6],
@@ -48,14 +48,11 @@ test.each(['no-streamers', 'open-failed', 'stalled-progress'] as const)(
             rewardProgressByKey: {},
           };
         }
-        await skipCurrentGameAndAdvanceQueue(state, reason, {
-          onOpenStreamer: async () => true,
-          onSaveState: async () => {},
-          onSaveTimingState: async () => {},
-          onStopFarmingSession: async () => {
+        await createQueueProgressionFixture(state, {
+          stopSession: async () => {
             stops += 1;
           },
-        });
+        }).skipCurrent(reason);
         if (index < games.length - 1) {
           expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeNull();
           now += 60_000;
@@ -140,27 +137,26 @@ test('only a new eligible streamer ends a stalled round wait, preserving the war
   };
   const snapshot = normalizeFarmingAutomationSnapshot({ games: [game], drops: [], updatedAt: now });
   for (const name of ['known', 'new-streamer']) {
-    resumeQueuedCampaignsWithAvailableStreamers(
-      state,
-      {
-        kind: 'ready',
-        snapshot,
-        directories: new Map([
-          [
-            key,
-            { streamers: [{ id: name, name, displayName: name, isLive: true }], languageFilterApplied: true },
-          ],
-        ]),
-        availability: { [key]: { eligibleStreamerCount: 1, updatedAt: now } },
-        directoryFailures: new Set(),
-      },
-      now,
-    );
+    const evidence = collectQueueAvailabilityEvidence(state, {
+      kind: 'ready',
+      snapshot,
+      directories: new Map([
+        [
+          key,
+          { streamers: [{ id: name, name, displayName: name, isLive: true }], languageFilterApplied: true },
+        ],
+      ]),
+      availability: { [key]: { eligibleStreamerCount: 1, updatedAt: now } },
+      directoryFailures: new Set(),
+    });
+    expect(state.appState.stalledCampaignBlocksByKey[key]).toBeDefined();
+    createQueueProgressionFixture(state).reconcileAvailability(evidence, now);
     if (name === 'known') expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(now + 600_000);
   }
   expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeNull();
   expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).not.toContain(key);
   expect(state.appState.recoveryBackoffUntil).toBe(now);
   expect(state.appState.queueEntryMetadataByKey[key]?.streamerRetryReason).toBe('stalled-progress');
+  expect(state.appState.stalledCampaignBlocksByKey[key]).toBeUndefined();
   expect(state.appState.tabId).toBe(42);
 });

@@ -3,19 +3,16 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
   ['[DropHunter] Parking campaign because eligible stream playback could not start', 2],
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 6],
+  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 5],
 ]);
 
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { splitDropsForSelectedGame } from '../src/background/drops-selected-projection.ts';
-import {
-  advanceQueueIfCompleted,
-  skipCurrentGameAndAdvanceQueue,
-} from '../src/background/session-lifecycle.ts';
 import { normalizeQueueMetadata } from '../src/shared/app-state-collection-normalizers.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { QueueEntryMetadata } from '../src/types/queue.ts';
 import { createDrop, createGame, createMinimalState } from './fixtures/queue-management.ts';
+import { createQueueProgressionFixture } from './support/queue-progression.ts';
 
 const now = Date.parse('2026-09-09T08:00:00Z');
 afterEach(() => mock.restore());
@@ -40,15 +37,10 @@ function fixture() {
   return { state, offline, later, urgent };
 }
 
-const saveTiming = async () => {};
-
 describe('temporarily unavailable campaign queue', () => {
   test('playback failure parks its campaign and advances the authorized successor', async () => {
     const { state, offline, urgent } = fixture();
-    await skipCurrentGameAndAdvanceQueue(state, 'open-failed', {
-      onSaveTimingState: saveTiming,
-      onOpenStreamer: async () => true,
-    });
+    await createQueueProgressionFixture(state).skipCurrent('open-failed');
     expect(state.appState.selectedGame).toEqual(urgent);
     expect(state.appState.queue).toContainEqual(offline);
     expect(state.appState.queueEntryMetadataByKey[gameKey(offline)]?.streamerRetryReason).toBe('open-failed');
@@ -58,10 +50,7 @@ describe('temporarily unavailable campaign queue', () => {
   test('all failed playback waits for a local retry without declaring Twitch unavailable', async () => {
     const { state, offline } = fixture();
     state.appState.queue = [offline];
-    await skipCurrentGameAndAdvanceQueue(state, 'open-failed', {
-      onSaveTimingState: saveTiming,
-      onOpenStreamer: async () => false,
-    });
+    await createQueueProgressionFixture(state).skipCurrent('open-failed');
     expect(state.appState.queue).toEqual([offline]);
     expect(state.appState.recoveryReason).toBe('open-failed');
     expect(state.appState.recoveryBackoffUntil).toBeGreaterThan(now);
@@ -70,10 +59,7 @@ describe('temporarily unavailable campaign queue', () => {
 
   test('parks exact campaign, retains manual provenance, and farms earlier expiry next', async () => {
     const { state, offline, urgent, later } = fixture();
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onSaveTimingState: saveTiming,
-      onOpenStreamer: async () => true,
-    });
+    await createQueueProgressionFixture(state).skipCurrent('no-streamers');
     expect(state.appState.selectedGame).toEqual(urgent);
     expect(state.appState.queue).toEqual([urgent, later, offline]);
     expect(state.appState.queueEntryMetadataByKey[gameKey(offline)]).toMatchObject({
@@ -86,10 +72,7 @@ describe('temporarily unavailable campaign queue', () => {
   test('preserves explicitly configured priority list when choosing a successor', async () => {
     const { state, later, offline, urgent } = fixture();
     state.appState.campaignPriorityMode = 'priority-list-only';
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onSaveTimingState: saveTiming,
-      onOpenStreamer: async () => true,
-    });
+    await createQueueProgressionFixture(state).skipCurrent('no-streamers');
     expect(state.appState.selectedGame).toEqual(later);
     expect(state.appState.queue).toEqual([later, urgent, offline]);
   });
@@ -100,19 +83,18 @@ describe('temporarily unavailable campaign queue', () => {
     let stopped = false;
     let searches = 0;
     const notifications: string[] = [];
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onSaveTimingState: saveTiming,
-      onOpenStreamer: async () => {
+    await createQueueProgressionFixture(state, {
+      transitionCampaign: async () => {
         searches += 1;
-        return false;
+        return { kind: 'failed', reason: 'no-streamers', error: 'empty' };
       },
-      onStopFarmingSession: async () => {
+      stopSession: async () => {
         stopped = true;
       },
-      onNotify: async (_title, message) => {
+      notify: async (_title, message) => {
         notifications.push(message);
       },
-    });
+    }).skipCurrent('no-streamers');
     expect(stopped).toBe(false);
     expect(searches).toBe(0);
     expect(state.appState.queue).toEqual([offline]);
@@ -124,10 +106,7 @@ describe('temporarily unavailable campaign queue', () => {
 
   test('completion skips cooling campaign, then restores its deadline priority after cooldown', async () => {
     const { state, offline, urgent, later } = fixture();
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onSaveTimingState: saveTiming,
-      onOpenStreamer: async () => true,
-    });
+    await createQueueProgressionFixture(state).skipCurrent('no-streamers');
     spyOn(Date, 'now').mockReturnValue(now + 60_001);
     // Completion provides fresh progress evidence; playback alone cannot reset the round.
     splitDropsForSelectedGame(
@@ -143,16 +122,7 @@ describe('temporarily unavailable campaign queue', () => {
     state.appState.allDrops = [createDrop({ campaignId: urgent.campaignId, claimed: true })];
     state.appState.pendingDrops = [];
     state.appState.currentDrop = null;
-    await advanceQueueIfCompleted(state, {
-      onSaveTimingState: saveTiming,
-      onRefreshDropsData: async () => {
-        const drop = createDrop({ campaignId: state.appState.selectedGame?.campaignId });
-        state.appState.allDrops = [drop];
-        state.appState.pendingDrops = [drop];
-        state.appState.currentDrop = drop;
-      },
-      onOpenStreamer: async () => true,
-    });
+    await createQueueProgressionFixture(state).advanceIfCompleted();
     expect(state.appState.selectedGame).toEqual(offline);
     expect(state.appState.queue).toEqual([offline, later]);
   });
@@ -160,31 +130,13 @@ describe('temporarily unavailable campaign queue', () => {
   test('does not announce farming when the successor also has no streamer', async () => {
     const { state } = fixture();
     const notifications: string[] = [];
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onSaveTimingState: saveTiming,
-      onOpenStreamer: async () => false,
-      onNotify: async (_title, message) => {
+    await createQueueProgressionFixture(state, {
+      transitionCampaign: async () => ({ kind: 'failed', reason: 'no-streamers', error: 'empty' }),
+      notify: async (_title, message) => {
         notifications.push(message);
       },
-    });
+    }).skipCurrent('no-streamers');
     expect(notifications.some((message) => message.includes('Now farming'))).toBe(false);
-  });
-
-  test('a successor without a refreshed snapshot does not inherit vanished-drop evidence', async () => {
-    const { state, urgent, offline } = fixture();
-    state.previousAllDropsCount = 1;
-    state.apiBackoffUntil = now + 600_000;
-    await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', {
-      onSaveTimingState: saveTiming,
-      onOpenStreamer: async () => false,
-      onRefreshDropsData: async () => {
-        throw new Error('Network refresh during cooldown');
-      },
-    });
-    await advanceQueueIfCompleted(state, { onSaveTimingState: saveTiming });
-    expect(state.appState.selectedGame).toEqual(urgent);
-    expect(state.appState.queue).toContainEqual(urgent);
-    expect(state.appState.queue).toContainEqual(offline);
   });
 
   test('restores valid retry metadata and discards malformed timers without losing manual provenance', () => {

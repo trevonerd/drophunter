@@ -25,6 +25,7 @@ import {
   createFarmingAutomationTwitchAdapter,
   FarmingAutomationRefreshBackoffError,
 } from './farming-automation-twitch.ts';
+import type { FarmingQueueProgression } from './farming-queue-progression.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { reconcileManagedWatchesOnStartup } from './managed-watch-startup.ts';
 import { applyPlaybackStartRecoveryState } from './recovery-state.ts';
@@ -53,6 +54,7 @@ type TwitchGateway = Pick<
   Partial<Pick<ReturnType<typeof createServiceWorkerTwitchGateway>, 'probeStreamInfo'>>;
 
 export interface ServiceWorkerFarmingAutomationAssemblyDependencies {
+  readonly reconcileQueueAvailability: FarmingQueueProgression['reconcileAvailability'];
   readonly browserEvents: BrowserEvents;
   readonly startMonitoring: () => void;
   readonly twitchGateway: TwitchGateway;
@@ -248,6 +250,7 @@ export async function assembleServiceWorkerFarmingAutomation(
     });
   const automation = createFarmingAutomation({
     state,
+    reconcileQueueAvailability: dependencies.reconcileQueueAvailability,
     persistence,
     browser: automationBrowser,
     manualWatch,

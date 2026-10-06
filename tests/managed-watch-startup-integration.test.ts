@@ -21,6 +21,7 @@ import { createFarmingSessionAdapters, createGame, createStreamer } from './fixt
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { createDeferred } from './support/farming-automation-fixtures.ts';
 import { installManagedWatchPages } from './support/managed-watch-pages.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 const url = 'https://www.twitch.tv/test_streamer';
 function runningState() {
@@ -136,6 +137,7 @@ test('actual automation assembly restores ordinary managed watch after same-vers
       throw new Error('Must restore before acquire');
     };
     await assembleServiceWorkerFarmingAutomation(state, {
+      reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
       browserEvents,
       startMonitoring: () => {},
       twitchGateway: {
@@ -195,6 +197,7 @@ test.each(['wrong-channel', 'wrong-game'] as const)(
       };
       const browserEvents = browserEventsFor(state, mismatch === 'wrong-game' ? 'another-game' : undefined);
       await assembleServiceWorkerFarmingAutomation(state, {
+        reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
         browserEvents,
         startMonitoring: () => {},
         twitchGateway: {
@@ -261,6 +264,7 @@ test('queued Play probes an authorized channel missing from directory results th
     let directoryReads = 0;
     const probedChannels: string[] = [];
     const assembly = await assembleServiceWorkerFarmingAutomation(state, {
+      reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
       browserEvents: browserEventsFor(state),
       startMonitoring: () => {},
       twitchGateway: {
@@ -341,6 +345,7 @@ test('queued Play persists a newly verified Twitch cooldown before returning fai
     };
     let probeCalls = 0;
     const assembly = await assembleServiceWorkerFarmingAutomation(state, {
+      reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
       browserEvents: browserEventsFor(state),
       startMonitoring: () => {},
       twitchGateway: {
@@ -426,6 +431,7 @@ test('queued Play survives account binding that clears the previous account camp
     };
     let directoryReads = 0;
     const assembly = await assembleServiceWorkerFarmingAutomation(state, {
+      reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
       browserEvents: browserEventsFor(state),
       startMonitoring: () => {},
       twitchGateway: {

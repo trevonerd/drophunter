@@ -12,7 +12,6 @@ import {
   clearStreamerAcquisitionRecoveryState,
 } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import { prepareQueueAcquisitionRound } from './session-lifecycle-queue-selection.ts';
 import {
   MAX_NO_STREAMERS_RETRIES,
   NO_STREAMERS_RETRY_MS,
@@ -48,8 +47,6 @@ export function acquireStreamerForSelectedGame(
   opts: AcquisitionOptions = {},
 ): Promise<boolean> {
   if (opts.isCurrent?.() === false) return Promise.resolve(false);
-  if (state.apiBackoffUntil <= Date.now() && !prepareQueueAcquisitionRound(state))
-    return Promise.resolve(false);
   const epoch = currentFarmingSessionEpoch(state);
   const canTransition = () => opts.isCurrent?.() !== false && currentFarmingSessionEpoch(state) === epoch;
   return runStreamerAcquisitionAttempt(

@@ -99,6 +99,7 @@ browserEvents = createServiceWorkerBrowserEvents(state, {
 });
 
 farmingAutomationRuntime = createServiceWorkerFarmingAutomationRuntime(state, {
+  reconcileQueueAvailability: (evidence, now) => farmingSession.reconcileQueueAvailability(evidence, now),
   browserEvents,
   startMonitoring: () => farmingSession.startMonitoring(),
   twitchGateway,

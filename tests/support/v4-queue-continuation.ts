@@ -1,9 +1,10 @@
+import type { FarmingQueueProgression } from '../../src/background/farming-queue-progression.ts';
 import { createFarmingSession } from '../../src/background/farming-session.ts';
 import { createServiceWorkerState, type ServiceWorkerState } from '../../src/background/runtime-state.ts';
-import type { AdvanceQueueOptions } from '../../src/background/session-lifecycle-types.ts';
 import { gameKey } from '../../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame } from '../../src/types/index.ts';
 import { createFarmingSessionAdapters } from '../fixtures/queue-management.ts';
+import { commitPreparedCampaign, createQueueProgressionFixture } from './queue-progression.ts';
 
 export function campaign(id: string): TwitchGame {
   return {
@@ -67,18 +68,17 @@ export function createContinuationProbe(
   state: ServiceWorkerState,
   next: TwitchGame,
 ): {
-  readonly options: AdvanceQueueOptions;
+  readonly progression: FarmingQueueProgression;
   readonly opened: () => number;
 } {
   let count = 0;
   return {
-    options: {
-      onRefreshDropsData: async () => setFarmableDrops(state, next),
-      onOpenStreamer: async () => {
+    progression: createQueueProgressionFixture(state, {
+      transitionCampaign: async () => {
         count += 1;
-        return true;
+        return commitPreparedCampaign(state, next);
       },
-    },
+    }),
     opened: () => count,
   };
 }

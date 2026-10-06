@@ -3,6 +3,7 @@ import { isExpiredGame } from '../shared/utils.ts';
 import type { QueueEntryMetadata, TwitchGame } from '../types/index.ts';
 import type { AutomationEventNotification } from './automation-event-notifier.ts';
 import { expiryTime } from './campaign-priority.ts';
+import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
 import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
 import {
   applyDirectoryUnavailableRecoveryState,
@@ -12,7 +13,6 @@ import {
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { parkCampaignAtQueueTail } from './session-lifecycle-queue-selection.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
-import type { QueueProgressOptions } from './session-lifecycle-types.ts';
 
 const PARKED_QUEUE_RETRY_MS = 60_000;
 export const MAX_PARKED_QUEUE_RETRY_CYCLES = 3;
@@ -34,6 +34,7 @@ export function parkCampaignForStreamerRetry(
   game: TwitchGame,
   reason: NonNullable<QueueEntryMetadata['streamerRetryReason']>,
   preserveQueuePosition = false,
+  now = Date.now(),
 ): void {
   const key = gameKey(game);
   const previousMetadata = state.appState.queueEntryMetadataByKey[key];
@@ -49,10 +50,10 @@ export function parkCampaignForStreamerRetry(
     ...(previousMetadata ?? {
       source: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-auto' : 'manual',
       reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
-      addedAt: Date.now(),
+      addedAt: now,
     }),
     streamerRetryAt:
-      Date.now() +
+      now +
       (reason === 'open-failed' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES
         ? 10 * PARKED_QUEUE_RETRY_MS
         : PARKED_QUEUE_RETRY_MS),
@@ -67,10 +68,10 @@ export function parkCampaignForStreamerRetry(
 export async function waitForParkedQueue(
   state: ServiceWorkerState,
   restrictUnauthorizedManualContinuation: boolean,
-  options?: QueueProgressOptions,
+  options: QueueProgressionExecution,
 ): Promise<boolean> {
   if (options?.isCurrent?.() === false) return false;
-  const now = Date.now();
+  const now = options.now();
   const parked = state.appState.queue
     .filter((game) => {
       const metadata = state.appState.queueEntryMetadataByKey[gameKey(game)];
@@ -96,7 +97,7 @@ export async function waitForParkedQueue(
   if (retryAt <= now) return false;
   const alreadyWaiting = state.appState.recoveryBackoffUntil === retryAt;
   resetStreamTrackingState(state);
-  const retainedWatch = options?.onTransitionToCampaign && state.appState.activeStreamer !== null;
+  const retainedWatch = state.appState.activeStreamer !== null;
   if (!retainedWatch) state.appState.selectedGame = next;
   state.appState.isRunning = true;
   state.appState.queueResumeOnAvailability = false;

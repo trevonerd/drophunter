@@ -3,12 +3,10 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
   ['[DropHunter] Entering persistent recovery mode', 5],
-  ['[DropHunter] Finishing campaign because Twitch reward acquisition could not be verified', 2],
-  ['[DropHunter] Giving up on game after stalled drop progress', 16],
+  ['[DropHunter] Giving up on game after stalled drop progress', 3],
   ['[DropHunter] No allowed streamers are live for selected game', 2],
   ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 3],
   ['[DropHunter] No streamer found for selected game', 10],
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 4],
   ['[DropHunter] Stalled progress recovery exhausted — skipping game', 1],
 ]);
 
@@ -24,12 +22,7 @@ import { registerQueue09Part01 } from './cases/queue-09-resetstreamtrackingstate
 import { registerQueue10Part01 } from './cases/queue-10-applystopstate-01.ts';
 import { registerQueue11Part01 } from './cases/queue-11-enterpersistentrecovery-01.ts';
 import { registerQueue12Part01 } from './cases/queue-12-acquirestreamerforselectedgame-01.ts';
-import { registerQueue13Part01 } from './cases/queue-13-skipcurrentgameandadvancequeue-01.ts';
 import { registerQueue14Part01 } from './cases/queue-14-stopfarmingsession-01.ts';
-import { registerQueue15Part01 } from './cases/queue-15-advancequeueifcompleted-01.ts';
-import { registerQueue15Part02 } from './cases/queue-15-advancequeueifcompleted-02.ts';
-import { registerQueue15Part03 } from './cases/queue-15-advancequeueifcompleted-03.ts';
-import { registerQueue16Part01 } from './cases/queue-16-skipcurrentgameduetostall-01.ts';
 import { registerQueue17Part01 } from './cases/queue-17-handlestartfarming-01.ts';
 import { registerQueue17Part02 } from './cases/queue-17-handlestartfarming-02.ts';
 import { registerQueue18Part01 } from './cases/queue-18-rotatestreamer-01.ts';
@@ -57,12 +50,7 @@ registerQueue09Part01();
 registerQueue10Part01();
 registerQueue11Part01();
 registerQueue12Part01();
-registerQueue13Part01();
 registerQueue14Part01();
-registerQueue15Part01();
-registerQueue15Part02();
-registerQueue15Part03();
-registerQueue16Part01();
 registerQueue17Part01();
 registerQueue17Part02();
 registerQueue18Part01();
