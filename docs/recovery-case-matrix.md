@@ -1,5 +1,11 @@
 # Matrice di recupero e aggiornamento
 
+## Verifica release 4.0.0-beta.61 — 6 ottobre 2026
+
+Gate completo `bun run release:check` superato con Bun 1.4.2: controllo dello scope TypeScript, compilatori sorgenti/test, lint senza warning, 2.528 test unitari, 28 E2E Chrome MV3, audit dipendenze, build e archivi Chrome/Edge, controlli dei manifest e degli archivi. La verifica finale vexp conferma assenza di errori di parsing e deriva documentale; i 261 test nelle 37 suite indicate sono superati e i 7 avvisi sui re-export/fixture sono stati ricontrollati con ricerca nativa e compilatori.
+
+Entrambi gli ZIP `drophunter-4.0.0-beta.61-chrome.zip` e `drophunter-4.0.0-beta.61-edge.zip` hanno superato il controllo di integrità e contengono manifest tecnico `3.99.0.61` con `version_name` `4.0.0-beta.61`. Questa beta comprende coerenza watch/campagna, progressione della coda e ownership delle tab documentate sotto; resta destinata a GitHub e installazioni locali. Restart e sleep/wake su Twitch reale restano verifiche manuali aperte.
+
 ## Ownership delle tab di farming — 6 ottobre 2026
 
 Il modulo di ownership concentra acquisizione, prove sessione/pagina, registro, riuso, conferma, rollback, ricostruzione startup e rilascio. Playback e promozione restano nei transport. I formati storage esistenti sono invariati. Stop conserva il video; un candidato provvisorio viene scartato senza chiudere l'ultima tab della finestra. Le prove incerte continuano a bloccare nuove creazioni e il riconoscimento manuale mantiene distinto “sconosciuto” da “nessuna tab gestita”.
