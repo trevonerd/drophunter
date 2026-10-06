@@ -1,7 +1,10 @@
 import { browser } from '../shared/browser-api.ts';
-import { resolveCategorySlug as resolveCategorySlugExt } from '../shared/game-selection.ts';
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
+import { gameKey, resolveCategorySlug as resolveCategorySlugExt } from '../shared/game-selection.ts';
+import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
 import {
+  applyApiBackoff,
   clearLastTwitchApiFailure,
   fetchDirectoryStreamersFromApiWrapper,
   fetchDropsSnapshotFromApiWrapper,
@@ -9,6 +12,7 @@ import {
   getLastTwitchApiFailure,
 } from './api-operations.ts';
 import { PROGRESS_POLL_MS } from './constants.ts';
+import { normalizeFarmingAutomationSnapshot } from './farming-automation-normalization.ts';
 import type { StreamContext } from './farming-session.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
@@ -38,6 +42,38 @@ import { dropsForFarmingTarget } from './watch-target.ts';
 import type { FarmingTarget, TablessHeartbeat } from './watch-transport.ts';
 
 const GAMES_STALE_THRESHOLD_MS = 60 * 60_000;
+
+export function normalizeFreshFarmableGame(snapshot: DropsSnapshot, game: TwitchGame) {
+  const normalizedSnapshot = normalizeFarmingAutomationSnapshot(snapshot);
+  const normalizedGame = normalizedSnapshot.games.find(
+    (candidate) =>
+      gameKey({
+        ...candidate,
+        allowedChannels: candidate.allowedChannels
+          ? [...candidate.allowedChannels]
+          : candidate.allowedChannels,
+      }) === gameKey(game),
+  );
+  const candidate = normalizedGame
+    ? {
+        ...normalizedGame,
+        allowedChannels: normalizedGame.allowedChannels
+          ? [...normalizedGame.allowedChannels]
+          : normalizedGame.allowedChannels,
+      }
+    : null;
+  if (
+    !candidate ||
+    campaignRejectionReason(candidate) !== null ||
+    candidate.rewardSummary?.completion !== 'farmable'
+  ) {
+    return null;
+  }
+  return {
+    game: candidate,
+    snapshot: normalizedSnapshot,
+  };
+}
 
 interface ServiceWorkerTwitchGatewayDependencies {
   readonly recoverTwitchSession: (options: {
@@ -188,6 +224,10 @@ export function createServiceWorkerTwitchGateway(
     forceSessionRefresh = false,
     language = '',
     isCurrent?: () => boolean,
+    requestOptions?: {
+      readonly sessionRecoveryMode?: 'passive' | 'background-tab';
+      readonly preserveSessionOnAuthFailure?: boolean;
+    },
   ): Promise<TwitchStreamer[] & { languageFilterApplied: boolean }> {
     return fetchDirectoryStreamersFromApiWrapper(
       state,
@@ -203,6 +243,7 @@ export function createServiceWorkerTwitchGateway(
         isCurrent,
       },
       { logWarn },
+      requestOptions,
     );
   }
 
@@ -244,6 +285,68 @@ export function createServiceWorkerTwitchGateway(
     return { ...result, progress: currentCachedProgress(target) };
   }
 
+  async function probeStreamInfo(channelName: string) {
+    if (state.apiBackoffUntil > Date.now()) return { kind: 'unavailable' as const };
+    try {
+      return await twitchSpadeHeartbeat.probeStreamInfo(channelName);
+    } catch (error) {
+      const failure = classifyTwitchApiFailure(error);
+      if (failure.kind === 'rate-limit') applyApiBackoff(state, failure.retryAfterMs);
+      return { kind: 'unavailable' as const, cause: error };
+    }
+  }
+
+  async function refreshVerifiedGame(game: TwitchGame, isCurrent: () => boolean = () => true) {
+    if (!isCurrent() || state.apiBackoffUntil > Date.now()) return null;
+    const initialUserId = state.twitchSessionCache?.userId ?? null;
+    const refreshStartedAt = Date.now();
+    const snapshot = await fetchDropsSnapshot({
+      sessionRecoveryMode: 'background-tab',
+      preserveSessionOnAuthFailure: true,
+    });
+    if (
+      !snapshot ||
+      !isCurrent() ||
+      (state.twitchSessionCache?.userId ?? null) !== initialUserId ||
+      snapshot.campaignsVerified !== true ||
+      snapshot.inventoryVerified !== true ||
+      snapshot.updatedAt < refreshStartedAt
+    ) {
+      return null;
+    }
+    const normalized = normalizeFreshFarmableGame(snapshot, game);
+    if (!normalized) return null;
+    const { game: refreshedGame, snapshot: normalizedSnapshot } = normalized;
+    const campaignIds = new Set(
+      normalizedSnapshot.drops
+        .filter(
+          (drop) =>
+            drop.campaignId === game.campaignId &&
+            !isRewardAcquired({
+              ...drop,
+              benefitIds: drop.benefitIds ? [...drop.benefitIds] : undefined,
+              rewardDistributionTypes: drop.rewardDistributionTypes
+                ? [...drop.rewardDistributionTypes]
+                : undefined,
+            }),
+        )
+        .map((drop) => drop.campaignId)
+        .filter((campaignId): campaignId is string => Boolean(campaignId)),
+    );
+    let allowedChannels: string[] | null = refreshedGame.allowedChannels ?? null;
+    if (campaignIds.size > 0) {
+      let unrestricted = false;
+      const restricted: string[] = [];
+      for (const campaignId of campaignIds) {
+        const channels = snapshot.campaignChannelsMap?.[campaignId];
+        if (channels == null) unrestricted = true;
+        else restricted.push(...channels);
+      }
+      allowedChannels = unrestricted ? null : [...new Set(restricted)];
+    }
+    return { ...refreshedGame, allowedChannels };
+  }
+
   return {
     ensureContentScriptOnTab,
     ensureTwitchSession,
@@ -255,6 +358,8 @@ export function createServiceWorkerTwitchGateway(
     fetchInventorySnapshot,
     fetchStreamContext,
     heartbeat,
+    probeStreamInfo,
+    refreshVerifiedGame,
     persistSessionFromDropsPage: sessionOrchestrator.persistSessionFromDropsPage,
     resolveCategorySlug: (game: TwitchGame) => resolveCategorySlugExt(game, state.appState.availableGames),
     shouldRefreshCampaignsAfterSessionSync: () =>

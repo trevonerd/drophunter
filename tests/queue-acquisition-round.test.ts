@@ -6,6 +6,10 @@ verifyExpectedDiagnostics([
 ]);
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
+import {
+  queueRoundCandidates,
+  resetQueueAcquisitionRound,
+} from '../src/background/queue-acquisition-round.ts';
 import { pushGameToQueue, removeGameFromQueue } from '../src/background/queue-operations.ts';
 import { skipCurrentGameAndAdvanceQueue } from '../src/background/session-lifecycle-queue.ts';
 import { prepareNextEligibleQueueHead } from '../src/background/session-lifecycle-queue-selection.ts';
@@ -20,6 +24,42 @@ import { setupChromeMocks } from './mocks/chrome.ts';
 describe('queue acquisition rounds', () => {
   afterEach(() => {
     spyOn(Date, 'now').mockRestore();
+  });
+
+  test('clears stalled history only when the actual ten-minute round opens', () => {
+    const first = createGame({ id: 'shared', campaignId: 'round-a' });
+    const second = createGame({ id: 'shared', campaignId: 'round-b' });
+    const state = createMinimalState();
+    const firstKey = gameKey(first);
+    const secondKey = gameKey(second);
+    state.appState.queueEntryMetadataByKey[firstKey] = {
+      source: 'manual',
+      addedAt: 1,
+      reason: 'user-added',
+      stalledStreamerNames: ['a'],
+    };
+    state.appState.queueEntryMetadataByKey[secondKey] = {
+      source: 'manual',
+      addedAt: 2,
+      reason: 'user-added',
+      stalledStreamerNames: ['b'],
+    };
+    state.appState.queueAcquisitionRound = {
+      attemptedCampaignKeys: [firstKey, secondKey],
+      nextRoundAt: 10_000,
+    };
+
+    resetQueueAcquisitionRound(state);
+    expect(state.appState.queueEntryMetadataByKey[firstKey]?.stalledStreamerNames).toEqual(['a']);
+    expect(state.appState.queueEntryMetadataByKey[secondKey]?.stalledStreamerNames).toEqual(['b']);
+    state.appState.queueAcquisitionRound = {
+      attemptedCampaignKeys: [firstKey, secondKey],
+      nextRoundAt: 10_000,
+    };
+
+    expect(queueRoundCandidates(state, [first, second], 10_000)).toEqual([first, second]);
+    expect(state.appState.queueEntryMetadataByKey[firstKey]?.stalledStreamerNames).toBeUndefined();
+    expect(state.appState.queueEntryMetadataByKey[secondKey]?.stalledStreamerNames).toBeUndefined();
   });
 
   test.each([1, 4, 10])(

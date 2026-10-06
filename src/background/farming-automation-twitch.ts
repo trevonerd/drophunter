@@ -1,6 +1,7 @@
 import { gameKey } from '../shared/game-selection.ts';
 import { toSlug } from '../shared/utils.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
+import type { StreamInfoProbe } from './eligible-streamer-discovery.ts';
 import {
   type FarmingAutomationNormalizedDrop,
   type FarmingAutomationNormalizedGame,
@@ -21,16 +22,28 @@ export interface FarmingAutomationRefreshPatch {
   readonly campaignDropsByKey: Readonly<Record<string, readonly FarmingAutomationNormalizedDrop[]>>;
   readonly campaignChannelsMap: Readonly<Record<string, readonly string[] | null>>;
 }
+export interface FarmingAutomationRefreshOptions {
+  /** Queued Play requires a new, fully verified campaigns + inventory snapshot. */
+  readonly requireFreshCompleteSnapshot?: boolean;
+  /** Restricts an additional zero-candidate refresh to passive session use. */
+  readonly allowSessionRecovery?: boolean;
+  readonly onSessionResolved?: (userId: string) => void;
+}
 export type FarmingAutomationRefreshResult =
   | {
       readonly kind: 'ready';
       readonly snapshot: FarmingAutomationTwitchSnapshot;
       readonly refreshPatch: FarmingAutomationRefreshPatch;
+      readonly sessionUserId?: string;
     }
   | { readonly kind: 'session-missing' };
 export interface FarmingAutomationDirectoryResponse {
   readonly streamers: readonly TwitchStreamer[];
   readonly languageFilterApplied: boolean;
+}
+export interface FarmingAutomationDirectoryRequestOptions {
+  readonly sessionRecoveryMode?: 'passive' | 'background-tab';
+  readonly preserveSessionOnAuthFailure?: boolean;
 }
 export interface FarmingAutomationDirectoryTarget {
   readonly campaignKey: string;
@@ -50,7 +63,11 @@ export type FarmingAutomationDirectoryResult =
   | { readonly kind: 'session-missing' };
 export interface FarmingAutomationTwitchSource {
   readonly loadSession: (forceRefresh: boolean) => Promise<TwitchSession | null>;
-  readonly fetchCampaignSnapshot: (session: TwitchSession) => Promise<DropsSnapshot | null>;
+  readonly assertCanRefresh?: (options: FarmingAutomationRefreshOptions) => void;
+  readonly fetchCampaignSnapshot: (
+    session: TwitchSession | null,
+    options?: FarmingAutomationRefreshOptions,
+  ) => Promise<DropsSnapshot | null>;
   /** Whether a specific campaign snapshot already includes a fresh inventory projection. */
   readonly campaignSnapshotIncludesInventory?: (snapshot: DropsSnapshot) => boolean;
   readonly fetchInventorySnapshot?: (
@@ -61,17 +78,34 @@ export interface FarmingAutomationTwitchSource {
     game: TwitchGame,
     session: TwitchSession,
     language: string,
+    options?: FarmingAutomationDirectoryRequestOptions,
   ) => Promise<FarmingAutomationDirectoryResponse>;
+  readonly probeStreamInfo?: (channel: string) => Promise<StreamInfoProbe>;
 }
 export interface FarmingAutomationTwitchAdapter {
-  readonly refresh: (forceSessionRefresh?: boolean) => Promise<FarmingAutomationRefreshResult>;
-  readonly fetchDirectory: (game: TwitchGame, language?: string) => Promise<FarmingAutomationDirectoryResult>;
+  readonly refresh: (
+    forceSessionRefresh?: boolean,
+    options?: FarmingAutomationRefreshOptions,
+  ) => Promise<FarmingAutomationRefreshResult>;
+  readonly fetchDirectory: (
+    game: TwitchGame,
+    language?: string,
+    options?: FarmingAutomationDirectoryRequestOptions,
+  ) => Promise<FarmingAutomationDirectoryResult>;
+  readonly probeStreamInfo?: (channel: string) => Promise<StreamInfoProbe>;
 }
 
 export class FarmingAutomationCampaignRefreshError extends Error {
   readonly name = 'FarmingAutomationCampaignRefreshError';
   constructor(readonly cause: unknown) {
     super('Twitch campaign snapshot refresh failed');
+  }
+}
+
+export class FarmingAutomationRefreshBackoffError extends Error {
+  readonly name = 'FarmingAutomationRefreshBackoffError';
+  constructor(readonly retryAt: number) {
+    super('Twitch refresh is waiting for its scheduled retry');
   }
 }
 
@@ -86,6 +120,14 @@ export class FarmingAutomationDirectoryRefreshError extends Error {
   readonly name = 'FarmingAutomationDirectoryRefreshError';
   constructor(readonly cause: unknown) {
     super('Twitch directory refresh failed');
+  }
+}
+
+export class FarmingAutomationSessionMissingError extends Error {
+  readonly name = 'FarmingAutomationSessionMissingError';
+
+  constructor() {
+    super('Twitch session is unavailable.');
   }
 }
 
@@ -112,17 +154,51 @@ function mergeSnapshots(campaigns: DropsSnapshot, inventory: DropsSnapshot): Dro
 export function createFarmingAutomationTwitchAdapter(
   source: FarmingAutomationTwitchSource,
 ): FarmingAutomationTwitchAdapter {
-  const refresh = async (forceSessionRefresh = false): Promise<FarmingAutomationRefreshResult> => {
-    const session = await source.loadSession(forceSessionRefresh);
-    if (!session?.userId.trim()) return Object.freeze({ kind: 'session-missing' as const });
+  const refresh = async (
+    forceSessionRefresh = false,
+    options: FarmingAutomationRefreshOptions = {},
+  ): Promise<FarmingAutomationRefreshResult> => {
+    source.assertCanRefresh?.(options);
+    const refreshStartedAt = Date.now();
+    let session = await source.loadSession(forceSessionRefresh);
+    if (!session?.userId.trim() && !options.requireFreshCompleteSnapshot) {
+      return Object.freeze({ kind: 'session-missing' as const });
+    }
 
     let campaignSnapshot: DropsSnapshot | null;
+    let snapshotSessionUserId: string | null = null;
     try {
-      campaignSnapshot = await source.fetchCampaignSnapshot(session);
+      campaignSnapshot = await source.fetchCampaignSnapshot(session, {
+        ...options,
+        ...(options.requireFreshCompleteSnapshot
+          ? { onSessionResolved: (userId: string) => (snapshotSessionUserId = userId) }
+          : {}),
+      });
     } catch (cause) {
+      if (cause instanceof FarmingAutomationRefreshBackoffError) throw cause;
       throw new FarmingAutomationCampaignRefreshError(cause);
     }
+    source.assertCanRefresh?.(options);
+    if (options.requireFreshCompleteSnapshot) {
+      session = await source.loadSession(false);
+      if (session && snapshotSessionUserId && session.userId !== snapshotSessionUserId) {
+        throw new FarmingAutomationCampaignRefreshError('Twitch account changed during campaign refresh.');
+      }
+    }
+    if (!session?.userId.trim()) return Object.freeze({ kind: 'session-missing' as const });
     if (!campaignSnapshot) throw new FarmingAutomationCampaignRefreshError('Empty Twitch campaign snapshot');
+
+    if (options.requireFreshCompleteSnapshot) {
+      if (campaignSnapshot.inventoryVerified !== true) {
+        throw new FarmingAutomationInventoryRefreshError('Twitch inventory snapshot is incomplete.');
+      }
+      if (campaignSnapshot.campaignsVerified !== true) {
+        throw new FarmingAutomationCampaignRefreshError('Twitch campaign snapshot is incomplete.');
+      }
+      if (campaignSnapshot.updatedAt < refreshStartedAt) {
+        throw new FarmingAutomationCampaignRefreshError('Twitch campaign snapshot is stale.');
+      }
+    }
 
     let combinedSnapshot = campaignSnapshot;
     if (source.fetchInventorySnapshot && !source.campaignSnapshotIncludesInventory?.(campaignSnapshot)) {
@@ -148,18 +224,20 @@ export function createFarmingAutomationTwitchAdapter(
       kind: 'ready' as const,
       snapshot,
       refreshPatch: deriveSafeRefreshPatch(snapshot),
+      sessionUserId: session.userId,
     });
   };
 
   const fetchDirectory = async (
     game: TwitchGame,
     language = '',
+    options?: FarmingAutomationDirectoryRequestOptions,
   ): Promise<FarmingAutomationDirectoryResult> => {
     const session = await source.loadSession(false);
     if (!session?.userId.trim()) return Object.freeze({ kind: 'session-missing' as const });
     let response: FarmingAutomationDirectoryResponse;
     try {
-      response = await source.fetchDirectoryStreamers(game, session, language);
+      response = await source.fetchDirectoryStreamers(game, session, language, options);
       return Object.freeze({
         kind: 'ready',
         target: Object.freeze({
@@ -178,5 +256,5 @@ export function createFarmingAutomationTwitchAdapter(
     }
   };
 
-  return { refresh, fetchDirectory };
+  return { refresh, fetchDirectory, probeStreamInfo: source.probeStreamInfo };
 }

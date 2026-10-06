@@ -110,11 +110,14 @@ export async function prepareManagedProvisionalWatch(
   } catch (error) {
     if (!(error instanceof Error)) throw error;
   }
-  const healthy = prepared && isHealthyWatchProbe(probe);
+  const hasDropsEligibilityProof =
+    probe.isLive === true && probe.sameChannel === true && probe.sameGame === true;
+  const dropsSignalIsAcceptable = probe.hasDropsSignal !== false || hasDropsEligibilityProof;
+  const healthy = prepared && dropsSignalIsAcceptable && isHealthyWatchProbe(probe);
   const health = createWatchHealth(
     'managed-tab',
     healthy ? (probe.hasDropsSignal === false ? 'degraded' : 'healthy') : 'failed',
-    healthy ? reasonForWatchProbe(probe) : 'error',
+    healthy ? (probe.hasDropsSignal === false ? 'drops-inactive' : reasonForWatchProbe(probe)) : 'error',
     operations.now,
   );
   return {

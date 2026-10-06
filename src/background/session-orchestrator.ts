@@ -20,6 +20,9 @@ export type SessionRecoveryMode = 'passive' | 'background-tab';
 
 export interface TwitchApiRequestOptions {
   readonly sessionRecoveryMode?: SessionRecoveryMode;
+  /** A manual queued candidate must not stop an incumbent before it is prepared. */
+  readonly preserveSessionOnAuthFailure?: boolean;
+  readonly onSessionResolved?: (session: TwitchSession) => void;
 }
 
 interface TwitchTab {

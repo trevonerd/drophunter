@@ -120,22 +120,29 @@ describe('fetchDropsSnapshotFromApi', () => {
     expect(state.apiBackoffUntil).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000 + 1000);
   });
 
-  test('retains Twitch Retry-After when a snapshot request is rate limited', async () => {
-    const { fetchDropsSnapshotFromApi, getLastTwitchApiFailure } = await import(
-      '../../src/background/api-operations.ts'
-    );
+  for (const inventoryOnly of [false, true]) {
+    test(`retains Twitch Retry-After when ${inventoryOnly ? 'only inventory' : 'a snapshot request'} is rate limited`, async () => {
+      const { fetchDropsSnapshotFromApi, getLastTwitchApiFailure } = await import(
+        '../../src/background/api-operations.ts'
+      );
 
-    const state = createMinimalState();
-    const session = createSession();
-    originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response('{}', { status: 429, headers: { 'Retry-After': '120' } })) as FetchMock;
+      const state = createMinimalState();
+      const session = createSession();
+      originalFetch = globalThis.fetch;
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+        if (inventoryOnly && body?.operationName === 'ViewerDropsDashboard') {
+          return Response.json(buildDropsDashboardResponse([]));
+        }
+        return new Response('{}', { status: 429, headers: { 'Retry-After': '120' } });
+      }) as FetchMock;
 
-    const before = Date.now();
-    expect(await fetchDropsSnapshotFromApi(state, session)).toBeNull();
-    expect(getLastTwitchApiFailure(state)).toMatchObject({ kind: 'rate-limit', retryAfterMs: 120_000 });
-    expect(state.apiBackoffUntil).toBeGreaterThanOrEqual(before + 120_000);
-  });
+      const before = Date.now();
+      expect(await fetchDropsSnapshotFromApi(state, session)).toBeNull();
+      expect(getLastTwitchApiFailure(state)).toMatchObject({ kind: 'rate-limit', retryAfterMs: 120_000 });
+      expect(state.apiBackoffUntil).toBeGreaterThanOrEqual(before + 120_000);
+    });
+  }
 
   test('uses existing integrity token when integrityFallbackActive and not expired', async () => {
     const { fetchDropsSnapshotFromApi } = await import('../../src/background/api-operations.ts');

@@ -8,6 +8,7 @@ import {
   clearPendingTimingStateSaveForTests,
   loadState,
   markActivity,
+  saveState,
   sessionDebugSummary,
   setTimingSaveDebounceMsForTests,
 } from '../src/background/state-persistence.ts';
@@ -96,6 +97,61 @@ describe('loadState', () => {
     clearPendingTimingStateSaveForTests();
     setTimingSaveDebounceMsForTests(null);
     mocks.teardown();
+  });
+
+  test('restores stalled streamer history for duplicate campaigns in a paused new worker', async () => {
+    const first = { id: 'shared-game', name: 'Game', imageUrl: '', campaignId: 'campaign-a' };
+    const second = { ...first, campaignId: 'campaign-b' };
+    const saved = createMinimalState({
+      appState: createAppState({
+        isRunning: true,
+        isPaused: true,
+        selectedGame: first,
+        queue: [first, second],
+        queueEntryMetadataByKey: {
+          'campaign:campaign-a': {
+            source: 'manual',
+            addedAt: 1,
+            reason: 'user-added',
+            stalledStreamerNames: ['A', ' b '],
+          },
+          'campaign:campaign-b': {
+            source: 'manual',
+            addedAt: 2,
+            reason: 'user-added',
+            stalledStreamerNames: ['C'],
+          },
+        },
+      }),
+    });
+    await saveState(saved);
+
+    const restored = createMinimalState();
+    await loadState(
+      restored,
+      { onLoadTimingState: async () => undefined, onEnforceInactivityReset: async () => false },
+      {
+        sanitizeTwitchSession: () => null,
+        sessionDebugSummary,
+        createInitialState,
+        clearRotationMetadata: (appState) => appState,
+        TWITCH_SESSION_STORAGE_KEY: 'twitchSession',
+        DROPS_SNAPSHOT_CACHE_KEY: 'dropsSnapshotCache',
+        LAST_ACTIVITY_AT_KEY: 'lastActivityAt',
+        TIMING_STATE_KEY: 'timingState',
+        STREAM_VALIDATION_GRACE_MS: 0,
+      },
+    );
+
+    expect(restored.appState.isPaused).toBe(true);
+    expect(restored.appState.queue).toEqual([first, second]);
+    expect(restored.appState.queueEntryMetadataByKey['campaign:campaign-a']?.stalledStreamerNames).toEqual([
+      'a',
+      'b',
+    ]);
+    expect(restored.appState.queueEntryMetadataByKey['campaign:campaign-b']?.stalledStreamerNames).toEqual([
+      'c',
+    ]);
   });
 
   test('aborts startup when storage is unavailable instead of booting from empty defaults', async () => {

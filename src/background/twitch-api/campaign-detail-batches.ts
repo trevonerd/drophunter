@@ -1,4 +1,5 @@
 import { logWarn } from '../logging';
+import { classifyTwitchApiFailure } from './errors';
 import { normalizeText } from './parsing';
 import { isLikelyAuthError } from './types';
 
@@ -59,8 +60,9 @@ export async function fetchCampaignDetailsBatch(
   const fetchedDetails = new Map<string, Record<string, unknown>>();
   let failedBatches = 0;
   let nextChunkIndex = 0;
+  let stopped = false;
   const fetchNextBatch = async (): Promise<void> => {
-    while (nextChunkIndex < chunks.length) {
+    while (!stopped && nextChunkIndex < chunks.length) {
       const chunk = chunks[nextChunkIndex];
       nextChunkIndex += 1;
       if (!chunk) return;
@@ -82,14 +84,17 @@ export async function fetchCampaignDetailsBatch(
         });
         if (!hasValidDetail) failedBatches += 1;
       } catch (error) {
-        if (isLikelyAuthError(error)) throw error;
+        if (isLikelyAuthError(error) || classifyTwitchApiFailure(error).kind === 'rate-limit') {
+          stopped = true;
+          throw error;
+        }
         failedBatches += 1;
         logWarn(
           '[TwitchApiClient] Campaign detail batch fetch failed; retaining valid partial data:',
           error instanceof Error ? error.message : String(error),
         );
       }
-      if (request.onProgress) {
+      if (!stopped && request.onProgress) {
         await request.onProgress(buildDetailsMap(campaignIds, fetchedDetails, request.cache), failedBatches);
       }
     }

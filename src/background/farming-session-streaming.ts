@@ -8,6 +8,7 @@ import {
 } from './drops-projection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { createFarmingSessionStallRecovery } from './farming-session-stall-recovery.ts';
 import { createPersistentRecoveryHandler } from './persistent-recovery-notification.ts';
 import { clearRecoveryState } from './recovery-state.ts';
@@ -40,7 +41,10 @@ export type FarmingSessionStreaming = {
   readonly handleAuthoritativeCampaignUnavailable: (
     game: import('../types/index.ts').TwitchGame,
   ) => Promise<void>;
-  readonly handleRecoverySkip: () => Promise<void>;
+  readonly handleRecoverySkip: (
+    verifiedAlternativesExhausted?: boolean,
+    isCurrent?: () => boolean,
+  ) => Promise<void>;
   readonly recoverStalledProgress: (
     source: StalledProgressSource,
     isCurrent?: () => boolean,
@@ -71,6 +75,8 @@ export function createFarmingSessionStreaming(
       state,
       {
         onFetchDirectoryStreamersFromApi: adapters.fetchDirectoryStreamersFromApi,
+        probeStreamInfo: adapters.probeStreamInfo,
+        onRefreshVerifiedGame: adapters.refreshVerifiedGame,
         onOpenForegroundChannel: adapters.openForegroundChannel,
         onOpenWatchTransport: async (streamer) => {
           if (!isCurrent()) return { kind: 'cancelled' } as const;
@@ -136,7 +142,10 @@ export function createFarmingSessionStreaming(
     if (!authorized()) return false;
     return acquireStreamer(state, {
       onOpenStreamer: (current) => openBestStreamerForSelectedGame(current),
-      onSkipCurrentGame: skipCurrentGameDueToNoStreamers,
+      onSkipCurrentGame: (reason, current) =>
+        reason === 'stalled-progress'
+          ? handleRecoverySkip(true, current)
+          : skipCurrentGameDueToNoStreamers(reason, current),
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
       isCurrent: authorized,
@@ -156,10 +165,17 @@ export function createFarmingSessionStreaming(
     };
   }
 
-  async function handleRecoverySkip(): Promise<void> {
+  async function handleRecoverySkip(
+    verifiedAlternativesExhausted = false,
+    isCurrent: () => boolean = () => true,
+  ): Promise<void> {
+    if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
     const exhaustedStalledRecovery =
-      state.appState.recoveryReason === 'stalled-progress' &&
-      state.stalledRecoveryAttempts >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
+      verifiedAlternativesExhausted ||
+      (state.appState.queueEntryMetadataByKey[
+        state.appState.selectedGame ? gameKey(state.appState.selectedGame) : ''
+      ]?.stalledStreamerNames?.length ?? 0) >=
+        MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS + 1;
     const stalledDrop = state.appState.currentDrop;
     if (exhaustedStalledRecovery && stalledDrop && markDropUnverifiable(state, stalledDrop, context.now())) {
       projectDropsSnapshot(
@@ -174,20 +190,39 @@ export function createFarmingSessionStreaming(
       recomputeSelectedCampaignSummaryAfterLocalMarker(state);
       resetStreamTrackingState(state);
       await adapters.saveTimingState(state);
+      if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
       await dependencies.onAdvanceQueueIfCompleted();
+      if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
       await adapters.saveState(state);
       return;
     }
     if (exhaustedStalledRecovery) {
-      await blockSelectedCampaignForStall({
-        state,
-        now: context.now,
-        fetchDirectoryStreamers: adapters.fetchDirectoryStreamersFromApi,
-        notify: adapters.automationNotify,
-      });
+      try {
+        const blocked = await blockSelectedCampaignForStall({
+          state,
+          now: context.now,
+          isCurrent: () => isCurrent() && state.appState.isRunning && !state.appState.isPaused,
+          fetchDirectoryStreamers: adapters.fetchDirectoryStreamersFromApi,
+          notify: adapters.automationNotify,
+        });
+        if (!blocked) return;
+      } catch {
+        // A directory outage cannot erase the confirmed failed-name history or prevent queue progress.
+      }
+      if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
     }
 
+    const queueAdvanceEpoch = currentFarmingSessionEpoch(state);
+    const queueAdvanceGeneration = state.tickGeneration;
     await skipCurrentGameDueToStall(state, {
+      isCurrent,
+      isCurrentAfterQueueAdvance: (game) =>
+        currentFarmingSessionEpoch(state) === queueAdvanceEpoch &&
+        state.tickGeneration === queueAdvanceGeneration &&
+        state.appState.isRunning &&
+        !state.appState.isPaused &&
+        state.appState.selectedGame !== null &&
+        gameKey(state.appState.selectedGame) === gameKey(game),
       onEnsureWorkspace: ensureWorkspaceForSelectedGame,
       onRefreshDropsData: async (options) => {
         await dependencies.onRefreshDropsData(options);

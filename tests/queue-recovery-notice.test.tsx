@@ -6,7 +6,7 @@ import { gameKey } from '../src/shared/game-selection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import { appState, game, renderMainView } from './fixtures/popup-reward.tsx';
 
-test('all unresolved campaigns survive history truncation, deduplicate and show full labels and deadlines', () => {
+test('popup owns unresolved campaign details and controls while monitor shows current status', () => {
   const games = [game({ campaignName: 'A very long campaign title '.repeat(5) }),
     game({ campaignId: 'second', campaignName: 'Second Campaign' })];
   const now = Date.now();
@@ -27,17 +27,21 @@ test('all unresolved campaigns survive history truncation, deduplicate and show 
   expect(entries.every((entry) => entry.nextRetryAt === now + 600_000)).toBe(true);
   const popup = renderMainView(state, games, { runtimeMode: 'recovering', recoveryNow: now });
   const monitor = renderToStaticMarkup(<MonitorView state={state} lastUpdatedAt={now} recoveryNow={now} contextNow={now} />);
-  for (const markup of [popup, monitor]) {
-    expect(markup).toContain('Campaigns awaiting recovery (2)');
-    expect(markup).toContain(games[0].campaignName ?? 'Missing name');
-    expect(markup).toContain('Second Campaign');
-    expect(markup).toContain('Eligible stream playback could not start');
-    expect(markup).toContain('Twitch progress is not advancing');
-    expect(markup).toContain('Pause');
-    expect(markup).toContain('Stop');
-    expect(markup).not.toContain('>Start</button>');
-  }
+  expect(popup).toContain('Campaigns awaiting recovery (2)');
+  expect(popup).toContain(games[0].campaignName ?? 'Missing name');
+  expect(popup).toContain('Second Campaign');
+  expect(popup).toContain('Eligible stream playback could not start');
+  expect(popup).toContain('Twitch progress is not advancing');
+  expect(popup).toContain('Pause');
+  expect(popup).toContain('Stop');
+  expect(popup).not.toContain('>Start</button>');
   expect(popup).toContain('Waiting for next retry');
+  expect(monitor).toContain('>WAITING</span>');
+  expect(monitor).toContain('No eligible streamer');
+  expect(monitor).not.toContain('Second Campaign');
+  expect(monitor).not.toContain('<details');
+  expect(monitor).not.toContain('Campaigns awaiting recovery');
+  expect(monitor).not.toContain('<button');
 });
 
 test('recovered, completed, expired and removed campaigns leave the current warning', () => {

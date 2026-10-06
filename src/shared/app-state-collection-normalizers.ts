@@ -128,6 +128,7 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
           streamerRetryAttempts,
           streamerRetryCycles,
           streamerWaitState,
+          stalledStreamerNames,
           ...provenance
         } = metadata;
         const validRetry =
@@ -156,6 +157,18 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
               ? { streamerRetryReason }
               : {}),
             ...(streamerWaitState === 'availability' ? { streamerWaitState } : {}),
+            ...(Array.isArray(stalledStreamerNames)
+              ? {
+                  stalledStreamerNames: Array.from(
+                    new Set(
+                      stalledStreamerNames
+                        .filter((name): name is string => typeof name === 'string')
+                        .map((name) => name.trim().toLowerCase())
+                        .filter(Boolean),
+                    ),
+                  ).slice(0, 4),
+                }
+              : {}),
           },
         ];
       }),

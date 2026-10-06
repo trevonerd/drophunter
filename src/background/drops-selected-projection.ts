@@ -64,13 +64,14 @@ function resetSelectedProjection(state: ServiceWorkerState): void {
 function clearRecoveredStall(state: ServiceWorkerState, selected: TwitchGame): void {
   resetQueueAcquisitionRound(state);
   const metadata = state.appState.queueEntryMetadataByKey[gameKey(selected)];
-  if (metadata?.streamerRetryReason) {
+  if (metadata) {
     const {
       streamerRetryAt: _retryAt,
       streamerRetryReason: _retryReason,
       streamerRetryAttempts: _attempts,
       streamerRetryCycles: _cycles,
       streamerWaitState: _waitState,
+      stalledStreamerNames: _stalledStreamers,
       ...retained
     } = metadata;
     state.appState.queueEntryMetadataByKey[gameKey(selected)] = retained;

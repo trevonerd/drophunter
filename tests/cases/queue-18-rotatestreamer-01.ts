@@ -19,7 +19,13 @@ export function registerQueue18Part01() {
 
     test('increments noProgressRotationAttempts for stalled-progress reason', async () => {
       const state = createMinimalState({ noProgressRotationAttempts: 0 });
-      await rotateStreamer(state, 'stalled-progress', {});
+      state.appState.activeStreamer = { id: 'alpha', name: 'alpha', displayName: 'Alpha', isLive: true };
+      await rotateStreamer(state, 'stalled-progress', {
+        onOpenStreamer: async () => {
+          state.appState.activeStreamer = { id: 'beta', name: 'beta', displayName: 'Beta', isLive: true };
+          return true;
+        },
+      });
       expect(state.noProgressRotationAttempts).toBe(1);
     });
 
@@ -27,10 +33,15 @@ export function registerQueue18Part01() {
       const state = createMinimalState();
       state.appState.activeStreamer = { id: 'alpha', name: 'alpha', displayName: 'Alpha', isLive: true };
 
-      await rotateStreamer(state, 'stalled-progress', { onOpenStreamer: async () => true });
+      await rotateStreamer(state, 'stalled-progress', {
+        onOpenStreamer: async () => {
+          state.appState.activeStreamer = { id: 'beta', name: 'beta', displayName: 'Beta', isLive: true };
+          return true;
+        },
+      });
 
       expect(state.avoidStreamerName).toBe('alpha');
-      expect(state.appState.activeStreamer).toBeNull();
+      expect(state.appState.activeStreamer?.name).toBe('beta');
       expect(state.offlineChecks).toBe(0);
     });
 
@@ -86,8 +97,9 @@ export function registerQueue18Part01() {
       expect(result).toBe(false);
     });
 
-    test('skips as stalled progress when a stalled rotation cannot open a replacement', async () => {
+    test('does not skip or clear the incumbent when a stalled replacement cannot open', async () => {
       const state = createMinimalState({ stalledRecoveryAttempts: 2 });
+      state.appState.activeStreamer = { id: 'alpha', name: 'alpha', displayName: 'Alpha', isLive: true };
 
       let skipCalled = false;
       await rotateStreamer(state, 'stalled-progress', {
@@ -97,7 +109,8 @@ export function registerQueue18Part01() {
         },
       });
 
-      expect(skipCalled).toBe(true);
+      expect(skipCalled).toBe(false);
+      expect(state.appState.activeStreamer?.name).toBe('alpha');
       expect(state.appState.recoveryReason).not.toBe('no-streamers');
     });
 
@@ -105,7 +118,12 @@ export function registerQueue18Part01() {
       const state = createMinimalState();
       const before = Date.now();
 
-      await rotateStreamer(state, 'offline', {});
+      await rotateStreamer(state, 'offline', {
+        onOpenStreamer: async () => {
+          state.appState.activeStreamer = { id: 'beta', name: 'beta', displayName: 'Beta', isLive: true };
+          return true;
+        },
+      });
 
       expect(state.appState.lastRotationAt).toBeGreaterThanOrEqual(before);
       expect(state.lastStreamRotationAt).toBeGreaterThanOrEqual(before);
@@ -114,17 +132,22 @@ export function registerQueue18Part01() {
 
     test('sets lastRotationReason on appState', async () => {
       const state = createMinimalState();
-      await rotateStreamer(state, 'offline', {});
+      await rotateStreamer(state, 'offline', {
+        onOpenStreamer: async () => {
+          state.appState.activeStreamer = { id: 'beta', name: 'beta', displayName: 'Beta', isLive: true };
+          return true;
+        },
+      });
       expect(state.appState.lastRotationReason).toBe('offline');
     });
 
-    test('clears activeStreamer', async () => {
+    test('preserves activeStreamer when the replacement does not open', async () => {
       const state = createMinimalState();
       state.appState.activeStreamer = { id: 'streamer-1', name: 'test', displayName: 'Test', isLive: true };
 
-      await rotateStreamer(state, 'offline', {});
+      await rotateStreamer(state, 'offline', { onOpenStreamer: async () => false });
 
-      expect(state.appState.activeStreamer).toBeNull();
+      expect(state.appState.activeStreamer?.name).toBe('test');
     });
 
     test('calls onOpenStreamer', async () => {
@@ -229,18 +252,19 @@ export function registerQueue18Part01() {
       expect(saveTimingCalled).toBe(true);
     });
 
-    test('calls onSaveTimingState even when entering recovery', async () => {
+    test('does not persist rotation timing when a stalled replacement fails', async () => {
       const state = createMinimalState({ noProgressRotationAttempts: 3 });
 
       let saveTimingCalled = false;
       await rotateStreamer(state, 'stalled-progress', {
+        onOpenStreamer: async () => false,
         onEnterPersistentRecovery: async () => {},
         onSaveTimingState: async () => {
           saveTimingCalled = true;
         },
       });
 
-      expect(saveTimingCalled).toBe(true);
+      expect(saveTimingCalled).toBe(false);
     });
 
     test('caps stalled progress retry attempts without entering persistent recovery', async () => {

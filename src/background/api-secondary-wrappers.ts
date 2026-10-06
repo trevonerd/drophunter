@@ -101,6 +101,10 @@ export async function fetchDirectoryStreamersFromApiWrapper(
   language: string,
   callbacks: FetchDirectoryStreamersFromApiCallbacks,
   deps: { logWarn: (msg: string, ctx?: unknown) => void },
+  options: {
+    readonly sessionRecoveryMode?: SessionRecoveryMode;
+    readonly preserveSessionOnAuthFailure?: boolean;
+  } = {},
 ): Promise<TwitchStreamer[] & { languageFilterApplied: boolean }> {
   const epoch = currentFarmingSessionEpoch(state);
   const generation = state.tickGeneration;
@@ -123,13 +127,18 @@ export async function fetchDirectoryStreamersFromApiWrapper(
   } catch (error) {
     if (!isCurrent()) throw new TwitchDirectoryUnavailableError(error);
     if (callbacks.onIsLikelyAuthError(error)) {
-      await callbacks.onClearTwitchSessionCache(state);
+      const preserveSession = options.preserveSessionOnAuthFailure === true;
+      const recoveryMode = options.sessionRecoveryMode ?? 'background-tab';
+      if (!preserveSession) await callbacks.onClearTwitchSessionCache(state);
       if (!isCurrent()) throw new TwitchDirectoryUnavailableError(error);
       try {
-        session = callbacks.onRecoverTwitchSessionAfterAuthError
-          ? await callbacks.onRecoverTwitchSessionAfterAuthError('background-tab')
-          : !forceSessionRefresh
-            ? await callbacks.onEnsureTwitchSession(true)
+        session =
+          recoveryMode === 'background-tab'
+            ? callbacks.onRecoverTwitchSessionAfterAuthError
+              ? await callbacks.onRecoverTwitchSessionAfterAuthError(recoveryMode)
+              : !forceSessionRefresh
+                ? await callbacks.onEnsureTwitchSession(true)
+                : null
             : null;
       } catch (recoveryError) {
         throw new TwitchDirectoryUnavailableError(recoveryError);
@@ -142,11 +151,11 @@ export async function fetchDirectoryStreamersFromApiWrapper(
           if (!isCurrent()) throw new TwitchDirectoryUnavailableError(retryError);
           if (!callbacks.onIsLikelyAuthError(retryError))
             throw new TwitchDirectoryUnavailableError(retryError);
-          await callbacks.onClearTwitchSessionCache(state);
+          if (!preserveSession) await callbacks.onClearTwitchSessionCache(state);
           if (!isCurrent()) throw new TwitchDirectoryUnavailableError(retryError);
         }
       }
-      await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
+      if (!preserveSession) await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
     }
     deps.logWarn('Twitch API directory fetch failed:', String(error));
     throw new TwitchDirectoryUnavailableError(error);

@@ -9,6 +9,13 @@ import { reconcileManagedWatchesOnStartup } from '../src/background/managed-watc
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createServiceWorkerBrowserEvents } from '../src/background/service-worker-browser-events.ts';
 import { assembleServiceWorkerFarmingAutomation } from '../src/background/service-worker-farming-automation-assembly.ts';
+import { bindCampaignEvidenceAccount } from '../src/background/session-account-evidence.ts';
+import {
+  loadTimingState,
+  setTimingSaveDebounceMsForTests,
+} from '../src/background/timing-state-persistence.ts';
+import { gameKey } from '../src/shared/game-selection.ts';
+import type { DropsSnapshot, TwitchGame } from '../src/types/index.ts';
 import { createFarmingSessionAdapters, createGame, createStreamer } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { createDeferred } from './support/farming-automation-fixtures.ts';
@@ -136,6 +143,250 @@ test('actual automation assembly restores ordinary managed watch after same-vers
       ownershipToken: 'assembly-owned',
       expectedChannel: 'test_streamer',
     });
+  } finally {
+    mocks.teardown();
+  }
+});
+
+test('queued Play probes an authorized channel missing from directory results through production assembly wiring', async () => {
+  const mocks = setupChromeMocks();
+  try {
+    const state = createServiceWorkerState();
+    const queued: TwitchGame = createGame({
+      campaignId: 'queued-campaign',
+      endsAt: '2030-08-04T12:00:00.000Z',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+      allowedChannels: ['restricted-channel'],
+    });
+    state.appState.queue = [queued];
+    state.appState.queueEntryMetadataByKey = {
+      [gameKey(queued)]: { source: 'manual', addedAt: 1, reason: 'user-added' },
+    };
+    const stale: DropsSnapshot = {
+      games: [createGame({ campaignId: 'stale-campaign' })],
+      drops: [],
+      campaignsVerified: false,
+      inventoryVerified: false,
+      updatedAt: Date.now() - 10_000,
+    };
+    const fresh: DropsSnapshot = {
+      games: [queued],
+      drops: [],
+      campaignsVerified: true,
+      inventoryVerified: true,
+      updatedAt: Date.now(),
+    };
+    let progressiveReads = 0;
+    let freshReads = 0;
+    let directoryReads = 0;
+    const probedChannels: string[] = [];
+    const assembly = await assembleServiceWorkerFarmingAutomation(state, {
+      browserEvents: browserEventsFor(state),
+      startMonitoring: () => {},
+      twitchGateway: {
+        ensureTwitchSession: async () => {
+          const session = {
+            oauthToken: 'oauth',
+            userId: '123',
+            deviceId: 'device',
+            uuid: 'uuid',
+          };
+          state.twitchSessionCache = session;
+          return session;
+        },
+        fetchDirectoryStreamers: async () => {
+          directoryReads++;
+          return Object.assign([], { languageFilterApplied: false });
+        },
+        fetchDropsSnapshot: async () => {
+          freshReads++;
+          return { ...fresh, updatedAt: Date.now() };
+        },
+        getLatestProgressSnapshot: () => {
+          progressiveReads++;
+          return stale;
+        },
+        fetchInventorySnapshot: async () => null,
+        fetchStreamContext: async () => null,
+        heartbeat: async () => ({ accepted: false }),
+        probeStreamInfo: async (channel) => {
+          probedChannels.push(channel);
+          return {
+            kind: 'live',
+            streamer: { id: '42', name: channel, displayName: channel, isLive: true },
+            categoryLabel: 'Test Game',
+          };
+        },
+      },
+    });
+
+    const result = await assembly.automation.startQueuedCampaign?.(gameKey(queued));
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Unable to prepare a working stream for this campaign.',
+    });
+    expect(progressiveReads).toBe(0);
+    expect(freshReads).toBe(1);
+    expect(directoryReads).toBe(1);
+    expect(probedChannels).toEqual(['restricted-channel']);
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.queue).toEqual([queued]);
+  } finally {
+    mocks.teardown();
+  }
+});
+
+test('queued Play persists a newly verified Twitch cooldown before returning failure', async () => {
+  const mocks = setupChromeMocks();
+  setTimingSaveDebounceMsForTests(0);
+  try {
+    const state = createServiceWorkerState();
+    const queued: TwitchGame = createGame({
+      campaignId: 'cooldown-campaign',
+      endsAt: '2030-08-04T12:00:00.000Z',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+      allowedChannels: ['restricted-channel'],
+    });
+    state.appState.queue = [queued];
+    state.appState.queueEntryMetadataByKey = {
+      [gameKey(queued)]: { source: 'manual', addedAt: 1, reason: 'user-added' },
+    };
+    const fresh: DropsSnapshot = {
+      games: [queued],
+      drops: [],
+      campaignsVerified: true,
+      inventoryVerified: true,
+      updatedAt: Date.now(),
+    };
+    let probeCalls = 0;
+    const assembly = await assembleServiceWorkerFarmingAutomation(state, {
+      browserEvents: browserEventsFor(state),
+      startMonitoring: () => {},
+      twitchGateway: {
+        ensureTwitchSession: async () => {
+          const session = { oauthToken: 'oauth', userId: '123', deviceId: 'device', uuid: 'uuid' };
+          state.twitchSessionCache = session;
+          return session;
+        },
+        fetchDirectoryStreamers: async () => Object.assign([], { languageFilterApplied: false }),
+        fetchDropsSnapshot: async () => ({ ...fresh, updatedAt: Date.now() }),
+        getLatestProgressSnapshot: () => null,
+        fetchInventorySnapshot: async () => null,
+        fetchStreamContext: async () => null,
+        heartbeat: async () => ({ accepted: false }),
+        probeStreamInfo: async () => {
+          probeCalls++;
+          state.apiBackoffUntil = Date.now() + 120_000;
+          state.apiRetryAfterVerifiedAt = Date.now();
+          return { kind: 'unavailable', cause: new Error('Twitch API rate limit (HTTP 429)') };
+        },
+      },
+    });
+
+    const result = await assembly.automation.startQueuedCampaign?.(gameKey(queued));
+    const restarted = createServiceWorkerState();
+    await loadTimingState(restarted);
+
+    expect(result?.success).toBe(false);
+    expect(probeCalls).toBe(1);
+    expect(state.apiBackoffUntil).toBeGreaterThan(Date.now() + 60_000);
+    expect(restarted.apiBackoffUntil).toBe(state.apiBackoffUntil);
+    expect(restarted.apiBackoffUntil).toBeGreaterThan(Date.now() + 60_000);
+    expect(restarted.apiRetryAfterVerifiedAt).toBeGreaterThan(0);
+  } finally {
+    setTimingSaveDebounceMsForTests(null);
+    mocks.teardown();
+  }
+});
+
+test('queued Play survives account binding that clears the previous account campaign evidence', async () => {
+  const mocks = setupChromeMocks();
+  try {
+    const state = createServiceWorkerState();
+    const incumbent: TwitchGame = createGame({
+      campaignId: 'incumbent-campaign',
+      endsAt: '2030-08-04T12:00:00.000Z',
+      allDropsCompleted: true,
+      rewardSummary: { completion: 'all-acquired', remainderReasons: [] },
+    });
+    const queued: TwitchGame = createGame({
+      id: 'queued-game',
+      name: 'Queued Game',
+      campaignId: 'queued-campaign',
+      endsAt: '2030-08-05T12:00:00.000Z',
+      rewardSummary: { completion: 'all-acquired', remainderReasons: [] },
+    });
+    state.appState.isRunning = true;
+    state.appState.manualQueueAuthorized = true;
+    state.appState.selectedGame = incumbent;
+    state.appState.queue = [incumbent, queued];
+    state.appState.queueEntryMetadataByKey = {
+      [gameKey(incumbent)]: { source: 'manual', addedAt: 1, reason: 'user-added' },
+      [gameKey(queued)]: { source: 'manual', addedAt: 2, reason: 'user-added' },
+    };
+    state.appState.availableGames = [incumbent, queued];
+    state.appState.acquiredCampaignIds = ['incumbent-campaign'];
+    state.appState.stalledCampaignBlocksByKey = {
+      [gameKey(incumbent)]: {
+        blockedAt: 1,
+        rotationAttempts: 1,
+        eligibleStreamerNames: [],
+        rewardProgressByKey: {},
+      },
+    };
+    state.appState.campaignEvidenceUserId = 'old-account';
+    state.twitchSessionCache = null;
+    const fresh: DropsSnapshot = {
+      games: [{ ...queued, rewardSummary: { completion: 'farmable', remainderReasons: [] } }],
+      drops: [],
+      campaignsVerified: true,
+      inventoryVerified: true,
+      updatedAt: Date.now(),
+    };
+    let directoryReads = 0;
+    const assembly = await assembleServiceWorkerFarmingAutomation(state, {
+      browserEvents: browserEventsFor(state),
+      startMonitoring: () => {},
+      twitchGateway: {
+        ensureTwitchSession: async () => {
+          const session = {
+            oauthToken: 'oauth',
+            userId: 'new-account',
+            deviceId: 'device',
+            uuid: 'uuid',
+          };
+          await bindCampaignEvidenceAccount(state, session.userId);
+          state.twitchSessionCache = session;
+          return session;
+        },
+        fetchDirectoryStreamers: async () => {
+          directoryReads++;
+          return Object.assign([], { languageFilterApplied: false });
+        },
+        fetchDropsSnapshot: async () => ({ ...fresh, updatedAt: Date.now() }),
+        getLatestProgressSnapshot: () => null,
+        fetchInventorySnapshot: async () => null,
+        fetchStreamContext: async () => null,
+        heartbeat: async () => ({ accepted: false }),
+      },
+    });
+
+    const result = await assembly.automation.startQueuedCampaign?.(gameKey(queued));
+
+    expect(result).toEqual({
+      success: false,
+      error: 'No eligible streamer is available for this campaign.',
+    });
+    expect(directoryReads).toBe(2);
+    expect(state.appState.selectedGame?.campaignId).toBe('incumbent-campaign');
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.queue.map((game) => game.campaignId)).toEqual([
+      'incumbent-campaign',
+      'queued-campaign',
+    ]);
+    expect(state.appState.acquiredCampaignIds).toEqual([]);
+    expect(state.appState.stalledCampaignBlocksByKey).toEqual({});
   } finally {
     mocks.teardown();
   }

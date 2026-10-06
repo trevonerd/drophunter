@@ -42,6 +42,8 @@ export async function refreshDropsData(
     isCurrent?: () => boolean;
     sessionRecoveryMode?: SessionRecoveryMode;
     suppressNotifications?: boolean;
+    strictFreshProof?: boolean;
+    minimumFreshUpdatedAt?: number;
   },
   callbacks: RefreshDropsDataCallbacks,
   deps: RefreshDropsDataDeps,
@@ -66,10 +68,17 @@ export async function refreshDropsData(
 
   if (includeCampaignFetch) {
     refreshAttempted = true;
+    const requestedAt = options.minimumFreshUpdatedAt ?? Date.now();
     const apiSnapshot = await callbacks.onFetchDropsSnapshotFromApi({
       sessionRecoveryMode: options.sessionRecoveryMode,
     });
     if (!isCurrent()) return 'transient-failure';
+    if (
+      options.strictFreshProof &&
+      (apiSnapshot?.campaignsVerified !== true || apiSnapshot.updatedAt < requestedAt)
+    ) {
+      return 'transient-failure';
+    }
     if (apiSnapshot) {
       refreshSucceeded = true;
       state.lastFullRefreshAt = Date.now();
@@ -109,10 +118,17 @@ export async function refreshDropsData(
     const baseDrops = state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : drops;
     if (baseDrops.length > 0) {
       refreshAttempted = true;
+      const requestedAt = options.minimumFreshUpdatedAt ?? Date.now();
       const inventorySnapshot = await callbacks.onFetchInventorySnapshotFromApi(baseDrops, {
         sessionRecoveryMode: options.sessionRecoveryMode,
       });
       if (!isCurrent()) return 'transient-failure';
+      if (
+        options.strictFreshProof &&
+        (inventorySnapshot?.inventoryVerified !== true || inventorySnapshot.updatedAt < requestedAt)
+      ) {
+        return 'transient-failure';
+      }
       state.lastInventoryRefreshAt = Date.now();
       refreshSucceeded = inventorySnapshot !== null;
       if (inventorySnapshot?.drops.length) {
@@ -122,6 +138,8 @@ export async function refreshDropsData(
         provenance = 'inventory-partial';
         freshSnapshotValidated = true;
       }
+    } else if (options.strictFreshProof) {
+      return 'transient-failure';
     }
   }
 

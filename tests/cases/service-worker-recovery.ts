@@ -202,10 +202,14 @@ export function registerRecoveryCases() {
     };
 
     try {
-      enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 0 }]);
+      const completeCatalog = [
+        { game: demoGame, dropId: 'drop-current', currentMinutes: 0 },
+        { game: nextGame, dropId: 'drop-next', currentMinutes: 0 },
+      ];
+      // Zero-result attempts refresh again, so every staged response must preserve the full catalog.
+      for (let read = 0; read < 8; read += 1) enqueueDropsSnapshot(completeCatalog);
       enqueueDirectoryResult(null);
       enqueueDirectoryResult(null);
-      enqueueDropsSnapshot([{ game: nextGame, dropId: 'drop-next', currentMinutes: 0 }]);
       enqueueDirectoryResult(null);
       enqueueDirectoryResult(null);
 

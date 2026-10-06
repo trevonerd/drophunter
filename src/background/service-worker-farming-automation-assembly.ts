@@ -21,7 +21,10 @@ import {
   type FarmingAutomationRecoveryResult,
   reconcileFarmingAutomationRecovery,
 } from './farming-automation-recovery.ts';
-import { createFarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
+import {
+  createFarmingAutomationTwitchAdapter,
+  FarmingAutomationRefreshBackoffError,
+} from './farming-automation-twitch.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { reconcileManagedWatchesOnStartup } from './managed-watch-startup.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -29,6 +32,7 @@ import type { createServiceWorkerBrowserEvents } from './service-worker-browser-
 import type { createServiceWorkerTwitchGateway } from './service-worker-twitch-gateway.ts';
 import { broadcastStateUpdate, saveState } from './state-persistence.ts';
 import { waitForTabComplete } from './tab-management.ts';
+import { saveTimingState } from './timing-state-persistence.ts';
 
 type BrowserEvents = Pick<
   ReturnType<typeof createServiceWorkerBrowserEvents>,
@@ -43,7 +47,8 @@ type TwitchGateway = Pick<
   | 'fetchInventorySnapshot'
   | 'fetchStreamContext'
   | 'heartbeat'
->;
+> &
+  Partial<Pick<ReturnType<typeof createServiceWorkerTwitchGateway>, 'probeStreamInfo'>>;
 
 export interface ServiceWorkerFarmingAutomationAssemblyDependencies {
   readonly browserEvents: BrowserEvents;
@@ -84,6 +89,22 @@ export async function assembleServiceWorkerFarmingAutomation(
   currentOwnership = await reconcileManagedWatchesOnStartup(state, currentOwnership);
   if (currentOwnership) await dependencies.browserEvents.watchTransport.restore(currentOwnership);
 
+  const persistNewApiCooldown = async <T>(operation: () => Promise<T>): Promise<T> => {
+    const previousBackoff = state.apiBackoffUntil;
+    const previousRetryAfterProof = state.apiRetryAfterVerifiedAt;
+    try {
+      return await operation();
+    } finally {
+      if (
+        state.apiBackoffUntil > Date.now() &&
+        (state.apiBackoffUntil !== previousBackoff ||
+          state.apiRetryAfterVerifiedAt !== previousRetryAfterProof)
+      ) {
+        await saveTimingState(state);
+      }
+    }
+  };
+
   const automationBrowser = createFarmingAutomationBrowser({
     watchRuntime: dependencies.browserEvents.watchTransport,
     getManualStreamContext: dependencies.twitchGateway.fetchStreamContext,
@@ -117,16 +138,49 @@ export async function assembleServiceWorkerFarmingAutomation(
   });
   const twitch = createFarmingAutomationTwitchAdapter({
     loadSession: dependencies.twitchGateway.ensureTwitchSession,
-    fetchCampaignSnapshot: async () =>
-      dependencies.twitchGateway.getLatestProgressSnapshot() ??
-      (await dependencies.twitchGateway.fetchDropsSnapshot()),
+    assertCanRefresh: (options) => {
+      if (options.requireFreshCompleteSnapshot && state.apiBackoffUntil > Date.now()) {
+        throw new FarmingAutomationRefreshBackoffError(state.apiBackoffUntil);
+      }
+    },
+    fetchCampaignSnapshot: async (_session, options) => {
+      return persistNewApiCooldown(async () => {
+        if (options?.requireFreshCompleteSnapshot) {
+          return dependencies.twitchGateway.fetchDropsSnapshot({
+            sessionRecoveryMode: options.allowSessionRecovery === false ? 'passive' : 'background-tab',
+            preserveSessionOnAuthFailure: true,
+            onSessionResolved: (session) => options.onSessionResolved?.(session.userId),
+          });
+        }
+        return (
+          dependencies.twitchGateway.getLatestProgressSnapshot() ??
+          (await dependencies.twitchGateway.fetchDropsSnapshot())
+        );
+      });
+    },
     campaignSnapshotIncludesInventory: (snapshot) => snapshot.inventoryVerified === true,
     fetchInventorySnapshot: (_session, baseDrops) =>
       dependencies.twitchGateway.fetchInventorySnapshot([...baseDrops]),
-    fetchDirectoryStreamers: async (game, _session, language) => {
-      const streamers = await dependencies.twitchGateway.fetchDirectoryStreamers(game, false, language);
-      return { streamers, languageFilterApplied: streamers.languageFilterApplied };
+    fetchDirectoryStreamers: async (game, _session, language, options) => {
+      return persistNewApiCooldown(async () => {
+        const streamers = await dependencies.twitchGateway.fetchDirectoryStreamers(
+          game,
+          false,
+          language,
+          undefined,
+          options,
+        );
+        return { streamers, languageFilterApplied: streamers.languageFilterApplied };
+      });
     },
+    probeStreamInfo: dependencies.twitchGateway.probeStreamInfo
+      ? (channel) => {
+          const probeStreamInfo = dependencies.twitchGateway.probeStreamInfo;
+          return probeStreamInfo
+            ? persistNewApiCooldown(() => probeStreamInfo(channel))
+            : Promise.resolve({ kind: 'unavailable' as const });
+        }
+      : undefined,
   });
   const manualWatch = createFarmingAutomationManualWatch({
     persistence,

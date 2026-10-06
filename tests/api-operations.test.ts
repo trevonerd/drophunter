@@ -3,8 +3,16 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
   [
+    '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: Error: 401 unauthorized',
+    2,
+  ],
+  [
+    '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: Error: invalid oauth token',
+    2,
+  ],
+  [
     '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: TwitchHttpError: Twitch gql HTTP 429',
-    1,
+    2,
   ],
   [
     '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: TwitchInvalidResponseError: integrity check failed',

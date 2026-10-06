@@ -1,5 +1,37 @@
 # Matrice di recupero e aggiornamento
 
+## Play dalla coda, verifica streamer e rotazione — 6 ottobre 2026
+
+Il Play richiede campagne e inventario freschi e completi prima di confermare il cambio. Il watch corrente resta attivo durante la ricerca e viene conservato se la preparazione del candidato fallisce. Sessione assente, campagne indisponibili, inventario indisponibile e cooldown Twitch restituiscono errori distinti. Stop, Pausa, selezione diversa e cambio account rendono obsolete le risposte tardive.
+
+La preparazione gestita accetta anche un candidato senza segnale Drops nel DOM quando il playback è pronto e la verifica conferma esplicitamente diretta, canale e categoria. Un segnale DOM assente conserva lo stato di salute degradato; prove mancanti, player non pronto, canale offline o categoria errata impediscono il cambio.
+
+La ricerca applica i canali autorizzati prima del fallback lingua. Un risultato vuoto richiede un aggiornamento della campagna e una seconda verifica; i canali autorizzati fuori dalla directory vengono interrogati direttamente senza heartbeat di visione. Una verifica incompleta resta un errore temporaneo e non consuma tentativi per assenza di streamer.
+
+Il ciclo di stallo ammette lo streamer iniziale e tre sostituti diversi, con una riparazione iniziale del player e l'intera finestra di osservazione per ogni sostituto. I nomi falliti appartengono all'identità della campagna e sopravvivono a restart e Pausa/Riprendi. Un retry player pendente non provoca un salto della coda; solo quattro stalli confermati o alternative esaurite dopo verifica consentono il parcheggio.
+
+| Caso | Evidenza |
+|---|---|
+| Snapshot vecchio/parziale, inventario fallito, sessione recuperata e cooldown | `tests/farming-automation-twitch.test.ts`, `tests/managed-watch-startup-integration.test.ts` |
+| HTTP 401 nell'inventario, un solo recupero e watch del Play conservato; HTTP 429 nell'inventario o nei dettagli delle campagne | `tests/api-operations.test.ts`, `tests/campaign-detail-rate-limit.test.ts` |
+| Play duplicato, altra campagna dello stesso gioco, risposta tardiva dopo Stop | `tests/queued-campaign-start.test.ts` |
+| Canale autorizzato in altra lingua o fuori dai primi 30; verifica incompleta, lenta e annullata | `tests/eligible-streamer-discovery.test.ts`, `tests/queued-campaign-start.test.ts` |
+| Campagna fresca con catalogo mancante/incompleto; Pausa/Stop durante probe o secondo refresh | `tests/fresh-farmable-game.test.ts`, `tests/queued-campaign-start.test.ts` |
+| HTTP 429 nella verifica diretta seguito da refresh indisponibile; cooldown salvato subito e ripristinato dopo riciclo worker | `tests/recovery-loop-regressions.test.ts`, `tests/managed-watch-startup-integration.test.ts` |
+| Pulsante Play del popup con refresh completo; candidato playback fallito che conserva il watch | `e2e/queue-campaign-handoff.spec.ts` |
+| Play con segnale Drops DOM assente ma playback, diretta, canale e categoria verificati; rifiuto di prove mancanti o negative | `tests/farming-automation-browser.test.ts`, `e2e/queue-campaign-handoff.spec.ts` |
+| Streamer iniziale e tre sostituti, retry pendente e stallo verificato | `tests/stalled-progress-recovery.test.ts`, `tests/stalled-campaign-block.test.ts` |
+| Progresso fresco durante la verifica di parcheggio; risposta directory tardiva senza ricreare il blocco | `tests/stalled-campaign-progress-race.test.ts` |
+| Progresso di campagna inattiva, campagne duplicate e snapshot non verificato; reset limitato alla campagna corretta | `tests/drops-projection-semantics.test.ts` |
+| Nomi falliti normalizzati e persistiti dopo restart/Pausa; nuovo ciclo dopo dieci minuti | `tests/state-persistence-session.test.ts`, `tests/queue-acquisition-round.test.ts` |
+| Alternativa esaurita e avanzamento reale alla campagna successiva; tab conservata durante più giri | `tests/farming-session-watch-transport.test.ts`, `e2e/queue-campaign-handoff.spec.ts` |
+
+Verifica automatizzata con Bun 1.4.2: TypeScript sorgenti e test, lint senza warning, 2.435 test unitari, 23 E2E Chrome MV3 e build Chrome/Edge superati. `vexp verify_done` non rileva errori di parsing; le segnalazioni di import dell'indice riguardano export/re-export esistenti, verificati dai due compilatori TypeScript e dalla suite completa dei test interessati.
+
+Prova reale del 6 ottobre in Brave: caricata la build finale da `.output/chrome-mv3`, con versione locale invariata `4.0.0-beta.57` e modifiche non pubblicate. Il Play dalla coda ha avviato PAYDAY 3; dopo il ricaricamento finale il monitor ha ripreso la sessione su BadgeBase. Il recupero playback ha poi scelto GALIL_Weevil33. Il tracker ufficiale Twitch confermava inizialmente Chains al 3,33%; i successivi dati Twitch nel popup sono avanzati dal 3% al 13% per Chains, dall'1% al 6% per Hoxton e dall'1% al 4% per Wolf. Verificati Pausa a 13%, conservazione della coda e Riprendi sulla stessa campagna; sessione lasciata in RUNNING. Il Play con candidato non preparabile ha conservato la campagna corrente e mostrato l'errore di playback.
+
+Questa osservazione breve conferma Play, ripresa e progresso reale. La sequenza completa di quattro streamer fermi e sleep/wake restano coperti dai test, non da una prova reale prolungata; un ciclo completo può richiedere fino a ottanta minuti.
+
 ## Falso rilevamento della visione manuale — 5 ottobre 2026
 
 Una scheda video conservata da DropHunter dopo il passaggio al trasporto nascosto non è una scheda personale. L'osservazione manuale esclude tutte le schede la cui proprietà è confermata dal registro e dalle prove di sessione o dal marker della pagina, prima di richiedere la telemetria. Un vecchio ID da solo non basta: la navigazione personale resta rilevabile. Se le prove non sono disponibili o sono ambigue, l'osservazione fallisce senza generare una nuova sospensione; la valutazione automatica riceve anche gli ID in preparazione.

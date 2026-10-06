@@ -102,6 +102,9 @@ export function createWatchTransportTransition(
     const preferred = await prepareWatchCandidate({
       prepare: () => preparePreferred(target, isCurrent),
       isCurrent,
+      accept: (health) =>
+        health.isHealthy ||
+        (mode === 'managed-tab' && health.status === 'degraded' && health.reason === 'drops-inactive'),
     });
     if (preferred.kind === 'failed') return { kind: 'failed', reason: 'candidate-unavailable' };
     const candidate = preferred.candidate;

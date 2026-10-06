@@ -6,6 +6,7 @@ export function rehabilitateCampaignsWithNewStreamers(
   state: {
     appState: {
       stalledCampaignBlocksByKey: Record<string, import('../types/index.ts').StalledCampaignBlock>;
+      queueEntryMetadataByKey?: Record<string, import('../types/index.ts').QueueEntryMetadata>;
     };
   },
   games: readonly TwitchGame[],
@@ -24,6 +25,13 @@ export function rehabilitateCampaignsWithNewStreamers(
         state.appState.stalledCampaignBlocksByKey,
         game,
       );
+      const key = gameKey(game);
+      const metadataByKey = state.appState.queueEntryMetadataByKey;
+      const metadata = metadataByKey?.[key];
+      if (metadataByKey && metadata?.stalledStreamerNames) {
+        const { stalledStreamerNames: _stalledNames, ...retained } = metadata;
+        metadataByKey[key] = retained;
+      }
     }
   }
 }

@@ -23,6 +23,7 @@ export const PARKED_CAMPAIGN_RETRY_MS = 60_000;
 export type FarmingAutomationDirectoryCacheEntry = {
   readonly streamers: readonly TwitchStreamer[];
   readonly languageFilterApplied: boolean;
+  readonly preferredLanguageFallbackApplied?: boolean;
 };
 
 function cloneGame(game: FarmingAutomationNormalizedGame): TwitchGame {
@@ -140,8 +141,13 @@ export function createFarmingAutomationPolicySnapshot(
   };
 }
 
-export function farmingAutomationStateFingerprint(state: ServiceWorkerState, generation: number): string {
+export function farmingAutomationStateFingerprint(
+  state: ServiceWorkerState,
+  generation: number,
+  options: { readonly includeAccountOwnedEvidence?: boolean } = {},
+): string {
   const app = state.appState;
+  const includeAccountOwnedEvidence = options.includeAccountOwnedEvidence ?? true;
   return JSON.stringify({
     generation,
     sessionEpoch: currentFarmingSessionEpoch(state),
@@ -151,15 +157,23 @@ export function farmingAutomationStateFingerprint(state: ServiceWorkerState, gen
     forcedCampaignKey: app.forcedCampaignKey,
     queueAcquisitionRound: app.queueAcquisitionRound,
     notifications: app.notificationsEnabled,
-    sessionPresent: state.twitchSessionCache !== null,
-    completionEvidence: farmingAutomationCompletionFingerprint(state),
+    ...(includeAccountOwnedEvidence
+      ? {
+          sessionPresent: state.twitchSessionCache !== null,
+          completionEvidence: farmingAutomationCompletionFingerprint(state),
+        }
+      : {}),
     running: app.isRunning,
     paused: app.isPaused,
     selected: app.selectedGame ? gameKey(app.selectedGame) : null,
     queue: app.queue.map((game) => [gameKey(game), app.queueEntryMetadataByKey[gameKey(game)] ?? null]),
-    stalledCampaignBlocks: Object.entries(app.stalledCampaignBlocksByKey).sort(([left], [right]) =>
-      left.localeCompare(right),
-    ),
+    ...(includeAccountOwnedEvidence
+      ? {
+          stalledCampaignBlocks: Object.entries(app.stalledCampaignBlocksByKey).sort(([left], [right]) =>
+            left.localeCompare(right),
+          ),
+        }
+      : {}),
     favorites: [...favoriteGameIdentityKeys(app.favoriteGames)].sort(),
     hiddenGames: [...hiddenGameIdentityKeys(app.hiddenGames)].sort(),
     priorityMode: app.campaignPriorityMode,
@@ -170,8 +184,9 @@ export function farmingAutomationStateFingerprint(state: ServiceWorkerState, gen
       .map((game) => [
         gameKey(game),
         game.endsAt ?? null,
-        game.rewardSummary?.completion ?? null,
-        game.allDropsCompleted ?? false,
+        ...(includeAccountOwnedEvidence
+          ? [game.rewardSummary?.completion ?? null, game.allDropsCompleted ?? false]
+          : []),
         game.dropCount ?? null,
       ])
       .sort(([left], [right]) => String(left).localeCompare(String(right))),

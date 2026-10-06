@@ -6,6 +6,7 @@ import {
 } from '../src/background/drops-projection-semantics.ts';
 import { snapshotProvenance } from '../src/background/drops-snapshot-provenance.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
 const staleObservation = {
@@ -163,4 +164,91 @@ test('an omitted campaign-verification flag cannot clear a stall block or termin
 
   expect(state.appState.selectedGame?.rewardSummary).toEqual(terminalCampaign.rewardSummary);
   expect(state.appState.stalledCampaignBlocksByKey['campaign:campaign-1']).toBeDefined();
+});
+
+test('fresh progress clears only the matching inactive campaign streamer history', () => {
+  const campaignA = { ...authoritativeCampaign, campaignId: 'campaign-a' };
+  const campaignB = { ...authoritativeCampaign, campaignId: 'campaign-b' };
+  const dropA = { ...observedRewardA, campaignId: campaignA.campaignId, progress: 10, currentMinutes: 1 };
+  const dropB = { ...observedRewardA, campaignId: campaignB.campaignId, progress: 10, currentMinutes: 1 };
+  const state = createServiceWorkerState();
+  state.appState.availableGames = [campaignA, campaignB];
+  state.appState.queue = [campaignA, campaignB];
+  state.appState.selectedGame = campaignB;
+  state.appState.allDrops = [dropB];
+  state.appState.queueEntryMetadataByKey[gameKey(campaignA)] = {
+    source: 'manual',
+    addedAt: 1,
+    reason: 'user-added',
+    stalledStreamerNames: ['a-old'],
+  };
+  state.appState.queueEntryMetadataByKey[gameKey(campaignB)] = {
+    source: 'manual',
+    addedAt: 2,
+    reason: 'user-added',
+    stalledStreamerNames: ['b-keep'],
+  };
+  state.appState.campaignDropsByKey = {
+    [gameKey(campaignA)]: [dropA],
+    [gameKey(campaignB)]: [dropB],
+  };
+  state.cachedDropsSnapshot = [dropA, dropB];
+
+  const freshDropA = { ...dropA, progress: 20, currentMinutes: 2 };
+  const snapshot = {
+    games: [campaignA, campaignB],
+    drops: [freshDropA, dropB],
+    campaignsVerified: false,
+    inventoryVerified: true,
+    updatedAt: 20,
+  };
+  projectDropsSnapshot(state, snapshot, snapshotProvenance(snapshot));
+
+  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignA)]?.stalledStreamerNames).toBeUndefined();
+  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignB)]?.stalledStreamerNames).toEqual([
+    'b-keep',
+  ]);
+});
+
+test('cached unverified progress cannot clear stalled streamer history', () => {
+  const campaignA = { ...authoritativeCampaign, campaignId: 'campaign-a' };
+  const campaignB = { ...authoritativeCampaign, campaignId: 'campaign-b' };
+  const dropA = { ...observedRewardA, campaignId: campaignA.campaignId, progress: 10, currentMinutes: 1 };
+  const dropB = { ...observedRewardA, campaignId: campaignB.campaignId, progress: 10, currentMinutes: 1 };
+  const state = createServiceWorkerState();
+  state.appState.availableGames = [campaignA, campaignB];
+  state.appState.queue = [campaignA, campaignB];
+  state.appState.selectedGame = campaignB;
+  state.appState.allDrops = [dropB];
+  state.appState.queueEntryMetadataByKey[gameKey(campaignA)] = {
+    source: 'manual',
+    addedAt: 1,
+    reason: 'user-added',
+    stalledStreamerNames: ['a-old'],
+  };
+  state.appState.queueEntryMetadataByKey[gameKey(campaignB)] = {
+    source: 'manual',
+    addedAt: 2,
+    reason: 'user-added',
+    stalledStreamerNames: ['b-keep'],
+  };
+  state.appState.campaignDropsByKey = {
+    [gameKey(campaignA)]: [dropA],
+    [gameKey(campaignB)]: [dropB],
+  };
+  state.cachedDropsSnapshot = [dropA, dropB];
+
+  const staleProgressA = {
+    ...dropA,
+    progress: 20,
+    currentMinutes: 2,
+    verificationState: 'unverifiable' as const,
+  };
+  const snapshot = { games: [campaignA, campaignB], drops: [staleProgressA, dropB], updatedAt: 20 };
+  projectDropsSnapshot(state, snapshot, snapshotProvenance(snapshot));
+
+  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignA)]?.stalledStreamerNames).toEqual(['a-old']);
+  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignB)]?.stalledStreamerNames).toEqual([
+    'b-keep',
+  ]);
 });

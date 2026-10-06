@@ -1,6 +1,5 @@
 import { type CSSProperties, useEffect, useState } from 'react';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
-import { queueRecoveryNotice } from '../shared/queue-recovery-notice.ts';
 import {
   deriveRuntimeMode,
   formatEtaMinutes,
@@ -9,7 +8,6 @@ import {
 import { createUserStatusModel, type UserStatusMode } from '../shared/user-status';
 import { createInitialState } from '../shared/utils';
 import type { AppState, AutomationActivityEntry } from '../types';
-import { FarmingControls } from './FarmingControls.tsx';
 import { selectMonitorDrop } from './selected-drop';
 
 const AUTOMATION_NOTICE_TTL_MS = 6_000;
@@ -54,7 +52,6 @@ export type MonitorViewProps = {
 
 export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: MonitorViewProps) {
   const nearestDrop = selectMonitorDrop(state);
-  const recoveryEntries = queueRecoveryNotice(state, recoveryNow);
   const runtimeMode = deriveRuntimeMode(state);
   const status = createUserStatusModel({
     state,
@@ -157,21 +154,8 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: M
               {contextNotice}
             </div>
           )}
-          {recoveryEntries.length > 0 && (
-            <details className="monitor-context-notice monitor-context-notice--warning">
-              <summary>Campaigns awaiting recovery ({recoveryEntries.length})</summary>
-              <ul>
-                {recoveryEntries.map((entry) => (
-                  <li key={entry.key} style={{ overflowWrap: 'anywhere' }}>
-                    {entry.label} · {entry.reason} · {entry.retry}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
         </section>
 
-        <FarmingControls state={state} />
         <div className="monitor-footer">
           <span className="monitor-channel">
             {state.activeStreamer ? `/${state.activeStreamer.displayName}` : 'No active streamer'}

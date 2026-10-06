@@ -77,6 +77,8 @@ function progressFor(game: FixtureGame, phase: ProgressPhase): number {
 
 async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof createExtensionProfile>>) {
   let phase: ProgressPhase = 'starting';
+  const failedChannels = new Set<string>();
+  const channelsWithoutDropsSignal = new Set<string>();
   const observedOperations: string[] = [];
 
   await profile.context.route('https://gql.twitch.tv/**', async (route) => {
@@ -196,13 +198,18 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
       return;
     }
     const channel = new URL(route.request().url()).pathname.split('/').filter(Boolean)[0] ?? '';
+    if (failedChannels.has(channel)) {
+      await route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>Playback unavailable</body></html>' });
+      return;
+    }
     const category = [...streamers.entries()].find(([, login]) => login === channel)?.[0] ?? '';
     const game = games.find((candidate) => candidate.categorySlug === category);
+    const dropsLabel = channelsWithoutDropsSignal.has(channel) ? '' : ' Drops';
     await route.fulfill({
       status: 200,
       contentType: 'text/html',
-      body: `<!doctype html><html><head><title>${game?.name ?? 'Fixture Stream'} Drops - Twitch</title></head>
-        <body><main><h1 data-a-target="stream-title">${game?.name ?? 'Fixture Stream'} Drops</h1>
+      body: `<!doctype html><html><head><title>${game?.name ?? 'Fixture Stream'}${dropsLabel} - Twitch</title></head>
+        <body><main><h1 data-a-target="stream-title">${game?.name ?? 'Fixture Stream'}${dropsLabel}</h1>
           <span data-a-target="animated-channel-viewers-count">128 viewers</span>
           <a data-a-target="stream-game-link" href="/directory/category/${category}">${game?.name ?? 'Fixture Game'}</a>
           <div data-a-target="video-player"><video autoplay muted playsinline></video></div>
@@ -236,6 +243,12 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
   });
 
   return {
+    failPlayback(channel: string) {
+      failedChannels.add(channel);
+    },
+    hideDropsSignal(channel: string) {
+      channelsWithoutDropsSignal.add(channel);
+    },
     setPhase(nextPhase: ProgressPhase) {
       phase = nextPhase;
     },
@@ -261,6 +274,7 @@ async function readAppState(popup: Awaited<ReturnType<typeof openPopup>>) {
       readonly recoveryReason: string | null;
       readonly recoveryAttempts: number | null;
       readonly recoveryBackoffUntil: number | null;
+      readonly queueEntryMetadataByKey: Readonly<Record<string, { readonly stalledStreamerNames?: readonly string[] }>>;
       readonly queueAcquisitionRound: { readonly attemptedCampaignKeys: readonly string[]; readonly nextRoundAt: number | null } | null;
     };
   });
@@ -277,6 +291,55 @@ async function refreshCampaigns(popup: Awaited<ReturnType<typeof openPopup>>) {
   await popup.evaluate(async () => {
     const { success, result } = await chrome.runtime.sendMessage({ type: 'OPEN_DROPS_AND_SYNC' });
     if (!success || result?.kind !== 'synced') throw new Error(`Local activation sync failed: ${result?.kind}`);
+  });
+}
+
+for (const scenario of ['ready', 'failed', 'missing-signal'] as const) {
+  const candidateFails = scenario === 'failed';
+  test(`queue Play ${candidateFails ? 'preserves the current watch when playback fails' : scenario === 'missing-signal' ? 'switches to a verified campaign without a DOM Drops signal' : 'switches to a freshly verified campaign'}`, async () => {
+    test.setTimeout(120_000);
+    const profile = await createExtensionProfile();
+    try {
+      const twitch = await installLocalTwitchFixture(profile);
+      await seedAppState(profile, {
+        availableGames: games, selectedGame: games[0], queue: [], isRunning: false, isPaused: false,
+        autoStartFavoriteGames: false, monitorAutoOpen: false, watchTransportPreference: 'managed-tab',
+        activeStreamer: null, tabId: null,
+      });
+      const popup = await openPopup(profile);
+      await runtimeMessage(popup, { type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'managed-tab' } });
+      await runtimeMessage(popup, { type: 'UPDATE_GAMES', payload: games });
+      for (const game of games) await runtimeMessage(popup, { type: 'ADD_TO_QUEUE', payload: { game } });
+      expect(await runtimeMessage(popup, { type: 'START_FARMING', payload: { game: games[0] } })).toEqual({ success: true });
+      await expect.poll(async () => (await readAppState(popup)).activeStreamer?.name, { timeout: 30_000 }).toBe('local_stream_one');
+      const original = await readAppState(popup);
+      const managedPage = profile.context.pages().find((page) => page.url().endsWith('/local_stream_one'));
+      if (!managedPage) throw new Error('Missing managed watch');
+      await managedPage.locator('video').click();
+      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+      if (candidateFails) twitch.failPlayback('local_stream_two');
+      if (scenario === 'missing-signal') twitch.hideDropsSignal('local_stream_two');
+      const operationsBefore = twitch.observedOperations.length;
+      const playButton = popup.getByRole('button', { name: /^Start Local Game Two.* now$/ });
+      await playButton.click();
+      await expect(
+        popup.getByRole('status').filter({ hasText: candidateFails ? /working stream/ : /Started "Local Game Two/ }),
+      ).toBeVisible({ timeout: 30_000 });
+      if (candidateFails) await expect(playButton).toBeEnabled();
+      const expected = candidateFails ? games[0] : games[1];
+      await expect.poll(async () => (await readAppState(popup)).selectedGame?.campaignId).toBe(expected?.campaignId);
+      const after = await readAppState(popup);
+      expect(after.isRunning).toBe(true);
+      expect(after.tabId).toBe(original.tabId);
+      expect(after.activeStreamer?.name).toBe(candidateFails ? 'local_stream_one' : 'local_stream_two');
+      expect(twitch.observedOperations.slice(operationsBefore)).toContain('ViewerDropsDashboard');
+      expect(twitch.observedOperations.slice(operationsBefore)).toContain('Inventory');
+      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+      const previousTime = await managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
+      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(previousTime);
+    } finally {
+      await profile.close();
+    }
   });
 }
 
@@ -518,9 +581,19 @@ test('stalled rounds retain one authorized video tab and replace it only after a
           await advanceAndTick(previousAttempts === 0 ? 25 * 60_000 : 61_000);
           await expect.poll(async () => {
             const state = await readAppState(popup);
-            return (previousAttempts < 3 && state.recoveryAttempts === previousAttempts + 1) ||
-              state.queueAcquisitionRound?.attemptedCampaignKeys.includes(`campaign:${expectedCampaign}`);
-          }, { timeout: 25_000 }).toBe(true);
+            if ((previousAttempts < 3 && state.recoveryAttempts === previousAttempts + 1) ||
+              state.queueAcquisitionRound?.attemptedCampaignKeys.includes(`campaign:${expectedCampaign}`)) return 'advanced';
+            const timing = await popup.evaluate(async () => {
+              const { timingState } = await chrome.storage.local.get('timingState');
+              if (!timingState || typeof timingState !== 'object') return {};
+              return Object.fromEntries(['lastProgressAdvanceAt', 'lastFullRefreshAt', 'lastInventoryRefreshAt',
+                'stalledRecoveryAttempts', 'lastHeartbeatAt'].map((key) => [key, Reflect.get(timingState, key)]));
+            });
+            return { round, campaign, attempt, selected: state.selectedGame?.campaignId,
+              reason: state.recoveryReason, attempts: state.recoveryAttempts,
+              names: state.queueEntryMetadataByKey[`campaign:${expectedCampaign}`]?.stalledStreamerNames,
+              timing };
+          }, { timeout: 25_000 }).toBe('advanced');
           if ((await readAppState(popup)).queueAcquisitionRound?.attemptedCampaignKeys.includes(`campaign:${expectedCampaign}`)) break;
         }
         expect((await readAppState(popup)).queueAcquisitionRound?.attemptedCampaignKeys).toContain(`campaign:${expectedCampaign}`);

@@ -4,6 +4,7 @@ import type {
   FarmingAutomationTwitchAdapter,
   FarmingAutomationTwitchSnapshot,
 } from '../src/background/farming-automation-twitch.ts';
+import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { CampaignCompletion, TwitchGame } from '../src/types/index.ts';
 import { createDeferred, flushMicrotasks } from './support/farming-automation-fixtures.ts';
@@ -93,6 +94,49 @@ test('directory discovery requests only classified farmable campaigns', async ()
     directoryKeys: [gameKey(farmable)],
     availabilityKeys: [gameKey(farmable)],
   });
+});
+
+test('accepts a proven refresh account when the session loader leaves the cache unchanged', async () => {
+  const game = campaign('session-backed', 'farmable');
+  const snapshot: FarmingAutomationTwitchSnapshot = {
+    games: [game],
+    drops: [],
+    campaignDropsByKey: {},
+    campaignChannelsMap: {},
+    updatedAt: 1_000,
+  };
+  const state = createServiceWorkerState();
+  const twitch: FarmingAutomationTwitchAdapter = {
+    refresh: async () => ({
+      kind: 'ready',
+      snapshot,
+      sessionUserId: 'viewer',
+      refreshPatch: {
+        availableGames: snapshot.games,
+        allDrops: snapshot.drops,
+        campaignDropsByKey: snapshot.campaignDropsByKey,
+        campaignChannelsMap: snapshot.campaignChannelsMap,
+      },
+    }),
+    fetchDirectory: async (candidate) => ({
+      kind: 'ready',
+      target: {
+        campaignKey: gameKey(candidate),
+        campaignId: candidate.campaignId ?? null,
+        gameId: candidate.id,
+        gameName: candidate.name,
+        categoryId: null,
+        categorySlug: 'marvel-rivals',
+      },
+      streamers: [{ id: 'viewer-channel', name: 'viewer-channel', displayName: 'Viewer', isLive: true }],
+      languageFilterApplied: false,
+    }),
+  };
+
+  const result = await discoverFarmingAutomationCandidates(twitch, '', 2_000, state);
+
+  expect(result.kind).toBe('ready');
+  expect(state.twitchSessionCache).toBeNull();
 });
 
 test('starts farmable directory lookups concurrently after the authoritative refresh', async () => {
@@ -200,4 +244,68 @@ test('isolates an unrelated directory failure from a valid favorite candidate', 
   expect(result.availability[gameKey(valid)]?.eligibleStreamerCount).toBe(1);
   expect(result.availability[gameKey(failed)]).toBeUndefined();
   expect(result.directoryFailures.has(gameKey(failed))).toBe(true);
+});
+
+test('rechecks parallel candidates when another campaign forces a fresh snapshot', async () => {
+  const firstOld = { ...campaign('first', 'farmable'), allowedChannels: ['old-one'] };
+  const secondOld = { ...campaign('second', 'farmable'), allowedChannels: ['old-two'] };
+  const firstFresh = { ...firstOld, allowedChannels: ['new-one'] };
+  const secondFresh = { ...secondOld, allowedChannels: ['old-two'] };
+  const makeSnapshot = (games: TwitchGame[]): FarmingAutomationTwitchSnapshot => ({
+    games,
+    drops: [],
+    campaignDropsByKey: {},
+    campaignChannelsMap: {},
+    updatedAt: 1_000,
+  });
+  const stale = makeSnapshot([firstOld, secondOld]);
+  const fresh = makeSnapshot([firstFresh, secondFresh]);
+  let refreshes = 0;
+  const requested: Array<[string, string]> = [];
+  const twitch: FarmingAutomationTwitchAdapter = {
+    refresh: async (_force, options) => {
+      refreshes += 1;
+      const snapshot = options?.requireFreshCompleteSnapshot ? fresh : stale;
+      return {
+        kind: 'ready',
+        snapshot,
+        refreshPatch: {
+          availableGames: snapshot.games,
+          allDrops: snapshot.drops,
+          campaignDropsByKey: snapshot.campaignDropsByKey,
+          campaignChannelsMap: snapshot.campaignChannelsMap,
+        },
+      };
+    },
+    fetchDirectory: async (game) => {
+      const campaignId = game.campaignId ?? 'missing';
+      const allowed = game.allowedChannels?.[0] ?? '';
+      requested.push([campaignId, allowed]);
+      const name = campaignId === 'first' ? (allowed === 'new-one' ? 'new-one' : 'old-one') : '';
+      return {
+        kind: 'ready',
+        target: {
+          campaignKey: gameKey(game),
+          campaignId: game.campaignId ?? null,
+          gameId: game.id,
+          gameName: game.name,
+          categoryId: null,
+          categorySlug: 'marvel-rivals',
+        },
+        streamers: name ? [{ id: name, name, displayName: name, isLive: true }] : [],
+        languageFilterApplied: false,
+      };
+    },
+    probeStreamInfo: async () => ({ kind: 'offline' }),
+  };
+
+  const result = await discoverFarmingAutomationCandidates(twitch, '', 2_000);
+
+  expect(result.kind).toBe('ready');
+  if (result.kind !== 'ready') return;
+  expect(refreshes).toBe(2);
+  expect(requested).toContainEqual(['first', 'new-one']);
+  expect(result.directories.get(gameKey(firstFresh))?.streamers.map((streamer) => streamer.name)).toEqual([
+    'new-one',
+  ]);
 });

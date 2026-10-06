@@ -1,4 +1,4 @@
-import { dropMatchesGame, findMatchingGame } from '../shared/game-selection.ts';
+import { dropMatchesGame, findMatchingGame, gameKey } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { formatFarmingCompleteStatusLines } from '../shared/runtime-status.ts';
 import { isExpiredGame } from '../shared/utils.ts';
@@ -58,6 +58,7 @@ export async function handleStartFarming(
     return { success: false, error: 'Campaign is no longer available.' };
   }
   const initialRequestedGame = requestedGame;
+  const initialSelectedKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
   if (isExpiredGame(initialRequestedGame)) {
     if (options?.onSaveState) await options.onSaveState();
     await notifyQueueCleanup(queueCleanup, options ?? {});
@@ -189,8 +190,21 @@ export async function handleStartFarming(
     };
   }
 
+  if (!isCurrent()) return cancelled();
+  const committedGame = state.appState.selectedGame;
+  if (committedGame && (!options?.preserveQueueContext || initialSelectedKey !== gameKey(committedGame))) {
+    const key = gameKey(committedGame);
+    const metadata = state.appState.queueEntryMetadataByKey[key];
+    if (metadata?.stalledStreamerNames) {
+      const { stalledStreamerNames: _stalledNames, ...retained } = metadata;
+      state.appState.queueEntryMetadataByKey[key] = retained;
+    }
+    state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
+      state.appState.stalledCampaignBlocksByKey,
+      committedGame,
+    );
+  }
   if (options?.onSaveState) {
-    if (!isCurrent()) return cancelled();
     await options.onSaveState();
   }
   if (!isCurrent()) return cancelled();

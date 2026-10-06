@@ -4,7 +4,7 @@ import { createGame, createMinimalState, createStreamer } from '../fixtures/queu
 
 export function registerQueue21Part02() {
   describe('openBestStreamerForSelectedGame', () => {
-    test('preserves managed tab id when no streamer is found so the next game can reuse it', async () => {
+    test('preserves the managed tab and incumbent streamer when no replacement is found', async () => {
       const state = createMinimalState();
       state.appState.selectedGame = createGame({ name: 'No Live Game' });
       state.appState.tabId = 123;
@@ -41,7 +41,7 @@ export function registerQueue21Part02() {
 
       expect(opened).toBe(false);
       expect(state.appState.tabId).toBe(123);
-      expect(state.appState.activeStreamer).toBeNull();
+      expect(state.appState.activeStreamer?.name).toBe('old-streamer');
     });
 
     test('excludes the channel we just rotated away from so rotation changes streamer', async () => {

@@ -1,6 +1,22 @@
 import { gameKey } from '../shared/game-selection.ts';
 import type { TwitchGame } from '../types/index.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { clearCampaignStallBlock } from './stalled-campaign-block.ts';
+
+function resetStalledHistoriesForRound(state: ServiceWorkerState, candidates: readonly TwitchGame[]): void {
+  for (const game of candidates) {
+    const key = gameKey(game);
+    const metadata = state.appState.queueEntryMetadataByKey[key];
+    if (metadata?.stalledStreamerNames) {
+      const { stalledStreamerNames: _stalledNames, ...retained } = metadata;
+      state.appState.queueEntryMetadataByKey[key] = retained;
+    }
+    state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
+      state.appState.stalledCampaignBlocksByKey,
+      game,
+    );
+  }
+}
 
 export const QUEUE_ROUND_RETRY_MS = 10 * 60_000;
 
@@ -36,6 +52,7 @@ export function queueRoundCandidates(
   }
   if (round.nextRoundAt !== null && round.nextRoundAt <= now) {
     resetQueueAcquisitionRound(state);
+    resetStalledHistoriesForRound(state, candidates);
     return candidates;
   }
   const earliestRetryAt = Math.min(

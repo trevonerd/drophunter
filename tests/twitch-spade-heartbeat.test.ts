@@ -41,6 +41,49 @@ describe('Twitch Spade heartbeat', () => {
     expect(requests).toHaveLength(1);
   });
 
+  test('probes StreamInfo as offline, verified live, or unavailable without sending a watch event', async () => {
+    const requests: string[] = [];
+    let body = JSON.stringify([{ data: { user: { id: '42', stream: null } } }]);
+    const fetchImpl: SpadeFetch = async (input) => {
+      requests.push(String(input));
+      return response(body);
+    };
+    const heartbeat = createTwitchSpadeHeartbeat({ fetch: fetchImpl });
+
+    expect(await heartbeat.probeStreamInfo('streamer')).toEqual({ kind: 'offline' });
+    body = JSON.stringify([
+      {
+        data: {
+          user: {
+            id: '42',
+            stream: { id: 'broadcast-1', type: 'live', game: { id: 'category-1', name: 'Game' } },
+          },
+        },
+      },
+    ]);
+    expect(await heartbeat.probeStreamInfo('streamer')).toEqual({
+      kind: 'live',
+      streamer: { id: '42', name: 'streamer', displayName: 'streamer', isLive: true },
+      categoryId: 'category-1',
+      categoryLabel: 'Game',
+    });
+    body = JSON.stringify([{ data: { user: {} } }]);
+    expect(await heartbeat.probeStreamInfo('streamer')).toEqual({ kind: 'unavailable' });
+    expect(requests).toEqual(Array(3).fill('https://gql.twitch.tv/gql'));
+  });
+
+  test('keeps a GraphQL rate limit typed for the gateway backoff classifier', async () => {
+    const heartbeat = createTwitchSpadeHeartbeat({
+      fetch: async () => new Response('', { status: 429, headers: { 'Retry-After': '60' } }),
+    });
+
+    await expect(heartbeat.probeStreamInfo('streamer')).rejects.toMatchObject({
+      name: 'TwitchHttpError',
+      status: 429,
+      retryAfterMs: 60_000,
+    });
+  });
+
   test('does not post when the live channel is in a different game', async () => {
     const requests: string[] = [];
     const fetchImpl: SpadeFetch = async (input) => {
@@ -53,7 +96,7 @@ describe('Twitch Spade heartbeat', () => {
               data: {
                 user: {
                   id: 'channel-1',
-                  stream: { id: 'broadcast-1', game: { id: 'other-game', name: 'Other Game' } },
+                  stream: { id: 'broadcast-1', type: 'live', game: { id: 'other-game', name: 'Other Game' } },
                 },
               },
             },
@@ -148,7 +191,7 @@ describe('Twitch Spade heartbeat', () => {
               data: {
                 user: {
                   id: 'channel-1',
-                  stream: { id: 'broadcast-1', game: { id: 'game-1', name: 'Game' } },
+                  stream: { id: 'broadcast-1', type: 'live', game: { id: 'game-1', name: 'Game' } },
                 },
               },
             },
@@ -189,7 +232,7 @@ describe('Twitch Spade heartbeat', () => {
               data: {
                 user: {
                   id: 'channel-1',
-                  stream: { id: 'broadcast-1', game: { id: 'game-1', name: 'Game' } },
+                  stream: { id: 'broadcast-1', type: 'live', game: { id: 'game-1', name: 'Game' } },
                 },
               },
             },

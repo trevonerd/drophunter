@@ -30,6 +30,35 @@ describe('farming automation browser', () => {
     expect(adapter.watch.currentOwnership()).toEqual(preparation.watch.ownership);
   });
 
+  test('allows a verified live managed candidate when its Drops signal is missing', async () => {
+    // Given: Twitch confirms playback, channel, and game, while the page has no Drops signal.
+    const operations: string[] = [];
+    const adapter = createAdapter(createHost(operations), operations, {
+      managedProbe: {
+        accepted: true,
+        isLive: true,
+        sameChannel: true,
+        sameGame: true,
+        hasDropsSignal: false,
+        reason: 'heartbeat',
+      },
+    });
+
+    // When: managed Play prepares the provisional candidate.
+    const preparation = await adapter.watch.prepare(target, 'managed-tab');
+
+    // Then: the verified candidate remains promotable with degraded Drops health.
+    expect(preparation.kind).toBe('prepared');
+    if (preparation.kind !== 'prepared') throw new Error('Expected a prepared managed watch');
+    expect(preparation.watch.health).toMatchObject({
+      isHealthy: false,
+      status: 'degraded',
+      reason: 'drops-inactive',
+    });
+    expect(adapter.watch.currentOwnership()).toEqual(incumbent);
+    expect(preparation.watch.promote().kind).toBe('promoted');
+  });
+
   test('replaces only the farming automation deadline alarm', async () => {
     // Given: an adapter with recording Chrome alarm operations.
     const operations: string[] = [];
@@ -64,6 +93,58 @@ describe('farming automation browser', () => {
     // Then: B is disposed without probing, and A remains the current ownership.
     expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
     expect(operations).toEqual(['open:false:true', 'wait:15000', 'prep:false:false:true']);
+    expect(adapter.watch.currentOwnership()).toEqual(incumbent);
+  });
+
+  test.each([
+    {
+      name: 'offline stream',
+      probe: {
+        accepted: true,
+        isLive: false,
+        sameChannel: true,
+        sameGame: true,
+        hasDropsSignal: false,
+        reason: 'stream-offline' as const,
+      },
+    },
+    {
+      name: 'wrong channel',
+      probe: {
+        accepted: false,
+        isLive: true,
+        sameChannel: false,
+        sameGame: true,
+        hasDropsSignal: false,
+        reason: 'wrong-channel' as const,
+      },
+    },
+    {
+      name: 'wrong game',
+      probe: {
+        accepted: false,
+        isLive: true,
+        sameChannel: true,
+        sameGame: false,
+        hasDropsSignal: false,
+        reason: 'wrong-game' as const,
+      },
+    },
+    {
+      name: 'incomplete probe',
+      probe: { accepted: false, hasDropsSignal: false, reason: 'heartbeat-failed' as const },
+    },
+    {
+      name: 'missing explicit live, channel, and game proof',
+      probe: { accepted: true, hasDropsSignal: false, reason: 'heartbeat' as const },
+    },
+  ])('still rejects a managed candidate with $name', async ({ probe }) => {
+    const operations: string[] = [];
+    const adapter = createAdapter(createHost(operations), operations, { managedProbe: probe });
+
+    const preparation = await adapter.watch.prepare(target, 'managed-tab');
+
+    expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
     expect(adapter.watch.currentOwnership()).toEqual(incumbent);
   });
 

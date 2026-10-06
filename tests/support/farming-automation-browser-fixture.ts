@@ -4,7 +4,7 @@ import {
 } from '../../src/background/farming-automation-browser.ts';
 import type { WatchOwnershipV1 } from '../../src/background/farming-automation-contracts.ts';
 import type { ManualStreamContext } from '../../src/background/manual-watch-detector.ts';
-import type { FarmingTarget } from '../../src/background/watch-transport.ts';
+import type { FarmingTarget, WatchProbeResult } from '../../src/background/watch-transport.ts';
 import type { PlaybackPrepResult } from '../../src/types/index.ts';
 
 export const incumbent: WatchOwnershipV1 = {
@@ -96,6 +96,7 @@ export type AdapterFixtureOptions = {
   readonly currentOwnership?: WatchOwnershipV1 | null;
   readonly getManualStreamContext?: (tabId: number) => Promise<ManualStreamContext | null>;
   readonly playbackPreparation?: PlaybackPrepResult;
+  readonly managedProbe?: WatchProbeResult;
 };
 
 export function createAdapter(
@@ -117,7 +118,9 @@ export function createAdapter(
       },
       probeManaged: async (_ownership, explicitTarget) => {
         operations.push(`probe:${explicitTarget.campaignId}`);
-        return { accepted: true, isLive: true, sameChannel: true, sameGame: true };
+        return (
+          fixtureOptions.managedProbe ?? { accepted: true, isLive: true, sameChannel: true, sameGame: true }
+        );
       },
     },
     getManualStreamContext: fixtureOptions.getManualStreamContext ?? (async () => null),

@@ -7,7 +7,7 @@ verifyExpectedDiagnostics([
   ['[DropHunter] Giving up on game after stalled drop progress', 16],
   ['[DropHunter] No allowed streamers are live for selected game', 2],
   ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 3],
-  ['[DropHunter] No streamer found for selected game', 4],
+  ['[DropHunter] No streamer found for selected game', 10],
   ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 4],
   ['[DropHunter] Stalled progress recovery exhausted — skipping game', 1],
 ]);

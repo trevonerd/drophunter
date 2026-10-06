@@ -1,3 +1,4 @@
+import { mergeDropProgressMonotonic } from '../shared/drops.ts';
 import {
   applyGameDisplayNames,
   compareGamesForDisplayOrder,
@@ -7,12 +8,14 @@ import {
   isSameGameIdentity,
 } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import { isExpiredGame } from '../shared/utils.ts';
-import type { DropsSnapshot, TwitchGame } from '../types';
+import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../types';
 import { preserveAcquiredCampaigns, rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
 import {
   annotateGameCompletion,
   type DropsSnapshotProvenance,
+  dropStateKey,
   preserveGameCompletionSummaries,
   recomputeKnownCompleteGameSummary,
   reconcileUnverifiableRewardMarkers,
@@ -72,11 +75,43 @@ export function recomputeSelectedCampaignSummaryAfterLocalMarker(state: ServiceW
   return recomputedGame.rewardSummary?.completion === 'farming-complete';
 }
 
+function campaignProgressAdvanced(
+  previousDrops: readonly TwitchDrop[],
+  currentDrops: readonly TwitchDrop[],
+): boolean {
+  const previousByKey = new Map(previousDrops.map((drop) => [dropStateKey(drop), drop]));
+  return currentDrops.some((drop) => {
+    const previous = previousByKey.get(dropStateKey(drop));
+    return (
+      previous !== undefined &&
+      (drop.progress > previous.progress ||
+        (drop.currentMinutes ?? -1) > (previous.currentMinutes ?? -1) ||
+        (!isRewardAcquired(previous) && isRewardAcquired(drop)))
+    );
+  });
+}
+
+function mergeCampaignBaseline(
+  game: TwitchGame,
+  projectedDrops: readonly TwitchDrop[],
+  cachedDrops: readonly TwitchDrop[],
+): TwitchDrop[] {
+  const byKey = new Map<string, TwitchDrop>();
+  for (const drop of [...projectedDrops, ...cachedDrops].filter((entry) => dropMatchesGame(entry, game))) {
+    const key = dropStateKey(drop);
+    const previous = byKey.get(key);
+    byKey.set(key, previous ? mergeDropProgressMonotonic(drop, previous) : drop);
+  }
+  return [...byKey.values()];
+}
+
 export function projectDropsSnapshot(
   state: ServiceWorkerState,
   snapshot: DropsSnapshot,
   provenance: DropsSnapshotProvenance,
 ): void {
+  const previousCampaignDrops = state.appState.campaignDropsByKey;
+  const previousCachedDrops = state.cachedDropsSnapshot;
   rememberAcquiredCampaigns(state.appState, state.appState.availableGames);
   const reconciledDrops = reconcileUnverifiableRewardMarkers(state, snapshot, provenance);
   if (reconciledDrops.length > 0) {
@@ -120,24 +155,35 @@ export function projectDropsSnapshot(
   );
   if (provenance !== 'cached') {
     for (const game of annotatedGames) {
-      const block = state.appState.stalledCampaignBlocksByKey[gameKey(game)];
+      const key = gameKey(game);
+      const block = state.appState.stalledCampaignBlocksByKey[key];
       const campaignDrops = reconciledDrops.filter((drop) => dropMatchesGame(drop, game));
-      if (!hasNewRewardProgressEvidence(block, campaignDrops)) continue;
+      const previousDrops = mergeCampaignBaseline(
+        game,
+        previousCampaignDrops[key] ?? [],
+        previousCachedDrops,
+      );
+      if (
+        !hasNewRewardProgressEvidence(block, campaignDrops) &&
+        !campaignProgressAdvanced(previousDrops, campaignDrops)
+      )
+        continue;
       state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
         state.appState.stalledCampaignBlocksByKey,
         game,
       );
-      const metadata = state.appState.queueEntryMetadataByKey[gameKey(game)];
-      if (metadata?.streamerRetryReason === 'stalled-progress') {
+      const metadata = state.appState.queueEntryMetadataByKey[key];
+      if (metadata) {
         const {
           streamerRetryAt: _at,
           streamerRetryReason: _reason,
           streamerRetryAttempts: _attempts,
           streamerRetryCycles: _cycles,
           streamerWaitState: _wait,
+          stalledStreamerNames: _stalledStreamers,
           ...ready
         } = metadata;
-        state.appState.queueEntryMetadataByKey[gameKey(game)] = ready;
+        state.appState.queueEntryMetadataByKey[key] = ready;
       }
     }
   }

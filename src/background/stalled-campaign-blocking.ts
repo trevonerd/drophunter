@@ -7,6 +7,7 @@ import { blockCampaignForStall, captureRewardProgress } from './stalled-campaign
 type StalledCampaignBlockingInput = {
   readonly state: ServiceWorkerState;
   readonly now: () => number;
+  readonly isCurrent?: () => boolean;
   readonly fetchDirectoryStreamers: (
     game: TwitchGame,
     forceSessionRefresh?: boolean,
@@ -15,24 +16,46 @@ type StalledCampaignBlockingInput = {
   readonly notify?: AutomationEventNotifier['notify'];
 };
 
-export async function blockSelectedCampaignForStall(input: StalledCampaignBlockingInput): Promise<void> {
+export async function blockSelectedCampaignForStall(input: StalledCampaignBlockingInput): Promise<boolean> {
+  if (input.isCurrent?.() === false) return false;
   const selectedGame = input.state.appState.selectedGame;
-  if (!selectedGame) return;
-  const directory = await input.fetchDirectoryStreamers(
-    selectedGame,
-    false,
-    input.state.appState.preferredStreamerLanguage ?? '',
-  );
+  if (!selectedGame) return false;
+  const selectedKey = gameKey(selectedGame);
+  const failedNamesAtStart =
+    input.state.appState.queueEntryMetadataByKey[selectedKey]?.stalledStreamerNames ?? [];
+  const hasSameFailureHistory = () => {
+    const current = input.state.appState.queueEntryMetadataByKey[selectedKey]?.stalledStreamerNames ?? [];
+    return (
+      current.length === failedNamesAtStart.length &&
+      current.every((name, index) => name === failedNamesAtStart[index])
+    );
+  };
+  let directory: Awaited<ReturnType<StalledCampaignBlockingInput['fetchDirectoryStreamers']>> | null = null;
+  try {
+    directory = await input.fetchDirectoryStreamers(
+      selectedGame,
+      false,
+      input.state.appState.preferredStreamerLanguage ?? '',
+    );
+  } catch {
+    // Preserve confirmed failure evidence when Twitch cannot refresh the directory.
+  }
+  if (input.isCurrent?.() === false || !hasSameFailureHistory()) return false;
   const allowedChannels = new Set(
     (selectedGame.allowedChannels ?? []).map((channel) => channel.trim().toLowerCase()),
   );
-  const eligibleStreamerNames = directory
-    .filter(
-      (streamer) =>
-        streamer.isLive &&
-        (allowedChannels.size === 0 || allowedChannels.has(streamer.name.trim().toLowerCase())),
-    )
-    .map((streamer) => streamer.name);
+  const knownFailedNames =
+    input.state.appState.queueEntryMetadataByKey[gameKey(selectedGame)]?.stalledStreamerNames ?? [];
+  const eligibleStreamerNames = [
+    ...knownFailedNames,
+    ...(directory ?? [])
+      .filter(
+        (streamer) =>
+          streamer.isLive &&
+          (allowedChannels.size === 0 || allowedChannels.has(streamer.name.trim().toLowerCase())),
+      )
+      .map((streamer) => streamer.name),
+  ];
   const blockedAt = input.now();
   input.state.appState = {
     ...input.state.appState,
@@ -58,4 +81,5 @@ export async function blockSelectedCampaignForStall(input: StalledCampaignBlocki
     priority: 1,
     telegramReason: 'campaign-excluded',
   });
+  return input.isCurrent?.() !== false && hasSameFailureHistory();
 }

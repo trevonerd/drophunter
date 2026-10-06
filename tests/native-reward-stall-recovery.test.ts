@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createFarmingSession } from '../src/background/farming-session.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
-import { STALLED_PROGRESS_RETRY_MS } from '../src/background/stream-rotation.ts';
+import { computeEffectiveStallThreshold } from '../src/background/stream-rotation.ts';
 import type { WatchHealth } from '../src/background/watch-transport.ts';
 import { createWatchTransportCoordinator } from '../src/background/watch-transport-coordinator.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
@@ -86,8 +86,19 @@ function fixture(drop: TwitchDrop, nextDrops: TwitchDrop[], now: () => number, r
     getInitPromise: () => null,
     trackActivity: async () => {},
     ensureTwitchSession: async () => null,
-    fetchDropsSnapshotFromApi: async () => ({ games, drops, updatedAt: now() }),
-    fetchInventorySnapshotFromApi: async (current) => ({ games, drops: current, updatedAt: now() }),
+    fetchDropsSnapshotFromApi: async () => ({
+      games,
+      drops,
+      campaignsVerified: true,
+      inventoryVerified: true,
+      updatedAt: now(),
+    }),
+    fetchInventorySnapshotFromApi: async (current) => ({
+      games,
+      drops: current,
+      inventoryVerified: true,
+      updatedAt: now(),
+    }),
     fetchDirectoryStreamersFromApi: async () => Object.assign([streamer], { languageFilterApplied: true }),
     fetchStreamContext: async () => null,
     resolveCategorySlug: async () => 'resonance',
@@ -124,7 +135,7 @@ function fixture(drop: TwitchDrop, nextDrops: TwitchDrop[], now: () => number, r
           stop: async () => {},
           setPreference: async () => {},
           tick: async () =>
-            ++ticks === 1
+            ++ticks > 0
               ? {
                   ...healthy,
                   status: 'stalled',
@@ -168,7 +179,7 @@ test('exhausted native reward hands off to an ordinary reward in the same campai
     const { state, session } = fixture(reward('twitch-badge', 99), [nextDrop], () => now);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await session.checkDropProgress();
-      now += STALLED_PROGRESS_RETRY_MS;
+      now += computeEffectiveStallThreshold(100);
     }
     expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(1);
     expect(state.appState.isRunning).toBe(true);
@@ -177,7 +188,7 @@ test('exhausted native reward hands off to an ordinary reward in the same campai
     expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
     expect(state.appState.selectedGame?.rewardSummary?.completion).toBe('farmable');
     expect(state.stalledRecoveryAttempts).toBe(0);
-    expect(state.appState.recoveryReason).toBeNull();
+    expect(state.appState.recoveryReason).toBe('no-streamers');
   } finally {
     Date.now = originalNow;
   }
@@ -198,12 +209,10 @@ for (const kind of ['twitch-badge', 'twitch-emote'] as const) {
           campaignId: nextGame.campaignId,
         };
         const { state, session, savedMarkers } = fixture(drop, [nextDrop], () => now);
-        for (let attempt = 1; attempt <= 3; attempt += 1) {
-          await session.checkDropProgress();
-          expect(state.stalledRecoveryAttempts).toBe(attempt);
-          expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(0);
-          now += STALLED_PROGRESS_RETRY_MS;
-        }
+        await session.checkDropProgress();
+        expect(state.stalledRecoveryAttempts).toBe(1);
+        expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(0);
+        now += computeEffectiveStallThreshold(100);
         await session.checkDropProgress();
         expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(1);
         expect(savedMarkers()).toBe(1);

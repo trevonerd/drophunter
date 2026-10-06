@@ -11,6 +11,8 @@ export type LifecycleRefreshOptions = {
 
 export type QueueProgressOptions = {
   readonly isCurrent?: () => boolean;
+  /** Allows the queue's own committed head promotion while retaining the operation guard. */
+  readonly isCurrentAfterQueueAdvance?: (game: TwitchGame) => boolean;
   readonly onOpenStreamer?: (isCurrent?: () => boolean) => Promise<boolean>;
   readonly onEnsureWorkspace?: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRefreshDropsData?: (options: LifecycleRefreshOptions) => Promise<void>;

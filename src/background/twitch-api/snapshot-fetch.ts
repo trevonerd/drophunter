@@ -7,6 +7,7 @@ import {
   buildGlobalClaimedIdCounts,
   buildGlobalClaimedRewardEntry,
 } from './claimed-rewards';
+import { classifyTwitchApiFailure } from './errors';
 import { TwitchGqlTransport } from './gql';
 import { buildInventoryDropMaps } from './inventory-drops';
 import { normalizeText } from './parsing';
@@ -52,6 +53,8 @@ export async function fetchUncoalescedDropsSnapshot(
       .catch((error: unknown) => {
         inventoryFetchSucceeded = false;
         logWarn('[TwitchApiClient] Inventory fetch failed, proceeding without inventory:', String(error));
+        const failureKind = classifyTwitchApiFailure(error).kind;
+        if (failureKind === 'rate-limit' || failureKind === 'auth') throw error;
         return { currentUser: { inventory: null } };
       }),
   ]);

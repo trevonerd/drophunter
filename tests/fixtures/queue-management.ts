@@ -183,11 +183,14 @@ export function createStalledRecoverySession(
       fetchDropsSnapshotFromApi: async () => ({
         games: state.appState.availableGames,
         drops: state.appState.allDrops,
+        campaignsVerified: true,
+        inventoryVerified: true,
         updatedAt: Date.now(),
       }),
       fetchInventorySnapshotFromApi: async () => ({
         games: state.appState.availableGames,
         drops: state.appState.allDrops,
+        inventoryVerified: true,
         updatedAt: Date.now(),
       }),
       fetchStreamContext: async () => ({

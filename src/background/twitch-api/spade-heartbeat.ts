@@ -1,4 +1,6 @@
+import type { TwitchStreamer } from '../../types/index.ts';
 import type { FarmingTarget, TablessHeartbeat } from '../watch-transport.ts';
+import { createTwitchHttpError } from './errors.ts';
 import {
   channelUrl,
   extractSettingsBundle,
@@ -36,6 +38,11 @@ interface StreamInfo {
   readonly gameName?: string;
 }
 
+type StreamInfoResult =
+  | { readonly kind: 'offline' }
+  | { readonly kind: 'unavailable' }
+  | { readonly kind: 'live'; readonly stream: StreamInfo };
+
 interface JsonRecord {
   readonly [key: string]: unknown;
 }
@@ -57,25 +64,32 @@ function firstGraphQlValue(value: unknown): unknown {
   return value;
 }
 
-function parseStreamInfo(value: unknown): StreamInfo | null {
+function parseStreamInfo(value: unknown): StreamInfoResult {
   const envelope = firstGraphQlValue(value);
-  if (!isRecord(envelope) || !isRecord(envelope.data) || !isRecord(envelope.data.user)) {
-    return null;
-  }
+  if (!isRecord(envelope) || !isRecord(envelope.data) || !('user' in envelope.data))
+    return { kind: 'unavailable' };
+  if (Array.isArray(envelope.errors) && envelope.errors.length > 0) return { kind: 'unavailable' };
   const user = envelope.data.user;
+  if (user === null) return { kind: 'offline' };
+  if (!isRecord(user)) return { kind: 'unavailable' };
   const channelId = stringValue(user.id);
+  if (!channelId) return { kind: 'unavailable' };
   const stream = isRecord(user.stream) ? user.stream : null;
+  if (user.stream === null) return { kind: 'offline' };
+  if (!stream) return { kind: 'unavailable' };
   const broadcastId = stream ? stringValue(stream.id) : undefined;
   const type = stream ? stringValue(stream.type) : undefined;
-  if (!channelId || !broadcastId || (type && type.toLowerCase() !== 'live')) {
-    return null;
-  }
+  if (type && type.toLowerCase() !== 'live') return { kind: 'offline' };
+  if (!broadcastId || !type) return { kind: 'unavailable' };
   const game = stream && isRecord(stream.game) ? stream.game : null;
   return {
-    channelId,
-    broadcastId,
-    gameId: game ? stringValue(game.id) : undefined,
-    gameName: game ? stringValue(game.name) : undefined,
+    kind: 'live',
+    stream: {
+      channelId,
+      broadcastId,
+      gameId: game ? stringValue(game.id) : undefined,
+      gameName: game ? stringValue(game.name) : undefined,
+    },
   };
 }
 
@@ -89,6 +103,16 @@ async function readResponseBody(response: Response): Promise<string> {
 
 export interface TwitchSpadeHeartbeat {
   readonly heartbeat: (target: FarmingTarget, viewerUserId: string) => Promise<TablessHeartbeat>;
+  readonly probeStreamInfo: (channelName: string) => Promise<
+    | { readonly kind: 'offline' }
+    | { readonly kind: 'unavailable' }
+    | {
+        readonly kind: 'live';
+        readonly streamer: TwitchStreamer;
+        readonly categoryId?: string;
+        readonly categoryLabel?: string;
+      }
+  >;
 }
 
 export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions = {}): TwitchSpadeHeartbeat {
@@ -159,7 +183,7 @@ export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions 
     return bundledDestination ? safeTwitchUrl(bundledDestination) : null;
   };
 
-  const fetchStreamInfo = async (channelName: string): Promise<StreamInfo | null> => {
+  const fetchStreamInfo = async (channelName: string, throwHttpError = false): Promise<StreamInfoResult> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (options.clientId) {
       headers['Client-Id'] = options.clientId;
@@ -175,12 +199,37 @@ export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions 
       }),
     });
     if (!response.ok) {
-      return null;
+      if (throwHttpError) throw createTwitchHttpError('gql', response);
+      return { kind: 'unavailable' };
     }
     try {
       return parseStreamInfo(JSON.parse(body));
     } catch {
-      return null;
+      return { kind: 'unavailable' };
+    }
+  };
+
+  const probeStreamInfo: TwitchSpadeHeartbeat['probeStreamInfo'] = async (channelName) => {
+    const channel = channelName.trim().toLowerCase();
+    if (!channel) return { kind: 'unavailable' };
+    try {
+      const result = await fetchStreamInfo(channel, true);
+      if (result.kind !== 'live') return result;
+      const stream = result.stream;
+      return {
+        kind: 'live',
+        streamer: {
+          id: stream.channelId,
+          name: channel,
+          displayName: channel,
+          isLive: true,
+        },
+        categoryId: stream.gameId,
+        categoryLabel: stream.gameName,
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TwitchHttpError') throw error;
+      return { kind: 'unavailable' };
     }
   };
 
@@ -209,8 +258,8 @@ export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions 
       return { accepted: false, isLive: true, reason: 'error' };
     }
     try {
-      const stream = await fetchStreamInfo(channel);
-      if (!stream) {
+      const streamResult = await fetchStreamInfo(channel);
+      if (streamResult.kind === 'offline') {
         return {
           accepted: false,
           isLive: false,
@@ -219,6 +268,8 @@ export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions 
           reason: 'stream-offline',
         };
       }
+      if (streamResult.kind === 'unavailable') return { accepted: false, isLive: true, reason: 'error' };
+      const stream = streamResult.stream;
       if (!stream.gameId || !target.gameId || stream.gameId !== target.gameId) {
         return {
           accepted: false,
@@ -256,5 +307,5 @@ export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions 
     }
   };
 
-  return { heartbeat };
+  return { heartbeat, probeStreamInfo };
 }

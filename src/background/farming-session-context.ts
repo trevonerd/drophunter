@@ -26,6 +26,8 @@ export interface RefreshDropsOptions {
   readonly isCurrent?: () => boolean;
   readonly sessionRecoveryMode?: TwitchApiRequestOptions['sessionRecoveryMode'];
   readonly suppressNotifications?: boolean;
+  readonly strictFreshProof?: boolean;
+  readonly minimumFreshUpdatedAt?: number;
 }
 
 export interface FarmingSessionAdapters {
@@ -43,6 +45,8 @@ export interface FarmingSessionAdapters {
     language?: string,
     isCurrent?: () => boolean,
   ) => Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>;
+  readonly probeStreamInfo?: import('./eligible-streamer-discovery.ts').EligibleStreamerDiscoveryOptions['probeChannel'];
+  readonly refreshVerifiedGame?: (game: TwitchGame, isCurrent?: () => boolean) => Promise<TwitchGame | null>;
   readonly fetchStreamContext: (tabId: number) => Promise<StreamContext | null>;
   readonly resolveCategorySlug: (game: TwitchGame) => Promise<string>;
   readonly openForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;

@@ -121,7 +121,7 @@ export async function fetchDropsSnapshotFromApiWrapper(
     if (!session.userId && transientFailure) return null;
     if (!session.userId) {
       if (state.appState.isRunning && explicitAuthFailure) {
-        await callbacks.onStopFarmingSession?.({
+        await (requestOptions.preserveSessionOnAuthFailure ? undefined : callbacks.onStopFarmingSession)?.({
           notification: {
             title: 'Sign-in required',
             message: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
@@ -138,6 +138,8 @@ export async function fetchDropsSnapshotFromApiWrapper(
       return null;
     }
   }
+
+  requestOptions.onSessionResolved?.(session);
 
   deps.logDebug('Fetching drops snapshot via API', {
     recoveryMode,
@@ -162,7 +164,10 @@ export async function fetchDropsSnapshotFromApiWrapper(
           );
       }
       deps.logWarn('Twitch API auth failed after explicit session recovery:', String(error));
-      await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
+      await stopForSignInRequiredIfRunning(
+        state,
+        requestOptions.preserveSessionOnAuthFailure ? undefined : callbacks.onStopFarmingSession,
+      );
       return null;
     }
     deps.logWarn('Twitch API snapshot fetch failed:', String(error));

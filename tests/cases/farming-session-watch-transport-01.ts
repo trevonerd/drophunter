@@ -146,11 +146,17 @@ describe('farming session watch transport integration', () => {
         createAdapters({
           fetchDropsSnapshotFromApi: async () => {
             campaignRefreshes += 1;
-            return { games: [game, nextGame], drops: [fixtureDrop(game)], updatedAt: now };
+            return {
+              games: [game, nextGame],
+              drops: [fixtureDrop(game)],
+              campaignsVerified: true,
+              inventoryVerified: true,
+              updatedAt: now,
+            };
           },
           fetchInventorySnapshotFromApi: async (drops) => {
             inventoryRefreshes += 1;
-            return { games: [game, nextGame], drops, updatedAt: now };
+            return { games: [game, nextGame], drops, inventoryVerified: true, updatedAt: now };
           },
           openForegroundChannel: async () => {
             foregroundOpens += 1;

@@ -5,6 +5,7 @@ import {
   FarmingAutomationDirectoryRefreshError,
   type FarmingAutomationDirectoryResponse,
   FarmingAutomationInventoryRefreshError,
+  FarmingAutomationRefreshBackoffError,
   type FarmingAutomationTwitchSource,
 } from '../src/background/farming-automation-twitch.ts';
 import type { TwitchSession } from '../src/background/twitch-api/types.ts';
@@ -62,6 +63,137 @@ function directoryResponse(streamers: readonly TwitchStreamer[]): FarmingAutomat
 }
 
 describe('farming automation Twitch adapter', () => {
+  test('queued refresh delegates missing-session recovery and requires fresh verified campaigns and inventory', async () => {
+    const loadSessionCalls: boolean[] = [];
+    let refreshOptions: unknown;
+    const completeSnapshot: DropsSnapshot = {
+      games: [game('campaign-a')],
+      drops: [drop('campaign-a', 10)],
+      campaignsVerified: true,
+      inventoryVerified: true,
+      updatedAt: Date.now(),
+    };
+    const adapter = createFarmingAutomationTwitchAdapter(
+      source({
+        loadSession: async (forceRefresh) => {
+          loadSessionCalls.push(forceRefresh);
+          return loadSessionCalls.length === 1 ? null : session;
+        },
+        fetchCampaignSnapshot: async (loadedSession, options) => {
+          expect(loadedSession).toBeNull();
+          refreshOptions = options;
+          return { ...completeSnapshot, updatedAt: Date.now() };
+        },
+      }),
+    );
+
+    const result = await adapter.refresh(false, { requireFreshCompleteSnapshot: true });
+
+    expect(result.kind).toBe('ready');
+    expect(loadSessionCalls).toEqual([false, false]);
+    expect(refreshOptions).toMatchObject({ requireFreshCompleteSnapshot: true });
+    expect((refreshOptions as { onSessionResolved?: unknown }).onSessionResolved).toBeFunction();
+    if (result.kind === 'ready') expect(result.sessionUserId).toBe('123');
+  });
+
+  test('queued refresh rejects partial, unverified, or stale snapshots', async () => {
+    const partial = createFarmingAutomationTwitchAdapter(
+      source({
+        fetchCampaignSnapshot: async () => ({
+          games: [game('campaign-a')],
+          drops: [drop('campaign-a', 10)],
+          campaignsVerified: false,
+          inventoryVerified: true,
+          updatedAt: Date.now(),
+        }),
+      }),
+    );
+    const stale = createFarmingAutomationTwitchAdapter(
+      source({
+        fetchCampaignSnapshot: async () => ({
+          games: [game('campaign-a')],
+          drops: [drop('campaign-a', 10)],
+          campaignsVerified: true,
+          inventoryVerified: true,
+          updatedAt: Date.now() - 10_000,
+        }),
+      }),
+    );
+    const missingInventory = createFarmingAutomationTwitchAdapter(
+      source({
+        fetchCampaignSnapshot: async () => ({
+          games: [game('campaign-a')],
+          drops: [drop('campaign-a', 10)],
+          campaignsVerified: false,
+          inventoryVerified: false,
+          updatedAt: Date.now(),
+        }),
+      }),
+    );
+
+    await expect(partial.refresh(false, { requireFreshCompleteSnapshot: true })).rejects.toBeInstanceOf(
+      FarmingAutomationCampaignRefreshError,
+    );
+    await expect(stale.refresh(false, { requireFreshCompleteSnapshot: true })).rejects.toBeInstanceOf(
+      FarmingAutomationCampaignRefreshError,
+    );
+    await expect(
+      missingInventory.refresh(false, { requireFreshCompleteSnapshot: true }),
+    ).rejects.toBeInstanceOf(FarmingAutomationInventoryRefreshError);
+  });
+
+  test('queued refresh observes the scheduled retry before loading a session or fetching campaigns', async () => {
+    let sessionCalls = 0;
+    let campaignCalls = 0;
+    const adapter = createFarmingAutomationTwitchAdapter(
+      source({
+        assertCanRefresh: () => {
+          throw new FarmingAutomationRefreshBackoffError(Date.now() + 60_000);
+        },
+        loadSession: async () => {
+          sessionCalls++;
+          return session;
+        },
+        fetchCampaignSnapshot: async () => {
+          campaignCalls++;
+          return null;
+        },
+      }),
+    );
+
+    await expect(adapter.refresh(false, { requireFreshCompleteSnapshot: true })).rejects.toBeInstanceOf(
+      FarmingAutomationRefreshBackoffError,
+    );
+    expect(sessionCalls).toBe(0);
+    expect(campaignCalls).toBe(0);
+  });
+
+  test('queued refresh rejects an account change between snapshot fetch and session read', async () => {
+    let sessionCalls = 0;
+    const adapter = createFarmingAutomationTwitchAdapter(
+      source({
+        loadSession: async () => {
+          sessionCalls++;
+          return sessionCalls === 1 ? null : { ...session, userId: 'account-b' };
+        },
+        fetchCampaignSnapshot: async (_session, options) => {
+          options?.onSessionResolved?.('account-a');
+          return {
+            games: [game('campaign-a')],
+            drops: [drop('campaign-a', 10)],
+            campaignsVerified: true,
+            inventoryVerified: true,
+            updatedAt: Date.now(),
+          };
+        },
+      }),
+    );
+
+    await expect(adapter.refresh(false, { requireFreshCompleteSnapshot: true })).rejects.toBeInstanceOf(
+      FarmingAutomationCampaignRefreshError,
+    );
+  });
+
   test('normalizes duplicate benefits without merging campaigns', async () => {
     const first = {
       ...game('campaign-a'),

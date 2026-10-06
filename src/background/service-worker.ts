@@ -117,6 +117,8 @@ farmingSession = createFarmingSession(state, {
   fetchDropsSnapshotFromApi: twitchGateway.fetchDropsSnapshot,
   fetchInventorySnapshotFromApi: twitchGateway.fetchInventorySnapshot,
   fetchDirectoryStreamersFromApi: twitchGateway.fetchDirectoryStreamers,
+  probeStreamInfo: twitchGateway.probeStreamInfo,
+  refreshVerifiedGame: twitchGateway.refreshVerifiedGame,
   fetchStreamContext: twitchGateway.fetchStreamContext,
   resolveCategorySlug: async (game) => twitchGateway.resolveCategorySlug(game),
   openForegroundChannel: async (streamer) => {

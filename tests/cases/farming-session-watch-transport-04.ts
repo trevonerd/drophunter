@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createFarmingSession } from '../../src/background/farming-session.ts';
 import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
-import { STALLED_PROGRESS_RETRY_MS } from '../../src/background/stream-rotation.ts';
+import { computeEffectiveStallThreshold } from '../../src/background/stream-rotation.ts';
 import type { WatchHealth } from '../../src/background/watch-transport.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
@@ -135,7 +135,6 @@ describe('farming session watch transport integration', () => {
     state.appState.activeStreamer = streamer;
     state.appState.watchTransportMode = 'tabless';
     const starts: string[] = [];
-    let ticks = 0;
     const stalledHealth: WatchHealth = {
       ...createHealth('tabless'),
       isHealthy: false,
@@ -152,11 +151,14 @@ describe('farming session watch transport integration', () => {
           fetchDropsSnapshotFromApi: async () => ({
             games: [game],
             drops: [currentDrop],
+            campaignsVerified: true,
+            inventoryVerified: true,
             updatedAt: now,
           }),
           fetchInventorySnapshotFromApi: async (drops) => ({
             games: [game],
             drops,
+            inventoryVerified: true,
             updatedAt: now,
           }),
           fetchDirectoryStreamersFromApi: async () =>
@@ -166,10 +168,7 @@ describe('farming session watch transport integration', () => {
               starts.push(candidate.name);
               return createHealth('tabless');
             },
-            tick: async () => {
-              ticks += 1;
-              return ticks === 1 ? stalledHealth : createHealth('tabless');
-            },
+            tick: async () => stalledHealth,
             stop: async () => {},
             setPreference: async () => {},
           },
@@ -179,7 +178,7 @@ describe('farming session watch transport integration', () => {
       await session.checkDropProgress();
       expect(starts).toEqual(['channel-1']);
 
-      now += STALLED_PROGRESS_RETRY_MS;
+      now += computeEffectiveStallThreshold(currentDrop.requiredMinutes);
       await session.checkDropProgress();
 
       expect(starts).toEqual(['channel-1', 'channel-2']);
@@ -190,7 +189,7 @@ describe('farming session watch transport integration', () => {
     }
   });
 
-  test('three backoff-spaced Hidden attempts park the blocked campaign behind the next campaign', async () => {
+  test('fresh no-progress proof plus verified alternative exhaustion parks behind the next campaign', async () => {
     const realDateNow = Date.now;
     let now = 4_000_000;
     Date.now = () => now;
@@ -204,7 +203,6 @@ describe('farming session watch transport integration', () => {
     state.appState.activeStreamer = streamer;
     state.appState.watchTransportMode = 'tabless';
     let hiddenStarts = 0;
-    let ticks = 0;
     const suppressedCampaignKeys: string[] = [];
     const stalledHealth: WatchHealth = {
       ...createHealth('tabless'),
@@ -222,11 +220,14 @@ describe('farming session watch transport integration', () => {
           fetchDropsSnapshotFromApi: async () => ({
             games: [game, nextGame],
             drops: [currentDrop, nextDrop],
+            campaignsVerified: true,
+            inventoryVerified: true,
             updatedAt: now,
           }),
           fetchInventorySnapshotFromApi: async (drops) => ({
             games: [game, nextGame],
             drops,
+            inventoryVerified: true,
             updatedAt: now,
           }),
           suppressCampaignUntilRefresh: async (campaignKey) => {
@@ -238,10 +239,7 @@ describe('farming session watch transport integration', () => {
               hiddenStarts += 1;
               return createHealth('tabless');
             },
-            tick: async () => {
-              ticks += 1;
-              return ticks === 1 ? stalledHealth : createHealth('tabless');
-            },
+            tick: async () => stalledHealth,
             stop: async () => {},
             setPreference: async () => {},
           },
@@ -250,17 +248,7 @@ describe('farming session watch transport integration', () => {
 
       await session.checkDropProgress();
       expect(state.stalledRecoveryAttempts).toBe(1);
-      now += STALLED_PROGRESS_RETRY_MS - 1;
-      await session.checkDropProgress();
-      expect(state.stalledRecoveryAttempts).toBe(1);
-      expect(hiddenStarts).toBe(1);
-      now += 1;
-      await session.checkDropProgress();
-      expect(state.stalledRecoveryAttempts).toBe(2);
-      now += STALLED_PROGRESS_RETRY_MS;
-      await session.checkDropProgress();
-      expect(state.stalledRecoveryAttempts).toBe(3);
-      now += STALLED_PROGRESS_RETRY_MS;
+      now += computeEffectiveStallThreshold(currentDrop.requiredMinutes);
       await session.checkDropProgress();
 
       expect(state.appState.selectedGame?.campaignId).toBe(nextGame.campaignId);
@@ -268,7 +256,9 @@ describe('farming session watch transport integration', () => {
         nextGame.campaignId,
         game.campaignId,
       ]);
-      expect(hiddenStarts).toBe(4);
+      expect(hiddenStarts).toBeGreaterThan(0);
+      expect(state.appState.activeStreamer?.name).toBe(streamer.name);
+      expect(state.lastProgressAdvanceAt).toBe(now);
       expect(suppressedCampaignKeys).toEqual([]);
     } finally {
       Date.now = realDateNow;

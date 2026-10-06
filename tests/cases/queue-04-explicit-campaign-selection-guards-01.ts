@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { handleSetSelectedGame } from '../../src/background/drops-tick.ts';
 import { removeGameFromQueue, resolveGameFromState } from '../../src/background/queue-operations.ts';
 import { handleStartFarming } from '../../src/background/session-lifecycle.ts';
+import { gameKey } from '../../src/shared/game-selection.ts';
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 
 export function registerQueue04Part01() {
@@ -85,6 +86,26 @@ export function registerQueue04Part01() {
       expect(legacyResult.success).toBe(true);
       expect(legacyState.appState.selectedGame).toBe(legacyCanonical);
       expect(legacyState.appState.queue[0]).toBe(legacyCanonical);
+    });
+
+    test('clears that campaign stalled history only after explicit Start commits', async () => {
+      const state = createMinimalState();
+      const selected = createGame({ id: 'shared', campaignId: 'start-campaign' });
+      state.appState.availableGames = [selected];
+      state.appState.pendingDrops = [
+        createDrop({ gameId: selected.id, gameName: selected.name, campaignId: selected.campaignId }),
+      ];
+      state.appState.queueEntryMetadataByKey[gameKey(selected)] = {
+        source: 'manual',
+        addedAt: 1,
+        reason: 'user-added',
+        stalledStreamerNames: ['old'],
+      };
+
+      const result = await handleStartFarming(state, { game: selected });
+
+      expect(result.success).toBe(true);
+      expect(state.appState.queueEntryMetadataByKey[gameKey(selected)]?.stalledStreamerNames).toBeUndefined();
     });
 
     test('rejects SET_SELECTED_GAME for an unavailable campaign without changing selection or queue', async () => {

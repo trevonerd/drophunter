@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { gameKey } from '../../src/shared/game-selection.ts';
 import {
   createDrop,
   createExhaustedRecoveryFixture,
@@ -118,6 +119,14 @@ export function registerQueue23Part01() {
         currentMinutes: 59,
         additionalDrops: [nextReward],
       });
+      const selectedGame = state.appState.selectedGame;
+      if (!selectedGame) throw new Error('Expected selected game in exhausted recovery fixture');
+      state.appState.queueEntryMetadataByKey[gameKey(selectedGame)] = {
+        source: 'manual',
+        addedAt: 1,
+        reason: 'user-added',
+        stalledStreamerNames: ['stalled-streamer', 'replacement'],
+      };
       let reacquireCalls = 0;
 
       await createStalledRecoverySession(state, {

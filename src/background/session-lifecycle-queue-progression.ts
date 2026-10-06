@@ -39,18 +39,28 @@ export async function progressFarmingQueue(
 ): Promise<QueueProgressionResult> {
   let terminalFarmingCompleteGame = request.terminalFarmingCompleteGame;
   let hasScheduledWaiting = request.hasScheduledWaiting ?? false;
+  let progressionOptions = request.options;
 
   while (state.appState.queue.length > 0) {
+    if (progressionOptions?.isCurrent?.() === false) return { kind: 'cancelled' };
     const nextGame = prepareNextEligibleQueueHead(state, request.restrictUnauthorizedManualContinuation);
     if (!nextGame) break;
+    const options = progressionOptions?.isCurrentAfterQueueAdvance
+      ? {
+          ...progressionOptions,
+          isCurrent: () => progressionOptions?.isCurrentAfterQueueAdvance?.(nextGame) ?? false,
+        }
+      : progressionOptions;
+    progressionOptions = options;
+    if (options?.isCurrent?.() === false) return { kind: 'cancelled' };
 
-    await refreshQueueHead(state, request.options);
-    if (request.options?.isCurrent?.() === false) return { kind: 'cancelled' };
+    await refreshQueueHead(state, options);
+    if (options?.isCurrent?.() === false) return { kind: 'cancelled' };
     if (isWaitingForScheduledRewards(state)) {
       markQueueCampaignAttempted(state, nextGame);
       parkCampaignAtQueueTail(state, nextGame);
       hasScheduledWaiting = true;
-      await request.options?.onSaveState?.();
+      await options?.onSaveState?.();
       continue;
     }
 
@@ -65,19 +75,19 @@ export async function progressFarmingQueue(
       continue;
     }
 
-    const opened = (await request.options?.onOpenStreamer?.(request.options.isCurrent)) ?? false;
-    if (request.options?.isCurrent?.() === false) return { kind: 'cancelled' };
-    await request.options?.onSaveState?.();
+    const opened = (await options?.onOpenStreamer?.(options.isCurrent)) ?? false;
+    if (options?.isCurrent?.() === false) return { kind: 'cancelled' };
+    await options?.onSaveState?.();
     return { kind: 'advanced', game: nextGame, opened };
   }
 
-  if (await waitForParkedQueue(state, request.restrictUnauthorizedManualContinuation, request.options)) {
+  if (await waitForParkedQueue(state, request.restrictUnauthorizedManualContinuation, progressionOptions)) {
     return { kind: 'waiting' };
   }
   if (hasScheduledWaiting && state.appState.queue.length > 0) {
-    await request.options?.onSaveState?.();
+    await progressionOptions?.onSaveState?.();
     return { kind: 'waiting' };
   }
-  if (request.options?.isCurrent?.() === false) return { kind: 'cancelled' };
+  if (progressionOptions?.isCurrent?.() === false) return { kind: 'cancelled' };
   return { kind: 'exhausted', terminalFarmingCompleteGame };
 }

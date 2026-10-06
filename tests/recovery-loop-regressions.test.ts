@@ -1,13 +1,16 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createActivationSyncCoordinator } from '../src/background/activation-sync-coordinator.ts';
+import { applyApiBackoff } from '../src/background/api-operations.ts';
 import { fetchDirectoryStreamersFromApiWrapper } from '../src/background/api-secondary-wrappers.ts';
 import { registerExtensionLifecycleListeners } from '../src/background/extension-lifecycle.ts';
 import { saveState } from '../src/background/state-persistence.ts';
 import { migrateExtensionStorage } from '../src/background/storage-migrations.ts';
+import { NO_STREAMERS_RETRY_MS } from '../src/background/stream-rotation.ts';
 import {
   acquireStreamerForSelectedGame,
   openBestStreamerForSelectedGame,
 } from '../src/background/streamer-acquisition.ts';
+import { TwitchDirectoryUnavailableError, TwitchHttpError } from '../src/background/twitch-api/errors.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
@@ -85,6 +88,216 @@ test('successful directory lookup followed by failed playback never becomes a Tw
   } finally {
     mocks.teardown();
   }
+});
+
+test.each([
+  ['rate limit', new TwitchHttpError('gql', 429, 60_000), 'twitch-rate-limit'],
+  ['network failure', new TypeError('network disconnected'), 'twitch-network'],
+] as const)(
+  'openBest preserves typed directory %s recovery through acquisition',
+  async (_name, cause, reason) => {
+    const state = createMinimalState();
+    state.appState.selectedGame = createGame({ campaignId: 'selected' });
+    state.appState.isRunning = true;
+    const game = state.appState.selectedGame;
+    let saved = 0;
+    let timingSaved = 0;
+
+    await acquireStreamerForSelectedGame(state, {
+      onOpenStreamer: () =>
+        openBestStreamerForSelectedGame(
+          state,
+          {
+            onFetchDirectoryStreamersFromApi: async () => {
+              throw new TwitchDirectoryUnavailableError(cause);
+            },
+            onOpenForegroundChannel: async () => {},
+          },
+          {
+            dropMatchesSelectedGame: () => true,
+            isRewardAcquired: () => false,
+            getGameDisplayLabel: (selected) => selected.name,
+            resolveCategorySlug: async () => 'test-game',
+            pickStreamerForPreferences: () => ({
+              streamer: null,
+              activePoolSize: 0,
+              preferredLanguageApplied: false,
+              preferredLanguageMatches: 0,
+            }),
+            normalizePreferredStreamerLanguage: () => null,
+          },
+        ),
+      onSaveState: async () => {
+        saved += 1;
+      },
+      onSaveTimingState: async () => {
+        timingSaved += 1;
+      },
+    });
+
+    expect(state.appState.selectedGame).toEqual(game);
+    expect(state.appState.recoveryReason).toBe(reason);
+    expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAttempts).toBeUndefined();
+    expect(state.apiBackoffUntil).toBeGreaterThan(Date.now());
+    expect(saved).toBe(1);
+    expect(timingSaved).toBe(1);
+  },
+);
+
+test('probe rate limit survives the zero-result refresh being blocked by that cooldown', async () => {
+  const state = createMinimalState();
+  const game = createGame({ campaignId: 'selected', allowedChannels: ['allowed'] });
+  state.appState.selectedGame = game;
+  state.appState.queue = [game];
+  state.appState.isRunning = true;
+  let refreshed = false;
+
+  await acquireStreamerForSelectedGame(state, {
+    onOpenStreamer: () =>
+      openBestStreamerForSelectedGame(
+        state,
+        {
+          onFetchDirectoryStreamersFromApi: async () => Object.assign([], { languageFilterApplied: false }),
+          probeStreamInfo: async () => {
+            applyApiBackoff(state, 60_000);
+            return {
+              kind: 'unavailable',
+              cause: new TwitchDirectoryUnavailableError(new TwitchHttpError('gql', 429, 60_000)),
+            };
+          },
+          onRefreshVerifiedGame: async () => {
+            refreshed = true;
+            return null;
+          },
+          onOpenForegroundChannel: async () => {},
+        },
+        {
+          dropMatchesSelectedGame: () => false,
+          isRewardAcquired: () => false,
+          getGameDisplayLabel: (selected) => selected.name,
+          resolveCategorySlug: async () => 'test-game',
+          pickStreamerForPreferences: () => ({
+            streamer: null,
+            activePoolSize: 0,
+            preferredLanguageApplied: false,
+            preferredLanguageMatches: 0,
+          }),
+          normalizePreferredStreamerLanguage: () => null,
+        },
+      ),
+    onSaveState: async () => {},
+    onSaveTimingState: async () => {},
+  });
+
+  expect(refreshed).toBe(true);
+  expect(state.appState.recoveryReason).toBe('twitch-rate-limit');
+  expect(state.apiBackoffUntil).toBeGreaterThan(Date.now() + 30_000);
+  expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAttempts).toBeUndefined();
+});
+
+test('incomplete direct channel verification schedules directory recovery without spending no-streamers attempts', async () => {
+  const state = createMinimalState();
+  const game = createGame({ campaignId: 'selected', allowedChannels: ['allowed'] });
+  state.appState.selectedGame = game;
+  state.appState.queue = [game];
+  state.appState.isRunning = true;
+  state.appState.recoveryReason = 'no-streamers';
+  state.appState.recoveryAttempts = 2;
+  state.appState.queueEntryMetadataByKey[gameKey(game)] = {
+    source: 'manual',
+    addedAt: 1,
+    reason: 'user-added',
+    streamerRetryAttempts: 2,
+  };
+  let skipped = 0;
+  let saved = 0;
+  let timingSaved = 0;
+  const before = Date.now();
+
+  await acquireStreamerForSelectedGame(state, {
+    onOpenStreamer: () =>
+      openBestStreamerForSelectedGame(
+        state,
+        {
+          onFetchDirectoryStreamersFromApi: async () => Object.assign([], { languageFilterApplied: false }),
+          probeStreamInfo: async () => ({ kind: 'unavailable' }),
+          onOpenForegroundChannel: async () => {},
+        },
+        {
+          dropMatchesSelectedGame: () => false,
+          isRewardAcquired: () => false,
+          getGameDisplayLabel: (selected) => selected.name,
+          resolveCategorySlug: async () => 'test-game',
+          pickStreamerForPreferences: () => ({
+            streamer: null,
+            activePoolSize: 0,
+            preferredLanguageApplied: false,
+            preferredLanguageMatches: 0,
+          }),
+          normalizePreferredStreamerLanguage: () => null,
+        },
+      ),
+    onSkipCurrentGame: async () => {
+      skipped += 1;
+    },
+    onSaveState: async () => {
+      saved += 1;
+    },
+    onSaveTimingState: async () => {
+      timingSaved += 1;
+    },
+  });
+
+  expect(state.appState.recoveryReason).toBe('directory-unavailable');
+  expect(state.appState.recoveryAttempts).toBe(2);
+  expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAttempts).toBe(2);
+  expect(state.recoveryBackoffUntil).toBeGreaterThanOrEqual(before + NO_STREAMERS_RETRY_MS);
+  expect(skipped).toBe(0);
+  expect(saved).toBe(1);
+  expect(timingSaved).toBe(1);
+});
+
+test('queued Play directory auth failure preserves the incumbent and does not spend session recovery', async () => {
+  const state = createMinimalState();
+  state.appState.isRunning = true;
+  state.appState.selectedGame = createGame({ campaignId: 'incumbent' });
+  const game = createGame({ campaignId: 'requested' });
+  let recoveries = 0;
+  let clears = 0;
+  let stops = 0;
+  globalThis.fetch = async () => new Response('Unauthorized', { status: 401 });
+
+  await expect(
+    fetchDirectoryStreamersFromApiWrapper(
+      state,
+      game,
+      false,
+      '',
+      {
+        onEnsureTwitchSession: async () => createSession(),
+        onRecoverTwitchSessionAfterAuthError: async () => {
+          recoveries += 1;
+          return createSession({ userId: 'recovered' });
+        },
+        onIsLikelyAuthError: (error) => error instanceof TwitchHttpError && error.status === 401,
+        onClearTwitchSessionCache: () => {
+          clears += 1;
+        },
+        onStopFarmingSession: async () => {
+          stops += 1;
+        },
+      },
+      { logWarn: () => undefined },
+      { sessionRecoveryMode: 'passive', preserveSessionOnAuthFailure: true },
+    ),
+  ).rejects.toBeInstanceOf(TwitchDirectoryUnavailableError);
+
+  expect(recoveries).toBe(0);
+  expect(clears).toBe(0);
+  expect(stops).toBe(0);
+  expect(state.appState.selectedGame?.campaignId).toBe('incumbent');
+  expect(state.appState.isRunning).toBe(true);
+  expect(state.appState.lastStopReason).toBeNull();
 });
 
 test('due monitoring alarm runs while campaign synchronization is pending', async () => {

@@ -131,16 +131,29 @@ describe('farming session watch transport integration', () => {
     state.appState.recoveryReason = 'stalled-progress';
     state.appState.recoveryAttempts = 3;
     state.stalledRecoveryAttempts = 3;
+    state.appState.queueEntryMetadataByKey[gameKey(game)] = {
+      source: 'manual',
+      addedAt: 1,
+      reason: 'user-added',
+      stalledStreamerNames: ['channel-1'],
+    };
     state.recoveryBackoffUntil = now;
 
     try {
       const session = createFarmingSession(
         state,
         createAdapters({
-          fetchDropsSnapshotFromApi: async () => ({ games: [game], drops: [currentDrop], updatedAt: now }),
+          fetchDropsSnapshotFromApi: async () => ({
+            games: [game],
+            drops: [currentDrop],
+            campaignsVerified: true,
+            inventoryVerified: true,
+            updatedAt: now,
+          }),
           fetchInventorySnapshotFromApi: async (drops) => ({
             games: [game],
             drops,
+            inventoryVerified: true,
             updatedAt: now,
           }),
           watchTransport: {

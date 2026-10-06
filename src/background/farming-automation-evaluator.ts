@@ -74,7 +74,9 @@ export function createFarmingAutomationEvaluator(
       dependencies.state.appState.preferredStreamerLanguage ?? '',
       now,
       dependencies.state,
+      () => currentStateFingerprint() === beforeRefresh,
     );
+    if (discovery.kind === 'cancelled') return { kind: 'unchanged', reason: 'superseded-by-state-change' };
     if (discovery.kind === 'failed') return retry(discovery.reason);
     if (currentStateFingerprint() !== beforeRefresh) {
       return { kind: 'unchanged', reason: 'superseded-by-state-change' };
@@ -205,10 +207,12 @@ export function createFarmingAutomationEvaluator(
         if (!directory) return null;
         return pickStreamerForPreferences(
           [...directory.streamers],
-          {
-            mode: dependencies.state.appState.streamerSelectionMode,
-            preferredLanguage: dependencies.state.appState.preferredStreamerLanguage,
-          },
+          directory.preferredLanguageFallbackApplied
+            ? { mode: 'random', preferredLanguage: null }
+            : {
+                mode: dependencies.state.appState.streamerSelectionMode,
+                preferredLanguage: dependencies.state.appState.preferredStreamerLanguage,
+              },
           dependencies.random,
           directory.languageFilterApplied,
         ).streamer;

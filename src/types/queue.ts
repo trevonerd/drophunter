@@ -25,6 +25,7 @@ export interface QueueEntryMetadata {
   readonly streamerRetryAttempts?: number;
   readonly streamerRetryCycles?: number;
   readonly streamerWaitState?: 'availability';
+  readonly stalledStreamerNames?: readonly string[];
 }
 
 export interface QueueAcquisitionRound {

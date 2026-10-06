@@ -1,5 +1,6 @@
 import type { TwitchGame, TwitchStreamer } from '../types';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
+import type { StreamInfoProbe } from './eligible-streamer-discovery.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 import type { StreamRotationReason } from './stream-rotation.ts';
@@ -74,6 +75,11 @@ export interface OpenBestStreamerCallbacks {
   ) => Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>;
   onOpenForegroundChannel: (streamer: TwitchStreamer) => Promise<void>;
   onOpenWatchTransport?: (streamer: TwitchStreamer) => Promise<WatchStartResult | boolean>;
+  readonly probeStreamInfo?: (channel: string) => Promise<StreamInfoProbe>;
+  readonly onRefreshVerifiedGame?: (
+    game: TwitchGame,
+    isCurrent?: () => boolean,
+  ) => Promise<TwitchGame | null>;
   isCurrent?: () => boolean;
 }
 

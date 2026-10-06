@@ -14,7 +14,10 @@ interface FarmingSessionStallRecoveryDependencies {
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<RefreshDropsOutcome>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
   readonly onAcquireStreamer: (isCurrent?: () => boolean) => Promise<boolean>;
-  readonly onSkipCurrentGame: () => Promise<void>;
+  readonly onSkipCurrentGame: (
+    verifiedAlternativesExhausted?: boolean,
+    isCurrent?: () => boolean,
+  ) => Promise<void>;
   readonly onEnterPersistentRecovery: EnterPersistentRecoveryFn;
 }
 
@@ -44,6 +47,8 @@ export function createFarmingSessionStallRecovery(
           includeInventoryFetch: false,
           sessionRecoveryMode: 'background-tab',
           suppressNotifications: true,
+          strictFreshProof: true,
+          minimumFreshUpdatedAt: context.now(),
           isCurrent: current,
         }),
       onInventoryRefresh: (current = isCurrent) =>
@@ -52,6 +57,8 @@ export function createFarmingSessionStallRecovery(
           includeInventoryFetch: true,
           sessionRecoveryMode: 'background-tab',
           suppressNotifications: true,
+          strictFreshProof: true,
+          minimumFreshUpdatedAt: context.now(),
           isCurrent: current,
         }),
       onAdvanceQueueIfCompleted: dependencies.onAdvanceQueueIfCompleted,
@@ -65,7 +72,7 @@ export function createFarmingSessionStallRecovery(
         await dependencies.onAcquireStreamer(current);
       },
       onRotateStreamer: async (current = isCurrent) => {
-        await rotateStreamer(state, 'stalled-progress', {
+        return rotateStreamer(state, 'stalled-progress', {
           isCurrent: current,
           onOpenStreamer: dependencies.onAcquireStreamer,
           onSaveState: () => adapters.saveState(state),
@@ -73,7 +80,8 @@ export function createFarmingSessionStallRecovery(
           onEnterPersistentRecovery: dependencies.onEnterPersistentRecovery,
         });
       },
-      onSkipCurrentGame: dependencies.onSkipCurrentGame,
+      onSkipCurrentGame: (verifiedAlternativesExhausted = false, current = isCurrent) =>
+        dependencies.onSkipCurrentGame(verifiedAlternativesExhausted, current),
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
     });

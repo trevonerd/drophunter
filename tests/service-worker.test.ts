@@ -8,8 +8,8 @@ verifyExpectedDiagnostics([
   ['[DropHunter] No rewards found after selected game refresh', 5],
   ['[DropHunter] No streamer found for selected game', 5],
   ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 2],
-  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Demo Game" (slug: demo-game)', 3],
-  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Next Game" (slug: next-game)', 2],
+  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Demo Game" (slug: demo-game)', 6],
+  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Next Game" (slug: next-game)', 4],
   ['[DropHunter] SW initialization failed: Error: startup failed', 1],
   ['[DropHunter] Initial activation sync failed: Error: startup failed', 1],
 ]);

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { openBestStreamerForSelectedGame } from '../../src/background/streamer-acquisition.ts';
+import { gameKey } from '../../src/shared/game-selection.ts';
 import { createGame, createMinimalState, createStreamer } from '../fixtures/queue-management.ts';
 
 export function registerQueue21Part01() {
@@ -23,6 +24,7 @@ export function registerQueue21Part01() {
             fetchLanguages.push(language);
             return Object.assign([...streamers], { languageFilterApplied: false }) as never;
           },
+          probeStreamInfo: async () => ({ kind: 'offline' }),
           onOpenForegroundChannel: async (streamer) => {
             observed.streamer = streamer.name;
           },
@@ -82,6 +84,7 @@ export function registerQueue21Part01() {
             const result = language ? languageFilteredStreamers : unfilteredStreamers;
             return Object.assign([...result], { languageFilterApplied: Boolean(language) }) as never;
           },
+          probeStreamInfo: async () => ({ kind: 'offline' }),
           onOpenForegroundChannel: async (streamer) => {
             observed.streamer = streamer.name;
           },
@@ -146,6 +149,7 @@ export function registerQueue21Part01() {
             const result = language ? languageFilteredStreamers : unfilteredStreamers;
             return Object.assign([...result], { languageFilterApplied: Boolean(language) }) as never;
           },
+          probeStreamInfo: async () => ({ kind: 'offline' }),
           onOpenForegroundChannel: async (streamer) => {
             openedStreamer = streamer.name;
           },
@@ -212,6 +216,56 @@ export function registerQueue21Part01() {
 
       expect(opened).toBe(true);
       expect(seenCandidates).toEqual(['alpha', 'beta']);
+    });
+
+    test('opens D after persisted stall history excludes A, B, and C and resets the new watch baseline', async () => {
+      const state = createMinimalState();
+      const selectedGame = createGame({ campaignId: 'stall-ladder', allowedChannels: null });
+      state.appState.selectedGame = selectedGame;
+      state.appState.recoveryReason = 'stalled-progress';
+      state.appState.queueEntryMetadataByKey[gameKey(selectedGame)] = {
+        source: 'manual',
+        addedAt: 1,
+        reason: 'user-added',
+        stalledStreamerNames: [' A ', 'b', 'C'],
+      };
+      state.appState.activeStreamer = createStreamer({ id: 'C', name: 'C' });
+      state.lastProgressAdvanceAt = 1;
+      const openedNames: string[] = [];
+
+      const opened = await openBestStreamerForSelectedGame(
+        state,
+        {
+          onFetchDirectoryStreamersFromApi: async () =>
+            Object.assign(
+              ['A', 'B', 'C', 'D'].map((name) => createStreamer({ id: name, name })),
+              {
+                languageFilterApplied: false,
+              },
+            ) as never,
+          onOpenForegroundChannel: async (streamer) => {
+            openedNames.push(streamer.name);
+          },
+        },
+        {
+          dropMatchesSelectedGame: () => false,
+          isRewardAcquired: () => false,
+          getGameDisplayLabel: (item) => item.name,
+          resolveCategorySlug: async () => 'test-game',
+          pickStreamerForPreferences: (candidates) => ({
+            streamer: candidates[0] ?? null,
+            activePoolSize: candidates.length,
+            preferredLanguageApplied: false,
+            preferredLanguageMatches: 0,
+          }),
+          normalizePreferredStreamerLanguage: () => null,
+        },
+      );
+
+      expect(opened).toBe(true);
+      expect(openedNames).toEqual(['D']);
+      expect(state.appState.activeStreamer?.name).toBe('D');
+      expect(state.lastProgressAdvanceAt).toBeGreaterThan(1);
     });
 
     test('uses all streamers directly when allowed is null', async () => {

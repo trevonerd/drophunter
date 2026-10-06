@@ -56,11 +56,20 @@ test('popup pause, resume, and stop controls persist session transitions', async
       profile = await createExtensionProfile(seedProfile.userDataDir);
     });
     const popup = await test.step('open running popup', () => openPopup(profile));
+    const monitor = await profile.context.newPage();
+    await monitor.goto(`${profile.extensionUrl}/monitor.html`);
+    const monitorStatus = monitor.locator('.monitor-header').getByRole('status');
+    await expect(monitorStatus).toHaveText(/^(RUNNING|RECOVERING|WAITING|SYNCING)$/);
+    await expect(monitor.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '10');
+    await expect(monitor.getByRole('button')).toHaveCount(0);
+    await expect(monitor.locator('details')).toHaveCount(0);
     await test.step('pause session', async () => {
       await expect(popup.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
 
       await popup.getByRole('button', { name: 'Pause', exact: true }).click();
       await expect(popup.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
+      await expect(monitorStatus).toHaveText('PAUSED');
+      await expect(monitor.getByRole('button')).toHaveCount(0);
       await expect
         .poll(async () => {
           const state = await readControlState(popup);
@@ -77,6 +86,7 @@ test('popup pause, resume, and stop controls persist session transitions', async
       await expect(popup.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
       await popup.getByRole('button', { name: 'Resume', exact: true }).click();
       await expect(popup.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+      await expect(monitorStatus).toHaveText(/^(RUNNING|RECOVERING|WAITING|SYNCING)$/);
       await expect
         .poll(async () => {
           const state = await readControlState(popup);
@@ -90,6 +100,8 @@ test('popup pause, resume, and stop controls persist session transitions', async
       await expect(popup.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
       await popup.getByRole('button', { name: 'Stop', exact: true }).click();
       await expect(popup.getByRole('button', { name: 'Start Queue (1)', exact: true })).toBeVisible();
+      await expect(monitorStatus).toHaveText('STOPPED');
+      await expect(monitor.getByRole('button')).toHaveCount(0);
       await expect
         .poll(async () => {
           const state = await readControlState(popup);
