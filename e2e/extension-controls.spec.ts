@@ -4,6 +4,7 @@ import { resolveReleaseVersion } from '../src/shared/release-version';
 import {
   createExtensionProfile,
   fixtureDrop,
+  fixtureGame,
   getExtensionWorker,
   openPopup,
   runningState,
@@ -17,6 +18,35 @@ type PersistedControlState = {
   readonly lastStopReason: string | null;
   readonly resumedFromCrash: number | null;
 };
+
+test('fully earned unlinked campaign offers Link account and refuses queue admission', async () => {
+  const seed = await createExtensionProfile();
+  let profile = seed;
+  try {
+    const earned = { ...fixtureDrop, progress: 100, claimable: true, remainingMinutes: 0 };
+    const unlinked = { ...fixtureGame, isConnected: false, accountLinkUrl: 'https://example.test/link' };
+    await seedAppState(seed, {
+      ...runningState(false), isRunning: false, wasRunning: false, selectedGame: unlinked,
+      availableGames: [unlinked], queue: [], currentDrop: null, pendingDrops: [earned], allDrops: [earned],
+      campaignDropsByKey: { 'campaign:e2e-campaign': [earned] },
+    });
+    await seed.shutdown();
+    profile = await createExtensionProfile(seed.userDataDir);
+    const popup = await openPopup(profile);
+    await expect(popup.getByRole('link', { name: `Link ${fixtureGame.name} account`, exact: true })).toBeVisible();
+    await popup.getByRole('button', { expanded: false }).filter({ hasText: fixtureGame.name }).click();
+    await expect(popup.getByText('Claimable', { exact: true }).first()).toBeVisible();
+    await expect(popup.getByRole('button', { name: /^Add .* (to queue|campaigns to queue)$/ })).toHaveCount(0);
+    await expect(popup.getByRole('button', { name: 'Start Farming', exact: true })).toBeDisabled();
+    const response = await popup.evaluate((game) =>
+      chrome.runtime.sendMessage({ type: 'ADD_TO_QUEUE', payload: { game } }), unlinked);
+    expect(response).toMatchObject({ success: true, added: false, reason: 'farming-complete' });
+    await popup.screenshot({ path: '/tmp/drophunter-claimable-popup.png' });
+  } finally {
+    await profile.shutdown().catch(() => undefined);
+    await seed.close();
+  }
+});
 
 async function readControlState(page: Awaited<ReturnType<typeof openPopup>>): Promise<PersistedControlState> {
   return page.evaluate(async () => {

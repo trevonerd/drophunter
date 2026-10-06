@@ -1,5 +1,5 @@
 import { dropMatchesGame, gameCategoryKey, gameKey } from '../../shared/game-selection.ts';
-import { isRewardAutomatable } from '../../shared/reward-semantics.ts';
+import { isRewardWatchable } from '../../shared/reward-semantics.ts';
 import { isExpiredGame, remainingCampaignTimeMs } from '../../shared/utils.ts';
 import type { TwitchDrop, TwitchGame } from '../../types';
 
@@ -91,7 +91,14 @@ export function isCampaignQueueEligible(
   if (isCampaignFarmingComplete(game) || isExpiredGame(game)) return false;
   const remaining = dropsForCampaign(drops, game).filter((drop) => !drop.claimed);
   if (!loaded && remaining.length === 0) return true;
-  return remaining.some(isRewardAutomatable);
+  return remaining.some(isRewardWatchable);
+}
+
+export function isCampaignWatchTimeComplete(game: TwitchGame, drops: readonly TwitchDrop[]): boolean {
+  const rewards = dropsForCampaign(drops, game);
+  return (
+    rewards.length > 0 && rewards.every((drop) => drop.claimed || drop.claimable || drop.progress >= 100)
+  );
 }
 
 function expiryTime(game: TwitchGame): number {

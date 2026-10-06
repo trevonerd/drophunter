@@ -5,12 +5,12 @@ import {
   hiddenGameIdentityKeys,
 } from '../../shared/game-selection.ts';
 import { queueRecoveryNotice } from '../../shared/queue-recovery-notice.ts';
-import { isRewardAutomatable } from '../../shared/reward-semantics.ts';
+import { isRewardWatchable } from '../../shared/reward-semantics.ts';
 import type { AppState, TwitchDrop, TwitchGame } from '../../types/index.ts';
 import type { CampaignSyncStatus } from '../constants.ts';
 import { isCampaignFarmable } from '../format.ts';
 import { getGameToStartFromQueue, isSameQueuedGame } from '../queue-start.ts';
-import type { CampaignProgressSummary } from './campaign-list-model.ts';
+import { type CampaignProgressSummary, isCampaignQueueEligible } from './campaign-list-model.ts';
 import { startupRecovery } from './startup-recovery.ts';
 
 export interface MainViewModelInput {
@@ -51,7 +51,7 @@ export function createMainViewModel({
   const campaignAvailabilityByKey = state.campaignAvailabilityByKey ?? {};
   const campaignProgressByKey = new Map<string, CampaignProgressSummary>();
   for (const game of sortedGames) {
-    const nextReward = catalogDrops.find((drop) => dropMatchesGame(drop, game) && !drop.claimed);
+    const nextReward = catalogDrops.find((drop) => dropMatchesGame(drop, game) && isRewardWatchable(drop));
     campaignProgressByKey.set(gameKey(game), {
       nextRewardName: nextReward?.benefitName ?? nextReward?.name,
       progress: nextReward?.progress,
@@ -76,7 +76,7 @@ export function createMainViewModel({
   const highlightedGame = recentFavoriteAddition?.campaignId
     ? sortedGames.find((game) => game.campaignId === recentFavoriteAddition.campaignId)
     : undefined;
-  const gameToStart = getGameToStartFromQueue(state.selectedGame, [...queueGames]);
+  const gameToStart = getGameToStartFromQueue(state.selectedGame, [...queueGames], state);
   const selectedGame = state.selectedGame;
 
   return {
@@ -84,8 +84,11 @@ export function createMainViewModel({
     loadedCampaignKeys,
     campaignProgressByKey,
     currentAutomatableDrop:
-      state.currentDrop && isRewardAutomatable(state.currentDrop) ? state.currentDrop : null,
-    startDisabled: gameToStart == null || !isCampaignFarmable(gameToStart),
+      state.currentDrop && isRewardWatchable(state.currentDrop) ? state.currentDrop : null,
+    startDisabled:
+      gameToStart == null ||
+      !isCampaignFarmable(gameToStart) ||
+      !isCampaignQueueEligible(gameToStart, catalogDrops, loadedCampaignKeys.has(gameKey(gameToStart))),
     startup,
     sessionRequired:
       state.twitchSessionSyncState?.status === 'blocked' ||

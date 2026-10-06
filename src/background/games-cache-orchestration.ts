@@ -6,7 +6,7 @@
 // factory and have no shared mutable state.
 
 import { dropMatchesGame, isSameGameIdentity } from '../shared/game-selection';
-import { isRewardAutomatable } from '../shared/reward-semantics';
+import { isRewardWatchable } from '../shared/reward-semantics';
 import type { TwitchGame } from '../types';
 import { preserveAcquiredCampaigns, rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
 import {
@@ -157,7 +157,7 @@ export async function refreshGamesCacheFromHiddenFetch(
     const freshSelectedDrops = freshSelectedGame
       ? state.cachedDropsSnapshot.filter((drop) => dropMatchesGame(drop, freshSelectedGame))
       : [];
-    const hasFreshFarmableEvidence = freshSelectedDrops.some(isRewardAutomatable);
+    const hasFreshFarmableEvidence = freshSelectedDrops.some(isRewardWatchable);
     const authoritativeUnavailableCampaign =
       provenance === 'campaign-authoritative' &&
       apiSnapshot?.campaignsVerified === true &&

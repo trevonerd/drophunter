@@ -1,4 +1,5 @@
 import { gameKey, getGameDisplayLabel } from '../../shared/game-selection.ts';
+import { isRewardWatchable } from '../../shared/reward-semantics.ts';
 import type { TwitchDrop, TwitchGame } from '../../types';
 import {
   type CampaignProgressLookup,
@@ -6,6 +7,7 @@ import {
   formatCampaignEnd,
   isCampaignFarmingComplete,
   isCampaignQueueEligible,
+  isCampaignWatchTimeComplete,
   isSubscriptionOnlyCampaign,
   resolveCampaignProgress,
 } from './campaign-list-model';
@@ -31,7 +33,7 @@ interface CampaignDetailProps {
 
 const TWITCH_CONNECTIONS_URL = 'https://www.twitch.tv/settings/connections';
 
-function accountLinkFor(game: TwitchGame): string | null {
+export function accountLinkFor(game: TwitchGame): string {
   if (!game.accountLinkUrl) return TWITCH_CONNECTIONS_URL;
   try {
     const parsed = new URL(game.accountLinkUrl);
@@ -53,10 +55,11 @@ export function CampaignDetail(props: CampaignDetailProps) {
   const completed = isCampaignFarmingComplete(props.game);
   const claimedCount = rewards.filter((drop) => drop.claimed).length;
   const subscriptionCount = rewards.filter((drop) => drop.acquisitionMethod === 'subscription').length;
-  const nextRewardName = summary?.nextRewardName?.trim() || rewards.find((drop) => !drop.claimed)?.name;
+  const nextRewardName = summary?.nextRewardName?.trim() || rewards.find(isRewardWatchable)?.name;
   const accountLinkUrl = accountLinkFor(props.game);
   const subscriptionOnly = isSubscriptionOnlyCampaign(props.game, props.allDrops, loaded);
   const queueEligible = isCampaignQueueEligible(props.game, props.allDrops, loaded);
+  const watchTimeComplete = isCampaignWatchTimeComplete(props.game, props.allDrops);
 
   return (
     <article
@@ -104,7 +107,7 @@ export function CampaignDetail(props: CampaignDetailProps) {
                 Link account
               </a>
             )}
-            {!props.hidden && (
+            {!props.hidden && (queued || !watchTimeComplete) && (
               <span
                 title={subscriptionOnly ? 'This campaign only contains subscription rewards.' : undefined}
                 className="inline-flex"
@@ -128,6 +131,13 @@ export function CampaignDetail(props: CampaignDetailProps) {
           </div>
         )}
       </div>
+      {!completed && watchTimeComplete && rewards.some((drop) => !drop.claimed && drop.claimable) && (
+        <p className="mt-1 text-[10px] text-[color:var(--dh-muted)]" role="status" aria-live="polite">
+          {props.game.isConnected === false
+            ? 'Watch time complete · Link account to claim.'
+            : 'Watch time complete · Awaiting claim.'}
+        </p>
+      )}
       {!completed && !loaded && (
         <p className="mt-1 text-[10px] text-[color:var(--dh-muted)]" role="status">
           {props.refreshDelayed ? 'Still loading Drops — retrying…' : 'Loading Drops…'}

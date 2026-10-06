@@ -199,3 +199,32 @@ test('unlinked campaign always offers a safe account-link fallback', () => {
   expect(markup).toContain('href="https://www.twitch.tv/settings/connections"');
   expect(markup).toContain('>Link account<');
 });
+
+test.each([false, true])('fully earned campaign offers no Add action (linked: %s)', (isConnected) => {
+  const earned = campaign({ isConnected });
+  const markup = renderToStaticMarkup(
+    <CampaignList
+      campaigns={[earned]}
+      drops={[reward({ progress: 100, claimable: true })]}
+      onAddToQueue={() => {}}
+      onAddAllToQueue={() => {}}
+    />,
+  );
+  expect(markup).not.toContain('>Add<');
+  expect(markup).toContain('Claimable');
+  expect(markup).not.toContain('Completed · 100%');
+  if (!isConnected) expect(markup.match(/>Link account</g)).toHaveLength(2);
+});
+
+test('a claimable reward does not hide Add for remaining watch time in the same campaign', () => {
+  const markup = renderToStaticMarkup(
+    <CampaignList
+      campaigns={[campaign({ isConnected: false })]}
+      drops={[reward({ progress: 100, claimable: true }), reward({ id: 'next' })]}
+      onAddToQueue={() => {}}
+      onAddAllToQueue={() => {}}
+    />,
+  );
+  expect(markup.match(/>Add</g)).toHaveLength(2);
+  expect(markup.match(/>Link account</g)).toHaveLength(1);
+});

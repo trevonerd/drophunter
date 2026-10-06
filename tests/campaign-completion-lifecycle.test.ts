@@ -76,7 +76,10 @@ describe('Campaign completion through public farming automation', () => {
     await subject.automation.request('campaign-refresh');
 
     // Then: the normal claim flow remains available instead of recording false acquisition.
-    expect(subject.state.appState.currentDrop?.claimable).toBe(true);
+    expect(subject.state.cachedDropsSnapshot[0]?.claimable).toBe(true);
+    expect(subject.state.appState.currentDrop).toBeNull();
+    expect(subject.state.appState.queue).toEqual([]);
+    expect(subject.state.appState.isRunning).toBe(false);
     expect(subject.state.appState.acquiredCampaignIds ?? []).toEqual([]);
   });
 

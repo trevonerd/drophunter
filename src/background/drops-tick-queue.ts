@@ -1,6 +1,7 @@
 // Owns runtime queue add, remove, and reorder mutations.
 import { gameKey } from '../shared/game-selection';
 import type { AddToQueueReason } from '../shared/messages.ts';
+import { isRewardWatchable } from '../shared/reward-semantics.ts';
 import type { TwitchDrop, TwitchGame } from '../types';
 import { pushGameToQueue, queueContainsGame, queueEntryMatchesGame, reorderQueue } from './queue-operations';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -69,6 +70,17 @@ export async function handleAddToQueue(
       break;
     default:
       return assertNever(completion);
+  }
+
+  const catalogDrops = state.appState.campaignDropsByKey[gameKey(targetGame)];
+  const knownDrops =
+    catalogDrops ??
+    deps.evaluateDropsForGame(
+      targetGame,
+      state.cachedDropsSnapshot.length > 0 ? state.cachedDropsSnapshot : state.appState.allDrops,
+    ).allDrops;
+  if (targetGame.allDropsCompleted || (knownDrops.length > 0 && !knownDrops.some(isRewardWatchable))) {
+    return { success: true, added: false, reason: 'farming-complete', game: targetGame };
   }
 
   pushGameToQueue(state, targetGame);

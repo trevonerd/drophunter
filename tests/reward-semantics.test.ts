@@ -192,6 +192,16 @@ describe('isRewardAutomatable', () => {
 });
 
 describe('summarizeCampaignRewards', () => {
+  test('fully earned claimable rewards finish farming without implying acquisition', () => {
+    const earned = createDrop({ progress: 100, claimable: true });
+    expect(isRewardAcquired(earned)).toBe(false);
+    expect(isRewardAutomatable(earned)).toBe(true);
+    expect(summarizeCampaignRewards([earned])).toEqual({
+      completion: 'farming-complete',
+      remainderReasons: [],
+    });
+    expect(summarizeCampaignRewards([earned, createDrop({ id: 'next' })]).completion).toBe('farmable');
+  });
   test('reports all-acquired only when every reward is acquired', () => {
     // Given
     const drops = [

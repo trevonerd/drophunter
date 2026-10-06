@@ -1,10 +1,10 @@
 import type { TwitchDrop } from '../types/index.ts';
-import { isRewardAutomatable } from './reward-semantics.ts';
+import { isRewardWatchable } from './reward-semantics.ts';
 
 export const REWARD_EXPIRY_SAFETY_MARGIN_MS = 5 * 60_000;
 
 export function isRewardScheduledForFuture(drop: TwitchDrop, now = Date.now()): boolean {
-  return isRewardAutomatable(drop) && Boolean(drop.startsAt && Date.parse(drop.startsAt) > now);
+  return isRewardWatchable(drop) && Boolean(drop.startsAt && Date.parse(drop.startsAt) > now);
 }
 
 function remainingWatchMinutes(drop: TwitchDrop): number | null {
@@ -39,5 +39,5 @@ export function isRewardCompletableBeforeExpiry(
 export function isRewardFarmableNow(drop: TwitchDrop, now = Date.now()): boolean {
   if (drop.startsAt && Date.parse(drop.startsAt) > now) return false;
   if (!drop.claimable && drop.endsAt && Date.parse(drop.endsAt) <= now) return false;
-  return isRewardAutomatable(drop) && isRewardCompletableBeforeExpiry(drop, now);
+  return isRewardWatchable(drop) && isRewardCompletableBeforeExpiry(drop, now);
 }

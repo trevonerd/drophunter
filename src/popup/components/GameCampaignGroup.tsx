@@ -1,11 +1,12 @@
 import { gameKey } from '../../shared/game-selection.ts';
 import type { GamePreference, TwitchDrop, TwitchGame } from '../../types';
-import { CampaignDetail } from './CampaignDetail';
+import { accountLinkFor, CampaignDetail } from './CampaignDetail';
 import {
   type CampaignGameGroup,
   type CampaignProgressLookup,
   isCampaignFarmingComplete,
   isCampaignQueueEligible,
+  isCampaignWatchTimeComplete,
   isSubscriptionOnlyCampaign,
 } from './campaign-list-model';
 import { CheckIcon, EyeOffIcon, LockIcon } from './icons';
@@ -99,6 +100,18 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
       ),
     );
   const highlighted = props.group.campaigns.some((game) => gameKey(game) === props.highlightedCampaignKey);
+  const linkCampaign =
+    !props.hidden && addableCampaigns.length === 0
+      ? props.group.campaigns.find(
+          (game) =>
+            !isCampaignFarmingComplete(game) &&
+            game.isConnected === false &&
+            isCampaignWatchTimeComplete(game, props.allDrops),
+        )
+      : undefined;
+  const watchTimeComplete = props.group.campaigns.every(
+    (game) => isCampaignFarmingComplete(game) || isCampaignWatchTimeComplete(game, props.allDrops),
+  );
   const setPreference = (preference: GamePreference, undoPreference: GamePreference) => {
     if (props.onSetGamePreference) {
       props.onSetGamePreference(representative, preference, undoPreference);
@@ -205,37 +218,50 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
         >
           <FavoriteStar filled={props.favorite} />
         </button>
-        <span
-          className="inline-flex"
-          title={subscriptionOnly ? 'This game only has subscription rewards available.' : undefined}
-        >
-          <button
-            type="button"
-            className="dh-action-secondary dh-focus h-7 shrink-0 rounded-md px-2 text-[10px] font-semibold disabled:opacity-45"
-            aria-label={
-              props.hidden
-                ? `Restore ${props.group.name} to available games`
-                : addableCampaigns.length > 0
-                  ? `Add all available ${props.group.name} campaigns to queue`
-                  : completed
-                    ? `All ${props.group.name} campaigns are complete`
-                    : `No more ${props.group.name} campaigns can be added`
-            }
-            onClick={() =>
-              props.hidden
-                ? setPreference('normal', 'hidden')
-                : addableCampaigns.length > 0 && props.onAddAllToQueue?.(addableCampaigns)
-            }
-            disabled={
-              props.actionLoading ||
-              (props.hidden
-                ? !props.onSetGamePreference
-                : addableCampaigns.length === 0 || !props.onAddAllToQueue)
-            }
+        {linkCampaign ? (
+          <a
+            href={accountLinkFor(linkCampaign)}
+            target="_blank"
+            rel="noreferrer"
+            className="dh-action-secondary dh-focus inline-flex h-7 shrink-0 items-center rounded-md px-2 text-[10px] font-semibold"
+            aria-label={`Link ${props.group.name} account`}
+            onClick={() => props.onLinkAccount?.(linkCampaign)}
           >
-            {props.hidden ? 'Restore' : 'Add'}
-          </button>
-        </span>
+            Link account
+          </a>
+        ) : (
+          <span
+            className="inline-flex"
+            title={subscriptionOnly ? 'This game only has subscription rewards available.' : undefined}
+          >
+            <button
+              type="button"
+              className="dh-action-secondary dh-focus h-7 shrink-0 rounded-md px-2 text-[10px] font-semibold disabled:opacity-45"
+              aria-label={
+                props.hidden
+                  ? `Restore ${props.group.name} to available games`
+                  : addableCampaigns.length > 0
+                    ? `Add all available ${props.group.name} campaigns to queue`
+                    : completed
+                      ? `All ${props.group.name} campaigns are complete`
+                      : `No more ${props.group.name} campaigns can be added`
+              }
+              onClick={() =>
+                props.hidden
+                  ? setPreference('normal', 'hidden')
+                  : addableCampaigns.length > 0 && props.onAddAllToQueue?.(addableCampaigns)
+              }
+              disabled={
+                props.actionLoading ||
+                (props.hidden
+                  ? !props.onSetGamePreference
+                  : addableCampaigns.length === 0 || !props.onAddAllToQueue)
+              }
+            >
+              {props.hidden ? 'Restore' : watchTimeComplete ? '100%' : 'Add'}
+            </button>
+          </span>
+        )}
       </div>
       <div
         id={detailId}

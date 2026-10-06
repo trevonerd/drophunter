@@ -41,10 +41,10 @@ describe('reward availability period', () => {
     expect(isRewardFarmableNow(drop, NOW + 1)).toBe(false);
   });
 
-  test('preserves claimable rewards after their watch period ends', () => {
+  test('does not watch claimable rewards after their watch period ends', () => {
     expect(
       isRewardFarmableNow(reward({ claimable: true, endsAt: new Date(NOW - 1).toISOString() }), NOW),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test('tolerates absent or invalid period timestamps', () => {

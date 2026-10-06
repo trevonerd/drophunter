@@ -56,6 +56,10 @@ export function isRewardAutomatable(drop: TwitchDrop): boolean {
   }
 }
 
+export function isRewardWatchable(drop: TwitchDrop): boolean {
+  return !drop.claimed && !drop.claimable && drop.progress < 100 && isRewardAutomatable(drop);
+}
+
 export function summarizeCampaignRewards(knownCompleteRewards: readonly TwitchDrop[]): CampaignRewardSummary {
   if (knownCompleteRewards.length === 0) {
     return { completion: 'farmable', remainderReasons: [] };
@@ -65,7 +69,7 @@ export function summarizeCampaignRewards(knownCompleteRewards: readonly TwitchDr
     return { completion: 'all-acquired', remainderReasons: [] };
   }
 
-  if (knownCompleteRewards.some(isRewardAutomatable)) {
+  if (knownCompleteRewards.some(isRewardWatchable)) {
     return { completion: 'farmable', remainderReasons: [] };
   }
 

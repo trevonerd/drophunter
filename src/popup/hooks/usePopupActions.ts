@@ -229,7 +229,7 @@ export function usePopupActions({
     if (actionLoading) return;
     setActionLoading(true);
     try {
-      const gameToStart = getGameToStartFromQueue(state.selectedGame, queueGames);
+      const gameToStart = getGameToStartFromQueue(state.selectedGame, queueGames, state);
       if (!gameToStart) {
         setQueueMessage('Select a campaign to start farming.');
         return;

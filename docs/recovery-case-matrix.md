@@ -1,5 +1,21 @@
 # Matrice di recupero e aggiornamento
 
+## Campagne guadagnate in attesa di claim — 6 ottobre 2026
+
+Un premio claimable o già al 100% non richiede altro tempo di visione. La campagna resta consultabile senza confondere il completamento del farming con l'acquisizione: se l'account non è collegato, il gruppo e il dettaglio offrono Link account al posto di Add. I premi misti mantengono Add finché esiste almeno un premio da guardare; i premi futuri restano accodabili. Il claim automatico conserva la propria eleggibilità separata.
+
+| Caso | Evidenza |
+|---|---|
+| Claimable con progresso 100% o regredito; premi nativi, acquisiti e futura disponibilità | `tests/claimable-queue-eligibility.test.ts`, `tests/reward-semantics.test.ts`, `tests/reward-scheduling-period.test.ts` |
+| Account collegato/non collegato, campagne miste e identità distinte dello stesso gioco | `tests/popup-game-disclosure.test.tsx`, `tests/claimable-queue-eligibility.test.ts` |
+| Add lato background da catalogo/cache/selezione e Start con testa guadagnata e riepilogo obsoleto | `tests/claimable-queue-eligibility.test.ts` |
+| Refresh regredito conserva claimability senza avviare preferiti o registrare falsa acquisizione | `tests/campaign-completion-lifecycle.test.ts` |
+| Popup Chrome MV3: Link visibile, Add assente, Start disabilitato e richiesta runtime rifiutata | `e2e/extension-controls.spec.ts` |
+
+Una lista vuota da un refresh parziale non prova il completamento. Le prove automatiche usano dati Twitch simulati; il collegamento reale con il provider del gioco e il successivo riscatto richiedono una campagna reale.
+
+La `4.0.0-beta.59` ha superato il gate completo `bun run release:check`: TypeScript sorgenti/test, lint, suite unitaria, E2E Chrome MV3, audit dipendenze, build/archivi Chrome ed Edge e controllo dei manifest `3.99.0.59`. Verificato visivamente il popup renderizzato dal nuovo E2E. Questa beta resta destinata a GitHub e installazioni locali, non agli store.
+
 ## Play dalla coda, verifica streamer e rotazione — 6 ottobre 2026
 
 Il Play richiede campagne e inventario freschi e completi prima di confermare il cambio. Il watch corrente resta attivo durante la ricerca e viene conservato se la preparazione del candidato fallisce. Sessione assente, campagne indisponibili, inventario indisponibile e cooldown Twitch restituiscono errori distinti. Stop, Pausa, selezione diversa e cambio account rendono obsolete le risposte tardive.
