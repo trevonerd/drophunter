@@ -44,9 +44,9 @@ test('foreground opening recovers a registered tab even when appState lost its I
 test('same-channel acquisition and rollback never reload the page', async () => {
   const page = tabs.add(url);
   await managedWatchMarker.write(page.id, 'retained', url);
-  const acquired = await createChromeFarmingAutomationHost().tabs.create({ url, active: false, muted: true });
-  expect(acquired?.id).toBe(page.id);
-  await acquired?.restorePrevious?.();
+  const acquired = await createChromeFarmingAutomationHost().managedWatchOwnership.acquire('owned_channel');
+  expect(acquired?.ownership.tabId).toBe(page.id);
+  await acquired?.discard();
   expect(tabs.updated).toEqual([]);
   expect(tabs.created).toEqual([]);
   expect(tabs.removed).toEqual([]);
@@ -101,8 +101,8 @@ test.each([
 
 test('a confirmed absent old tab permits exactly one replacement', async () => {
   await rememberManagedWatch(70, 'closed', url);
-  const acquired = await createChromeFarmingAutomationHost().tabs.create({ url, active: false, muted: true });
-  expect(acquired?.id).toBe(20);
+  const acquired = await createChromeFarmingAutomationHost().managedWatchOwnership.acquire('owned_channel');
+  expect(acquired?.ownership.tabId).toBe(20);
   expect(tabs.created).toEqual([20]);
   expect(tabs.removed).toEqual([]);
 });
@@ -112,12 +112,10 @@ test('failed persistence after creation cannot cause a second tab on retry', asy
   mocks.storage.local.set = async () => {
     throw new Error('Storage temporarily unavailable');
   };
-  const host = createChromeFarmingAutomationHost();
-  await expect(host.tabs.create({ url, active: false, muted: true }, undefined, true)).rejects.toThrow(
-    'Storage temporarily unavailable',
-  );
+  const ownership = createChromeFarmingAutomationHost().managedWatchOwnership;
+  expect(await ownership.acquire('owned_channel', { allowInitialCreation: true })).toBeNull();
   mocks.storage.local.set = save;
-  expect((await host.tabs.create({ url, active: false, muted: true }))?.id).toBe(20);
+  expect((await ownership.acquire('owned_channel'))?.ownership.tabId).toBe(20);
   expect(tabs.created).toEqual([20]);
   expect(tabs.removed).toEqual([]);
 });
@@ -131,20 +129,16 @@ test('two independent hosts serialize creation and reuse the same tab', async ()
     await resume.promise;
     return nativeCreate(properties);
   };
-  const first = createChromeFarmingAutomationHost().tabs.create(
-    { url, active: false, muted: true },
-    undefined,
-    true,
-  );
+  const first = createChromeFarmingAutomationHost().managedWatchOwnership.acquire('owned_channel', {
+    allowInitialCreation: true,
+  });
   await entered.promise;
-  const second = createChromeFarmingAutomationHost().tabs.create(
-    { url, active: false, muted: true },
-    undefined,
-    true,
-  );
+  const second = createChromeFarmingAutomationHost().managedWatchOwnership.acquire('owned_channel', {
+    allowInitialCreation: true,
+  });
   resume.resolve(undefined);
   const acquired = await Promise.all([first, second]);
-  expect(acquired.map((tab) => tab?.id)).toEqual([20, 20]);
+  expect(acquired.map((candidate) => candidate?.ownership.tabId)).toEqual([20, 20]);
   expect(tabs.created).toEqual([20]);
   expect(tabs.updated.filter((item) => item.properties.url)).toHaveLength(1);
 });
@@ -152,11 +146,12 @@ test('two independent hosts serialize creation and reuse the same tab', async ()
 test('a stale rollback cannot undo a more recent channel acquisition', async () => {
   const page = tabs.add(url);
   await managedWatchMarker.write(page.id, 'retained', url);
-  const host = createChromeFarmingAutomationHost();
-  const first = await host.tabs.create({ url: 'https://www.twitch.tv/first', active: false, muted: true });
-  await managedWatchMarker.write(page.id, 'first', 'https://www.twitch.tv/first');
-  await host.tabs.create({ url: 'https://www.twitch.tv/second', active: false, muted: true });
-  await first?.restorePrevious?.();
+  const ownedTabs = createChromeFarmingAutomationHost().managedWatchOwnership;
+  const first = await ownedTabs.acquire('first');
+  expect(await first?.confirm()).toBe(true);
+  const second = await ownedTabs.acquire('second');
+  expect(await second?.confirm()).toBe(true);
+  await first?.discard();
   expect(page.url).toBe('https://www.twitch.tv/second');
   expect(tabs.removed).toEqual([]);
 });

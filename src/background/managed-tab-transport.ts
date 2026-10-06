@@ -1,5 +1,6 @@
 import type { PlaybackPrepResult } from '../types/index.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
+import type { ManagedWatchOwnership } from './managed-watch-ownership.ts';
 import {
   createWatchHealth,
   isHealthyWatchProbe,
@@ -16,7 +17,7 @@ import type {
   WatchProbeResult,
   WatchTransport,
 } from './watch-transport.ts';
-import type { ProvisionalWatchCandidate, WatchReleaseResult } from './watch-transport-transition.ts';
+import type { ProvisionalWatchCandidate } from './watch-transport-transition.ts';
 
 export type ManagedPlaybackPreparation = {
   readonly activateTab: false;
@@ -24,75 +25,41 @@ export type ManagedPlaybackPreparation = {
   readonly muteAfterPrep: true;
 };
 
-type ManagedWatchOwnership = Extract<WatchOwnershipV1, { readonly kind: 'managed-tab' }>;
+type ManagedOwnership = Extract<WatchOwnershipV1, { readonly kind: 'managed-tab' }>;
 
 export interface ManagedProvisionalWatchOperations {
   readonly isCurrent?: () => boolean;
-  readonly confirmOwnership?: (
-    tabId: number,
-    ownershipToken: string,
-    expectedUrl: string,
-  ) => Promise<boolean>;
-  readonly createOwnershipToken: () => string;
-  readonly persistOwnership: (token: string, expectedUrl: string) => Promise<boolean>;
-  readonly discardOwnership: (token: string) => Promise<void>;
-  readonly openTab: (expectedUrl: string) => Promise<{
-    readonly id?: number;
-    readonly restorePrevious?: () => Promise<void>;
-  } | null>;
-  readonly waitForTabComplete: (tabId: number, timeoutMs: number) => Promise<void>;
+  readonly ownership: Pick<ManagedWatchOwnership, 'acquire'>;
+  readonly allowInitialCreation?: boolean;
+  readonly preserveExistingWatch?: boolean;
   readonly preparePlayback: (
     tabId: number,
     options: ManagedPlaybackPreparation,
   ) => Promise<PlaybackPrepResult>;
-  readonly probe: (ownership: ManagedWatchOwnership, target: FarmingTarget) => Promise<WatchProbeResult>;
-  readonly release: (ownership: ManagedWatchOwnership) => Promise<WatchReleaseResult>;
+  readonly probe: (ownership: ManagedOwnership, target: FarmingTarget) => Promise<WatchProbeResult>;
   readonly now: () => number;
 }
 
 export async function prepareManagedProvisionalWatch(
   target: FarmingTarget,
-  expectedUrl: string,
   operations: ManagedProvisionalWatchOperations,
 ): Promise<ProvisionalWatchCandidate | null> {
   const isCurrent = operations.isCurrent ?? (() => true);
   if (!isCurrent()) return null;
-  const ownershipToken = operations.createOwnershipToken();
-  if (!(await operations.persistOwnership(ownershipToken, expectedUrl))) return null;
-  if (!isCurrent()) {
-    await operations.discardOwnership(ownershipToken);
-    return null;
-  }
-  const tab = await operations.openTab(expectedUrl);
-  if (typeof tab?.id !== 'number') {
-    await operations.discardOwnership(ownershipToken);
-    return null;
-  }
-  const tabId = tab.id;
-  const ownership: ManagedWatchOwnership = {
-    kind: 'managed-tab',
-    tabId,
-    ownershipToken,
-    expectedChannel: target.channelName,
-  };
-  const dispose = async (): Promise<void> => {
-    if (tab.restorePrevious) {
-      await operations.discardOwnership(ownershipToken);
-      await tab.restorePrevious();
-      return;
-    }
-    await operations.release(ownership);
-  };
+  const candidate = await operations.ownership.acquire(target.channelName, {
+    isCurrent,
+    allowInitialCreation: operations.allowInitialCreation,
+    preserveExistingWatch: operations.preserveExistingWatch,
+  });
+  if (!candidate) return null;
+  const ownership = candidate.ownership;
+  const tabId = ownership.tabId;
+  const dispose = candidate.discard;
   let probe: WatchProbeResult = { accepted: false, reason: 'error' };
   let preparation: PlaybackPrepResult = {};
   let prepared = false;
   try {
-    if (isCurrent()) await operations.waitForTabComplete(tabId, 15_000);
-    if (
-      isCurrent() &&
-      operations.confirmOwnership &&
-      !(await operations.confirmOwnership(tabId, ownershipToken, expectedUrl))
-    ) {
+    if (!(await candidate.confirm())) {
       return {
         target,
         ownership,

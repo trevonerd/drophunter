@@ -1,9 +1,7 @@
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import type { TwitchStreamer, WatchTransportMode } from '../types/index.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
-import { rememberManagedWatch } from './managed-watch-registry.ts';
 import type { WatchStartResult } from './streamer-acquisition-contracts.ts';
-import { streamerWatchUrl } from './tab-management.ts';
 import { tablessTargetKey } from './tabless-transport.ts';
 import { prepareWatchCandidate } from './watch-candidate-preparation.ts';
 import { createWatchFallbackPolicy } from './watch-fallback-policy.ts';
@@ -62,11 +60,7 @@ export function createWatchTransportCoordinator(
       currentOwnership?.kind === 'managed-tab' &&
       currentOwnership.ownershipToken === ownership.ownershipToken
     ) {
-      await rememberManagedWatch(
-        ownership.tabId,
-        ownership.ownershipToken,
-        streamerWatchUrl(ownership.expectedChannel),
-      );
+      await options.managedTab.finalizeOwnership?.(ownership);
     }
   };
 

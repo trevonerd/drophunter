@@ -80,6 +80,7 @@ export interface ManagedTabStartOptions {
 }
 
 export interface ManagedTabOperations {
+  readonly finalizeOwnership?: (ownership: WatchOwnershipV1) => Promise<void>;
   open(target: FarmingTarget, options: ManagedTabStartOptions): Promise<ManagedTabOpenResult>;
   probe(session: ManagedTabSession, target: FarmingTarget): Promise<WatchProbeResult>;
   close(session: ManagedTabSession): Promise<void>;

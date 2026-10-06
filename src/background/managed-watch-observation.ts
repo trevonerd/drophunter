@@ -1,10 +1,10 @@
 import { inspectManagedWatchMarker } from './managed-watch-marker.ts';
-import { listManagedWatches } from './managed-watch-registry.ts';
 import {
   type ManagedTabOwnershipOperations,
   recoverManagedTabOwnership,
   streamerWatchUrl,
-} from './tab-management.ts';
+} from './managed-watch-ownership-proof.ts';
+import { listManagedWatches } from './managed-watch-registry.ts';
 
 // Retained farming tabs remain managed even when the active transport is hidden.
 export async function resolveManagedWatchTabIds(

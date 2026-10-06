@@ -8,10 +8,10 @@ import {
   FARMING_AUTOMATION_DEADLINE_ALARM,
   FARMING_AUTOMATION_PERIODIC_ALARM,
 } from './farming-automation-browser.ts';
+import { createChromeFarmingAutomationHost } from './farming-automation-chrome-host.ts';
 import { FARMING_RECOVERY_RETRY_ALARM_NAME } from './farming-recovery-alarm.ts';
 import type { StreamContext } from './farming-session.ts';
 import { logInfo, logWarn } from './logging.ts';
-import { managedWatchMarker } from './managed-watch-marker.ts';
 import { openOwnedManagedWatch } from './managed-watch-open.ts';
 import { openMonitorDashboardWindow as openMonitorDashboardWindowController } from './monitor-dashboard.ts';
 import { needsPlaybackAttention } from './playback.ts';
@@ -24,10 +24,7 @@ import {
   applyBestEffortAlwaysOnTop,
   clearManagedTabOwnership,
   ensureManagedTab,
-  type ManagedTabOwnershipOperations,
   monitorDashboardUrl,
-  releaseManagedTabOwnership,
-  retireManagedTabOwnership,
   shouldMuteManagedFarmingTab,
   streamerWatchUrl,
   waitForTabComplete,
@@ -84,11 +81,15 @@ export function createServiceWorkerBrowserEvents(
   });
 
   let watchTransport: ReturnType<typeof createWatchTransportCoordinator>;
+  const ownedTabs = createChromeFarmingAutomationHost(() =>
+    watchTransport.currentOwnership(),
+  ).managedWatchOwnership;
   watchTransport = createWatchTransportCoordinator({
     state,
     enabled: true,
     heartbeat: dependencies.heartbeat,
     managedTab: {
+      finalizeOwnership: ownedTabs.finalize,
       open: (target, options) =>
         openOwnedManagedWatch(
           state,
@@ -104,6 +105,7 @@ export function createServiceWorkerBrowserEvents(
           },
           () => watchTransport.currentOwnership(),
           options.isCurrent,
+          ownedTabs,
         ),
       probe: async (session, target) => {
         const context = await dependencies.fetchStreamContext(session.tabId);
@@ -135,24 +137,7 @@ export function createServiceWorkerBrowserEvents(
           current.tabId === session.tabId &&
           current.ownershipToken !== session.ownership.ownershipToken;
         if (session.ownership) {
-          const operations: ManagedTabOwnershipOperations = {
-            managedWatchMarker,
-            tabs: {
-              get: (tabId) => browser.tabs.get(tabId),
-              query: (query) => browser.tabs.query(query),
-              update: async (tabId, properties) => void (await browser.tabs.update(tabId, properties)),
-              remove: async (tabId) => void (await browser.tabs.remove(tabId)),
-            },
-            sessionStorage: {
-              get: (key) => browser.storage.session.get(key),
-              remove: async (key) => void (await browser.storage.session.remove(key)),
-            },
-          };
-          if (tabWasReused) await retireManagedTabOwnership(session.ownership, operations);
-          else
-            await releaseManagedTabOwnership(session.ownership, operations, {
-              discard: current?.kind === 'managed-tab' && current.tabId !== session.tabId,
-            });
+          await ownedTabs.release(session.ownership);
         }
         if (!tabWasReused && state.appState.tabId === session.tabId) state.appState.tabId = null;
       },

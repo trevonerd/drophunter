@@ -55,18 +55,24 @@ describe('ManagedTabTransport', () => {
   test.each(['buffering', 'gesture', 'playing'] as const)(
     'provisional preparation reports %s using playback evidence rather than a live context alone',
     async (kind) => {
-      const candidate = await prepareManagedProvisionalWatch(target, 'https://www.twitch.tv/channel-one', {
-        createOwnershipToken: () => 'candidate',
-        persistOwnership: async () => true,
-        discardOwnership: async () => {},
-        openTab: async () => ({ id: 42 }),
-        waitForTabComplete: async () => {},
+      const candidate = await prepareManagedProvisionalWatch(target, {
+        ownership: {
+          acquire: async () => ({
+            ownership: {
+              kind: 'managed-tab',
+              tabId: 42,
+              ownershipToken: 'candidate',
+              expectedChannel: 'channel-one',
+            },
+            confirm: async () => true,
+            discard: async () => {},
+          }),
+        },
         preparePlayback: async () => ({
           isPlaybackReady: kind === 'playing',
           userInteractionRequired: kind === 'gesture',
         }),
         probe: async () => ({ accepted: true, isLive: true, sameChannel: true, sameGame: true }),
-        release: async () => ({ kind: 'released', method: 'closed' }),
         now: () => 100,
       });
       expect(candidate?.health).toMatchObject({

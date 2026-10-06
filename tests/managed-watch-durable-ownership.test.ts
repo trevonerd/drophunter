@@ -5,7 +5,6 @@ import { listManagedWatches } from '../src/background/managed-watch-registry.ts'
 import { reconcileManagedWatchesOnStartup } from '../src/background/managed-watch-startup.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { migrateExtensionStorage, STORAGE_SCHEMA_VERSION } from '../src/background/storage-migrations.ts';
-import { releaseManagedTabOwnership } from '../src/background/tab-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { installManagedWatchPages } from './support/managed-watch-pages.ts';
 
@@ -115,12 +114,12 @@ test('missing marker and user navigation fail closed; sole proven tab is retaine
   try {
     const owned = tabs.add(url);
     const host = createChromeFarmingAutomationHost();
-    expect(await releaseManagedTabOwnership(ownership, host)).toEqual({ kind: 'abandoned-unproven' });
+    expect(await host.managedWatchOwnership.release(ownership)).toEqual({ kind: 'abandoned-unproven' });
     await managedWatchMarker.write(owned.id, ownership.ownershipToken, url);
     owned.url = 'https://www.twitch.tv/user_choice';
-    expect(await releaseManagedTabOwnership(ownership, host)).toEqual({ kind: 'abandoned-unproven' });
+    expect(await host.managedWatchOwnership.release(ownership)).toEqual({ kind: 'abandoned-unproven' });
     owned.url = url;
-    expect(await releaseManagedTabOwnership(ownership, host)).toEqual({ kind: 'not-required' });
+    expect(await host.managedWatchOwnership.release(ownership)).toEqual({ kind: 'not-required' });
     expect(owned.url).toBe(url);
     expect(tabs.updated).toEqual([]);
     expect(tabs.removed).toEqual([]);
@@ -144,7 +143,7 @@ test('retained uncertain historical handles cannot block a new proven watch', as
     const page = tabs.add(url);
     expect(await managedWatchMarker.write(page.id, ownership.ownershipToken, url)).toBe(true);
     expect(await listManagedWatches()).toHaveLength(33);
-    expect(await releaseManagedTabOwnership(ownership, createChromeFarmingAutomationHost())).toEqual({
+    expect(await createChromeFarmingAutomationHost().managedWatchOwnership.release(ownership)).toEqual({
       kind: 'not-required',
     });
   } finally {

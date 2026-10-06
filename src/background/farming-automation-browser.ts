@@ -3,24 +3,17 @@ import { createChromeFarmingAutomationHost } from './farming-automation-chrome-h
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import { type ManagedPlaybackPreparation, prepareManagedProvisionalWatch } from './managed-tab-transport.ts';
 import type { ManagedWatchMarker } from './managed-watch-marker.ts';
-import { rememberManagedWatch } from './managed-watch-registry.ts';
+import { createManagedWatchOwnership, type ManagedWatchOwnership } from './managed-watch-ownership.ts';
 import type { ManualStreamContext } from './manual-watch-detector.ts';
 import {
   type ManualPlaybackObservationResult,
   type ManualPlaybackTab,
   observeManualPlayback,
 } from './playback-orchestrator.ts';
-import {
-  managedTabOwnershipKey,
-  releaseManagedTabOwnership,
-  retireManagedTabOwnership,
-  streamerWatchUrl,
-} from './tab-management.ts';
 import { prepareTablessProvisionalWatch } from './tabless-transport.ts';
 import type { FarmingTarget, TablessHeartbeat, WatchProbeResult } from './watch-transport.ts';
 import {
   createWatchTransportTransition,
-  type WatchReleaseResult,
   type WatchTransportRuntime,
   type WatchTransportTransition,
 } from './watch-transport-transition.ts';
@@ -35,6 +28,7 @@ export type FarmingAutomationTab = ManualPlaybackTab & {
 };
 
 export interface FarmingAutomationChromeHost {
+  readonly managedWatchOwnership?: ManagedWatchOwnership;
   readonly managedWatchMarker?: ManagedWatchMarker;
   readonly resolveManagedTabIds?: () => Promise<readonly number[] | null>;
   readonly tabs: {
@@ -147,87 +141,23 @@ export function createFarmingAutomationBrowser(
   const currentOwnership = (): WatchOwnershipV1 | null =>
     options.watchRuntime?.currentOwnership() ?? watch?.currentOwnership() ?? options.currentOwnership ?? null;
 
-  const release = async (ownership: WatchOwnershipV1): Promise<WatchReleaseResult> => {
-    if (ownership.kind === 'tabless') return { kind: 'not-required' };
-    const current = currentOwnership();
-    if (
-      current?.kind === 'managed-tab' &&
-      current.tabId === ownership.tabId &&
-      current.ownershipToken !== ownership.ownershipToken
-    ) {
-      await retireManagedTabOwnership(ownership, host);
-      return { kind: 'not-required' };
-    }
-    const result = await releaseManagedTabOwnership(ownership, host, {
-      discard: current?.kind === 'managed-tab' && current.tabId !== ownership.tabId,
-    });
-    const settledOwnership = currentOwnership();
-    if (
-      result.kind === 'released' &&
-      current?.kind === 'managed-tab' &&
-      !options.host &&
-      settledOwnership?.kind === 'managed-tab' &&
-      settledOwnership.ownershipToken === current.ownershipToken
-    ) {
-      await rememberManagedWatch(
-        current.tabId,
-        current.ownershipToken,
-        streamerWatchUrl(current.expectedChannel),
-      );
-    }
-    return result;
-  };
-
-  const prepareManaged = (target: FarmingTarget, isCurrent = () => true, allowInitialCreation = false) => {
-    const preserveExistingWatch = options.watchRuntime?.hasViableManagedWatch?.() ?? false;
-    const incumbent = currentOwnership();
-    const provisionalProof =
-      preserveExistingWatch && incumbent?.kind === 'managed-tab'
-        ? { provisional: true as const, replacesOwnershipToken: incumbent.ownershipToken }
-        : {};
-    return prepareManagedProvisionalWatch(target, streamerWatchUrl(target.channelName), {
-      createOwnershipToken: options.createOwnershipToken ?? (() => globalThis.crypto.randomUUID()),
+  const ownedTabs = createManagedWatchOwnership({
+    host,
+    currentOwnership,
+    waitForTabComplete: options.watch.waitForTabComplete,
+    createOwnershipToken: options.createOwnershipToken,
+    recordDurableOwnership: options.host === undefined,
+  });
+  const prepareManaged = (target: FarmingTarget, isCurrent = () => true, allowInitialCreation = false) =>
+    prepareManagedProvisionalWatch(target, {
+      ownership: ownedTabs,
       isCurrent,
-      confirmOwnership:
-        host.managedWatchMarker &&
-        (async (tabId, token, expectedUrl) => {
-          const confirmed = await host.managedWatchMarker?.write(tabId, token, expectedUrl);
-          if (confirmed && preserveExistingWatch && !options.host) {
-            await rememberManagedWatch(tabId, token, expectedUrl, provisionalProof);
-          }
-          return confirmed === true;
-        }),
-      persistOwnership: async (token, expectedUrl) =>
-        Boolean(
-          await attempt(async () => {
-            const key = managedTabOwnershipKey(token);
-            await host.sessionStorage.set({ [key]: { version: 1, expectedUrl, ...provisionalProof } });
-            return true;
-          }),
-        ),
-      discardOwnership: async (token) => {
-        await attempt(async () => {
-          await host.sessionStorage.remove(managedTabOwnershipKey(token));
-          await host.managedWatchMarker?.forget?.(token);
-          return true;
-        });
-      },
-      openTab: (expectedUrl) =>
-        attempt(() =>
-          host.tabs.create(
-            { url: expectedUrl, active: false, muted: true },
-            isCurrent,
-            allowInitialCreation,
-            preserveExistingWatch,
-          ),
-        ),
-      waitForTabComplete: options.watch.waitForTabComplete,
+      allowInitialCreation,
+      preserveExistingWatch: options.watchRuntime?.hasViableManagedWatch?.() ?? false,
       preparePlayback: options.watch.preparePlayback,
       probe: options.watch.probeManaged,
-      release,
       now,
     });
-  };
 
   const prepareTabless = (target: FarmingTarget) => {
     return prepareTablessProvisionalWatch(target, {
@@ -242,7 +172,7 @@ export function createFarmingAutomationBrowser(
     runtime: options.watchRuntime,
     prepareManaged,
     prepareTabless,
-    release,
+    release: ownedTabs.release,
   });
   const replaceDeadlineAlarm = async (at: number | null): Promise<'scheduled' | 'cleared' | 'failed'> => {
     const cleared = await attempt(async () => {

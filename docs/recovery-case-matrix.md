@@ -1,5 +1,21 @@
 # Matrice di recupero e aggiornamento
 
+## Ownership delle tab di farming — 6 ottobre 2026
+
+Il modulo di ownership concentra acquisizione, prove sessione/pagina, registro, riuso, conferma, rollback, ricostruzione startup e rilascio. Playback e promozione restano nei transport. I formati storage esistenti sono invariati. Stop conserva il video; un candidato provvisorio viene scartato senza chiudere l'ultima tab della finestra. Le prove incerte continuano a bloccare nuove creazioni e il riconoscimento manuale mantiene distinto “sconosciuto” da “nessuna tab gestita”.
+
+| Caso | Evidenza automatizzata |
+|---|---|
+| Acquisizione serializzata tra chiamanti, persistenza fallita senza duplicati, primo Avvia esplicito, rollback superato | `tests/tab-management-tabs.test.ts` |
+| Conferma/discard concorrenti durante caricamento e scrittura marker; ownership superata nella stessa tab | `tests/managed-watch-ownership.test.ts` |
+| Canale scelto durante lettura delle prove startup: conserva il nuovo watch e ritira soltanto il suo predecessore | `tests/managed-watch-ownership.test.ts` |
+| Ricostruzione prima/dopo commit; Stop/Pausa; marker ambigui o indisponibili; protezione watch e ultima tab | `tests/managed-watch-provisional-recovery.test.ts`, `tests/managed-watch-startup-integration.test.ts`, `tests/managed-watch-durable-ownership.test.ts`, `tests/managed-watch-candidate-preservation.test.ts` |
+| Tab gestita dormiente esclusa dalla visione manuale durante transport nascosto | `tests/retained-managed-manual-watch.test.ts` |
+
+Verifica: 2.528 test unitari, 28 E2E Chrome MV3, TypeScript sorgenti/test, lint e build Chrome/Edge superati; 261 test nelle 37 suite indicate da vexp superati. Review Standards e Spec senza rilievi aperti dopo la regressione sulla selezione startup. `vexp verify_done` non segnala errori di parsing o deriva documentale; i 7 avvisi di import sono riferimenti a re-export e fixture con nome simile, verificati con ricerca nativa e compilatori.
+
+Baseline prima della modifica: 89 test mirati superati. Le verifiche usano adapter Chrome e pagine simulate, incluse le scritture interrotte. Non è stata avviata una sessione Twitch sul profilo personale; restart e sleep/wake reali restano da osservare, senza sovrascrivere le evidenze manuali precedenti.
+
 ## Progressione della coda e premi futuri — 6 ottobre 2026
 
 La progressione è composta una volta nella sessione e possiede selezione, parcheggio, giri di riprova, attesa, persistenza e completamento. La discovery automatica passa solo prove positive di disponibilità e identità riabilitate; non avvia playback. Il cambio campagna conserva la preparazione e il commit già esistenti. Un successore con soli premi watch-time futuri verificati resta in coda: viene parcheggiato e non rimosso come completato.

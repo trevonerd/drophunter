@@ -1,78 +1,27 @@
 import { createChromeFarmingAutomationHost } from './farming-automation-chrome-host.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
-import { inspectManagedWatchMarker } from './managed-watch-marker.ts';
-import {
-  getManagedWatchPreparation,
-  isProvisionalManagedWatch,
-  listManagedWatches,
-  rememberManagedWatch,
-} from './managed-watch-registry.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import {
-  recoverManagedTabOwnership,
-  releaseManagedTabOwnership,
-  streamerWatchUrl,
-} from './tab-management.ts';
 
 export async function reconcileManagedWatchesOnStartup(
   state: ServiceWorkerState,
   receiptOwnership: WatchOwnershipV1 | null,
 ): Promise<WatchOwnershipV1 | null> {
   const epoch = currentFarmingSessionEpoch(state);
-  const host = createChromeFarmingAutomationHost();
-  const registered = await listManagedWatches();
-  const handles = new Map(registered.map((ownership) => [ownership.ownershipToken, ownership]));
-  if (receiptOwnership?.kind === 'managed-tab')
-    handles.set(receiptOwnership.ownershipToken, receiptOwnership);
-  const recovered = [];
-  for (const ownership of handles.values()) {
-    const current = await recoverManagedTabOwnership(ownership, host);
-    if (current) recovered.push(current);
-  }
-  const resumable =
-    state.appState.isRunning && !state.appState.isPaused && currentFarmingSessionEpoch(state) === epoch;
-  const matching = recovered.filter(
-    (ownership) =>
-      state.appState.isRunning &&
-      currentFarmingSessionEpoch(state) === epoch &&
-      ownership.expectedChannel.toLowerCase() === state.appState.activeStreamer?.name.toLowerCase(),
+  const isCurrent = () => currentFarmingSessionEpoch(state) === epoch;
+  const ownership = await createChromeFarmingAutomationHost().managedWatchOwnership.reconstruct(
+    receiptOwnership,
+    () => ({
+      running: state.appState.isRunning,
+      activeChannel: state.appState.activeStreamer?.name ?? null,
+      tabId: state.appState.tabId,
+    }),
+    isCurrent,
   );
-  const selected =
-    matching.find((ownership) => ownership.tabId === state.appState.tabId) ??
-    (matching.length === 1 ? (matching[0] ?? null) : recovered.length === 1 ? (recovered[0] ?? null) : null);
-  if (selected && currentFarmingSessionEpoch(state) === epoch) {
-    const selectedPreparation = await getManagedWatchPreparation(selected);
-    let predecessorRetained = false;
-    if (matching.includes(selected)) {
-      for (const ownership of recovered) {
-        if (currentFarmingSessionEpoch(state) !== epoch) return null;
-        if (ownership.ownershipToken === selected.ownershipToken || ownership.tabId === selected.tabId)
-          continue;
-        const predecessor = ownership.ownershipToken === selectedPreparation?.replacesOwnershipToken;
-        if (!predecessor && !(await isProvisionalManagedWatch(ownership))) continue;
-        const marker = await inspectManagedWatchMarker(
-          ownership.ownershipToken,
-          streamerWatchUrl(ownership.expectedChannel),
-        );
-        if (currentFarmingSessionEpoch(state) !== epoch) return null;
-        if (marker.kind === 'found' && marker.tab.id === ownership.tabId) {
-          const release = await releaseManagedTabOwnership(ownership, host, { discard: true });
-          if (predecessor && release.kind !== 'released') predecessorRetained = true;
-        } else if (predecessor) predecessorRetained = true;
-      }
-    }
-    await rememberManagedWatch(
-      selected.tabId,
-      selected.ownershipToken,
-      streamerWatchUrl(selected.expectedChannel),
-      predecessorRetained && selectedPreparation ? selectedPreparation : {},
-    );
-    if (currentFarmingSessionEpoch(state) === epoch) {
-      if (resumable) state.appState.tabId = selected.tabId;
-      return selected;
-    }
+  if (isCurrent()) {
+    if (ownership?.kind === 'managed-tab') {
+      if (state.appState.isRunning && !state.appState.isPaused) state.appState.tabId = ownership.tabId;
+    } else state.appState.tabId = null;
   }
-  if (currentFarmingSessionEpoch(state) === epoch) state.appState.tabId = null;
-  return receiptOwnership?.kind === 'tabless' ? receiptOwnership : null;
+  return ownership;
 }
