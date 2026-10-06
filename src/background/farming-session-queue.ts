@@ -1,3 +1,4 @@
+import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { getGameDisplayLabel, sameCampaignId } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
@@ -19,7 +20,7 @@ import { logDebug, logWarn } from './logging.ts';
 import { removeGameFromQueue, resolveGameFromState } from './queue-operations.ts';
 import { applyStopState } from './recovery-state.ts';
 import { advanceQueueIfCompleted as advanceQueue } from './session-lifecycle.ts';
-import { queueWaitingNotification } from './session-lifecycle-queue-parking.ts';
+import { parkCampaignForStreamerRetry, queueWaitingNotification } from './session-lifecycle-queue-parking.ts';
 
 type FarmingSessionQueueDependencies = {
   readonly onEnsureWorkspace: (isCurrent?: () => boolean) => Promise<void>;
@@ -76,6 +77,7 @@ export function createFarmingSessionQueue(
         isFarmingSessionEpochCurrent(state, epoch) &&
         state.tickGeneration === tickGeneration,
       onOpenStreamer: dependencies.onAcquireStreamer,
+      onTransitionToCampaign: context.transitionCampaign,
       onEnsureWorkspace: dependencies.onEnsureWorkspace,
       onSendAlert: async (kind, message) => {
         if (kind === 'all-complete' && state.appState.completionNotified && adapters.automationNotify) {
@@ -117,6 +119,31 @@ export function createFarmingSessionQueue(
   }
 
   async function selectGame(payload: { readonly game: TwitchGame }) {
+    if (context.transitionCampaign && state.appState.isRunning && !state.appState.isPaused) {
+      await adapters.trackActivity('set-selected-game');
+      const candidate = resolveGameFromState(state, payload.game);
+      if (!candidate || campaignRejectionReason(candidate)) {
+        return { success: false, error: 'Campaign is no longer available.' };
+      }
+      const result = await context.transitionCampaign(candidate);
+      if (result.kind === 'failed') {
+        parkCampaignForStreamerRetry(state, candidate, result.reason, true);
+        try {
+          await adapters.saveState(state);
+        } catch {
+          return { success: false, error: 'Unable to save the campaign change.' };
+        }
+      }
+      return result.kind === 'started'
+        ? { success: true }
+        : {
+            success: false,
+            error:
+              result.kind === 'failed'
+                ? result.error
+                : 'Campaign change was superseded or is no longer farmable.',
+          };
+    }
     return setSelectedGame(
       state,
       payload,

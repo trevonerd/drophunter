@@ -27,9 +27,11 @@ import {
 } from './farming-automation-twitch.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { reconcileManagedWatchesOnStartup } from './managed-watch-startup.ts';
+import { applyPlaybackStartRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
 import type { createServiceWorkerTwitchGateway } from './service-worker-twitch-gateway.ts';
+import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import { broadcastStateUpdate, saveState } from './state-persistence.ts';
 import { waitForTabComplete } from './tab-management.ts';
 import { saveTimingState } from './timing-state-persistence.ts';
@@ -78,7 +80,12 @@ export async function assembleServiceWorkerFarmingAutomation(
       break;
     case 'ready': {
       const selectedKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
-      if (state.appState.isRunning && receiptRead.value?.toCampaignKey === selectedKey) {
+      if (
+        state.appState.isRunning &&
+        receiptRead.value?.toCampaignKey === selectedKey &&
+        receiptRead.value.toStreamerName.trim().toLowerCase() ===
+          state.appState.activeStreamer?.name.trim().toLowerCase()
+      ) {
         currentOwnership = receiptRead.value.toWatch;
       }
       break;
@@ -87,7 +94,25 @@ export async function assembleServiceWorkerFarmingAutomation(
       receiptRead satisfies never;
   }
   currentOwnership = await reconcileManagedWatchesOnStartup(state, currentOwnership);
-  if (currentOwnership) await dependencies.browserEvents.watchTransport.restore(currentOwnership);
+  if (currentOwnership) {
+    const epoch = currentFarmingSessionEpoch(state);
+    const restored = await dependencies.browserEvents.watchTransport.restore(currentOwnership);
+    if (
+      !restored &&
+      epoch === currentFarmingSessionEpoch(state) &&
+      state.appState.isRunning &&
+      !state.appState.isPaused
+    ) {
+      resetStreamTrackingState(state);
+      state.appState.activeStreamer = null;
+      state.appState.watchHealth = null;
+      state.appState.tabId = null;
+      state.appState.watchFallbackReason = null;
+      applyPlaybackStartRecoveryState(state, Date.now(), 0);
+      await saveState(state);
+      await saveTimingState(state);
+    }
+  }
 
   const persistNewApiCooldown = async <T>(operation: () => Promise<T>): Promise<T> => {
     const previousBackoff = state.apiBackoffUntil;

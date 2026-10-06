@@ -8,16 +8,58 @@ export async function rememberManagedWatch(
   tabId: number,
   ownershipToken: string,
   expectedUrl: string,
+  options: { readonly provisional?: true; readonly replacesOwnershipToken?: string } = {},
 ): Promise<void> {
   const expectedChannel = new URL(expectedUrl).pathname.slice(1);
   const ownership: ManagedOwnership = { kind: 'managed-tab', tabId, ownershipToken, expectedChannel };
-  await browser.storage.local.set({ [`${PREFIX}${ownershipToken}`]: ownership });
+  await browser.storage.local.set({
+    [`${PREFIX}${ownershipToken}`]: {
+      ...ownership,
+      ...(options.provisional ? { provisional: true } : {}),
+      ...(options.replacesOwnershipToken ? { replacesOwnershipToken: options.replacesOwnershipToken } : {}),
+    },
+  });
   const registered = await listManagedWatches();
   await Promise.all(
     registered
       .filter((item) => item.tabId === tabId && item.ownershipToken !== ownershipToken)
       .map((item) => forgetManagedWatch(item.ownershipToken)),
   );
+}
+
+export async function isProvisionalManagedWatch(ownership: ManagedOwnership): Promise<boolean> {
+  return (await getManagedWatchPreparation(ownership)) !== null;
+}
+
+export async function getManagedWatchPreparation(ownership: ManagedOwnership): Promise<{
+  readonly provisional: true;
+  readonly replacesOwnershipToken?: string;
+} | null> {
+  const key = `${PREFIX}${ownership.ownershipToken}`;
+  const stored = await browser.storage.local.get(key);
+  const record = stored[key];
+  if (
+    !(
+      typeof record === 'object' &&
+      record !== null &&
+      'provisional' in record &&
+      record.provisional === true &&
+      'ownershipToken' in record &&
+      record.ownershipToken === ownership.ownershipToken &&
+      'expectedChannel' in record &&
+      record.expectedChannel === ownership.expectedChannel
+    )
+  )
+    return null;
+  return {
+    provisional: true,
+    ...('replacesOwnershipToken' in record &&
+    typeof record.replacesOwnershipToken === 'string' &&
+    record.replacesOwnershipToken.length > 0 &&
+    record.replacesOwnershipToken !== ownership.ownershipToken
+      ? { replacesOwnershipToken: record.replacesOwnershipToken }
+      : {}),
+  };
 }
 
 export async function forgetManagedWatch(ownershipToken: string): Promise<void> {

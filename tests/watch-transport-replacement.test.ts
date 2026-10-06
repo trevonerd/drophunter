@@ -28,9 +28,20 @@ test('keeps the current managed watch when its replacement cannot start', async 
     state,
     heartbeat: async () => ({ accepted: true }),
     managedTab: {
-      open: async () => {
+      open: async (target) => {
         opens += 1;
-        return opens === 1 ? { owner: 'drophunter', tabId: 17 } : null;
+        return opens === 1
+          ? {
+              owner: 'drophunter',
+              tabId: 17,
+              ownership: {
+                kind: 'managed-tab',
+                tabId: 17,
+                ownershipToken: 'incumbent',
+                expectedChannel: target.channelName,
+              },
+            }
+          : null;
       },
       probe: async (session) => {
         probedTabIds.push(session.tabId);
@@ -46,11 +57,16 @@ test('keeps the current managed watch when its replacement cannot start', async 
   await coordinator.start(firstStreamer);
 
   // When
-  const health = await coordinator.start({ ...firstStreamer, name: 'channel-2' });
-  await coordinator.tick();
+  const incumbentHealth = state.appState.watchHealth;
+  const result = await coordinator.start({ ...firstStreamer, name: 'channel-2' });
 
   // Then
-  expect(health).toMatchObject({ status: 'healthy', reason: 'started' });
+  expect(result).toMatchObject({
+    kind: 'failed',
+    health: { status: 'failed', reason: 'managed-tab-unavailable' },
+  });
+  expect(state.appState.watchHealth).toBe(incumbentHealth);
+  await coordinator.tick();
   expect(closes).toBe(0);
   expect(probedTabIds).toEqual([17]);
   expect(state.appState.activeStreamer?.name).toBe('channel-1');

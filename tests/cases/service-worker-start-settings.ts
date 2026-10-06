@@ -1,10 +1,12 @@
 import { expect, test } from 'bun:test';
 import type { TwitchGame } from '../../src/types/index.ts';
 import { demoGame } from '../fixtures/service-worker-games.ts';
+import { enqueueDirectoryResult, enqueueDropsSnapshot } from '../helpers/service-worker-fetch.ts';
 import {
   chromeMocks,
   dispatchMessage,
   getAppStateFromStorage,
+  syncTestSession,
   waitForAppState,
 } from '../helpers/service-worker-harness.ts';
 
@@ -96,6 +98,20 @@ export function registerStartAndSettingsCases() {
   });
 
   test('RESUME_FARMING clears isPaused after pause', async () => {
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'resume-drop', currentMinutes: 10 }]);
+    enqueueDropsSnapshot([{ game: demoGame, dropId: 'resume-drop', currentMinutes: 10 }]);
+    enqueueDirectoryResult('streamer-current');
+    enqueueDirectoryResult('streamer-current');
+    await dispatchMessage({ type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'managed-tab' } });
+    await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame] });
+    await syncTestSession();
+    expect(await dispatchMessage({ type: 'START_FARMING', payload: { game: demoGame } })).toEqual({
+      success: true,
+    });
+    await waitForAppState(
+      (next) => next.isRunning && next.activeStreamer !== null,
+      'running watch did not persist',
+    );
     chromeMocks.runtime.onMessage.trigger({ type: 'PAUSE_FARMING' });
     await waitForAppState((next) => next.isPaused === true, 'pause state did not persist');
 

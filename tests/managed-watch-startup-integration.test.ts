@@ -15,6 +15,7 @@ import {
   setTimingSaveDebounceMsForTests,
 } from '../src/background/timing-state-persistence.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
+import { toSlug } from '../src/shared/utils.ts';
 import type { DropsSnapshot, TwitchGame } from '../src/types/index.ts';
 import { createFarmingSessionAdapters, createGame, createStreamer } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
@@ -34,10 +35,31 @@ function runningState() {
   return state;
 }
 
-function browserEventsFor(state: ReturnType<typeof runningState>) {
+function browserEventsFor(state: ReturnType<typeof runningState>, categoryOverride?: string) {
+  chrome.tabs.sendMessage = async (_tabId, message: { type: string }) =>
+    message.type === 'PREPARE_STREAM_PLAYBACK'
+      ? { isPlaybackReady: true, userInteractionRequired: false }
+      : {};
   return createServiceWorkerBrowserEvents(state, {
     ensureContentScriptOnTab: async () => {},
-    fetchStreamContext: async () => null,
+    fetchStreamContext: async (tabId) => {
+      const tab = await chrome.tabs.get(tabId);
+      const channelName = new URL(tab.url ?? url).pathname.slice(1);
+      return {
+        channelName,
+        categorySlug:
+          categoryOverride ??
+          state.appState.selectedGame?.categorySlug ??
+          toSlug(state.appState.selectedGame?.name ?? ''),
+        categoryLabel: categoryOverride ?? state.appState.selectedGame?.name ?? '',
+        streamTitle: 'Drops enabled',
+        titleContainsDrops: true,
+        pageUrl: tab.url ?? url,
+        isLive: true,
+        isPlaybackReady: true,
+        hasDropsSignal: true,
+      };
+    },
     heartbeat: async () => ({ accepted: false }),
     notify: async () => {},
     notifyQueueComplete: async () => {},
@@ -147,6 +169,64 @@ test('actual automation assembly restores ordinary managed watch after same-vers
     mocks.teardown();
   }
 });
+
+test.each(['wrong-channel', 'wrong-game'] as const)(
+  'startup discards stale healthy state after rejecting a %s owned watch',
+  async (mismatch) => {
+    setTimingSaveDebounceMsForTests(0);
+    const mocks = setupChromeMocks();
+    const tabs = installManagedWatchPages(mocks);
+    try {
+      const page = tabs.add(mismatch === 'wrong-channel' ? 'https://www.twitch.tv/previous_streamer' : url);
+      await managedWatchMarker.write(page.id, 'mismatched-owned', page.url);
+      const state = runningState();
+      const selected = state.appState.selectedGame;
+      state.appState.queue = selected ? [selected] : [];
+      state.appState.watchHealth = {
+        mode: 'managed-tab',
+        status: 'healthy',
+        reason: 'heartbeat',
+        isHealthy: true,
+        consecutiveFailures: 0,
+        consecutiveStalls: 0,
+        progress: 10,
+        shouldFallback: false,
+        checkedAt: 1,
+      };
+      const browserEvents = browserEventsFor(state, mismatch === 'wrong-game' ? 'another-game' : undefined);
+      await assembleServiceWorkerFarmingAutomation(state, {
+        browserEvents,
+        startMonitoring: () => {},
+        twitchGateway: {
+          ensureTwitchSession: async () => null,
+          fetchDirectoryStreamers: async () => Object.assign([], { languageFilterApplied: false }),
+          fetchDropsSnapshot: async () => null,
+          getLatestProgressSnapshot: () => null,
+          fetchInventorySnapshot: async () => null,
+          fetchStreamContext: async () => null,
+          heartbeat: async () => ({ accepted: false }),
+        },
+      });
+      expect(browserEvents.watchTransport.currentTarget()).toBeNull();
+      expect(state.appState.activeStreamer).toBeNull();
+      expect(state.appState.watchHealth).toBeNull();
+      expect(state.appState.tabId).toBeNull();
+      expect(state.appState.selectedGame).toEqual(selected);
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.manualQueueAuthorized).toBe(true);
+      expect(state.appState.recoveryReason).toBe('open-failed');
+      expect(mocks.storage.local._store.get('appState')).toMatchObject({
+        activeStreamer: null,
+        watchHealth: null,
+        tabId: null,
+      });
+      expect(tabs.removed).toEqual([]);
+    } finally {
+      setTimingSaveDebounceMsForTests(null);
+      mocks.teardown();
+    }
+  },
+);
 
 test('queued Play probes an authorized channel missing from directory results through production assembly wiring', async () => {
   const mocks = setupChromeMocks();

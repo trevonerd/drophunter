@@ -127,7 +127,19 @@ test('ordinary unready playback retains proven tab and requests user attention',
     const notifications: string[] = [];
     const events = createServiceWorkerBrowserEvents(state, {
       ensureContentScriptOnTab: async () => {},
-      fetchStreamContext: async () => null,
+      fetchStreamContext: async () => ({
+        channelName: createStreamer().name,
+        categorySlug: '',
+        categoryLabel: createGame().name,
+        streamTitle: 'Drops enabled',
+        titleContainsDrops: true,
+        hasDropsSignal: true,
+        isLive: true,
+        isPlaybackReady: false,
+        videoCount: 1,
+        playingVideoCount: 0,
+        pageUrl: `https://www.twitch.tv/${createStreamer().name}`,
+      }),
       heartbeat: async () => ({ accepted: false }),
       notify: async (title) => {
         notifications.push(title);

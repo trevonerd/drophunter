@@ -68,7 +68,7 @@ describe('API failure recovery classification', () => {
       state,
       createFarmingSessionAdapters({
         watchTransport: {
-          start: async () => health,
+          start: async () => ({ kind: 'started', health }),
           tick: async () => health,
           stop: async () => {},
           setPreference: async () => {},

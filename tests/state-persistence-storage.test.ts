@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { FARMING_RECOVERY_RETRY_ALARM_NAME } from '../src/background/farming-recovery-alarm.ts';
 import {
   clearPendingTimingStateSaveForTests,
   resetStateForInactivity,
@@ -8,6 +9,7 @@ import { createInitialState } from '../src/shared/utils.ts';
 import { createAppState, createMinimalState } from './fixtures/state-persistence.ts';
 import { createTwitchDrop } from './fixtures/twitch-drop.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
+import { createDeferred } from './support/farming-automation-fixtures.ts';
 
 describe('saveState', () => {
   let mocks: ChromeMocks;
@@ -67,6 +69,97 @@ describe('saveState', () => {
     await saveState(state);
 
     expect(badgeText).toBe('');
+  });
+
+  test('a staged save writes storage without publishing the candidate or changing the live recovery alarm', async () => {
+    const messages: unknown[] = [];
+    mocks.chrome.runtime.sendMessage = (message) => {
+      messages.push(message);
+      return Promise.resolve(undefined);
+    };
+    const incumbent = createMinimalState({
+      appState: createAppState({
+        isRunning: true,
+        selectedGame: { id: 'smite', name: 'SMITE', imageUrl: '', campaignId: 'smite-campaign' },
+        currentDrop: createTwitchDrop({ id: 'smite-drop', campaignId: 'smite-campaign', progress: 12 }),
+        recoveryReason: 'stalled-progress',
+        recoveryBackoffUntil: Date.now() + 60_000,
+      }),
+    });
+    await saveState(incumbent);
+    const liveAlarm = await mocks.chrome.alarms.get(FARMING_RECOVERY_RETRY_ALARM_NAME);
+    const staged = {
+      ...incumbent,
+      appState: {
+        ...incumbent.appState,
+        selectedGame: { id: 'r6', name: 'R6', imageUrl: '', campaignId: 'r6-campaign' },
+        currentDrop: createTwitchDrop({ id: 'r6-drop', campaignId: 'r6-campaign', progress: 67 }),
+        recoveryReason: null,
+        recoveryBackoffUntil: null,
+      },
+    };
+    messages.length = 0;
+
+    await saveState(staged, { deferPublicEffects: true });
+
+    expect(mocks.storage.local._store.get('appState')).toMatchObject({
+      selectedGame: { campaignId: 'r6-campaign' },
+    });
+    expect(messages).toEqual([]);
+    expect(mocks.action.getBadgeState().text).toBe('12%');
+    expect(await mocks.chrome.alarms.get(FARMING_RECOVERY_RETRY_ALARM_NAME)).toEqual(liveAlarm);
+
+    await saveState(staged);
+
+    expect(messages).toHaveLength(1);
+    expect(mocks.action.getBadgeState().text).toBe('67%');
+    expect(await mocks.chrome.alarms.get(FARMING_RECOVERY_RETRY_ALARM_NAME)).toBeUndefined();
+  });
+
+  test('a staged candidate shares the live persistence queue so older writes cannot overwrite its commit', async () => {
+    const live = createMinimalState({
+      appState: createAppState({
+        selectedGame: { id: 'smite', name: 'SMITE', imageUrl: '', campaignId: 'smite-campaign' },
+      }),
+    });
+    const candidate = {
+      ...live,
+      appState: {
+        ...live.appState,
+        selectedGame: { id: 'r6', name: 'R6', imageUrl: '', campaignId: 'r6-campaign' },
+      },
+    };
+    const firstWrite = createDeferred<void>();
+    const releaseFirst = createDeferred<void>();
+    const originalSet = mocks.chrome.storage.local.set;
+    let writes = 0;
+    mocks.chrome.storage.local.set = async (values) => {
+      const captured = structuredClone(values);
+      if (!('appState' in captured)) {
+        await originalSet(captured);
+        return;
+      }
+      writes += 1;
+      if (writes === 1) {
+        firstWrite.resolve();
+        await releaseFirst.promise;
+      }
+      await originalSet(captured);
+    };
+    const olderSave = saveState(live);
+    await firstWrite.promise;
+    const candidateSave = saveState(candidate, { deferPublicEffects: true, transactionOwner: live });
+    try {
+      for (let step = 0; step < 8; step += 1) await Promise.resolve();
+      expect(writes).toBe(1);
+    } finally {
+      releaseFirst.resolve();
+      await Promise.all([olderSave, candidateSave]);
+    }
+    expect(writes).toBe(2);
+    expect(mocks.storage.local._store.get('appState')).toMatchObject({
+      selectedGame: { campaignId: 'r6-campaign' },
+    });
   });
 });
 

@@ -125,7 +125,7 @@ describe('farming session watch transport integration', () => {
     const watchTransport = {
       start: async () => {
         starts += 1;
-        return health;
+        return { kind: 'started' as const, health };
       },
       tick: async () => {
         ticks += 1;

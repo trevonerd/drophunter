@@ -4,12 +4,12 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 verifyExpectedDiagnostics([
   ['[DropHunter] Drops snapshot API skipped: Twitch session missing', 6],
   ['[DropHunter] No Twitch session recovered from storage keys', 6],
-  ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 3],
+  ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 2],
   ['[DropHunter] No rewards found after selected game refresh', 5],
-  ['[DropHunter] No streamer found for selected game', 5],
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 2],
-  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Demo Game" (slug: demo-game)', 6],
-  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Next Game" (slug: next-game)', 4],
+  ['[DropHunter] No streamer found for selected game', 4],
+  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 1],
+  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Demo Game" (slug: demo-game)', 7],
+  ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Next Game" (slug: next-game)', 3],
   ['[DropHunter] SW initialization failed: Error: startup failed', 1],
   ['[DropHunter] Initial activation sync failed: Error: startup failed', 1],
 ]);

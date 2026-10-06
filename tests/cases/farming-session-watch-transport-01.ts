@@ -164,7 +164,7 @@ describe('farming session watch transport integration', () => {
           watchTransport: {
             start: async () => {
               hiddenStarts += 1;
-              return createHealth('tabless');
+              return { kind: 'started', health: createHealth('tabless') };
             },
             tick: async () => stalledHealth,
             stop: async () => {},

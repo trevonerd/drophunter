@@ -131,7 +131,7 @@ function fixture(drop: TwitchDrop, nextDrops: TwitchDrop[], now: () => number, r
           },
         })
       : {
-          start: async () => healthy,
+          start: async () => ({ kind: 'started', health: healthy }),
           stop: async () => {},
           setPreference: async () => {},
           tick: async () =>

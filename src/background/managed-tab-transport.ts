@@ -84,6 +84,7 @@ export async function prepareManagedProvisionalWatch(
     await operations.release(ownership);
   };
   let probe: WatchProbeResult = { accepted: false, reason: 'error' };
+  let preparation: PlaybackPrepResult = {};
   let prepared = false;
   try {
     if (isCurrent()) await operations.waitForTabComplete(tabId, 15_000);
@@ -100,7 +101,7 @@ export async function prepareManagedProvisionalWatch(
       };
     }
     if (isCurrent())
-      await operations.preparePlayback(tabId, {
+      preparation = await operations.preparePlayback(tabId, {
         activateTab: false,
         unmuteTab: false,
         muteAfterPrep: true,
@@ -113,13 +114,32 @@ export async function prepareManagedProvisionalWatch(
   const hasDropsEligibilityProof =
     probe.isLive === true && probe.sameChannel === true && probe.sameGame === true;
   const dropsSignalIsAcceptable = probe.hasDropsSignal !== false || hasDropsEligibilityProof;
-  const healthy = prepared && dropsSignalIsAcceptable && isHealthyWatchProbe(probe);
-  const health = createWatchHealth(
-    'managed-tab',
-    healthy ? (probe.hasDropsSignal === false ? 'degraded' : 'healthy') : 'failed',
-    healthy ? (probe.hasDropsSignal === false ? 'drops-inactive' : reasonForWatchProbe(probe)) : 'error',
-    operations.now,
-  );
+  const healthy =
+    prepared && preparation.isPlaybackReady === true && dropsSignalIsAcceptable && isHealthyWatchProbe(probe);
+  const awaitingInteraction =
+    prepared &&
+    preparation.isPlaybackReady !== true &&
+    preparation.userInteractionRequired === true &&
+    probe.isLive !== false &&
+    probe.sameChannel !== false &&
+    probe.sameGame !== false;
+  const status = healthy
+    ? probe.hasDropsSignal === false
+      ? 'degraded'
+      : 'healthy'
+    : awaitingInteraction
+      ? 'degraded'
+      : 'failed';
+  const reason = healthy
+    ? probe.hasDropsSignal === false
+      ? 'drops-inactive'
+      : reasonForWatchProbe(probe)
+    : awaitingInteraction
+      ? 'user-interaction-required'
+      : preparation.isPlaybackReady !== true
+        ? 'playback-inactive'
+        : reasonForWatchProbe(probe);
+  const health = createWatchHealth('managed-tab', status, reason, operations.now);
   return {
     target,
     ownership,
@@ -142,6 +162,7 @@ export class ManagedTabTransport implements WatchTransport {
   private target: FarmingTarget | null = null;
   private consecutiveFailures = 0;
   private progress: number | null = null;
+  private awaitingInteraction = false;
 
   constructor(options: ManagedTabTransportOptions) {
     this.operations = options;
@@ -155,6 +176,7 @@ export class ManagedTabTransport implements WatchTransport {
     this.session = { owner: 'drophunter', tabId: ownership.tabId, ownership };
     this.consecutiveFailures = health.consecutiveFailures;
     this.progress = health.progress;
+    this.awaitingInteraction = health.reason === 'user-interaction-required';
     return true;
   }
 
@@ -174,11 +196,34 @@ export class ManagedTabTransport implements WatchTransport {
         shouldFallback: true,
       });
     }
+    let health = session.health;
+    if (health) {
+      let probe: WatchProbeResult;
+      try {
+        probe = await this.operations.probe(session, target);
+      } catch {
+        return createWatchHealth(this.mode, 'failed', 'error', this.now);
+      }
+      const awaitingInteraction = health.reason === 'user-interaction-required';
+      if (
+        !isCurrent() ||
+        probe.isLive === false ||
+        probe.sameChannel === false ||
+        probe.sameGame === false ||
+        (!awaitingInteraction && !isHealthyWatchProbe(probe))
+      ) {
+        return createWatchHealth(this.mode, 'failed', reasonForWatchProbe(probe), this.now);
+      }
+      if (awaitingInteraction && isHealthyWatchProbe(probe)) {
+        health = createWatchHealth(this.mode, 'healthy', reasonForWatchProbe(probe), this.now);
+      }
+    }
     this.target = target;
     this.session = session;
     this.consecutiveFailures = 0;
     this.progress = null;
-    return createWatchHealth(this.mode, 'healthy', 'started', this.now);
+    this.awaitingInteraction = health?.reason === 'user-interaction-required';
+    return health ?? createWatchHealth(this.mode, 'healthy', 'started', this.now);
   }
 
   async tick(): Promise<WatchHealth> {
@@ -202,6 +247,19 @@ export class ManagedTabTransport implements WatchTransport {
       });
     }
     const nextProgress = normalizeWatchProgress(probe.progress);
+    if (
+      this.awaitingInteraction &&
+      !probe.accepted &&
+      probe.isLive !== false &&
+      probe.sameChannel !== false &&
+      probe.sameGame !== false &&
+      (!probe.reason || probe.reason === 'playback-inactive')
+    ) {
+      return createWatchHealth(this.mode, 'degraded', 'user-interaction-required', this.now, {
+        progress: this.progress,
+      });
+    }
+    this.awaitingInteraction = false;
     this.consecutiveFailures = isHealthyWatchProbe(probe) ? 0 : this.consecutiveFailures + 1;
     if (nextProgress != null) this.progress = nextProgress;
     const healthy = isHealthyWatchProbe(probe);
@@ -217,5 +275,6 @@ export class ManagedTabTransport implements WatchTransport {
     this.target = null;
     this.consecutiveFailures = 0;
     this.progress = null;
+    this.awaitingInteraction = false;
   }
 }

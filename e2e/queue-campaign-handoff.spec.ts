@@ -79,6 +79,13 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
   let phase: ProgressPhase = 'starting';
   const failedChannels = new Set<string>();
   const channelsWithoutDropsSignal = new Set<string>();
+  const channelsRequiringGesture = new Set<string>();
+  const channelsPausingUntilGesture = new Set<string>();
+  const channelsWithSupportedPlayControl = new Set<string>();
+  const heldPlaybackResponses = new Map<string, {
+    requested: ReturnType<typeof Promise.withResolvers<void>>;
+    release: ReturnType<typeof Promise.withResolvers<void>>;
+  }>();
   const observedOperations: string[] = [];
 
   await profile.context.route('https://gql.twitch.tv/**', async (route) => {
@@ -198,6 +205,12 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
       return;
     }
     const channel = new URL(route.request().url()).pathname.split('/').filter(Boolean)[0] ?? '';
+    const held = heldPlaybackResponses.get(channel);
+    if (held) {
+      held.requested.resolve();
+      await held.release.promise;
+      heldPlaybackResponses.delete(channel);
+    }
     if (failedChannels.has(channel)) {
       await route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>Playback unavailable</body></html>' });
       return;
@@ -205,6 +218,8 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
     const category = [...streamers.entries()].find(([, login]) => login === channel)?.[0] ?? '';
     const game = games.find((candidate) => candidate.categorySlug === category);
     const dropsLabel = channelsWithoutDropsSignal.has(channel) ? '' : ' Drops';
+    const sitePause = channelsPausingUntilGesture.has(channel);
+    const supportedPlayControl = channelsWithSupportedPlayControl.has(channel);
     await route.fulfill({
       status: 200,
       contentType: 'text/html',
@@ -212,7 +227,8 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
         <body><main><h1 data-a-target="stream-title">${game?.name ?? 'Fixture Stream'}${dropsLabel}</h1>
           <span data-a-target="animated-channel-viewers-count">128 viewers</span>
           <a data-a-target="stream-game-link" href="/directory/category/${category}">${game?.name ?? 'Fixture Game'}</a>
-          <div data-a-target="video-player"><video autoplay muted playsinline></video></div>
+          <div data-a-target="video-player"><video muted playsinline></video></div>
+          ${sitePause ? '<button data-a-target="player-play-pause-button" data-a-player-state="paused">Play</button>' : ''}
           <script>
             const fixtureSettings = { "spade_url": "https://www.twitch.tv/fixture-spade" };
             const canvas = document.createElement('canvas');
@@ -222,18 +238,26 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
             const draw = () => {
               drawing.fillStyle = '#9147ff';
               drawing.fillRect(0, 0, 16, 16);
-              requestAnimationFrame(draw);
             };
             draw();
+            setInterval(draw, 100);
             const video = document.querySelector('video');
             const nativePlay = video.play.bind(video);
-            video.play = () => sessionStorage.getItem('fixture-playback-authorized') === 'yes'
+            video.play = () => !${JSON.stringify(channelsRequiringGesture.has(channel))} || sessionStorage.getItem('fixture-playback-authorized') === 'yes'
               ? nativePlay()
-              : Promise.reject(new DOMException('Initial interaction required', 'NotAllowedError'));
-            video.addEventListener('click', (event) => {
-              if (!event.isTrusted) return;
+              : Promise.reject(new DOMException(${JSON.stringify(sitePause ? 'The play() request was interrupted by a call to pause().' : 'Initial interaction required')}, ${JSON.stringify(sitePause ? 'AbortError' : 'NotAllowedError')}));
+            const authorizePlayback = (event) => {
+              if (!event.isTrusted && (!${JSON.stringify(supportedPlayControl)} || event.currentTarget !== playControl)) return;
+              if (event.currentTarget === playControl) video.dataset.fixtureExplicitPlayClicks = String(Number(video.dataset.fixtureExplicitPlayClicks ?? 0) + 1);
               sessionStorage.setItem('fixture-playback-authorized', 'yes');
+              video.dataset.fixturePlaybackAuthorized = 'yes';
               video.play().catch(() => undefined);
+            };
+            video.addEventListener('click', authorizePlayback);
+            const playControl = document.querySelector('button[data-a-target="player-play-pause-button"]');
+            playControl?.addEventListener('click', authorizePlayback);
+            video.addEventListener('playing', () => {
+              if (playControl) playControl.dataset.aPlayerState = 'playing';
             });
             video.srcObject = canvas.captureStream(5);
             video.play().catch(() => undefined);
@@ -243,6 +267,20 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
   });
 
   return {
+    holdPlaybackResponse(channel: string) {
+      const held = { requested: Promise.withResolvers<void>(), release: Promise.withResolvers<void>() };
+      heldPlaybackResponses.set(channel, held);
+      return { requested: held.requested.promise, release: () => held.release.resolve() };
+    },
+    requireUserGesture(channel: string, sitePause = false) {
+      channelsRequiringGesture.add(channel);
+      if (sitePause) channelsPausingUntilGesture.add(channel);
+    },
+    supportTwitchPlayControl(channel: string) {
+      channelsRequiringGesture.add(channel);
+      channelsPausingUntilGesture.add(channel);
+      channelsWithSupportedPlayControl.add(channel);
+    },
     failPlayback(channel: string) {
       failedChannels.add(channel);
     },
@@ -269,7 +307,7 @@ async function readAppState(popup: Awaited<ReturnType<typeof openPopup>>) {
       readonly isPaused: boolean;
       readonly manualWatchState: string;
       readonly watchTransportMode: string;
-      readonly watchHealth: { readonly checkedAt: number; readonly isHealthy: boolean } | null;
+      readonly watchHealth: { readonly checkedAt: number; readonly isHealthy: boolean; readonly reason: string } | null;
       readonly manualQueueAuthorized: boolean;
       readonly recoveryReason: string | null;
       readonly recoveryAttempts: number | null;
@@ -291,6 +329,114 @@ async function refreshCampaigns(popup: Awaited<ReturnType<typeof openPopup>>) {
   await popup.evaluate(async () => {
     const { success, result } = await chrome.runtime.sendMessage({ type: 'OPEN_DROPS_AND_SYNC' });
     if (!success || result?.kind !== 'synced') throw new Error(`Local activation sync failed: ${result?.kind}`);
+  });
+}
+
+async function assertCurrentManagedPlayback(
+  profile: Awaited<ReturnType<typeof createExtensionProfile>>,
+  popup: Awaited<ReturnType<typeof openPopup>>,
+  channel: string,
+) {
+  const state = await readAppState(popup);
+  const expectedUrl = `https://www.twitch.tv/${channel}`;
+  expect(state.activeStreamer?.name).toBe(channel);
+  expect(state.currentDrop?.campaignId).toBe(state.selectedGame?.campaignId);
+  expect(typeof state.tabId).toBe('number');
+  const tabs = await popup.evaluate(() => chrome.tabs.query({ url: ['https://www.twitch.tv/*'] }));
+  expect(tabs.find((tab) => tab.id === state.tabId)?.url).toBe(expectedUrl);
+  expect(tabs.filter((tab) => /\/local_stream_(one|two)$/.test(tab.url ?? ''))).toHaveLength(1);
+  const page = profile.context.pages().find((candidate) => candidate.url() === expectedUrl);
+  if (!page) throw new Error('Missing promoted managed video');
+  const marker = await page.evaluate(() => JSON.parse(sessionStorage.getItem('__drophunter_managed_watch_v1') ?? 'null'));
+  expect(marker).toMatchObject({ version: 1, expectedUrl });
+  expect(typeof marker.ownershipToken).toBe('string');
+  expect(marker.ownershipToken.length).toBeGreaterThan(0);
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+  const previousTime = await page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(previousTime);
+  const context = await popup.evaluate((tabId) => chrome.tabs.sendMessage(tabId, { type: 'GET_STREAM_CONTEXT' }), state.tabId as number);
+  expect(context.context).toMatchObject({ channelName: channel, isPlaybackReady: true });
+  return page;
+}
+
+for (const gestureMode of ['autoplay', 'gesture', 'site-pause', 'site-control'] as const) {
+  const gesture = gestureMode === 'gesture' || gestureMode === 'site-pause';
+  test(`managed farming ${gestureMode === 'site-control' ? 'starts through the paused Twitch Play control without user focus or clicks' : gestureMode === 'site-pause' ? 'retains its Twitch pause-blocked initial video and resumes after Play' : gesture ? 'retains its initial gesture-blocked video and resumes after Play' : 'advances video and Twitch progress without clicking or focusing its tab'}`, async () => {
+    test.setTimeout(100_000);
+    const profile = await createExtensionProfile();
+    try {
+      const twitch = await installLocalTwitchFixture(profile);
+      if (gesture) twitch.requireUserGesture('local_stream_one', gestureMode === 'site-pause');
+      if (gestureMode === 'site-control') twitch.supportTwitchPlayControl('local_stream_one');
+      await seedAppState(profile, {
+        availableGames: games, selectedGame: games[0], queue: [], isRunning: false, isPaused: false,
+        autoStartFavoriteGames: false, monitorAutoOpen: false, watchTransportPreference: 'managed-tab',
+        activeStreamer: null, tabId: null,
+      });
+      const popup = await openPopup(profile);
+      await runtimeMessage(popup, { type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'managed-tab' } });
+      await runtimeMessage(popup, { type: 'UPDATE_GAMES', payload: games });
+      await runtimeMessage(popup, { type: 'ADD_TO_QUEUE', payload: { game: games[0] } });
+      if (gestureMode !== 'autoplay') {
+        const worker = await getExtensionWorker(profile.context);
+        await worker.evaluate((sitePause) => {
+          // Install the policy fixture in the extension's isolated world so the
+          // real content play() call sees the browser-style NotAllowedError.
+          const sendMessage = chrome.tabs.sendMessage.bind(chrome.tabs);
+          Object.defineProperty(chrome.tabs, 'sendMessage', { value: async (tabId: number, message: unknown, options?: chrome.tabs.MessageSendOptions) => {
+            if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'PREPARE_STREAM_PLAYBACK') {
+              await chrome.scripting.executeScript({
+                target: { tabId },
+                args: [sitePause],
+                func: (pausedBySite: boolean) => {
+                  const video = document.querySelector<HTMLVideoElement>('video');
+                  if (!video || video.dataset.fixturePolicyInstalled === 'yes') return;
+                  video.dataset.fixturePolicyInstalled = 'yes';
+                  video.pause();
+                  const play = video.play.bind(video);
+                  video.play = () => video.dataset.fixturePlaybackAuthorized === 'yes'
+                    ? play()
+                    : Promise.reject(new DOMException(pausedBySite ? 'The play() request was interrupted by a call to pause().' : 'User activation required', pausedBySite ? 'AbortError' : 'NotAllowedError'));
+                },
+              });
+            }
+            return sendMessage(tabId, message, options ?? {});
+          } });
+        }, gestureMode === 'site-pause' || gestureMode === 'site-control');
+      }
+      expect(await runtimeMessage(popup, { type: 'START_FARMING', payload: { game: games[0] } })).toEqual({ success: true });
+      await expect.poll(async () => (await readAppState(popup)).activeStreamer?.name).toBe('local_stream_one');
+      const page = profile.context.pages().find((candidate) => candidate.url().endsWith('/local_stream_one'));
+      if (!page) throw new Error('Missing retained managed video');
+      const original = await readAppState(popup);
+      if (gestureMode === 'site-control') {
+        expect(original.watchHealth?.reason).not.toBe('user-interaction-required');
+        expect(await page.locator('video').getAttribute('data-fixture-explicit-play-clicks')).toBe('1');
+      }
+      if (gesture) {
+        expect(original.watchHealth?.reason).toBe('user-interaction-required');
+        await expect(popup.getByText(/Start the video/)).toBeVisible();
+        expect(original.queueAcquisitionRound).toBeNull();
+        expect(original.recoveryReason).toBeNull();
+        if (gestureMode === 'site-pause') await page.getByRole('button', { name: 'Play', exact: true }).click();
+        else await page.locator('video').click();
+      }
+      const previousTime = await page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
+      await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(previousTime);
+      // Exercise the real content context, not a mocked playback-ready heartbeat.
+      await expect.poll(() => popup.evaluate(async (tabId) => {
+        const result = await chrome.tabs.sendMessage(tabId, { type: 'GET_STREAM_CONTEXT' });
+        return result.context?.isPlaybackReady;
+      }, original.tabId as number)).toBe(true);
+      twitch.setPhase('progressed');
+      await refreshCampaigns(popup);
+      await expect.poll(async () => (await readAppState(popup)).currentDrop?.currentMinutes).toBe(1);
+      expect((await readAppState(popup)).tabId).toBe(original.tabId);
+      expect((await readAppState(popup)).selectedGame?.campaignId).toBe(games[0]?.campaignId);
+      if (gesture) await expect(popup.getByText(/Start the video/)).toBeHidden({ timeout: 70_000 });
+    } finally {
+      await profile.close();
+    }
   });
 }
 
@@ -317,11 +463,29 @@ for (const scenario of ['ready', 'failed', 'missing-signal'] as const) {
       if (!managedPage) throw new Error('Missing managed watch');
       await managedPage.locator('video').click();
       await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+      const originalDocument = await managedPage.evaluate(() => {
+        Reflect.set(globalThis, '__fixtureQueueDocument', 'incumbent-document');
+        return Reflect.get(globalThis, '__fixtureQueueDocument');
+      });
+      const heldFailure = candidateFails ? twitch.holdPlaybackResponse('local_stream_two') : null;
       if (candidateFails) twitch.failPlayback('local_stream_two');
       if (scenario === 'missing-signal') twitch.hideDropsSignal('local_stream_two');
       const operationsBefore = twitch.observedOperations.length;
       const playButton = popup.getByRole('button', { name: /^Start Local Game Two.* now$/ });
-      await playButton.click();
+      const switching = playButton.click();
+      if (heldFailure) {
+        await heldFailure.requested;
+        try {
+          expect((await readAppState(popup)).tabId).toBe(original.tabId);
+          expect((await readAppState(popup)).selectedGame?.campaignId).toBe(games[0]?.campaignId);
+          expect(await managedPage.evaluate(() => Reflect.get(globalThis, '__fixtureQueueDocument'))).toBe(originalDocument);
+          const beforeFailure = await managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
+          await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(beforeFailure);
+        } finally {
+          heldFailure.release();
+        }
+      }
+      await switching;
       await expect(
         popup.getByRole('status').filter({ hasText: candidateFails ? /working stream/ : /Started "Local Game Two/ }),
       ).toBeVisible({ timeout: 30_000 });
@@ -330,20 +494,24 @@ for (const scenario of ['ready', 'failed', 'missing-signal'] as const) {
       await expect.poll(async () => (await readAppState(popup)).selectedGame?.campaignId).toBe(expected?.campaignId);
       const after = await readAppState(popup);
       expect(after.isRunning).toBe(true);
-      expect(after.tabId).toBe(original.tabId);
+      if (candidateFails) {
+        expect(after.tabId).toBe(original.tabId);
+        expect(await managedPage.evaluate(() => Reflect.get(globalThis, '__fixtureQueueDocument'))).toBe(originalDocument);
+      } else if (after.tabId !== original.tabId) {
+        const obsolete = await popup.evaluate((tabId) => chrome.tabs.get(tabId).catch(() => null), original.tabId as number);
+        expect(obsolete === null || obsolete.url === 'about:blank').toBe(true);
+      }
       expect(after.activeStreamer?.name).toBe(candidateFails ? 'local_stream_one' : 'local_stream_two');
       expect(twitch.observedOperations.slice(operationsBefore)).toContain('ViewerDropsDashboard');
       expect(twitch.observedOperations.slice(operationsBefore)).toContain('Inventory');
-      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
-      const previousTime = await managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
-      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(previousTime);
+      await assertCurrentManagedPlayback(profile, popup, candidateFails ? 'local_stream_one' : 'local_stream_two');
     } finally {
       await profile.close();
     }
   });
 }
 
-test('completes the first queued campaign and reuses its managed tab for the next one', async () => {
+test('completes the first queued campaign and promotes a coherent managed watch for the next one', async () => {
   test.setTimeout(60_000);
   const profile = await createExtensionProfile();
   try {
@@ -426,15 +594,18 @@ test('completes the first queued campaign and reuses its managed tab for the nex
     expect(advanced.isRunning).toBe(true);
     expect(advanced.selectedGame?.campaignId).toBe(games[1]?.campaignId);
     expect(advanced.currentDrop?.currentMinutes).toBe(0);
-    expect(advanced.tabId).toBe(originalTabId);
+    expect(typeof advanced.tabId).toBe('number');
+    expect(advanced.activeStreamer?.name).toBe('local_stream_two');
     expect(twitch.observedOperations).toContain('DirectoryPage_Game:local-game-two');
 
-    const tabs = await popup.evaluate(() => chrome.tabs.query({ url: ['https://www.twitch.tv/*'] }));
-    expect(tabs.filter((tab) => tab.id === originalTabId)).toHaveLength(1);
-    expect(tabs.find((tab) => tab.id === originalTabId)?.url).toBe('https://www.twitch.tv/local_stream_two');
-    await assertPlaying();
-    expect(removedTabIds).not.toContain(originalTabId);
-    expect(profile.context.pages().filter((page) => /\/local_stream_(one|two)$/.test(page.url()))).toEqual([managedPage]);
+    const promoted = await assertCurrentManagedPlayback(profile, popup, 'local_stream_two');
+    if (advanced.tabId === originalTabId) {
+      expect(removedTabIds).not.toContain(originalTabId);
+    } else {
+      const obsolete = await popup.evaluate((tabId) => chrome.tabs.get(tabId).catch(() => null), originalTabId as number);
+      expect(obsolete === null || obsolete.url === 'about:blank').toBe(true);
+    }
+    expect(profile.context.pages().filter((page) => /\/local_stream_(one|two)$/.test(page.url()))).toEqual([promoted]);
   } finally {
     await profile.close();
   }
@@ -493,7 +664,7 @@ test('retained managed video does not become manual viewing after switching to h
   }
 });
 
-test('stalled rounds retain one authorized video tab and replace it only after actual closure', async () => {
+test('stalled rounds retain one coherent authorized watch through handoffs and recover actual closure', async () => {
   test.setTimeout(360_000);
   const profile = await createExtensionProfile();
   try {
@@ -508,10 +679,7 @@ test('stalled rounds retain one authorized video tab and replace it only after a
     await runtimeMessage(popup, { type: 'ADD_TO_QUEUE', payload: { game: games[1] } });
     expect(await runtimeMessage(popup, { type: 'START_FARMING', payload: { game: games[0] } })).toEqual({ success: true });
     await expect.poll(async () => (await readAppState(popup)).activeStreamer?.name, { timeout: 30_000 }).toBe('local_stream_one');
-    const originalTabId = (await readAppState(popup)).tabId;
-    const managedPage = profile.context.pages().find((page) => page.url().endsWith('/local_stream_one'));
-    if (!managedPage) throw new Error('Missing managed video tab');
-    await managedPage.locator('video').click();
+    await assertCurrentManagedPlayback(profile, popup, 'local_stream_one');
 
     // A Twitch tab update drives the real monitoring listener, including missed alarms.
     // Only wall-clock time is accelerated; attempt budgets and playback stay unchanged.
@@ -597,7 +765,9 @@ test('stalled rounds retain one authorized video tab and replace it only after a
           if ((await readAppState(popup)).queueAcquisitionRound?.attemptedCampaignKeys.includes(`campaign:${expectedCampaign}`)) break;
         }
         expect((await readAppState(popup)).queueAcquisitionRound?.attemptedCampaignKeys).toContain(`campaign:${expectedCampaign}`);
-        expect((await readAppState(popup)).tabId).toBe(originalTabId);
+        const activeChannel = (await readAppState(popup)).activeStreamer?.name;
+        if (!activeChannel) throw new Error('Missing active streamer after stall handoff');
+        await assertCurrentManagedPlayback(profile, popup, activeChannel);
       }
       await expect.poll(async () => (await readAppState(popup)).queueAcquisitionRound?.nextRoundAt).not.toBeNull();
       const waiting = await readAppState(popup);
@@ -613,14 +783,15 @@ test('stalled rounds retain one authorized video tab and replace it only after a
       await expect.poll(async () => (await readAppState(popup)).queueAcquisitionRound?.nextRoundAt).toBe(waiting.queueAcquisitionRound?.nextRoundAt);
       await advanceAndTick(60_001);
       await expect.poll(async () => (await readAppState(popup)).activeStreamer?.name, { timeout: 25_000 }).toBe('local_stream_one');
-      expect((await readAppState(popup)).tabId).toBe(originalTabId);
-      await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => !video.paused)).toBe(true);
+      await assertCurrentManagedPlayback(profile, popup, 'local_stream_one');
     }
+    const closedTabId = (await readAppState(popup)).tabId;
+    const managedPage = await assertCurrentManagedPlayback(profile, popup, 'local_stream_one');
     await managedPage.close();
     await advanceAndTick(61_000);
     await expect.poll(async () => (await readAppState(popup)).tabId, { timeout: 25_000 }).not.toBeNull();
     const replacement = (await readAppState(popup)).tabId;
-    expect(replacement).not.toBe(originalTabId);
+    expect(replacement).not.toBe(closedTabId);
     expect(profile.context.pages().filter((page) => /\/local_stream_(one|two)$/.test(page.url()))).toHaveLength(1);
     await runtimeMessage(popup, { type: 'STOP_FARMING' });
     await profile.context.pages().find((page) => /\/local_stream_(one|two)$/.test(page.url()))?.close();

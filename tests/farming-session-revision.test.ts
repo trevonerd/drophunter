@@ -153,6 +153,7 @@ describe('farming session revision authority', () => {
 
   test('does not block manual controls on debounced timing persistence', async () => {
     const state = createServiceWorkerState();
+    state.appState.isRunning = true;
     const timingSave = createDeferred<void>();
     const adapters = createAdapters(async () => undefined);
     const session = createFarmingSession(state, {

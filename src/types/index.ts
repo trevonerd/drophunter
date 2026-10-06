@@ -109,6 +109,7 @@ export type WatchHealthReason =
   | 'stalled-progress'
   | 'managed-tab-unavailable'
   | 'playback-inactive'
+  | 'user-interaction-required'
   | 'transport-disabled'
   | 'not-started'
   | 'stopped'

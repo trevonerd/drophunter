@@ -35,7 +35,7 @@ test('failed tabless playback preserves the campaign and enters local playback r
       fetchDirectoryStreamersFromApi: async () =>
         Object.assign([createStreamer()], { languageFilterApplied: false }),
       watchTransport: {
-        start: async () => failed,
+        start: async () => ({ kind: 'failed', health: failed }),
         tick: async () => failed,
         stop: async () => {},
         setPreference: async () => {},

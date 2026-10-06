@@ -86,9 +86,9 @@ export async function checkDropProgress(
       await callbacks.onAdvanceQueueIfCompleted(isCurrent);
       return;
     }
-    const transportAdvancedQueue = await callbacks.onWatchTransportTick?.(isCurrent);
+    const transportHandledTick = await callbacks.onWatchTransportTick?.(isCurrent);
     if (isStaleTick()) return;
-    if (transportAdvancedQueue) return;
+    if (transportHandledTick) return;
 
     if (state.apiBackoffUntil > 0 && Date.now() < state.apiBackoffUntil) {
       logDebug('API backoff active, skipping network refresh work', {

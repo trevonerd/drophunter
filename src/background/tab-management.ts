@@ -168,9 +168,33 @@ export async function reuseManagedTabOwnership(
 export async function releaseManagedTabOwnership(
   ownership: ManagedWatchOwnership,
   operations: ManagedTabOwnershipOperations,
+  options: { readonly discard?: boolean } = {},
 ): Promise<WatchReleaseResult> {
   const recovered = await recoverManagedTabOwnership(ownership, operations, true);
   if (!recovered) return { kind: 'abandoned-unproven' };
+  if (options.discard) {
+    const tab = await attemptOwnedTabOperation(() => operations.tabs.get(recovered.tabId));
+    if (typeof tab?.windowId !== 'number') return { kind: 'abandoned-unproven' };
+    const windowTabs = await attemptOwnedTabOperation(() =>
+      operations.tabs.query({ windowId: tab.windowId }),
+    );
+    if (!windowTabs) return { kind: 'abandoned-unproven' };
+    const closed =
+      windowTabs.some((other) => other.id !== recovered.tabId) &&
+      (await attemptOwnedTabOperation(async () => {
+        await operations.tabs.remove(recovered.tabId);
+        return true;
+      }));
+    if (!closed) {
+      const neutralized = await attemptOwnedTabOperation(async () => {
+        await operations.tabs.update(recovered.tabId, { url: 'about:blank', active: false, muted: true });
+        return true;
+      });
+      if (!neutralized) return { kind: 'abandoned-unproven' };
+    }
+    await retireManagedTabOwnership(recovered, operations);
+    return { kind: 'released', method: closed ? 'closed' : 'neutralized' };
+  }
   return { kind: 'not-required' };
 }
 

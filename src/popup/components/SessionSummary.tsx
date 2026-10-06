@@ -51,7 +51,13 @@ export function SessionSummary(props: SessionSummaryProps) {
   const showDrops = (isRunning || isPaused || isRecovering) && remainingDrops.length > 0;
   const needsTwitch =
     model.mode === 'attention-required' && props.state.lastStopReason === 'sign-in-required';
-  const canStart = !isRunning && !isPaused && !isRecovering && !needsTwitch && !props.automaticStartPending;
+  const canStart =
+    !props.state.isRunning &&
+    !isRunning &&
+    !isPaused &&
+    !isRecovering &&
+    !needsTwitch &&
+    !props.automaticStartPending;
   const continuationNote =
     props.state.manualQueueAuthorized && isPaused
       ? 'The started queue is saved and will continue after Resume.'

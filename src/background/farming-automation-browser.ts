@@ -3,6 +3,7 @@ import { createChromeFarmingAutomationHost } from './farming-automation-chrome-h
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import { type ManagedPlaybackPreparation, prepareManagedProvisionalWatch } from './managed-tab-transport.ts';
 import type { ManagedWatchMarker } from './managed-watch-marker.ts';
+import { rememberManagedWatch } from './managed-watch-registry.ts';
 import type { ManualStreamContext } from './manual-watch-detector.ts';
 import {
   type ManualPlaybackObservationResult,
@@ -45,6 +46,7 @@ export interface FarmingAutomationChromeHost {
       },
       isCurrent?: () => boolean,
       allowInitialCreation?: boolean,
+      preserveExistingWatch?: boolean,
     ): Promise<FarmingAutomationTab | null>;
     get(tabId: number): Promise<FarmingAutomationTab | null>;
     query(query: {
@@ -121,14 +123,6 @@ export interface FarmingAutomationBrowser {
   readonly schedulePeriodicAlarm: (periodInMinutes: number) => Promise<'scheduled' | 'failed'>;
 }
 
-class ProvisionalPlaybackNotReadyError extends Error {
-  readonly name = 'ProvisionalPlaybackNotReadyError';
-
-  constructor() {
-    super('Provisional managed playback is not ready');
-  }
-}
-
 async function attempt<T>(operation: () => Promise<T>): Promise<T | null> {
   try {
     return await operation();
@@ -164,19 +158,50 @@ export function createFarmingAutomationBrowser(
       await retireManagedTabOwnership(ownership, host);
       return { kind: 'not-required' };
     }
-    return releaseManagedTabOwnership(ownership, host);
+    const result = await releaseManagedTabOwnership(ownership, host, {
+      discard: current?.kind === 'managed-tab' && current.tabId !== ownership.tabId,
+    });
+    const settledOwnership = currentOwnership();
+    if (
+      result.kind === 'released' &&
+      current?.kind === 'managed-tab' &&
+      !options.host &&
+      settledOwnership?.kind === 'managed-tab' &&
+      settledOwnership.ownershipToken === current.ownershipToken
+    ) {
+      await rememberManagedWatch(
+        current.tabId,
+        current.ownershipToken,
+        streamerWatchUrl(current.expectedChannel),
+      );
+    }
+    return result;
   };
 
-  const prepareManaged = (target: FarmingTarget, isCurrent = () => true) => {
+  const prepareManaged = (target: FarmingTarget, isCurrent = () => true, allowInitialCreation = false) => {
+    const preserveExistingWatch = options.watchRuntime?.hasViableManagedWatch?.() ?? false;
+    const incumbent = currentOwnership();
+    const provisionalProof =
+      preserveExistingWatch && incumbent?.kind === 'managed-tab'
+        ? { provisional: true as const, replacesOwnershipToken: incumbent.ownershipToken }
+        : {};
     return prepareManagedProvisionalWatch(target, streamerWatchUrl(target.channelName), {
       createOwnershipToken: options.createOwnershipToken ?? (() => globalThis.crypto.randomUUID()),
       isCurrent,
-      confirmOwnership: host.managedWatchMarker?.write,
+      confirmOwnership:
+        host.managedWatchMarker &&
+        (async (tabId, token, expectedUrl) => {
+          const confirmed = await host.managedWatchMarker?.write(tabId, token, expectedUrl);
+          if (confirmed && preserveExistingWatch && !options.host) {
+            await rememberManagedWatch(tabId, token, expectedUrl, provisionalProof);
+          }
+          return confirmed === true;
+        }),
       persistOwnership: async (token, expectedUrl) =>
         Boolean(
           await attempt(async () => {
             const key = managedTabOwnershipKey(token);
-            await host.sessionStorage.set({ [key]: { version: 1, expectedUrl } });
+            await host.sessionStorage.set({ [key]: { version: 1, expectedUrl, ...provisionalProof } });
             return true;
           }),
         ),
@@ -188,13 +213,16 @@ export function createFarmingAutomationBrowser(
         });
       },
       openTab: (expectedUrl) =>
-        attempt(() => host.tabs.create({ url: expectedUrl, active: false, muted: true }, isCurrent)),
+        attempt(() =>
+          host.tabs.create(
+            { url: expectedUrl, active: false, muted: true },
+            isCurrent,
+            allowInitialCreation,
+            preserveExistingWatch,
+          ),
+        ),
       waitForTabComplete: options.watch.waitForTabComplete,
-      preparePlayback: async (tabId, preparationOptions) => {
-        const preparation = await options.watch.preparePlayback(tabId, preparationOptions);
-        if (preparation.isPlaybackReady !== true) throw new ProvisionalPlaybackNotReadyError();
-        return preparation;
-      },
+      preparePlayback: options.watch.preparePlayback,
       probe: options.watch.probeManaged,
       release,
       now,

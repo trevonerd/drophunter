@@ -16,6 +16,7 @@ import { normalizeQueueSelection } from './queue-operations.ts';
 import { applyApiBackoffRecoveryState } from './recovery-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 import type { StreamRotationReason } from './stream-rotation.ts';
+import { computeEffectiveStallThreshold } from './stream-rotation.ts';
 
 type FarmingSessionMonitoringDependencies = {
   readonly onRotateStreamerIfInvalid: (isCurrent?: () => boolean) => Promise<void>;
@@ -70,6 +71,9 @@ export function createFarmingSessionMonitoring(
     // Its old health must not start rotations or override the acquisition deadline.
     if (!state.appState.activeStreamer && isStreamerAcquisitionRecovery(state.appState.recoveryReason)) {
       return false;
+    }
+    if (state.appState.tabId !== null && state.preparingManagedTabIds.has(state.appState.tabId)) {
+      return true;
     }
     const directive = await context.manualWatchController.reconcileTransport({
       target: state.appState.selectedGame,
@@ -132,8 +136,19 @@ export function createFarmingSessionMonitoring(
       }
     }
 
+    const wasWaitingForPlayback = state.appState.watchHealth?.reason === 'user-interaction-required';
     const health = await adapters.watchTransport?.tick(isCurrent);
     if (!isCurrent()) return false;
+    if (health?.reason === 'user-interaction-required') {
+      // The normal tick remains the retry mechanism. A browser gesture is neither
+      // an unavailable streamer nor a stalled campaign, so preserve this watch.
+      return true;
+    }
+    if (wasWaitingForPlayback && health?.isHealthy) {
+      state.invalidStreamChecks = 0;
+      state.streamValidationGraceUntil =
+        context.now() + computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
+    }
     const stalledRecoveryDue =
       state.appState.recoveryReason === 'stalled-progress' && context.now() >= state.recoveryBackoffUntil;
     const tablessStallDetected =

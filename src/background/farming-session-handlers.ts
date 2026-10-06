@@ -14,6 +14,9 @@ import {
 } from './farming-session-start-execution.ts';
 import { logWarn } from './logging.ts';
 import {
+  applyDirectoryUnavailableRecoveryState,
+  applyNoStreamersRecoveryState,
+  applyPlaybackStartRecoveryState,
   applyStopState,
   applyTwitchSessionRetryState,
   clearRecoveryState,
@@ -23,6 +26,7 @@ import { clearRotationMetadata } from './runtime-state.ts';
 import { stopFarmingSession } from './session-lifecycle.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StartFarmingPayload, StartFarmingResult } from './session-lifecycle-types.ts';
+import { NO_STREAMERS_RETRY_MS } from './stream-rotation.ts';
 import { markTwitchSessionBlocked, markTwitchSessionReady } from './twitch-session-sync.ts';
 
 export type FarmingSessionStopOptions = {
@@ -228,28 +232,56 @@ export function createFarmingSessionHandlers(
     return runFarmingSessionMutation(state, () => pause(true));
   }
 
-  async function resume(): Promise<SuccessResult> {
+  async function resume(epoch: number): Promise<SuccessResult> {
+    const ownsResume = () => isFarmingSessionEpochCurrent(state, epoch) && state.appState.isRunning;
+    if (!ownsResume()) return { success: true };
     await adapters.trackActivity('resume-farming');
+    if (!ownsResume()) return { success: true };
     state.appState.isPaused = false;
+    const isCurrent = () => ownsResume() && !state.appState.isPaused;
     state.invalidStreamChecks = 0;
     state.noProgressRotationAttempts = 0;
     clearStopState(state);
     if (state.appState.tabId) {
       state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
     }
-    clearRecoveryState(state);
-    if (state.appState.activeStreamer && state.appState.selectedGame) {
-      await adapters.watchTransport?.start(state.appState.activeStreamer);
+    let failure: 'no-streamers' | 'directory-unavailable' | 'open-failed' | null = null;
+    if (context.transitionCampaign && state.appState.selectedGame) {
+      const result = await context.transitionCampaign(state.appState.selectedGame, isCurrent);
+      if (!isCurrent() || result.kind === 'cancelled') return { success: true };
+      if (result.kind === 'failed') failure = result.reason;
+    } else if (state.appState.activeStreamer && state.appState.selectedGame) {
+      try {
+        const result = await adapters.watchTransport?.start(state.appState.activeStreamer, isCurrent);
+        if (!isCurrent() || result?.kind === 'cancelled') return { success: true };
+        if (result?.kind === 'failed') failure = 'open-failed';
+      } catch {
+        if (!isCurrent()) return { success: true };
+        failure = 'open-failed';
+      }
     }
+    if (!isCurrent()) return { success: true };
+    if (failure) {
+      const existingDeadline = Math.max(state.recoveryBackoffUntil, state.appState.recoveryBackoffUntil ?? 0);
+      const retryAt =
+        existingDeadline > context.now() ? existingDeadline : context.now() + NO_STREAMERS_RETRY_MS;
+      const attempts = state.appState.recoveryAttempts ?? 0;
+      if (failure === 'no-streamers') applyNoStreamersRecoveryState(state, retryAt, attempts);
+      else if (failure === 'directory-unavailable')
+        applyDirectoryUnavailableRecoveryState(state, retryAt, attempts);
+      else applyPlaybackStartRecoveryState(state, retryAt, attempts);
+    } else clearRecoveryState(state);
     context.manualWatchTransportSuspended = false;
     dependencies.onStartMonitoring();
     await adapters.saveState(state);
+    if (!isCurrent()) return { success: true };
     scheduleTimingStateSave();
     return { success: true };
   }
 
   function handleResumeFarming(): Promise<SuccessResult> {
-    return runFarmingSessionMutation(state, resume);
+    const epoch = invalidateFarmingSessionEpoch(state);
+    return runInFarmingSessionCriticalSection(state, () => resume(epoch));
   }
 
   return {

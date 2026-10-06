@@ -57,7 +57,7 @@ describe('AFK Twitch authentication recovery', () => {
           notifications += 1;
         },
         watchTransport: {
-          start: async () => healthyWatch(),
+          start: async () => ({ kind: 'started', health: healthyWatch() }),
           tick: async () => healthyWatch(),
           stop: async () => {
             transportStops += 1;

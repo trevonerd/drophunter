@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { gameKey } from '../../src/shared/game-selection.ts';
 import { demoGame, nextGame, thirdGame } from '../fixtures/service-worker-games.ts';
 import { enqueueDirectoryResult, enqueueDropsSnapshot } from '../helpers/service-worker-fetch.ts';
 import {
@@ -138,7 +139,7 @@ export function registerRecoveryCases() {
     expect(state.queue.map((game) => game.name)).toEqual([demoGame.name, nextGame.name]);
   });
 
-  test('does not skip the next queued game on its first empty load after advancing', async () => {
+  test('keeps the actual watch while an unavailable successor remains queued', async () => {
     await useManagedWatch();
     enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
     enqueueDirectoryResult('streamer-current');
@@ -155,7 +156,6 @@ export function registerRecoveryCases() {
         game: nextGame,
         dropId: 'drop-next',
         currentMinutes: 5,
-        endsAt: new Date(Date.now() - 60_000).toISOString(),
       },
     ]);
     enqueueDirectoryResult(null);
@@ -179,11 +179,12 @@ export function registerRecoveryCases() {
     await triggerInventoryRefreshAlarm();
 
     const state = await waitForAppState(
-      (next) => next.selectedGame?.campaignId !== demoGame.campaignId,
-      'queue did not leave the vanished current campaign',
+      (next) => next.queueEntryMetadataByKey[gameKey(nextGame)]?.streamerRetryReason !== undefined,
+      'successor verification did not schedule recovery',
     );
 
-    expect(state.selectedGame?.campaignId).toBe(nextGame.campaignId);
+    expect(state.selectedGame?.campaignId).toBe(demoGame.campaignId);
+    expect(state.activeStreamer?.name).toBe('streamer-current');
     expect(state.queue.map((game) => game.name)).toEqual([nextGame.name, thirdGame.name]);
   });
 
@@ -241,9 +242,9 @@ export function registerRecoveryCases() {
       await waitForAppState(
         (state) =>
           state.isRunning &&
-          state.selectedGame?.campaignId === nextGame.campaignId &&
+          state.queueEntryMetadataByKey[gameKey(nextGame)]?.streamerRetryReason === 'no-streamers' &&
           state.recoveryReason === 'no-streamers',
-        'queue did not advance to the second game and schedule its no-streamers retry',
+        'queue did not verify and park the second campaign',
       );
       for (let i = 0; i < 5; i += 1) {
         await sleepTick();
@@ -254,7 +255,7 @@ export function registerRecoveryCases() {
       const finalState = await waitForAppState(
         (state) =>
           state.isRunning &&
-          state.selectedGame?.campaignId === demoGame.campaignId &&
+          state.queueAcquisitionRound?.nextRoundAt !== null &&
           state.recoveryReason === 'no-streamers',
         'queue did not park both campaigns for later retry',
       );

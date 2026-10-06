@@ -149,7 +149,7 @@ describe('runtime diagnostics persistence', () => {
       }),
     );
     // When all three persistence calls overlap.
-    await Promise.all(states.map(saveState));
+    await Promise.all(states.map((state) => saveState(state)));
     await flushRuntimeDiagnosticsForTests();
     // Then no read-modify-write collision loses a transition.
     expect(mocks.storage.local._store.get('runtimeDiagnostics')).toMatchObject([

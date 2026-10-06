@@ -26,6 +26,15 @@ export async function runFarmingSessionStart(
   preserveQueueContext = false,
 ): Promise<StartFarmingResult> {
   const { state, adapters } = context;
+  if (context.transitionCampaign && state.appState.isRunning && !state.appState.isPaused && payload.game) {
+    const transition = await context.transitionCampaign(payload.game, isCurrent);
+    return transition.kind === 'started'
+      ? { success: true }
+      : {
+          success: false,
+          error: transition.kind === 'failed' ? transition.error : 'Campaign change was superseded.',
+        };
+  }
   const result = await startFarming(state, payload, {
     isCurrent,
     preserveQueueContext,

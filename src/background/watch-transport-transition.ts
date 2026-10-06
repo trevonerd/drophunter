@@ -42,6 +42,7 @@ export interface WatchTransportTransition {
     target: FarmingTarget,
     mode: WatchHealth['mode'],
     isCurrent?: () => boolean,
+    allowInitialCreation?: boolean,
   ): Promise<WatchPreparation>;
   release(ownership: WatchOwnershipV1): Promise<WatchReleaseResult>;
   currentOwnership(): WatchOwnershipV1 | null;
@@ -56,6 +57,7 @@ export type WatchTransportAdoption = {
 
 export interface WatchTransportRuntime {
   readonly currentOwnership: () => WatchOwnershipV1 | null;
+  readonly hasViableManagedWatch?: () => boolean;
   readonly adopt: (adoption: WatchTransportAdoption) => void;
 }
 
@@ -65,6 +67,7 @@ export interface WatchTransportTransitionOptions {
   readonly prepareManaged: (
     target: FarmingTarget,
     isCurrent?: () => boolean,
+    allowInitialCreation?: boolean,
   ) => Promise<ProvisionalWatchCandidate | null>;
   readonly prepareTabless: (
     target: FarmingTarget,
@@ -97,14 +100,18 @@ export function createWatchTransportTransition(
     target: FarmingTarget,
     mode: WatchHealth['mode'],
     isCurrent = () => true,
+    allowInitialCreation = false,
   ): Promise<WatchPreparation> => {
     const preparePreferred = mode === 'tabless' ? options.prepareTabless : options.prepareManaged;
     const preferred = await prepareWatchCandidate({
-      prepare: () => preparePreferred(target, isCurrent),
+      prepare: () => preparePreferred(target, isCurrent, allowInitialCreation),
       isCurrent,
       accept: (health) =>
         health.isHealthy ||
-        (mode === 'managed-tab' && health.status === 'degraded' && health.reason === 'drops-inactive'),
+        (mode === 'managed-tab' &&
+          health.status === 'degraded' &&
+          (health.reason === 'drops-inactive' ||
+            (health.reason === 'user-interaction-required' && currentOwnership() === null))),
     });
     if (preferred.kind === 'failed') return { kind: 'failed', reason: 'candidate-unavailable' };
     const candidate = preferred.candidate;

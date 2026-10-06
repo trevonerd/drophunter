@@ -245,6 +245,20 @@ describe('extractStreamTitle with FakeElement', () => {
 });
 
 describe('playback prep policy', () => {
+  test('mutes before the first playback attempt', async () => {
+    const attempts: boolean[] = [];
+    const video = {
+      muted: false,
+      paused: true,
+      async play() {
+        attempts.push(this.muted);
+        this.paused = false;
+      },
+    };
+    expect(await startMutedPlayback(video)).toEqual({ played: true });
+    expect(attempts).toEqual([true]);
+  });
+
   test('retries blocked playback muted without requiring page interaction', async () => {
     let attempts = 0;
     const video = {
@@ -288,9 +302,10 @@ describe('playback prep policy', () => {
     expect(needsPlaybackAttention({ isPlaybackReady: true, userInteractionRequired: true })).toBe(false);
   });
 
-  test('still requests attention when playback is paused or unavailable', () => {
+  test('requests attention only for an explicit browser gesture requirement', () => {
     expect(needsPlaybackAttention({ isPlaybackReady: false, userInteractionRequired: true })).toBe(true);
-    expect(needsPlaybackAttention(null)).toBe(true);
+    expect(needsPlaybackAttention({ isPlaybackReady: false, userInteractionRequired: false })).toBe(false);
+    expect(needsPlaybackAttention(null)).toBe(false);
   });
 
   test('treats Twitch video replacement playback aborts as expected noise', () => {

@@ -85,15 +85,18 @@ describe('streamer acquisition recovery budget', () => {
           start: async (streamer) => {
             openedChannels.push(streamer.name);
             return {
-              mode: 'managed-tab',
-              status: 'healthy',
-              reason: 'started',
-              isHealthy: true,
-              consecutiveFailures: 0,
-              consecutiveStalls: 0,
-              progress: null,
-              shouldFallback: false,
-              checkedAt: now,
+              kind: 'started',
+              health: {
+                mode: 'managed-tab',
+                status: 'healthy',
+                reason: 'started',
+                isHealthy: true,
+                consecutiveFailures: 0,
+                consecutiveStalls: 0,
+                progress: null,
+                shouldFallback: false,
+                checkedAt: now,
+              },
             };
           },
           tick: async () => ({

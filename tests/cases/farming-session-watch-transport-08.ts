@@ -31,7 +31,7 @@ export function registerManualWatchTransportCases(getChromeMocks: () => ChromeMo
       start: async () => {
         starts += 1;
         state.appState.tabId = 7;
-        return health;
+        return { kind: 'started' as const, health };
       },
       tick: async () => {
         ticks += 1;

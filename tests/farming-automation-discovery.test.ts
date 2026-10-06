@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { dropStateKey } from '../src/background/drops-projection.ts';
 import { discoverFarmingAutomationCandidates } from '../src/background/farming-automation-discovery.ts';
 import type {
   FarmingAutomationTwitchAdapter,
@@ -7,6 +8,7 @@ import type {
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { CampaignCompletion, TwitchGame } from '../src/types/index.ts';
+import { createDrop, createStreamer } from './fixtures/queue-management.ts';
 import { createDeferred, flushMicrotasks } from './support/farming-automation-fixtures.ts';
 
 function campaign(campaignId: string, completion: CampaignCompletion): TwitchGame {
@@ -20,6 +22,86 @@ function campaign(campaignId: string, completion: CampaignCompletion): TwitchGam
     rewardSummary: { completion, remainderReasons: [] },
   };
 }
+
+test('seven-campaign discovery preserves progressing SMITE while other directories are empty or unavailable', async () => {
+  const games = ['smite', 'r6-season', 'r6-circuit', 'skull', 'darktide', 'valorant', 'overwatch'].map(
+    (id) => ({ ...campaign(id, 'farmable'), id, name: id, categorySlug: id }),
+  );
+  const smite = games[0]!;
+  const drop = createDrop({
+    id: 'smite-drop',
+    gameId: smite.id,
+    campaignId: smite.campaignId,
+    currentMinutes: 18,
+    progress: 30,
+    requiredMinutes: 60,
+  });
+  const state = createServiceWorkerState();
+  Object.assign(state.appState, {
+    isRunning: true,
+    selectedGame: smite,
+    activeStreamer: createStreamer({ name: 'smite-live' }),
+    queue: games,
+    availableGames: games,
+    currentDrop: drop,
+    allDrops: [drop],
+    pendingDrops: [drop],
+  });
+  state.lastTrackedDropKey = dropStateKey(drop);
+  state.lastTrackedMinutes = 18;
+  state.lastTrackedProgress = 30;
+  state.lastProgressAdvanceAt = Date.now() - 30_000;
+  const snapshot: FarmingAutomationTwitchSnapshot = {
+    games,
+    drops: [drop],
+    campaignDropsByKey: { [gameKey(smite)]: [drop] },
+    campaignChannelsMap: {},
+    updatedAt: Date.now(),
+  };
+  const twitch: FarmingAutomationTwitchAdapter = {
+    refresh: async () => ({
+      kind: 'ready',
+      snapshot,
+      refreshPatch: {
+        availableGames: games,
+        allDrops: [drop],
+        campaignDropsByKey: snapshot.campaignDropsByKey,
+        campaignChannelsMap: {},
+      },
+    }),
+    fetchDirectory: async (game) => {
+      if (game.id === 'valorant' || game.id === 'overwatch') throw new Error('Directory unavailable');
+      return {
+        kind: 'ready',
+        target: {
+          campaignKey: gameKey(game),
+          campaignId: game.campaignId ?? null,
+          gameId: game.id,
+          gameName: game.name,
+          categoryId: null,
+          categorySlug: game.id,
+        },
+        streamers: [],
+        languageFilterApplied: false,
+      };
+    },
+  };
+  const result = await discoverFarmingAutomationCandidates(twitch, '', Date.now(), state);
+  expect(result.kind).toBe('ready');
+  if (result.kind !== 'ready') return;
+  expect(result.availability[gameKey(smite)]?.eligibleStreamerCount).toBe(1);
+  expect(result.directories.get(gameKey(smite))?.streamers).toEqual([]);
+  expect(result.availability[gameKey(games[1]!)]?.eligibleStreamerCount).toBe(0);
+  expect(result.availability[gameKey(games[5]!)]).toBeUndefined();
+  expect(result.directoryFailures.has(gameKey(games[5]!))).toBe(true);
+  expect(state.appState.selectedGame).toBe(smite);
+  expect(state.appState.activeStreamer?.name).toBe('smite-live');
+  expect(state.appState.queue).toEqual(games);
+
+  state.lastProgressAdvanceAt = Date.now() - 24 * 60 * 60_000;
+  const stale = await discoverFarmingAutomationCandidates(twitch, '', Date.now(), state);
+  expect(stale.kind === 'ready' && stale.availability[gameKey(smite)]?.eligibleStreamerCount).toBe(0);
+});
 
 test('directory discovery requests only classified farmable campaigns', async () => {
   // Given: a complete refreshed snapshot containing farmable, terminal, and unclassified campaigns.

@@ -16,6 +16,7 @@ import {
   createFarmingSessionAdapters,
   createGame,
   createMinimalState,
+  createStreamer,
 } from './fixtures/queue-management.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
 
@@ -43,6 +44,125 @@ describe('farming monitoring recovery', () => {
     chrome.teardown();
   });
 
+  test('monitoring ignores an owned tab while its replacement is being prepared in place', async () => {
+    const state = runningState();
+    state.appState.activeStreamer = createStreamer();
+    state.appState.tabId = 123;
+    state.preparingManagedTabIds.add(123);
+    let ticks = 0;
+    const effects: string[] = [];
+    const health = createWatchHealth('managed-tab', 'healthy', 'heartbeat', Date.now);
+    const monitoring = createFarmingSessionMonitoring(
+      createFarmingSessionContext(
+        state,
+        createFarmingSessionAdapters({
+          enforcePlaybackPolicyOnStreamTab: async () => {
+            effects.push('playback');
+          },
+          watchTransport: {
+            start: async () => ({ kind: 'started', health }),
+            tick: async () => {
+              ticks++;
+              return health;
+            },
+            stop: async () => {},
+            setPreference: async () => {},
+          },
+        }),
+      ),
+      {
+        onRotateStreamerIfInvalid: async () => {
+          effects.push('validate');
+        },
+        onRotateStreamerForTransportFailure: async () => {
+          effects.push('rotate');
+        },
+        onAcquireStreamerForSelectedGame: async () => {
+          effects.push('acquire');
+          return true;
+        },
+        onAdvanceQueueIfCompleted: async () => {
+          effects.push('advance');
+          return true;
+        },
+        onRecoverStalledProgress: async () => {
+          effects.push('stall');
+          return { kind: 'recovered' };
+        },
+      },
+    );
+    await monitoring.checkDropProgress();
+    expect(ticks).toBe(0);
+    expect(effects).toEqual([]);
+    expect(state.appState.tabId).toBe(123);
+    expect(state.appState.selectedGame?.campaignId).toBe('campaign');
+  });
+
+  test('an explicit video gesture wait keeps ticking without rotating, acquiring, or declaring drop progress', async () => {
+    const state = runningState();
+    state.appState.activeStreamer = createStreamer();
+    state.appState.tabId = 123;
+    const waiting = createWatchHealth('managed-tab', 'degraded', 'user-interaction-required', Date.now);
+    state.appState.watchHealth = waiting;
+    state.lastProgressAdvanceAt = Date.now() - 600_000;
+    const progressProof = state.lastProgressAdvanceAt;
+    let playing = false;
+    let ticks = 0;
+    const work: string[] = [];
+    const monitoring = createFarmingSessionMonitoring(
+      createFarmingSessionContext(
+        state,
+        createFarmingSessionAdapters({
+          watchTransport: {
+            start: async () => ({ kind: 'started', health: waiting }),
+            tick: async () => {
+              ticks++;
+              const health = playing
+                ? createWatchHealth('managed-tab', 'healthy', 'heartbeat', Date.now)
+                : waiting;
+              state.appState.watchHealth = health;
+              return health;
+            },
+            stop: async () => {},
+            setPreference: async () => {},
+          },
+        }),
+      ),
+      {
+        onRotateStreamerIfInvalid: async () => {
+          work.push('validate');
+        },
+        onRotateStreamerForTransportFailure: async () => {
+          work.push('rotate');
+        },
+        onAcquireStreamerForSelectedGame: async () => {
+          work.push('acquire');
+          return true;
+        },
+        onAdvanceQueueIfCompleted: async () => {
+          work.push('advance');
+          return true;
+        },
+        onRecoverStalledProgress: async () => {
+          work.push('stall');
+          return { kind: 'recovered' };
+        },
+      },
+    );
+    await monitoring.checkDropProgress();
+    await monitoring.checkDropProgress();
+    expect(ticks).toBe(2);
+    expect(work).toEqual([]);
+    expect(state.lastProgressAdvanceAt).toBe(progressProof);
+    expect(state.appState.tabId).toBe(123);
+    expect(state.appState.selectedGame?.campaignId).toBe('campaign');
+    playing = true;
+    await monitoring.checkDropProgress();
+    expect(state.appState.watchHealth?.reason).toBe('heartbeat');
+    expect(state.streamValidationGraceUntil).toBeGreaterThan(Date.now());
+    expect(state.lastProgressAdvanceAt).toBe(progressProof);
+  });
+
   for (const status of ['paused', 'stopped', 'busy'] as const) {
     test(`does not tick transport while ${status} during API backoff`, async () => {
       const state = runningState();
@@ -57,7 +177,7 @@ describe('farming monitoring recovery', () => {
         state,
         createFarmingSessionAdapters({
           watchTransport: {
-            start: async () => health,
+            start: async () => ({ kind: 'started', health }),
             tick: async () => {
               ticks += 1;
               return health;
@@ -88,7 +208,7 @@ describe('farming monitoring recovery', () => {
           },
         },
         watchTransport: {
-          start: async () => health,
+          start: async () => ({ kind: 'started', health }),
           tick: async () => {
             ticks += 1;
             return health;
@@ -132,7 +252,7 @@ describe('farming monitoring recovery', () => {
           return Object.assign([], { languageFilterApplied: true });
         },
         watchTransport: {
-          start: async () => health,
+          start: async () => ({ kind: 'started', health }),
           tick: async () => {
             ticks += 1;
             return health;
@@ -163,7 +283,7 @@ describe('farming monitoring recovery', () => {
         state,
         createFarmingSessionAdapters({
           watchTransport: {
-            start: async () => health,
+            start: async () => ({ kind: 'started', health }),
             tick: async () => health,
             stop: async () => {},
             setPreference: async () => {},
@@ -235,7 +355,7 @@ describe('farming monitoring recovery', () => {
         watchTransport: {
           start: async (streamer) => {
             starts.push(streamer.name);
-            return healthyHealth;
+            return { kind: 'started', health: healthyHealth };
           },
           tick: async () => failedHealth,
           stop: async () => {},
@@ -290,7 +410,7 @@ describe('farming monitoring recovery', () => {
           watchTransport: {
             start: async (streamer) => {
               starts.push(streamer.name);
-              return healthyHealth;
+              return { kind: 'started', health: healthyHealth };
             },
             tick: async () => failedHealth,
             stop: async () => {},
@@ -352,7 +472,7 @@ describe('farming monitoring recovery', () => {
             saved += 1;
           },
           watchTransport: {
-            start: async () => health,
+            start: async () => ({ kind: 'started', health }),
             tick: async () => health,
             stop: async () => {},
             setPreference: async () => {},

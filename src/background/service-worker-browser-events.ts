@@ -149,7 +149,10 @@ export function createServiceWorkerBrowserEvents(
             },
           };
           if (tabWasReused) await retireManagedTabOwnership(session.ownership, operations);
-          else await releaseManagedTabOwnership(session.ownership, operations);
+          else
+            await releaseManagedTabOwnership(session.ownership, operations, {
+              discard: current?.kind === 'managed-tab' && current.tabId !== session.tabId,
+            });
         }
         if (!tabWasReused && state.appState.tabId === session.tabId) state.appState.tabId = null;
       },

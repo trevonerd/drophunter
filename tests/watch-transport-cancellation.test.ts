@@ -52,7 +52,7 @@ describe('watch transport cancellation', () => {
     current = false;
     opened.resolve({ owner: 'drophunter', tabId: 42 });
 
-    await expect(start).resolves.toMatchObject({ mode: 'managed-tab', status: 'healthy' });
+    await expect(start).resolves.toEqual({ kind: 'cancelled' });
     expect(closes).toBe(0);
     expect(state.appState.activeStreamer).toBeNull();
     expect(state.appState.watchHealth).toBeNull();

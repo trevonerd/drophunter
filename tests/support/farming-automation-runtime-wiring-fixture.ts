@@ -27,7 +27,9 @@ export function createSettingsDependencies(automation: FarmingAutomation) {
     browserEvents: {
       watchTransport: {
         setPreference: async () => undefined,
-        start: async () => notStartedHealth,
+        start: async () => ({ kind: 'failed' as const, health: notStartedHealth }),
+        prepare: async () => ({ kind: 'failed' as const, reason: 'candidate-unavailable' as const }),
+        currentTarget: () => null,
         stop: async () => undefined,
         restore: async () => false,
         currentOwnership: () => null,

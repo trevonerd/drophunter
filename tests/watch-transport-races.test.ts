@@ -22,7 +22,23 @@ function setup(managedTab: ManagedTabOperations) {
   const coordinator = createWatchTransportCoordinator({
     state,
     heartbeat: async () => ({ accepted: true }),
-    managedTab,
+    managedTab: {
+      ...managedTab,
+      open: async (target, options) => {
+        const opened = await managedTab.open(target, options);
+        return opened?.owner === 'drophunter'
+          ? {
+              ...opened,
+              ownership: opened.ownership ?? {
+                kind: 'managed-tab',
+                tabId: opened.tabId,
+                ownershipToken: target.channelName,
+                expectedChannel: target.channelName,
+              },
+            }
+          : opened;
+      },
+    },
     persist: async () => {},
     broadcast: () => {},
   });
@@ -117,7 +133,8 @@ test('failed managed open stays recoverable on later monitoring ticks', async ()
   const started = await coordinator.start(streamer);
   const checked = await coordinator.tick();
 
-  for (const health of [started, checked]) {
+  expect(started.kind).toBe('failed');
+  for (const health of [started.kind === 'cancelled' ? null : started.health, checked]) {
     expect(health).toMatchObject({
       status: 'failed',
       reason: 'managed-tab-unavailable',

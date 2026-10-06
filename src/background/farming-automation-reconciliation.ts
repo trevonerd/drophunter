@@ -46,7 +46,15 @@ export function reconcileFarmingAutomationSnapshot(
     if (!drop.campaignId) continue;
     const key = dropStateKey(drop);
     const previous = previousDrops.get(key);
-    previousDrops.set(key, previous ? mergeDropProgressMonotonic(drop, previous) : drop);
+    previousDrops.set(
+      key,
+      previous
+        ? {
+            ...mergeDropProgressMonotonic(drop, previous),
+            currentMinutes: Math.max(drop.currentMinutes, previous.currentMinutes),
+          }
+        : drop,
+    );
   }
   const drops = snapshot.drops.map((drop): TwitchDrop => {
     const next = {
@@ -55,7 +63,12 @@ export function reconcileFarmingAutomationSnapshot(
       rewardDistributionTypes: drop.rewardDistributionTypes ? [...drop.rewardDistributionTypes] : undefined,
     };
     const previous = drop.campaignId ? previousDrops.get(dropStateKey(next)) : undefined;
-    return previous ? mergeDropProgressMonotonic(next, previous) : next;
+    return previous
+      ? {
+          ...mergeDropProgressMonotonic(next, previous),
+          currentMinutes: Math.max(next.currentMinutes, previous.currentMinutes),
+        }
+      : next;
   });
   const completedKeys = new Set([
     ...(state.appState.acquiredCampaignIds ?? []).map((id) => `campaign:${id}`),

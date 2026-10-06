@@ -34,6 +34,44 @@ function healthyManagedWatch(): WatchHealth {
 }
 
 describe('watch transport transition', () => {
+  test.each([false, true])(
+    'retains an initial gesture candidate only without incumbent: %s',
+    async (hasIncumbent) => {
+      let disposed = 0;
+      const candidate: ProvisionalWatchCandidate = {
+        target,
+        ownership: {
+          kind: 'managed-tab',
+          tabId: 22,
+          ownershipToken: 'candidate',
+          expectedChannel: target.channelName,
+        },
+        health: {
+          ...healthyManagedWatch(),
+          isHealthy: false,
+          status: 'degraded',
+          reason: 'user-interaction-required',
+        },
+        dispose: async () => {
+          disposed++;
+        },
+      };
+      const transition = createWatchTransportTransition({
+        currentOwnership: hasIncumbent ? incumbent : null,
+        prepareManaged: async () => candidate,
+        prepareTabless: async () => null,
+        release: async () => ({ kind: 'not-required' }),
+      });
+      const result = await transition.prepare(target, 'managed-tab');
+      expect(result.kind).toBe(hasIncumbent ? 'failed' : 'prepared');
+      expect(disposed).toBe(hasIncumbent ? 1 : 0);
+      expect(transition.currentOwnership()).toEqual(hasIncumbent ? incumbent : null);
+      if (result.kind === 'prepared') {
+        expect(result.watch.promote().kind).toBe('promoted');
+        expect(transition.currentOwnership()).toEqual(candidate.ownership);
+      }
+    },
+  );
   test('keeps A active until forced-muted B is promoted', async () => {
     // Given: an incumbent ownership and a viable provisional candidate.
     const candidate: ProvisionalWatchCandidate = {

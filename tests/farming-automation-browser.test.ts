@@ -90,10 +90,38 @@ describe('farming automation browser', () => {
     // When: the managed candidate is prepared.
     const preparation = await adapter.watch.prepare(target, 'managed-tab');
 
-    // Then: B is disposed without probing, and A remains the current ownership.
+    // Then: verified target identity cannot make blocked B replace working A.
     expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
-    expect(operations).toEqual(['open:false:true', 'wait:15000', 'prep:false:false:true']);
+    expect(operations).toEqual([
+      'open:false:true',
+      'wait:15000',
+      'prep:false:false:true',
+      'probe:campaign-b',
+      'remove:22',
+    ]);
     expect(adapter.watch.currentOwnership()).toEqual(incumbent);
+  });
+
+  test('retains an initial gesture-blocked managed candidate when no watch is active', async () => {
+    const operations: string[] = [];
+    const adapter = createAdapter(createHost(operations), operations, {
+      currentOwnership: null,
+      playbackPreparation: { isPlaybackReady: false, userInteractionRequired: true },
+      managedProbe: {
+        accepted: false,
+        sameChannel: true,
+        sameGame: true,
+        isLive: true,
+        reason: 'playback-inactive',
+      },
+    });
+    const preparation = await adapter.watch.prepare(target, 'managed-tab');
+    expect(preparation.kind).toBe('prepared');
+    if (preparation.kind !== 'prepared') throw new Error('Expected retained gesture candidate');
+    expect(preparation.watch.health).toMatchObject({ reason: 'user-interaction-required', isHealthy: false });
+    expect(adapter.watch.currentOwnership()).toBeNull();
+    expect(preparation.watch.promote().kind).toBe('promoted');
+    expect(adapter.watch.currentOwnership()).toEqual(preparation.watch.ownership);
   });
 
   test.each([
@@ -230,16 +258,16 @@ describe('farming automation browser', () => {
 
   test.each([
     {
-      name: 'retains a proven owned tab when another window tab exists',
+      name: 'discards a proven candidate when another window tab exists',
       host: { windowTabCount: 2 },
-      expectedResult: { kind: 'not-required' },
-      expectedDestructive: [],
+      expectedResult: { kind: 'released', method: 'closed' },
+      expectedDestructive: ['remove:22'],
     },
     {
-      name: 'retains a proven sole owned tab',
+      name: 'neutralizes a sole proven candidate while preserving its browser window',
       host: { windowTabCount: 1 },
-      expectedResult: { kind: 'not-required' },
-      expectedDestructive: [],
+      expectedResult: { kind: 'released', method: 'neutralized' },
+      expectedDestructive: ['update:22:about:blank'],
     },
     {
       name: 'preserves A and abandons unproven cleanup',
@@ -255,7 +283,7 @@ describe('farming automation browser', () => {
     expect(preparation.kind).toBe('prepared');
     if (preparation.kind !== 'prepared') throw new Error('Expected a prepared managed watch');
 
-    // When: post-commit cleanup consumes the candidate ownership receipt.
+    // When: an unpromoted candidate is discarded while A remains current.
     const result = await adapter.watch.release(preparation.watch.ownership);
 
     // Then: only fully proven ownership permits a destructive browser action.

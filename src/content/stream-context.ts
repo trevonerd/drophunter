@@ -1,4 +1,5 @@
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
+import { isVideoPlaybackAdvancing } from './playback.ts';
 import { extractStreamCategory } from './stream-category.ts';
 
 export function normalizeText(value: string | null | undefined): string {
@@ -110,9 +111,7 @@ export function extractStreamContext() {
   const hasDropsSignal = hasDropsInStreamScope(streamTitle);
   const isLive = detectStreamLiveStatus();
   const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-  const playingVideoCount = videos.filter(
-    (video) => !video.paused && !video.ended && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA,
-  ).length;
+  const playingVideoCount = videos.filter((video) => isVideoPlaybackAdvancing(video)).length;
 
   return {
     channelName,

@@ -33,6 +33,7 @@ export function parkCampaignForStreamerRetry(
   state: ServiceWorkerState,
   game: TwitchGame,
   reason: NonNullable<QueueEntryMetadata['streamerRetryReason']>,
+  preserveQueuePosition = false,
 ): void {
   const key = gameKey(game);
   const previousMetadata = state.appState.queueEntryMetadataByKey[key];
@@ -40,8 +41,10 @@ export function parkCampaignForStreamerRetry(
     reason === 'no-streamers' || reason === 'open-failed'
       ? (previousMetadata?.streamerRetryCycles ?? 0) + 1
       : 0;
-  markQueueCampaignAttempted(state, game);
-  parkCampaignAtQueueTail(state, game);
+  if (!preserveQueuePosition) {
+    markQueueCampaignAttempted(state, game);
+    parkCampaignAtQueueTail(state, game);
+  }
   state.appState.queueEntryMetadataByKey[key] = {
     ...(previousMetadata ?? {
       source: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-auto' : 'manual',
@@ -93,14 +96,17 @@ export async function waitForParkedQueue(
   if (retryAt <= now) return false;
   const alreadyWaiting = state.appState.recoveryBackoffUntil === retryAt;
   resetStreamTrackingState(state);
-  state.appState.selectedGame = next;
+  const retainedWatch = options?.onTransitionToCampaign && state.appState.activeStreamer !== null;
+  if (!retainedWatch) state.appState.selectedGame = next;
   state.appState.isRunning = true;
   state.appState.queueResumeOnAvailability = false;
-  state.appState.activeStreamer = null;
-  state.appState.currentDrop = null;
-  state.appState.allDrops = [];
-  state.appState.pendingDrops = [];
-  state.appState.completedDrops = [];
+  if (!retainedWatch) {
+    state.appState.activeStreamer = null;
+    state.appState.currentDrop = null;
+    state.appState.allDrops = [];
+    state.appState.pendingDrops = [];
+    state.appState.completedDrops = [];
+  }
   state.previousAllDropsCount = 0;
   const applyRecovery =
     metadata?.streamerRetryReason === 'directory-unavailable'

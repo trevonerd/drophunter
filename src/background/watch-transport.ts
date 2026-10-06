@@ -62,6 +62,8 @@ export interface ManagedTabSession {
   readonly owner: 'drophunter';
   readonly tabId: number;
   readonly ownership?: Extract<WatchOwnershipV1, { readonly kind: 'managed-tab' }>;
+  readonly health?: WatchHealth;
+  readonly dispose?: () => Promise<void>;
 }
 
 export interface UnmanagedTabSession {

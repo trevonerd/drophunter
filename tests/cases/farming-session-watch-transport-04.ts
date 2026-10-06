@@ -166,7 +166,7 @@ describe('farming session watch transport integration', () => {
           watchTransport: {
             start: async (candidate) => {
               starts.push(candidate.name);
-              return createHealth('tabless');
+              return { kind: 'started', health: createHealth('tabless') };
             },
             tick: async () => stalledHealth,
             stop: async () => {},
@@ -237,7 +237,7 @@ describe('farming session watch transport integration', () => {
           watchTransport: {
             start: async () => {
               hiddenStarts += 1;
-              return createHealth('tabless');
+              return { kind: 'started', health: createHealth('tabless') };
             },
             tick: async () => stalledHealth,
             stop: async () => {},

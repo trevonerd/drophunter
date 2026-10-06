@@ -1,6 +1,7 @@
 import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { gameKey, isSameGameIdentity } from '../shared/game-selection.ts';
 import type { CampaignAvailability } from '../types/index.ts';
+import { dropStateKey } from './drops-projection.ts';
 import { discoverEligibleStreamers } from './eligible-streamer-discovery.ts';
 import type { FarmingAutomationFailureReason } from './farming-automation-contracts.ts';
 import {
@@ -15,6 +16,8 @@ import type {
 import { FarmingAutomationSessionMissingError } from './farming-automation-twitch.ts';
 import { logDebug } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { computeEffectiveStallThreshold } from './stream-rotation.ts';
+import { shouldKeepStreamerWhileDropProgresses } from './streamer-health-evaluation.ts';
 
 export type FarmingAutomationDiscoveryResult =
   | {
@@ -203,7 +206,33 @@ export async function discoverFarmingAutomationCandidates(
       preferredLanguageFallbackApplied:
         discovered.kind === 'ready' && discovered.preferredLanguageFallbackApplied,
     });
-    availability[gameKey(finalGame)] = { eligibleStreamerCount: streamers.length, updatedAt: now };
+    const active = state?.appState.activeStreamer;
+    const currentDrop = state?.appState.currentDrop;
+    // Directory results describe new candidates. Fresh reward progress also proves
+    // availability of the current watch, even when that channel is absent there.
+    const progressingIncumbent =
+      state !== undefined &&
+      active != null &&
+      currentDrop != null &&
+      state.appState.isRunning &&
+      !state.appState.isPaused &&
+      state.appState.selectedGame !== null &&
+      isSameGameIdentity(state.appState.selectedGame, finalGame) &&
+      state.lastTrackedDropKey === dropStateKey(currentDrop) &&
+      (state.lastTrackedMinutes > 0 || state.lastTrackedProgress > 0) &&
+      (!finalGame.allowedChannels ||
+        finalGame.allowedChannels.some((name) => name.toLowerCase() === active.name.toLowerCase())) &&
+      shouldKeepStreamerWhileDropProgresses({
+        currentDrop,
+        lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+        now,
+        effectiveThresholdMs: computeEffectiveStallThreshold(currentDrop.requiredMinutes),
+        reason: null,
+      });
+    availability[gameKey(finalGame)] = {
+      eligibleStreamerCount: Math.max(streamers.length, progressingIncumbent ? 1 : 0),
+      updatedAt: now,
+    };
   }
   return sessionMissing
     ? { kind: 'failed', reason: 'twitch-session-missing' }

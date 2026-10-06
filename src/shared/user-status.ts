@@ -104,6 +104,22 @@ export function createUserStatusModel({
     };
   }
 
+  if (
+    state.isRunning &&
+    runtimeMode !== 'paused' &&
+    state.watchHealth?.reason === 'user-interaction-required'
+  ) {
+    return {
+      mode: 'attention-required',
+      progressState: 'waiting',
+      label: 'Start the video',
+      badge: 'ATTENTION',
+      subject,
+      detail: 'Click Play in the Twitch tab. Farming resumes when playback starts.',
+      tone: 'warning',
+    };
+  }
+
   if (runtimeMode === 'recovering') {
     const queueRetry = state.queueAcquisitionRound !== null;
     const waiting =

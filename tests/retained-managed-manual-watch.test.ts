@@ -86,7 +86,7 @@ test('does not suspend hidden farming for a retained managed Twitch tab', async 
           notifications.push(event);
         },
         watchTransport: {
-          start: async () => health,
+          start: async () => ({ kind: 'started', health }),
           tick: async () => {
             ticks += 1;
             return health;

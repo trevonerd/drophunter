@@ -1,4 +1,6 @@
+import { dropMatchesSelectedGame } from './drops-projection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
+import { createFarmingCampaignTransition } from './farming-campaign-transition.ts';
 import type { FarmingSessionAdapters, RefreshDropsOptions } from './farming-session-context.ts';
 import { createFarmingSessionContext } from './farming-session-context.ts';
 import { createFarmingSessionHandlers, type FarmingSessionStopOptions } from './farming-session-handlers.ts';
@@ -15,6 +17,28 @@ export type {
 
 export function createFarmingSession(state: ServiceWorkerState, adapters: FarmingSessionAdapters) {
   const context = createFarmingSessionContext(state, adapters);
+  if (adapters.watchTransport?.prepare) {
+    context.transitionCampaign = createFarmingCampaignTransition(context, (working, isCurrent) =>
+      createFarmingSession(working, {
+        ...adapters,
+        saveState: async () => {},
+        saveTimingState: async () => {},
+      }).refreshDropsData({
+        includeCampaignFetch:
+          !working.hasCurrentGenerationCampaignValidation ||
+          !working.cachedDropsSnapshot.some(
+            (drop) =>
+              working.appState.selectedGame !== null &&
+              dropMatchesSelectedGame(drop, working.appState.selectedGame),
+          ),
+        includeInventoryFetch: false,
+        sessionRecoveryMode: 'passive',
+        suppressNotifications: true,
+        claimRecordingTarget: state,
+        isCurrent,
+      }),
+    );
+  }
   const streaming = createFarmingSessionStreaming(context, {
     onRefreshDropsData: refreshDropsData,
     onStopFarmingSession: stop,

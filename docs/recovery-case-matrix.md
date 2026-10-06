@@ -1,5 +1,36 @@
 # Matrice di recupero e aggiornamento
 
+## Coerenza campagna, playback e progresso — 6 ottobre 2026
+
+L'esito di avvio riguarda il candidato, non la salute del player precedente. Se il cambio fallisce, selezione e ownership restano riferite al watch reale; il problema viene registrato sulla campagna candidata. Completamento e stallo possono parcheggiare il successore senza dichiararlo attivo. Campagna, streamer e proiezione dei drop vengono preparati prima della persistenza e promossi insieme. Stop, Pausa e risultati superati impediscono la promozione.
+
+Il playback gestito viene avviato muto e verificato osservando il tempo video. Prima del tentativo nativo, la preparazione può premere una sola volta il comando Play di Twitch se il video corrente è collegato al documento e in pausa e il pulsante collegato dichiara esplicitamente paused. Il caricamento dopo questo comando viene osservato con al massimo otto campioni e intervalli richiesti di 250 ms; il browser può ritardare i timer e il clic non prova l'avvio. Pulsanti playing, sconosciuti o sostituiti e video già in riproduzione non vengono premuti. I clic generici sulla superficie del player non fanno parte della preparazione. Un rifiuto esplicito di autoplay conserva la prima tab e mostra Start the video, condiviso da popup e monitor; non accumula errori di disponibilità. La stessa attesa copre l'interruzione esplicita tramite pause del player Twitch solo se manca l'attivazione iniziale, lo stesso video resta in pausa e il suo comando Play era stato verificato paused prima dei tentativi. Il tentativo nativo può alterare lo stato del comando senza avviare il video. Buffering, video sostituiti e AbortError generici non provano questo requisito. Il tick rileva la riproduzione dopo il gesto e riprende l'osservazione dei drop. Un candidato alternativo in questa attesa non sostituisce il watch corrente.
+
+Le verifiche delle campagne parcheggiate non deducono zero streamer da una verifica indisponibile. Il progresso recente della campagna attiva conserva la prova di disponibilità del suo watch anche quando la directory non lo include. La preemption dei preferiti mantiene le proprie regole. Al riavvio, selezione, streamer, marker e proprietà della tab vengono verificati; un canale uguale ma una categoria diversa non ripristina la salute obsoleta.
+
+| Caso | Evidenza automatizzata |
+|---|---|
+| Sessione e coordinatore reali: cambio manuale riuscito/fallito, completamento e stallo con candidato fallito | `tests/farming-campaign-handoff.test.ts` |
+| Errore di persistenza, Stop/Pausa durante preparazione, ownership coerente | `tests/farming-campaign-handoff.test.ts`, `tests/watch-transport-preparation.test.ts` |
+| Progresso e claim arrivati durante preparazione, completamento tardivo, serializzazione delle scritture provvisorie con lo stato vivo | `tests/farming-campaign-transition.test.ts`, `tests/state-persistence-storage.test.ts` |
+| Candidato interrotto durante navigazione/marker: cleanup e nuovo tentativo senza bloccare il watch precedente | `tests/managed-watch-candidate-preservation.test.ts` |
+| Play manuale dalla coda senza tab precedente, mantenendo il limite sulla creazione automatica | `tests/queued-initial-managed-watch.test.ts` |
+| Sette campagne: SMITE progredisce, directory vuote e verifiche fallite sulle altre | `tests/farming-automation-discovery.test.ts` |
+| Ripristino con campagna/canale/categoria incoerenti e proprietà dormiente dopo Stop | `tests/watch-transport-preparation.test.ts`, `tests/managed-watch-startup-integration.test.ts` |
+| Avvio senza clic/focus: tempo video reale e progresso inventario simulato; gesto obbligatorio e ripresa nella stessa tab | `e2e/queue-campaign-handoff.spec.ts` |
+| Play esplicito del sito prima del tentativo nativo; caricamento asincrono, richiesta di gesto confermata e nessun clic su video/pulsanti non validi | `tests/content-script-modules.test.ts`, `e2e/queue-campaign-handoff.spec.ts` |
+| Attesa del gesto senza rotazione, acquisizione o falso progresso | `tests/farming-monitoring-recovery.test.ts`, `tests/user-status.test.ts` |
+
+Le fixture di Twitch verificano la logica, ma non certificano il farming AFK sul servizio reale. La prova Brave richiede almeno due avanzamenti dei drop in background, cambio campagna, rotazione e riciclo del worker.
+
+Verifica finale della build locale: Bun 1.4.2, TypeScript sorgenti e test, lint senza warning, 2.548 test unitari e 28 E2E Chrome MV3 superati; build Chrome/Edge e audit di 229 dipendenze superati. `vexp verify_done` non segnala errori di parsing o deriva documentale. Le 28 segnalazioni di import dell'indice riguardano export/re-export esistenti, verificati dai compilatori e dalla suite completa dei test interessati.
+
+Prova Brave sulla build locale beta.59, non pubblicata: il cambio fallito conserva lo stato pubblico precedente e non annuncia il candidato come attivo. Il Play manuale di SMITE crea una tab inattiva su SoloOrTroll, confermato live nella categoria corretta, ma senza playback verificato; la sessione resta Stopped. Nessun focus o clic sulla tab è stato usato in questo tentativo pulito. Un caricamento separato in primo piano mostra un fotogramma e il tracker Twitch, ma non certifica due avanzamenti dei drop in background. Il testo alternativo del tag video nell'accessibilità non è un errore visibile del player. Le verifiche asincrone del playback restano lente nel profilo; una misura di timer singolo non dimostra una causa. Le ispezioni con scripting possono attivare il documento e non valgono come prova senza gesto.
+
+AFK reale, rotazione, cambio campagna riuscito e riciclo del worker con progresso reale restano da verificare. TTV AB e Tampermonkey sono presenti nel profilo; il loro ruolo non è dimostrato e le impostazioni sono conservate in attesa dell'autorizzazione a una prova di isolamento temporanea. La sessione viene lasciata fermata e la coda conservata.
+
+Versione locale aggiornata a `4.0.0-beta.60` (manifest tecnico `3.99.0.60`): build Chrome/Edge rigenerate, TypeScript sorgenti/test e 17 test di versione, transizione storage e controllo release superati. Nessuna pubblicazione; il limite della verifica AFK reale resta aperto.
+
 ## Campagne guadagnate in attesa di claim — 6 ottobre 2026
 
 Un premio claimable o già al 100% non richiede altro tempo di visione. La campagna resta consultabile senza confondere il completamento del farming con l'acquisizione: se l'account non è collegato, il gruppo e il dettaglio offrono Link account al posto di Add. I premi misti mantengono Add finché esiste almeno un premio da guardare; i premi futuri restano accodabili. Il claim automatico conserva la propria eleggibilità separata.

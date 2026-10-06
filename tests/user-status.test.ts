@@ -1,6 +1,34 @@
 import { expect, test } from 'bun:test';
+import { createWatchHealth } from '../src/background/watch-health.ts';
+import { normalizeWatchHealth } from '../src/shared/app-state-runtime-normalizers.ts';
 import { createUserStatusModel } from '../src/shared/user-status.ts';
 import { createInitialState } from '../src/shared/utils.ts';
+
+test('popup and monitor request a video gesture without showing active progress or a retry countdown', () => {
+  const state = createInitialState();
+  state.isRunning = true;
+  state.watchHealth = normalizeWatchHealth(
+    createWatchHealth('managed-tab', 'degraded', 'user-interaction-required', () => 100),
+  );
+  expect(state.watchHealth?.reason).toBe('user-interaction-required');
+  const status = createUserStatusModel({
+    state,
+    runtimeMode: 'running',
+    currentAutomatableDrop: null,
+    recoveryNow: 100,
+  });
+  expect(status).toMatchObject({
+    mode: 'attention-required',
+    progressState: 'waiting',
+    label: 'Start the video',
+  });
+  expect(status.detail).toContain('Click Play');
+  expect(status.detail).not.toContain('retry');
+  expect(
+    createUserStatusModel({ state, runtimeMode: 'paused', currentAutomatableDrop: null, recoveryNow: 100 })
+      .mode,
+  ).toBe('paused');
+});
 
 test('reduces recovery status to the reason and next retry', () => {
   // Given

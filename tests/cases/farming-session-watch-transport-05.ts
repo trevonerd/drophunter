@@ -157,7 +157,7 @@ describe('farming session watch transport integration', () => {
             updatedAt: now,
           }),
           watchTransport: {
-            start: async () => createHealth('tabless'),
+            start: async () => ({ kind: 'started', health: createHealth('tabless') }),
             tick: async () => createHealth('tabless'),
             stop: async () => {},
             setPreference: async () => {},

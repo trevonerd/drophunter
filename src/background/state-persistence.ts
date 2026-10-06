@@ -93,14 +93,20 @@ export function resetSaveStateBroadcastCacheForTests() {
   lastBroadcastAppStateSignature = null;
 }
 
-export async function saveState(state: ServiceWorkerState) {
+export interface SaveStateOptions {
+  readonly deferPublicEffects?: boolean;
+  readonly transactionOwner?: ServiceWorkerState;
+}
+
+export async function saveState(state: ServiceWorkerState, options: SaveStateOptions = {}) {
   await state.backupImportCompletion;
-  return withStateStorageTransaction(state, async () => {
-    await reconcileFarmingRecoveryAlarm(state.appState);
+  return withStateStorageTransaction(options.transactionOwner ?? state, async () => {
+    if (!options.deferPublicEffects) await reconcileFarmingRecoveryAlarm(state.appState);
     await browser.storage.local.set({
       appState: state.appState,
       [DROPS_SNAPSHOT_CACHE_KEY]: state.cachedDropsSnapshot,
     });
+    if (options.deferPublicEffects) return;
     recordRuntimeDiagnostic(state.appState);
     const signature = JSON.stringify(state.appState);
     if (signature !== lastBroadcastAppStateSignature) {

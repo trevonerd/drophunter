@@ -32,7 +32,7 @@ export function createPlaybackAttentionPolicy(
       state.playbackAttentionWarningSent = true;
       await options.notify(
         'DropHunter needs your attention',
-        "Keep Twitch in front and click the video if playback didn't start.",
+        'Click Play in the Twitch tab. Farming resumes when playback starts.',
         2,
       );
     },

@@ -52,6 +52,22 @@ _Avoid_: Queue loop, next-game handling
 The prepare-then-promote transition that keeps current playback authoritative until a replacement is viable. Failed and superseded candidates are disposed without interrupting the active farm.
 _Avoid_: Player swap, transport restart, close-then-open
 
+**Watch start result**:
+The outcome of one specific playback attempt: started, failed, or cancelled. A healthy incumbent is not evidence that its replacement started. Campaign, streamer, reward projection and watch ownership are published together after preparation and persistence succeed.
+_Avoid_: Treating current watch health as replacement success
+
+**Playback readiness**:
+Observed advancement of the managed video's playback time. Opening a tab, resolving play(), or accepting a heartbeat does not prove reward progress; only campaign-aware Twitch reward evidence does that.
+_Avoid_: Tab opened means farming works
+
+**Initial playback gesture wait**:
+An authorized managed watch awaiting an initial gesture after confirmed autoplay refusal, or after Twitch pauses the same video despite its verified paused Play control before any user activation. This wait preserves the campaign without consuming availability retries or displacing a working incumbent; buffering, player replacement and a control's displayed state do not confirm a gesture requirement or playback.
+_Avoid_: No eligible streamer, stalled campaign
+
+**Streamer availability evidence**:
+Verified eligible directory or direct-channel results, supplemented by recent authoritative reward progress for the incumbent campaign. An unavailable verification is unknown; exhausted alternatives and failed playback do not establish that no streamer exists.
+_Avoid_: Directory failure means zero availability
+
 **User status**:
 The single concise explanation of what farming is doing and what happens next, shared by the popup and monitor. It contains one state, one reason, and an optional retry time; internal attempt counters and transport diagnostics stay out of the user flow.
 _Avoid_: Debug status, recovery trace, polling status

@@ -124,7 +124,8 @@ export function createAdapter(
       },
     },
     getManualStreamContext: fixtureOptions.getManualStreamContext ?? (async () => null),
-    currentOwnership: fixtureOptions.currentOwnership ?? incumbent,
+    currentOwnership:
+      fixtureOptions.currentOwnership === undefined ? incumbent : fixtureOptions.currentOwnership,
     createOwnershipToken: () => 'candidate-token',
   });
 }

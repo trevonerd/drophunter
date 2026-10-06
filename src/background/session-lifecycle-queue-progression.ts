@@ -1,6 +1,7 @@
 import { haveAllDropsExpiredOrVanished } from '../shared/drops.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
+import { cloneCampaignWorkingState } from './farming-campaign-transition.ts';
 import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
 import { removeQueueEntriesForHeadGame } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -9,7 +10,7 @@ import {
   isWaitingForScheduledRewards,
   selectedFarmingCompleteGame,
 } from './session-lifecycle-completion.ts';
-import { waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
+import { parkCampaignForStreamerRetry, waitForParkedQueue } from './session-lifecycle-queue-parking.ts';
 import { refreshQueueHead } from './session-lifecycle-queue-refresh.ts';
 import {
   parkCampaignAtQueueTail,
@@ -43,6 +44,28 @@ export async function progressFarmingQueue(
 
   while (state.appState.queue.length > 0) {
     if (progressionOptions?.isCurrent?.() === false) return { kind: 'cancelled' };
+    if (progressionOptions?.onTransitionToCampaign) {
+      const selection = cloneCampaignWorkingState(state);
+      const candidate = prepareNextEligibleQueueHead(
+        selection,
+        request.restrictUnauthorizedManualContinuation,
+      );
+      state.appState.queueAcquisitionRound = selection.appState.queueAcquisitionRound;
+      state.appState.queueEntryMetadataByKey = selection.appState.queueEntryMetadataByKey;
+      state.appState.stalledCampaignBlocksByKey = selection.appState.stalledCampaignBlocksByKey;
+      state.appState.queue = selection.appState.queue;
+      if (!candidate) break;
+      const result = await progressionOptions.onTransitionToCampaign(candidate, progressionOptions.isCurrent);
+      if (result.kind === 'cancelled') return { kind: 'cancelled' };
+      if (result.kind === 'started') return { kind: 'advanced', game: candidate, opened: true };
+      if (result.kind === 'completed') {
+        removeQueueEntriesForHeadGame(state, candidate);
+        continue;
+      }
+      parkCampaignForStreamerRetry(state, candidate, result.reason);
+      await progressionOptions.onSaveState?.();
+      continue;
+    }
     const nextGame = prepareNextEligibleQueueHead(state, request.restrictUnauthorizedManualContinuation);
     if (!nextGame) break;
     const options = progressionOptions?.isCurrentAfterQueueAdvance

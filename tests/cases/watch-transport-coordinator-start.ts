@@ -87,7 +87,7 @@ export function registerWatchTransportCoordinatorStartCases() {
       isLive: true,
     });
 
-    expect(health.mode).toBe('tabless');
+    expect(health).toMatchObject({ kind: 'started', health: { mode: 'tabless' } });
     expect(fixture.state.appState.watchTransportMode).toBe('tabless');
     expect(fixture.state.appState.watchHealth?.status).toBe('healthy');
     expect(fixture.counters.opens).toBe(0);
@@ -121,7 +121,10 @@ export function registerWatchTransportCoordinatorStartCases() {
 
     expect(fixture.counters.opens).toBe(0);
     expect(fixture.state.appState.watchTransportPreference).toBe('tabless');
-    expect(health).toMatchObject({ mode: 'tabless', status: 'failed', reason: 'heartbeat-failed' });
+    expect(health).toMatchObject({
+      kind: 'failed',
+      health: { mode: 'tabless', status: 'failed', reason: 'heartbeat-failed' },
+    });
     expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 
@@ -140,10 +143,19 @@ export function registerWatchTransportCoordinatorStartCases() {
       state,
       heartbeat: async () => ({ accepted: true }),
       managedTab: {
-        open: async (_target, options) => {
+        open: async (target, options) => {
           expect(options).toMatchObject({ active: false, focus: false });
           opens += 1;
-          return { owner: 'drophunter', tabId: 17 };
+          return {
+            owner: 'drophunter',
+            tabId: 17,
+            ownership: {
+              kind: 'managed-tab',
+              tabId: 17,
+              ownershipToken: 'explicit-managed',
+              expectedChannel: target.channelName,
+            },
+          };
         },
         probe: async () => ({ accepted: true, progress: 1 }),
         close: async () => {},
@@ -160,7 +172,7 @@ export function registerWatchTransportCoordinatorStartCases() {
     });
 
     expect(opens).toBe(1);
-    expect(health.mode).toBe('managed-tab');
+    expect(health).toMatchObject({ kind: 'started', health: { mode: 'managed-tab' } });
     expect(state.appState.watchTransportMode).toBe('managed-tab');
   });
 
@@ -184,9 +196,18 @@ export function registerWatchTransportCoordinatorStartCases() {
         return { accepted: true, progress: 1 };
       },
       managedTab: {
-        open: async () => {
+        open: async (target) => {
           opens += 1;
-          return { owner: 'drophunter', tabId: 17 };
+          return {
+            owner: 'drophunter',
+            tabId: 17,
+            ownership: {
+              kind: 'managed-tab',
+              tabId: 17,
+              ownershipToken: 'managed-before-tabless',
+              expectedChannel: target.channelName,
+            },
+          };
         },
         probe: async () => ({ accepted: true }),
         close: async (session) => {
@@ -211,7 +232,7 @@ export function registerWatchTransportCoordinatorStartCases() {
     expect(opens).toBe(1);
     expect(closes).toBe(0);
     expect(heartbeats).toBe(1);
-    expect(health.mode).toBe('tabless');
+    expect(health).toMatchObject({ kind: 'started', health: { mode: 'tabless' } });
     expect(state.appState.tabId).toBeNull();
     expect(state.appState.watchFallbackReason).toBeNull();
   });

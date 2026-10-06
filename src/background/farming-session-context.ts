@@ -1,8 +1,10 @@
 import type { AppState, DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
 import type { AutomationEventNotifier } from './automation-event-notifier.ts';
+import type { ClaimRecordTarget } from './claim-log.ts';
 import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { TwitchApiRequestOptions } from './session-orchestrator.ts';
+import type { SaveStateOptions } from './state-persistence.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
 import type { WatchTransportCoordinator } from './watch-transport-coordinator.ts';
 
@@ -28,6 +30,7 @@ export interface RefreshDropsOptions {
   readonly suppressNotifications?: boolean;
   readonly strictFreshProof?: boolean;
   readonly minimumFreshUpdatedAt?: number;
+  readonly claimRecordingTarget?: ClaimRecordTarget;
 }
 
 export interface FarmingSessionAdapters {
@@ -68,7 +71,7 @@ export interface FarmingSessionAdapters {
   readonly suppressCampaignUntilRefresh?: (
     campaignKey: string,
   ) => Promise<'suppressed' | 'persistence-failed'>;
-  readonly saveState: (state: ServiceWorkerState) => Promise<void>;
+  readonly saveState: (state: ServiceWorkerState, options?: SaveStateOptions) => Promise<void>;
   readonly saveTimingState: (state: ServiceWorkerState) => Promise<void>;
   readonly broadcastStateUpdate: (appState: AppState) => void;
   readonly monitorAutoOpenDelayMs: number;
@@ -83,6 +86,10 @@ export type FarmingSessionContext = {
   readonly now: () => number;
   readonly manualWatchController: FarmingAutomationManualWatchController;
   manualWatchTransportSuspended: boolean;
+  transitionCampaign?: (
+    game: TwitchGame,
+    isCurrent?: () => boolean,
+  ) => Promise<import('./farming-campaign-transition.ts').CampaignTransitionResult>;
 };
 
 export function createFarmingSessionContext(

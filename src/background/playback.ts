@@ -1,5 +1,5 @@
 import type { PlaybackPrepResult } from '../types/index.ts';
 
 export function needsPlaybackAttention(result: PlaybackPrepResult | null | undefined): boolean {
-  return !result?.isPlaybackReady;
+  return result?.isPlaybackReady !== true && result?.userInteractionRequired === true;
 }

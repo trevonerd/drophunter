@@ -113,6 +113,7 @@ export async function transitionAutomaticFarmingSession(
       },
       request.watchMode,
       isCurrent,
+      request.manualOverride === true,
     );
   } catch {
     return { kind: 'failed', reason: 'candidate-preparation-failed' };

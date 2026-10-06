@@ -167,7 +167,7 @@ describe('AFK Twitch authentication recovery', () => {
           systemAlerts += 1;
         },
         watchTransport: {
-          start: async () => healthyWatch(),
+          start: async () => ({ kind: 'started', health: healthyWatch() }),
           tick: async () => healthyWatch(),
           stop: async () => {
             transportStops += 1;
@@ -205,7 +205,7 @@ describe('AFK Twitch authentication recovery', () => {
       state,
       createAdapters({
         watchTransport: {
-          start: async () => healthyWatch(),
+          start: async () => ({ kind: 'started', health: healthyWatch() }),
           tick: async () => {
             transportTicks += 1;
             return healthyWatch();
@@ -238,7 +238,7 @@ describe('AFK Twitch authentication recovery', () => {
           start: async () => {
             transportStarts += 1;
             state.appState.activeStreamer = streamer;
-            return healthyWatch();
+            return { kind: 'started', health: healthyWatch() };
           },
           tick: async () => healthyWatch(),
           stop: async () => {},

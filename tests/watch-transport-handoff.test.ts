@@ -152,6 +152,6 @@ describe('watch transport handoff', () => {
     await coordinator.tick();
 
     expect(coordinator.currentOwnership()).toEqual(ownershipB);
-    expect({ opens, probes }).toEqual({ opens: 0, probes: ['b'] });
+    expect({ opens, probes }).toEqual({ opens: 0, probes: ['b', 'b'] });
   });
 });

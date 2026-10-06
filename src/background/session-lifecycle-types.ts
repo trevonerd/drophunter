@@ -10,6 +10,10 @@ export type LifecycleRefreshOptions = {
 };
 
 export type QueueProgressOptions = {
+  readonly onTransitionToCampaign?: (
+    game: TwitchGame,
+    isCurrent?: () => boolean,
+  ) => Promise<import('./farming-campaign-transition.ts').CampaignTransitionResult>;
   readonly isCurrent?: () => boolean;
   /** Allows the queue's own committed head promotion while retaining the operation guard. */
   readonly isCurrentAfterQueueAdvance?: (game: TwitchGame) => boolean;

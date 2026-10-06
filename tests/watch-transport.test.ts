@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { prepareManagedProvisionalWatch } from '../src/background/managed-tab-transport.ts';
 import { prepareTablessProvisionalWatch } from '../src/background/tabless-transport.ts';
+import { createWatchHealth } from '../src/background/watch-health.ts';
 import {
   createTablessTransport,
   type FarmingTarget,
@@ -20,6 +22,66 @@ const managedSession: ManagedTabSession = {
 };
 
 describe('ManagedTabTransport', () => {
+  test('keeps an explicit gesture wait without accumulating failures, then resumes on verified playback', async () => {
+    let playing = false;
+    const transport = new ManagedTabTransport({
+      open: async () => ({
+        ...managedSession,
+        health: createWatchHealth('managed-tab', 'degraded', 'user-interaction-required', () => 100),
+      }),
+      probe: async () =>
+        playing ? { accepted: true, progress: 1 } : { accepted: false, reason: 'playback-inactive' },
+      close: async () => {},
+    });
+    expect(await transport.start(target)).toMatchObject({
+      isHealthy: false,
+      reason: 'user-interaction-required',
+    });
+    for (let attempt = 0; attempt < 7; attempt++) {
+      expect(await transport.tick()).toMatchObject({
+        reason: 'user-interaction-required',
+        consecutiveFailures: 0,
+        shouldFallback: false,
+      });
+    }
+    playing = true;
+    expect(await transport.tick()).toMatchObject({
+      isHealthy: true,
+      reason: 'heartbeat',
+      consecutiveFailures: 0,
+    });
+  });
+
+  test.each(['buffering', 'gesture', 'playing'] as const)(
+    'provisional preparation reports %s using playback evidence rather than a live context alone',
+    async (kind) => {
+      const candidate = await prepareManagedProvisionalWatch(target, 'https://www.twitch.tv/channel-one', {
+        createOwnershipToken: () => 'candidate',
+        persistOwnership: async () => true,
+        discardOwnership: async () => {},
+        openTab: async () => ({ id: 42 }),
+        waitForTabComplete: async () => {},
+        preparePlayback: async () => ({
+          isPlaybackReady: kind === 'playing',
+          userInteractionRequired: kind === 'gesture',
+        }),
+        probe: async () => ({ accepted: true, isLive: true, sameChannel: true, sameGame: true }),
+        release: async () => ({ kind: 'released', method: 'closed' }),
+        now: () => 100,
+      });
+      expect(candidate?.health).toMatchObject({
+        isHealthy: kind === 'playing',
+        status: kind === 'playing' ? 'healthy' : kind === 'gesture' ? 'degraded' : 'failed',
+        reason:
+          kind === 'playing'
+            ? 'heartbeat'
+            : kind === 'gesture'
+              ? 'user-interaction-required'
+              : 'playback-inactive',
+      });
+    },
+  );
+
   test('starts inactive and keeps the managed tab available after transport stop', async () => {
     const calls: string[] = [];
     const ownership = {

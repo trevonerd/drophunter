@@ -9,6 +9,7 @@ import {
 import { normalizeStoredAppState } from '../../src/shared/app-state-sync.ts';
 import type { RuntimeRequest, RuntimeResponseByType } from '../../src/shared/messages.ts';
 import type { AppState, TwitchGame } from '../../src/types/index.ts';
+import { demoGame, nextGame, thirdGame } from '../fixtures/service-worker-games.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
 import type { MessageSender } from '../mocks/chrome-types.ts';
 import { installManagedWatchPages } from '../support/managed-watch-pages.ts';
@@ -44,9 +45,33 @@ export function installActiveTabMocks() {
       return executePageScript(options);
     return defaultExecuteScript(options);
   };
-  chromeMocks.chrome.tabs.sendMessage = async (_tabId, message) => {
+  chromeMocks.chrome.tabs.sendMessage = async (tabId, message) => {
     if (message.type === 'PREPARE_STREAM_PLAYBACK') {
       return { success: true, isPlaybackReady: true, userInteractionRequired: false };
+    }
+    if (message.type === 'GET_STREAM_CONTEXT') {
+      const page = pages.pages.get(tabId);
+      if (!page) return { success: false };
+      const channelName = new URL(page.url).pathname.split('/')[1] ?? '';
+      const game = channelName.includes('next')
+        ? nextGame
+        : channelName.includes('third')
+          ? thirdGame
+          : demoGame;
+      return {
+        success: true,
+        context: {
+          channelName,
+          categorySlug: game.categorySlug,
+          categoryLabel: game.name,
+          streamTitle: 'Drops enabled',
+          titleContainsDrops: true,
+          hasDropsSignal: true,
+          isLive: true,
+          isPlaybackReady: true,
+          pageUrl: page.url,
+        },
+      };
     }
     return { success: false };
   };
