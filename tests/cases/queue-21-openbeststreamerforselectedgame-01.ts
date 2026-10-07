@@ -17,7 +17,7 @@ export function registerQueue21Part01() {
       const observed: { streamer: string | null } = { streamer: null };
       const fetchLanguages: string[] = [];
 
-      const opened = await openBestStreamerForSelectedGame(
+      const opening = openBestStreamerForSelectedGame(
         state,
         {
           onFetchDirectoryStreamersFromApi: async (_game, _force, language = '') => {
@@ -47,7 +47,7 @@ export function registerQueue21Part01() {
         },
       );
 
-      expect(opened).toBe(false);
+      await expect(opening).rejects.toMatchObject({ name: 'NoEligibleStreamerError' });
       expect(fetchLanguages).toEqual(['']);
       expect(seenCandidates).toEqual([]);
       expect(observed.streamer).toBeNull();
@@ -141,7 +141,7 @@ export function registerQueue21Part01() {
       let seenCandidates: string[] = [];
       let openedStreamer: string | null = null;
 
-      const opened = await openBestStreamerForSelectedGame(
+      const opening = openBestStreamerForSelectedGame(
         state,
         {
           onFetchDirectoryStreamersFromApi: async (_game, _force, language = '') => {
@@ -172,7 +172,7 @@ export function registerQueue21Part01() {
         },
       );
 
-      expect(opened).toBe(false);
+      await expect(opening).rejects.toMatchObject({ name: 'NoEligibleStreamerError' });
       expect(fetchLanguages).toEqual(['it', '']);
       expect(seenCandidates).toEqual([]);
       expect(openedStreamer).toBeNull();
@@ -218,7 +218,7 @@ export function registerQueue21Part01() {
       expect(seenCandidates).toEqual(['alpha', 'beta']);
     });
 
-    test('opens D after persisted stall history excludes A, B, and C and resets the new watch baseline', async () => {
+    test('opens D after persisted stall history excludes A, B, and C and begins a new observation without inventing reward progress', async () => {
       const state = createMinimalState();
       const selectedGame = createGame({ campaignId: 'stall-ladder', allowedChannels: null });
       state.appState.selectedGame = selectedGame;
@@ -227,7 +227,7 @@ export function registerQueue21Part01() {
         source: 'manual',
         addedAt: 1,
         reason: 'user-added',
-        stalledStreamerNames: [' A ', 'b', 'C'],
+        attemptedStreamerNames: [' A ', 'b', 'C'],
       };
       state.appState.activeStreamer = createStreamer({ id: 'C', name: 'C' });
       state.lastProgressAdvanceAt = 1;
@@ -265,7 +265,10 @@ export function registerQueue21Part01() {
       expect(opened).toBe(true);
       expect(openedNames).toEqual(['D']);
       expect(state.appState.activeStreamer?.name).toBe('D');
-      expect(state.lastProgressAdvanceAt).toBeGreaterThan(1);
+      expect(state.lastProgressAdvanceAt).toBe(1);
+      expect(state.appState.queueEntryMetadataByKey[gameKey(selectedGame)]?.watchAttempt?.channelName).toBe(
+        'd',
+      );
     });
 
     test('uses all streamers directly when allowed is null', async () => {

@@ -1,10 +1,7 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics([
-  ['[DropHunter] Parking campaign because eligible stream playback could not start', 2],
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 5],
-]);
+verifyExpectedDiagnostics([]);
 
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { splitDropsForSelectedGame } from '../src/background/drops-selected-projection.ts';
@@ -21,7 +18,11 @@ function fixture() {
   spyOn(Date, 'now').mockReturnValue(now);
   const offline = createGame({ campaignId: 'offline', endsAt: new Date(now + 3_600_000).toISOString() });
   const later = createGame({ campaignId: 'later', endsAt: new Date(now + 10 * 86_400_000).toISOString() });
-  const urgent = createGame({ campaignId: 'urgent', endsAt: new Date(now + 2 * 3_600_000).toISOString() });
+  const urgent = createGame({
+    dropCount: 1,
+    campaignId: 'urgent',
+    endsAt: new Date(now + 2 * 3_600_000).toISOString(),
+  });
   const state = createMinimalState();
   state.appState.isRunning = true;
   state.appState.manualQueueAuthorized = true;
@@ -104,7 +105,7 @@ describe('temporarily unavailable campaign queue', () => {
     expect(state.recoveryBackoffUntil).toBe(now + 600_000);
   });
 
-  test('completion skips cooling campaign, then restores its deadline priority after cooldown', async () => {
+  test('completion continues the current round before retrying its previously attempted campaign', async () => {
     const { state, offline, urgent, later } = fixture();
     await createQueueProgressionFixture(state).skipCurrent('no-streamers');
     spyOn(Date, 'now').mockReturnValue(now + 60_001);
@@ -123,8 +124,8 @@ describe('temporarily unavailable campaign queue', () => {
     state.appState.pendingDrops = [];
     state.appState.currentDrop = null;
     await createQueueProgressionFixture(state).advanceIfCompleted();
-    expect(state.appState.selectedGame).toEqual(offline);
-    expect(state.appState.queue).toEqual([offline, later]);
+    expect(state.appState.selectedGame).toEqual(later);
+    expect(state.appState.queue).toEqual([later, offline]);
   });
 
   test('does not announce farming when the successor also has no streamer', async () => {
@@ -148,7 +149,6 @@ describe('temporarily unavailable campaign queue', () => {
     expect(restored.good).toEqual({
       ...metadata,
       streamerRetryAt: now + 60_000,
-      streamerRetryCycles: 2,
     });
     expect(restored.bad).toEqual(metadata);
   });

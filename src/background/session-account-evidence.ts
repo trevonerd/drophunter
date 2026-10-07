@@ -1,6 +1,7 @@
 import { browser } from '../shared/browser-api.ts';
 import type { TwitchGame } from '../types/index.ts';
 import { DROPS_SNAPSHOT_CACHE_KEY } from './constants.ts';
+import { invalidateFarmingSessionEpoch } from './farming-session-revision.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 function withoutAccountEvidence(game: TwitchGame): TwitchGame {
@@ -20,6 +21,12 @@ export async function bindCampaignEvidenceAccount(
   if (!userId) return;
   const previousUserId = state.appState.campaignEvidenceUserId ?? state.twitchSessionCache?.userId;
   if (previousUserId !== userId) {
+    if (previousUserId) {
+      invalidateFarmingSessionEpoch(state);
+      state.tickGeneration += 1;
+      state.hasCurrentGenerationCampaignValidation = false;
+      state.dropClaimInFlight = false;
+    }
     state.cachedDropsSnapshot = [];
     state.appState.allDrops = [];
     state.appState.pendingDrops = [];
@@ -27,6 +34,15 @@ export async function bindCampaignEvidenceAccount(
     state.appState.currentDrop = null;
     state.appState.campaignDropsByKey = {};
     state.appState.acquiredCampaignIds = [];
+    state.appState.farmingSessionTargets = Object.fromEntries(
+      Object.entries(state.appState.farmingSessionTargets).map(([key, target]) => [
+        key,
+        {
+          game: withoutAccountEvidence(target.game),
+          acquired: false,
+        },
+      ]),
+    );
     state.appState.availableGames = state.appState.availableGames.map(withoutAccountEvidence);
     state.appState.queue = state.appState.queue.map(withoutAccountEvidence);
     if (state.appState.selectedGame) {

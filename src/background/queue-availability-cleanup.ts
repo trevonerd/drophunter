@@ -45,6 +45,10 @@ export function cleanUnavailableQueueCampaigns(
   const retained: TwitchGame[] = [];
   for (const game of state.appState.queue) {
     const reason = removalReason(game, input.authoritativeGames, input.authoritativeCampaignIds, now);
+    if (reason === 'unavailable' && state.appState.farmingSessionTargets[gameKey(game)]) {
+      retained.push(game);
+      continue;
+    }
     if (reason) {
       removed.push({ game, reason });
       delete state.appState.queueEntryMetadataByKey[gameKey(game)];

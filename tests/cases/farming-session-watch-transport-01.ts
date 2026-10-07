@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createFarmingSession } from '../../src/background/farming-session.ts';
 import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
-import { STALLED_PROGRESS_RETRY_MS } from '../../src/background/stream-rotation.ts';
 import type { WatchHealth } from '../../src/background/watch-transport.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
@@ -102,7 +101,6 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
     attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
     clearManagedTabOwnership: () => {},
     openMonitorDashboardWindow: async () => {},
     sendAlert: async () => {},
@@ -116,7 +114,7 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
 }
 
 describe('farming session watch transport integration', () => {
-  test('a Hidden stall starts recovery attempt 1/3 after an authoritative refresh without opening Twitch', async () => {
+  test('heartbeat stall flags do not replace the reward-duration observation window', async () => {
     const realDateNow = Date.now;
     const now = 1_000_000;
     Date.now = () => now;
@@ -127,17 +125,15 @@ describe('farming session watch transport integration', () => {
     state.appState.isRunning = true;
     state.appState.activeStreamer = streamer;
     state.appState.watchTransportMode = 'tabless';
+    state.appState.watchTransportPreference = 'tabless';
+    state.lastProgressAdvanceAt = now;
     let campaignRefreshes = 0;
     let inventoryRefreshes = 0;
     let hiddenStarts = 0;
     let foregroundOpens = 0;
     const stalledHealth: WatchHealth = {
       ...createHealth('tabless'),
-      isHealthy: false,
-      status: 'stalled',
-      reason: 'stalled-progress',
       consecutiveStalls: 10,
-      shouldFallback: true,
     };
 
     try {
@@ -175,12 +171,12 @@ describe('farming session watch transport integration', () => {
 
       await session.checkDropProgress();
 
-      expect(state.stalledRecoveryAttempts).toBe(1);
-      expect(state.appState.recoveryReason).toBe('stalled-progress');
-      expect(state.recoveryBackoffUntil).toBe(now + STALLED_PROGRESS_RETRY_MS);
-      expect(campaignRefreshes).toBeGreaterThan(0);
+      expect(state.stalledRecoveryAttempts).toBe(0);
+      expect(state.appState.recoveryReason).toBeNull();
+      expect(state.recoveryBackoffUntil).toBe(0);
+      expect(campaignRefreshes).toBe(0);
       expect(inventoryRefreshes).toBeGreaterThan(0);
-      expect(hiddenStarts).toBe(1);
+      expect(hiddenStarts).toBe(0);
       expect(foregroundOpens).toBe(0);
       expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
     } finally {

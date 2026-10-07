@@ -4,9 +4,7 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 import { createDeferred } from './support/farming-automation-fixtures.ts';
 import { createQueueProgressionFixture } from './support/queue-progression.ts';
 
-verifyExpectedDiagnostics([
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 2],
-]);
+verifyExpectedDiagnostics([]);
 
 test.each(['complete', 'skip'] as const)(
   'cancels %s progression across Stop and Pause during preparation',

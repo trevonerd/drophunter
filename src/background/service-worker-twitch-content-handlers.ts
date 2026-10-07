@@ -12,10 +12,12 @@ import { markTwitchSessionReady } from './twitch-session-sync.ts';
 export type TwitchSessionRecoveryIntent = 'none' | 'continue' | 'resume';
 
 export function twitchSessionRecoveryIntent(
-  appState: Pick<ServiceWorkerState['appState'], 'lastStopReason' | 'twitchSessionSyncState'>,
+  appState: Pick<ServiceWorkerState['appState'], 'lastStopReason' | 'twitchSessionSyncState'> &
+    Partial<Pick<ServiceWorkerState['appState'], 'isRunning'>>,
 ): TwitchSessionRecoveryIntent {
   if (appState.lastStopReason === 'sign-in-required') return 'resume';
-  if (appState.twitchSessionSyncState.status === 'retrying') return 'continue';
+  if (appState.twitchSessionSyncState.status === 'retrying')
+    return appState.isRunning ? 'resume' : 'continue';
   return 'none';
 }
 

@@ -65,6 +65,7 @@ test.each([
     id: 22,
     windowId: 4,
     url: currentUrl,
+    status: 'complete',
     active: stage === 'native-update-sole',
   });
   mocks.chrome.tabs.query = async () =>
@@ -126,6 +127,7 @@ test.each([
     },
     {
       acquireStreamer: async () => createStreamer(),
+      persistAttempt: async () => true,
       currentFingerprint: () => 'current',
       loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
       commitTransition: async () => {

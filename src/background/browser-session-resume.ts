@@ -7,6 +7,8 @@ import {
   STREAM_VALIDATION_GRACE_MS,
 } from './constants.ts';
 import { logInfo, logWarn } from './logging.ts';
+import { restartQueueAcquisitionRound } from './queue-acquisition-round.ts';
+import { clearRecoveryState } from './recovery-state.ts';
 import {
   applyStartupAutoResumeTransition,
   applyStartupResumePolicy,
@@ -51,6 +53,42 @@ export async function prepareBrowserSessionResume(state: ServiceWorkerState): Pr
     RESUME_RECOVERY_GRACE_MS,
     true,
   );
+  restartQueueAcquisitionRound(state, now);
+  state.appState.queueAcquisitionRound = null;
+  clearRecoveryState(state);
+  state.appState.watchHealth = null;
+  state.appState.lastAutomationMessage = null;
+  state.appState.automationActivity = [];
+  state.appState.lastDropsPageRefreshError = null;
+  state.appState.campaignFailureEpisodesByKey = Object.fromEntries(
+    Object.entries(state.appState.campaignFailureEpisodesByKey).map(([key, episode]) => [
+      key,
+      { ...episode, visible: false },
+    ]),
+  );
+  const proof = state.apiRetryAfterVerifiedAt ?? 0;
+  if (
+    !(
+      proof > 0 &&
+      proof <= now &&
+      now - proof < 24 * 60 * 60_000 &&
+      state.apiBackoffUntil > proof &&
+      state.apiBackoffUntil <= proof + 24 * 60 * 60_000
+    )
+  ) {
+    state.apiBackoffUntil = 0;
+    state.apiConsecutiveFailures = 0;
+    state.apiRetryAfterVerifiedAt = 0;
+  }
+  state.lastProgressAdvanceAt = 0;
+  state.lastInventoryRefreshAt = 0;
+  state.lastFullRefreshAt = 0;
+  if (!state.appState.isPaused && state.appState.lastStopReason !== 'user-stop') {
+    state.appState.lastStopReason = null;
+    state.appState.lastStopMessage = null;
+  }
+  await saveState(state);
+  await saveTimingState(state, { immediate: true });
   if (
     state.appState.isRunning &&
     !state.appState.isPaused &&
@@ -83,9 +121,10 @@ export async function prepareBrowserSessionResume(state: ServiceWorkerState): Pr
   applyStartupAutoResumeTransition(state, now, STREAM_VALIDATION_GRACE_MS);
   if (!keptExistingTab) {
     state.appState.tabId = null;
-    state.appState.activeStreamer = null;
+    // Browser restart changes tab IDs. Keep the target until durable ownership
+    // reconstruction can find the restored page or reject the stale watch.
   }
   await saveState(state);
-  await saveTimingState(state);
+  await saveTimingState(state, { immediate: true });
   await markBrowserSessionSeen();
 }

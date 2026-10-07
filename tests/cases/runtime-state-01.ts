@@ -70,7 +70,6 @@ describe('normalizeTimingState', () => {
         recoveryBackoffUntil: 40_000,
         lastRecoveryAttemptAt: 9_500,
         stalledRecoveryAttempts: 3,
-        recoveryNotificationSent: true,
         lastTrackedDropKey: 'drop::campaign::game::name::image',
       },
       now,
@@ -79,7 +78,6 @@ describe('normalizeTimingState', () => {
     expect(state.recoveryBackoffUntil).toBe(40_000);
     expect(state.lastRecoveryAttemptAt).toBe(9_500);
     expect(state.stalledRecoveryAttempts).toBe(3);
-    expect(state.recoveryNotificationSent).toBe(true);
     expect(state.lastTrackedDropKey).toBe('drop::campaign::game::name::image');
   });
 
@@ -89,7 +87,6 @@ describe('normalizeTimingState', () => {
         recoveryBackoffUntil: 999,
         lastRecoveryAttemptAt: 900,
         stalledRecoveryAttempts: 2,
-        recoveryNotificationSent: true,
       },
       1_000,
     );
@@ -97,7 +94,6 @@ describe('normalizeTimingState', () => {
     expect(state.recoveryBackoffUntil).toBe(0);
     expect(state.lastRecoveryAttemptAt).toBe(900);
     expect(state.stalledRecoveryAttempts).toBe(2);
-    expect(state.recoveryNotificationSent).toBe(false);
   });
 
   test('restores offlineChecks and avoidStreamerName so they survive a service worker restart', () => {

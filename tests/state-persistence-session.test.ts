@@ -107,19 +107,20 @@ describe('loadState', () => {
         isRunning: true,
         isPaused: true,
         selectedGame: first,
+        pendingWatchTarget: { game: second, channelName: 'candidate' },
         queue: [first, second],
         queueEntryMetadataByKey: {
           'campaign:campaign-a': {
             source: 'manual',
             addedAt: 1,
             reason: 'user-added',
-            stalledStreamerNames: ['A', ' b '],
+            attemptedStreamerNames: ['A', ' b ', ' X ', 'y'],
           },
           'campaign:campaign-b': {
             source: 'manual',
             addedAt: 2,
             reason: 'user-added',
-            stalledStreamerNames: ['C'],
+            attemptedStreamerNames: ['C'],
           },
         },
       }),
@@ -144,12 +145,18 @@ describe('loadState', () => {
     );
 
     expect(restored.appState.isPaused).toBe(true);
+    expect(restored.appState.pendingWatchTarget).toBeNull();
     expect(restored.appState.queue).toEqual([first, second]);
-    expect(restored.appState.queueEntryMetadataByKey['campaign:campaign-a']?.stalledStreamerNames).toEqual([
+    expect(restored.appState.queueEntryMetadataByKey['campaign:campaign-a']?.attemptedStreamerNames).toEqual([
       'a',
       'b',
+      'x',
+      'y',
     ]);
-    expect(restored.appState.queueEntryMetadataByKey['campaign:campaign-b']?.stalledStreamerNames).toEqual([
+    expect(
+      restored.appState.queueEntryMetadataByKey['campaign:campaign-a']?.attemptedStreamerNames?.length,
+    ).toBe(4);
+    expect(restored.appState.queueEntryMetadataByKey['campaign:campaign-b']?.attemptedStreamerNames).toEqual([
       'c',
     ]);
   });

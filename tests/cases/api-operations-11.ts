@@ -54,7 +54,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     [false, true],
     [true, true],
   ] as const) {
-    test(`wrapper ${preserveSessionOnAuthFailure ? 'preserves queued Play incumbent' : 'stops running farming'} when ${inventoryOnly ? 'inventory' : 'dashboard'} auth still fails after explicit session recovery`, async () => {
+    test(`wrapper ${preserveSessionOnAuthFailure ? 'retains authorized session' : 'requests login recovery'} when ${inventoryOnly ? 'inventory' : 'dashboard'} auth still fails after explicit session recovery`, async () => {
       const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
       const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
 
@@ -121,8 +121,8 @@ describe('fetchDropsSnapshotFromApi', () => {
       expect(recoveryCalls).toBe(1);
       expect(stopReason).toBe(preserveSessionOnAuthFailure ? undefined : 'sign-in-required');
       expect(state.appState.isRunning).toBe(true);
-      expect(state.apiConsecutiveFailures).toBe(0);
-      expect(state.apiBackoffUntil).toBe(0);
+      expect(state.apiConsecutiveFailures).toBeGreaterThan(0);
+      expect(state.apiBackoffUntil).toBeGreaterThan(Date.now());
     });
   }
 

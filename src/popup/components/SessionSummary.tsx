@@ -12,6 +12,7 @@ export interface SessionSummaryProps {
   currentAutomatableDrop: TwitchDrop | null;
   recoveryNow: number;
   actionLoading: boolean;
+  farmingStartPending?: boolean;
   startDisabled: boolean;
   automaticStartPending?: boolean;
   showSelectedCampaignStatus: boolean;
@@ -98,7 +99,7 @@ export function SessionSummary(props: SessionSummaryProps) {
             </span>
           )}
         </div>
-        {props.showSelectedCampaignStatus && (
+        {props.showSelectedCampaignStatus && !props.state.pendingWatchTarget && (
           <SelectedCampaignStatus selectedGame={props.state.selectedGame} />
         )}
         {!isRunning && model.detail && (
@@ -139,7 +140,6 @@ export function SessionSummary(props: SessionSummaryProps) {
           <button
             type="button"
             onClick={props.onPause}
-            disabled={props.actionLoading}
             className="dh-focus min-h-8 flex-1 rounded-lg border border-[color:var(--dh-border-strong)] px-3 py-1.5 text-xs font-semibold text-[color:var(--dh-text)] disabled:opacity-45"
           >
             Pause
@@ -155,11 +155,15 @@ export function SessionSummary(props: SessionSummaryProps) {
             Resume
           </button>
         )}
-        {(isRunning || isPaused || isRecovering || props.automaticStartPending) && (
+        {(props.state.isRunning ||
+          isRunning ||
+          isPaused ||
+          isRecovering ||
+          props.automaticStartPending ||
+          props.farmingStartPending) && (
           <button
             type="button"
             onClick={props.onStop}
-            disabled={props.actionLoading}
             className="dh-focus min-h-8 flex-1 rounded-lg border border-red-500/35 px-3 py-1.5 text-xs font-semibold text-red-300 disabled:opacity-45"
           >
             Stop

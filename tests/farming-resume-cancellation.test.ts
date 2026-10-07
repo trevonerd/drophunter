@@ -124,7 +124,7 @@ test.each(['no-streamers', 'directory-unavailable', 'open-failed'] as const)(
       isRunning: true,
       isPaused: true,
       selectedGame: createGame(),
-      activeStreamer: createStreamer(),
+      activeStreamer: null,
       tabId: 17,
       watchHealth: health,
       recoveryReason: reason,

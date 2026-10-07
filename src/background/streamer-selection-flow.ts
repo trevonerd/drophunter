@@ -3,27 +3,32 @@ import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../types';
 import {
   discoverEligibleStreamers,
   EligibleStreamerDiscoveryUnavailableError,
+  NoEligibleStreamerError,
 } from './eligible-streamer-discovery.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import { computeEffectiveStallThreshold } from './stream-rotation.ts';
+import { OFFLINE_CONFIRMATION_CHECKS } from './stream-rotation.ts';
 import type { OpenBestStreamerCallbacks, WatchStartResult } from './streamer-acquisition-contracts.ts';
 import type { PickStreamerResult, StreamerSelectionPreferences } from './streamer-selection.ts';
+import {
+  beginStreamerWatchAttempt,
+  MAX_STREAMER_ATTEMPTS,
+  streamerCandidatesForWatchAttempt,
+} from './streamer-watch-attempt.ts';
 import { TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
+import { isWatchPreparationUnavailable } from './watch-health.ts';
 import type { WatchHealth } from './watch-transport.ts';
+
+export { NoEligibleStreamerError } from './eligible-streamer-discovery.ts';
 
 export class WatchPlaybackUnavailableError extends Error {
   readonly name = 'WatchPlaybackUnavailableError';
-  constructor(readonly health: WatchHealth | null) {
+  constructor(
+    readonly health: WatchHealth | null,
+    readonly streamerName?: string,
+    readonly alternativesExhausted = false,
+  ) {
     super('An eligible Twitch streamer was found, but playback could not start.');
-  }
-}
-
-export class NoEligibleStreamerError extends Error {
-  readonly name = 'NoEligibleStreamerError';
-
-  constructor() {
-    super('Twitch verified that this campaign has no eligible alternative streamer.');
   }
 }
 
@@ -65,7 +70,12 @@ function resolveAllowedChannels(
   let unrestricted = false;
   const restricted: string[] = [];
   for (const campaignId of pendingCampaignIds) {
-    const channels = state.cachedCampaignChannelsMap[campaignId];
+    const channels =
+      state.cachedCampaignChannelsMap[campaignId] !== undefined
+        ? state.cachedCampaignChannelsMap[campaignId]
+        : campaignId === selectedGame.campaignId
+          ? selectedGame.allowedChannels
+          : undefined;
     if (channels == null) unrestricted = true;
     else restricted.push(...channels);
   }
@@ -105,12 +115,23 @@ export async function openBestStreamerForSelectedGame(
     dropsForGame,
     deps.isRewardAcquired,
   );
-  const failedStreamers =
-    state.appState.queueEntryMetadataByKey[gameKey(selectedGame)]?.stalledStreamerNames ?? [];
+  const metadata = state.appState.queueEntryMetadataByKey[gameKey(selectedGame)];
+  const failedStreamers = (metadata?.attemptedStreamerNames ?? []).filter(
+    (name) =>
+      (!metadata?.watchAttempt?.preparing && metadata?.watchAttempt?.suspendedAt === undefined) ||
+      metadata?.watchAttempt?.channelName !== name,
+  );
+  if (failedStreamers.length >= MAX_STREAMER_ATTEMPTS)
+    throw new WatchPlaybackUnavailableError(null, undefined, true);
   const discovery = await discoverEligibleStreamers({
     game: { ...selectedGame, allowedChannels: allowed },
     language: state.appState.preferredStreamerLanguage ?? '',
-    excludedStreamerNames: failedStreamers,
+    excludedStreamerNames: [
+      ...failedStreamers,
+      ...(state.offlineChecks >= OFFLINE_CONFIRMATION_CHECKS && state.avoidStreamerName
+        ? [state.avoidStreamerName]
+        : []),
+    ],
     isCurrent,
     fetchDirectory: async (game, language) => {
       const directory = await callbacks.onFetchDirectoryStreamersFromApi(game, false, language, isCurrent);
@@ -136,7 +157,8 @@ export async function openBestStreamerForSelectedGame(
     throw new EligibleStreamerDiscoveryUnavailableError();
   }
   const gameForSelection = discovery.game;
-  const candidates = discovery.kind === 'ready' ? [...discovery.streamers] : [];
+  const candidates =
+    discovery.kind === 'ready' ? streamerCandidatesForWatchAttempt(discovery.streamers, metadata) : [];
   const languageFilterApplied = discovery.kind === 'ready' && discovery.languageFilterApplied;
   let preferences: StreamerSelectionPreferences = {
     mode: state.appState.streamerSelectionMode,
@@ -150,39 +172,31 @@ export async function openBestStreamerForSelectedGame(
     pendingCampaignIds: Array.from(pendingCampaignIds),
     allowedChannels: allowed ?? 'null (any channel)',
     verifiedStreamers: candidates.map((s) => s.name),
-    verifiedCount: candidates.length,
   });
   if (candidates.length === 0 && allowed?.length) {
-    logWarn('No allowed streamers are live for selected game', {
+    logInfo('No allowed streamers are live for selected game', {
       game: deps.getGameDisplayLabel(gameForSelection),
       allowedChannels: allowed.length,
       totalStreamers: 0,
     });
   }
   if (candidates.length === 0) {
-    logWarn('No streamer found for selected game', {
+    logInfo('No streamer found for selected game', {
       game: deps.getGameDisplayLabel(gameForSelection),
       categorySlug: gameForSelection.categorySlug ?? null,
     });
-    if (
-      discovery.kind === 'empty' &&
-      failedStreamers.length > 0 &&
-      state.appState.recoveryReason === 'stalled-progress'
-    ) {
-      throw new NoEligibleStreamerError();
-    }
-    return false;
+    throw new NoEligibleStreamerError();
   }
   let remaining = candidates;
+  const pending = metadata?.watchAttempt?.preparing ? metadata.watchAttempt.channelName : null;
   const avoidName = state.avoidStreamerName?.trim().toLowerCase();
-  if (avoidName) {
+  if (avoidName && !pending) {
     const withoutAvoided = candidates.filter(
       (candidate) => candidate.name.trim().toLowerCase() !== avoidName,
     );
     if (withoutAvoided.length > 0) remaining = withoutAvoided;
   }
-  let lastFailure: WatchHealth | null = null;
-  for (let attempt = 0; attempt < Math.min(3, candidates.length); attempt += 1) {
+  {
     if (!isCurrent()) return false;
     const selection = deps.pickStreamerForPreferences(
       remaining,
@@ -191,8 +205,11 @@ export async function openBestStreamerForSelectedGame(
       languageFilterApplied,
     );
     const streamer = selection.streamer;
-    if (!streamer) break;
-    remaining = remaining.filter((candidate) => candidate.name.toLowerCase() !== streamer.name.toLowerCase());
+    if (!streamer) return false;
+    const reserved = callbacks.onAttemptStreamer
+      ? await callbacks.onAttemptStreamer(selectedGame, streamer.name)
+      : beginStreamerWatchAttempt(state, selectedGame, streamer.name);
+    if (!reserved || !isCurrent()) return false;
     logInfo('Opening selected streamer', {
       game: deps.getGameDisplayLabel(selectedGame),
       selectionMode: preferences.mode,
@@ -206,10 +223,10 @@ export async function openBestStreamerForSelectedGame(
       broadcasterLanguage: streamer.broadcasterLanguage ?? null,
       candidates: candidates.length,
     });
+    state.streamerAcquisitionPhase = 'playback';
     if (callbacks.onOpenWatchTransport) {
       let result: WatchStartResult;
       try {
-        state.streamerAcquisitionPhase = 'playback';
         result = watchStartResult(await callbacks.onOpenWatchTransport(streamer));
       } catch (error) {
         if (!isCurrent()) return false;
@@ -218,27 +235,23 @@ export async function openBestStreamerForSelectedGame(
       }
       if (!isCurrent() || result.kind === 'cancelled') return false;
       if (result.kind === 'failed') {
-        lastFailure = result.health;
-        continue;
+        if (isWatchPreparationUnavailable(result.health))
+          throw new EligibleStreamerDiscoveryUnavailableError();
+        throw new WatchPlaybackUnavailableError(
+          result.health,
+          streamer.name,
+          discovery.kind === 'ready' &&
+            discovery.streamers.every(
+              (candidate) => candidate.name.trim().toLowerCase() === streamer.name.trim().toLowerCase(),
+            ),
+        );
       }
     } else {
-      state.streamerAcquisitionPhase = 'playback';
       await callbacks.onOpenForegroundChannel(streamer);
       if (!isCurrent()) return false;
     }
-    const previousName = state.appState.activeStreamer?.name.trim().toLowerCase();
     state.avoidStreamerName = null;
     state.appState.activeStreamer = streamer;
-    if (previousName !== streamer.name.trim().toLowerCase()) {
-      state.lastProgressAdvanceAt = Date.now();
-      if (state.appState.recoveryReason === 'stalled-progress') {
-        state.recoveryBackoffUntil =
-          state.lastProgressAdvanceAt +
-          computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
-        state.appState.recoveryBackoffUntil = state.recoveryBackoffUntil;
-      }
-    }
     return true;
   }
-  throw new WatchPlaybackUnavailableError(lastFailure);
 }

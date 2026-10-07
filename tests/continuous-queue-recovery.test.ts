@@ -10,11 +10,7 @@ import { createDrop, createGame, createMinimalState } from './fixtures/queue-man
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 import { createQueueProgressionFixture } from './support/queue-progression.ts';
 
-verifyExpectedDiagnostics([
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 6],
-  ['[DropHunter] Parking campaign because eligible stream playback could not start', 6],
-  ['[DropHunter] Giving up on game after stalled drop progress', 6],
-]);
+verifyExpectedDiagnostics([]);
 afterEach(() => mock.restore());
 
 test.each(['no-streamers', 'open-failed', 'stalled-progress'] as const)(
@@ -107,7 +103,7 @@ test('opening playback preserves the round and stalled warning until authoritati
   expect(state.appState.stalledCampaignBlocksByKey[gameKey(game)]).toBeUndefined();
 });
 
-test('only a new eligible streamer ends a stalled round wait, preserving the warning until progress', () => {
+test('a refreshed eligible streamer preserves the round deadline until Retry or expiry', () => {
   const now = Date.now();
   const game = createGame({ campaignId: 'stalled' });
   const key = gameKey(game);
@@ -153,9 +149,9 @@ test('only a new eligible streamer ends a stalled round wait, preserving the war
     createQueueProgressionFixture(state).reconcileAvailability(evidence, now);
     if (name === 'known') expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(now + 600_000);
   }
-  expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeNull();
-  expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).not.toContain(key);
-  expect(state.appState.recoveryBackoffUntil).toBe(now);
+  expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(now + 600_000);
+  expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).toContain(key);
+  expect(state.appState.recoveryBackoffUntil).toBeNull();
   expect(state.appState.queueEntryMetadataByKey[key]?.streamerRetryReason).toBe('stalled-progress');
   expect(state.appState.stalledCampaignBlocksByKey[key]).toBeUndefined();
   expect(state.appState.tabId).toBe(42);

@@ -1,235 +1,211 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { createFarmingSession } from '../src/background/farming-session.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { computeEffectiveStallThreshold } from '../src/background/stream-rotation.ts';
-import type { WatchHealth } from '../src/background/watch-transport.ts';
 import { createWatchTransportCoordinator } from '../src/background/watch-transport-coordinator.ts';
-import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
-import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
-import { preparedWatch } from './support/prepared-watch.ts';
+import { gameKey } from '../src/shared/game-selection.ts';
+import type { TwitchDrop, TwitchGame, WatchTransportMode } from '../src/types/index.ts';
+import { createFarmingSessionAdapters } from './fixtures/queue-management.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
 
-let mocks: ChromeMocks;
-beforeAll(() => {
+let mocks: ReturnType<typeof setupChromeMocks>;
+const originalNow = Date.now;
+let now: number;
+beforeEach(() => {
   mocks = setupChromeMocks();
+  now = 10_000_000;
+  Date.now = () => now;
 });
-afterAll(() => mocks.teardown());
+afterEach(() => {
+  Date.now = originalNow;
+  mocks.teardown();
+});
 
-const game: TwitchGame = {
-  id: 'resonance',
-  name: 'Resonance',
-  campaignId: 'launch',
-  imageUrl: '',
-  categorySlug: 'resonance',
-  dropCount: 1,
-  rewardSummary: { completion: 'farmable', remainderReasons: [] },
-};
-const nextGame: TwitchGame = { ...game, id: 'next', campaignId: 'next-launch' };
-const streamer = { id: 'channel', name: 'channel', displayName: 'Channel', isLive: true };
-const healthy: WatchHealth = {
-  mode: 'tabless',
-  isHealthy: true,
-  status: 'healthy',
-  reason: 'heartbeat',
-  consecutiveFailures: 0,
-  consecutiveStalls: 0,
-  progress: 0,
-  shouldFallback: false,
-  checkedAt: 1,
-};
-
-function reward(rewardKind: TwitchDrop['rewardKind'], progress = 0): TwitchDrop {
-  return {
-    id: 'minotaur',
-    name: 'Resonance Minotaur',
+function fixture(
+  mode: WatchTransportMode,
+  kind: TwitchDrop['rewardKind'],
+  progress: number,
+  successor: boolean,
+) {
+  const game: TwitchGame = {
+    id: 'game',
+    name: 'Game',
+    campaignId: 'campaign',
+    imageUrl: '',
+    dropCount: 1,
+    rewardSummary: { completion: 'farmable', remainderReasons: [] },
+  };
+  const next: TwitchGame = { ...game, id: 'next', campaignId: 'next-campaign' };
+  const drop: TwitchDrop = {
+    id: 'native',
     gameId: game.id,
     gameName: game.name,
-    imageUrl: '',
     campaignId: game.campaignId,
+    name: 'Reward',
+    imageUrl: '',
     progress,
     currentMinutes: progress,
     requiredMinutes: 100,
     remainingMinutes: 100 - progress,
     claimed: false,
     claimable: false,
-    status: 'active',
     acquisitionMethod: 'watch-time',
-    rewardKind,
+    rewardKind: kind,
     verificationState: 'unassessed',
   };
-}
-
-function fixture(drop: TwitchDrop, nextDrops: TwitchDrop[], now: () => number, realTransport = false) {
+  const games = successor ? [game, next] : [game];
+  const drops = successor
+    ? [
+        drop,
+        {
+          ...drop,
+          id: 'next-drop',
+          gameId: next.id,
+          campaignId: next.campaignId,
+          rewardKind: 'in-game' as const,
+          progress: 0,
+          currentMinutes: 0,
+        },
+      ]
+    : [drop];
   const state = createServiceWorkerState();
-  const currentGame = {
-    ...game,
-    dropCount: 1 + nextDrops.filter((entry) => entry.campaignId === game.campaignId).length,
-  };
-  const games = nextDrops.some((entry) => entry.campaignId === nextGame.campaignId)
-    ? [currentGame, nextGame]
-    : [currentGame];
-  const drops = [drop, ...nextDrops];
   Object.assign(state.appState, {
-    selectedGame: currentGame,
-    availableGames: games,
-    queue: [...games],
     isRunning: true,
-    activeStreamer: streamer,
-    watchTransportMode: 'tabless',
-    watchTransportPreference: 'tabless',
-    allDrops: [drop],
-    pendingDrops: [drop],
+    manualQueueAuthorized: true,
+    farmingSessionOrigin: 'manual',
+    selectedGame: game,
+    queue: games,
+    availableGames: games,
     currentDrop: drop,
+    pendingDrops: [drop],
+    allDrops: [drop],
+    watchTransportPreference: mode,
+    watchTransportMode: mode,
+    streamerSelectionMode: 'top-viewers',
   });
   state.cachedDropsSnapshot = drops;
-  let ticks = 0;
-  let savedMarkers = 0;
-  const session = createFarmingSession(state, {
-    getInitPromise: () => null,
-    trackActivity: async () => {},
-    ensureTwitchSession: async () => null,
-    fetchDropsSnapshotFromApi: async () => ({
-      games,
-      drops,
-      campaignsVerified: true,
-      inventoryVerified: true,
-      updatedAt: now(),
-    }),
-    fetchInventorySnapshotFromApi: async (current) => ({
-      games,
-      drops: current,
-      inventoryVerified: true,
-      updatedAt: now(),
-    }),
-    fetchDirectoryStreamersFromApi: async () => Object.assign([streamer], { languageFilterApplied: true }),
-    fetchStreamContext: async () => null,
-    resolveCategorySlug: async () => 'resonance',
-    openForegroundChannel: async () => {},
-    enforcePlaybackPolicyOnStreamTab: async () => {},
-    attemptPlaybackSelfHeal: async () => {},
-    attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
-    clearManagedTabOwnership: () => {},
-    openMonitorDashboardWindow: async () => {},
-    sendAlert: async () => {},
-    notify: async () => {},
-    saveState: async () => {},
-    saveTimingState: async () => {
-      savedMarkers = Object.keys(state.unverifiableRewardsByKey).length;
+  let managedOpens = 0;
+  const starts: string[] = [];
+  let previousChannel = '';
+  const record = (channel: string) => {
+    if (previousChannel !== channel) {
+      starts.push(channel);
+      previousChannel = channel;
+    }
+  };
+  const transport = createWatchTransportCoordinator({
+    state,
+    now: () => now,
+    persist: async () => {},
+    broadcast: () => {},
+    heartbeat: async (target) => {
+      record(target.channelName);
+      return { accepted: true, isLive: true };
     },
-    broadcastStateUpdate: () => {},
-    monitorAutoOpenDelayMs: 0,
-    watchTransport: realTransport
-      ? createWatchTransportCoordinator({
-          state,
-          now,
-          persist: async () => {},
-          broadcast: () => {},
-          heartbeat: async () => ({ accepted: true, isLive: true, progress: 0 }),
-          managedTab: {
-            open: async () => null,
-            probe: async () => ({ accepted: true }),
-            close: async () => {},
+    managedTab: {
+      open: async (target) => {
+        managedOpens++;
+        record(target.channelName);
+        mocks.tabs.setTabsGetResult({ id: 17, url: `https://www.twitch.tv/${target.channelName}` });
+        return {
+          owner: 'drophunter',
+          tabId: 17,
+          ownership: {
+            kind: 'managed-tab',
+            tabId: 17,
+            ownershipToken: target.channelName,
+            expectedChannel: target.channelName,
           },
-        })
-      : {
-          prepare: async (target) => preparedWatch(target, healthy),
-          start: async () => ({ kind: 'started', health: healthy }),
-          stop: async () => {},
-          setPreference: async () => {},
-          tick: async () =>
-            ++ticks > 0
-              ? {
-                  ...healthy,
-                  status: 'stalled',
-                  reason: 'stalled-progress',
-                  isHealthy: false,
-                  consecutiveStalls: 10,
-                  shouldFallback: true,
-                }
-              : healthy,
-        },
+        };
+      },
+      probe: async () => ({ accepted: true, progress: 1 }),
+      pause: async () => {},
+      close: async () => {},
+    },
   });
-  return { state, session, savedMarkers: () => savedMarkers };
+  const session = createFarmingSession(
+    state,
+    createFarmingSessionAdapters({
+      watchTransport: transport,
+      fetchStreamContext: async () => ({
+        channelName: state.appState.activeStreamer?.name ?? '',
+        categorySlug: '',
+        categoryLabel: 'Game',
+        streamTitle: 'Drops',
+        titleContainsDrops: true,
+        hasDropsSignal: true,
+        isLive: true,
+        pageUrl: 'https://www.twitch.tv/live',
+      }),
+      fetchDirectoryStreamersFromApi: async (selected) =>
+        Object.assign(
+          (selected.campaignId === game.campaignId ? ['a', 'b', 'c', 'd'] : ['next']).map((name, i) => ({
+            id: name,
+            name,
+            displayName: name,
+            isLive: true,
+            viewerCount: i + 1,
+          })),
+          { languageFilterApplied: true },
+        ),
+      fetchDropsSnapshotFromApi: async () => ({
+        games,
+        drops,
+        updatedAt: now,
+        campaignsVerified: true,
+        inventoryVerified: true,
+      }),
+      fetchInventorySnapshotFromApi: async () => ({ games, drops, updatedAt: now, inventoryVerified: true }),
+    }),
+  );
+  return { state, game, drop, session, starts, managedOpens: () => managedOpens };
 }
 
-test('real Hidden transport cannot restart forever when 0% progress stalls and managed fallback cannot open', async () => {
-  const originalNow = Date.now;
-  let now = 20_000_000;
-  Date.now = () => now;
-  try {
-    const { state, session } = fixture(reward('twitch-badge'), [], () => now, true);
-    for (let minute = 0; minute < 25 && state.appState.isRunning; minute += 1) {
-      await session.checkDropProgress();
-      now += 60_000;
-    }
-    expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(1);
-    expect(state.appState.isRunning).toBe(false);
-    expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
-    expect(state.appState.currentDrop).toBeNull();
-    expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
-  } finally {
-    Date.now = originalNow;
-  }
-});
-
-test('exhausted native reward hands off to an ordinary reward in the same campaign', async () => {
-  const originalNow = Date.now;
-  let now = 30_000_000;
-  Date.now = () => now;
-  try {
-    const nextDrop = { ...reward('in-game'), id: 'ordinary' };
-    const { state, session } = fixture(reward('twitch-badge', 99), [nextDrop], () => now);
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      await session.checkDropProgress();
-      if (Object.keys(state.unverifiableRewardsByKey).length > 0) break;
-      now += computeEffectiveStallThreshold(100);
-    }
-    expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(1);
-    expect(state.appState.isRunning).toBe(true);
-    expect(state.appState.currentDrop?.id).toBe('ordinary');
-    expect(state.appState.currentDrop?.verificationState).toBe('unassessed');
-    expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
-    expect(state.appState.selectedGame?.rewardSummary?.completion).toBe('farmable');
-    expect(state.stalledRecoveryAttempts).toBe(0);
-    expect(state.appState.recoveryReason).toBeNull();
-  } finally {
-    Date.now = originalNow;
-  }
-});
-
-for (const kind of ['twitch-badge', 'twitch-emote'] as const) {
-  for (const progress of [0, 99]) {
-    test(`${kind} at ${progress}% exhausts the public Hidden ladder and advances without claiming`, async () => {
-      const originalNow = Date.now;
-      let now = 10_000_000;
-      Date.now = () => now;
-      try {
-        const drop = reward(kind, progress);
-        const nextDrop = {
-          ...reward('in-game'),
-          id: 'next',
-          gameId: nextGame.id,
-          campaignId: nextGame.campaignId,
-        };
-        const { state, session, savedMarkers } = fixture(drop, [nextDrop], () => now);
-        await session.checkDropProgress();
-        expect(state.stalledRecoveryAttempts).toBe(1);
-        expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(0);
-        now += computeEffectiveStallThreshold(100);
-        await session.checkDropProgress();
-        expect(Object.keys(state.unverifiableRewardsByKey)).toHaveLength(1);
-        expect(savedMarkers()).toBe(1);
-        expect(state.cachedDropsSnapshot.find((entry) => entry.id === drop.id)).toMatchObject({
-          verificationState: 'unverifiable',
+for (const mode of ['tabless', 'managed-tab'] as const) {
+  for (const kind of ['twitch-badge', 'twitch-emote'] as const) {
+    for (const progress of [0, 99]) {
+      test(`${mode}: ${kind} at ${progress}% keeps its proof unresolved and advances after four distinct streamers`, async () => {
+        const f = fixture(mode, kind, progress, true);
+        await f.session.checkDropProgress();
+        for (let channel = 0; channel < 4; channel++) {
+          await f.session.checkDropProgress();
+          now += computeEffectiveStallThreshold(100) + 30_000;
+          await f.session.checkDropProgress();
+        }
+        expect(f.starts.filter((name) => name !== 'next')).toEqual(['d', 'c', 'b', 'a']);
+        expect(f.state.appState.selectedGame?.campaignId).toBe('next-campaign');
+        expect(f.state.appState.isRunning).toBe(true);
+        expect(f.state.appState.queue.map(gameKey)).toContain(gameKey(f.game));
+        expect(f.state.cachedDropsSnapshot.find((drop) => drop.id === 'native')).toMatchObject({
           progress,
           claimed: false,
+          verificationState: 'unassessed',
         });
-        expect(state.appState.selectedGame?.campaignId).toBe(nextGame.campaignId);
-        expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([nextGame.campaignId]);
-        expect(state.appState.stalledCampaignBlocksByKey).toEqual({});
-      } finally {
-        Date.now = originalNow;
-      }
-    });
+        expect(f.state.unverifiableRewardsByKey).toEqual({});
+        expect(f.state.appState.farmingSessionTargets[gameKey(f.game)]?.acquired).toBe(false);
+        expect(Object.values(f.state.appState.campaignFailureEpisodesByKey)).toHaveLength(1);
+        if (mode === 'tabless') expect(f.managedOpens()).toBe(0);
+      });
+    }
   }
+  test(`${mode}: the only unresolved campaign suspends for ten minutes without fake acquisition`, async () => {
+    const f = fixture(mode, 'twitch-badge', 0, false);
+    await f.session.checkDropProgress();
+    for (let channel = 0; channel < 4; channel++) {
+      await f.session.checkDropProgress();
+      now += computeEffectiveStallThreshold(100) + 30_000;
+      await f.session.checkDropProgress();
+    }
+    expect(f.state.appState.isRunning).toBe(true);
+    expect(f.state.appState.isPaused).toBe(false);
+    expect(f.state.appState.activeStreamer).toBeNull();
+    expect(f.state.appState.queueAcquisitionRound?.nextRoundAt).toBe(now + 600_000);
+    expect(f.state.appState.lastStopReason).toBeNull();
+    const deadline = f.state.appState.queueAcquisitionRound?.nextRoundAt;
+    now += 30_000;
+    await f.session.checkDropProgress();
+    expect(f.state.appState.queueAcquisitionRound?.nextRoundAt).toBe(deadline);
+    expect(f.starts).toEqual(['d', 'c', 'b', 'a']);
+    if (mode === 'tabless') expect(f.managedOpens()).toBe(0);
+  });
 }

@@ -1,10 +1,7 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics([
-  ['[DropHunter] Giving up on game after stalled drop progress', 1],
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 1],
-]);
+verifyExpectedDiagnostics([]);
 
 import { describe, expect, test } from 'bun:test';
 import { setGameFavorite } from '../src/background/favorite-games.ts';
@@ -180,6 +177,7 @@ describe('v4 queue continuation authorization', () => {
     const state = createQueueState();
     state.appState.availableGames = [manualA, automaticC];
     setAutomaticCompletion(state, automaticC, [automaticC, manualA]);
+    automaticC.endsAt = new Date(Date.now() - 1000).toISOString();
     state.appState.allDrops = [];
     state.previousAllDropsCount = 1;
     const probe = createContinuationProbe(state, manualA);

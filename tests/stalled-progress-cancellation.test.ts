@@ -6,7 +6,7 @@ import { makeDrop } from './fixtures/auto-claim-drops.ts';
 
 describe('stalled progress cancellation', () => {
   for (const action of ['stop', 'restart'] as const) {
-    test.each(['campaign', 'inventory', 'tabless', 'playback', 'rotation', 'save'] as const)(
+    test.each(['campaign', 'inventory', 'rotation', 'save'] as const)(
       `ignores pending %s recovery after ${action}`,
       async (boundary) => {
         const state = createServiceWorkerState();
@@ -31,7 +31,7 @@ describe('stalled progress cancellation', () => {
         };
         const pending = recoverStalledProgress(
           state,
-          boundary === 'tabless' ? { kind: 'tabless' } : { kind: 'managed-tab', tabId: 8 },
+          { kind: 'managed-tab', tabId: 8 },
           {
             now: Date.now,
             onCampaignRefresh: async () => {
@@ -46,8 +46,6 @@ describe('stalled progress cancellation', () => {
               await step('advance');
               return true;
             },
-            onAttemptPlaybackSelfHeal: () => step('playback'),
-            onRestartTablessWatcher: () => step('tabless'),
             onRotateStreamer: () => step('rotation'),
             onSkipCurrentGame: () => step('skip'),
             onSaveState: () => step('save'),

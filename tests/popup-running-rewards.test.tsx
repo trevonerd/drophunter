@@ -64,7 +64,6 @@ function renderRunningPopup(currentDrop: TwitchDrop, pendingDrops: TwitchDrop[])
       firstSyncConfirmation={false}
       firstSyncCampaignCount={null}
       queueMessage={null}
-      dismissedQueueCleanupActivityId={null}
       notificationPermissionDenied={false}
       onAutoStartFavoriteGamesToggle={() => {}}
       onMuteToggle={() => {}}
@@ -74,7 +73,7 @@ function renderRunningPopup(currentDrop: TwitchDrop, pendingDrops: TwitchDrop[])
       onPause={() => {}}
       onResume={() => {}}
       onStop={() => {}}
-      onDismissQueueCleanup={() => {}}
+      onDismissFarmingMessage={() => {}}
       onAddToQueue={() => {}}
       onAddAllToQueue={() => {}}
       onLinkAccount={() => {}}

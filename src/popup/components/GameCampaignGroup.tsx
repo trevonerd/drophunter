@@ -161,9 +161,9 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
               <span className="dh-game-campaign-count shrink-0">
                 {props.group.campaigns.length} {props.group.campaigns.length === 1 ? 'campaign' : 'campaigns'}
               </span>
-              {completed && (
+              {(completed || watchTimeComplete) && (
                 <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-green-500/15 px-1 py-px font-semibold text-green-300">
-                  <CheckIcon /> Complete
+                  <CheckIcon /> {completed ? 'Complete' : 'Done'}
                 </span>
               )}
               {needsLink && (

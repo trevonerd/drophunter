@@ -6,17 +6,12 @@ export async function applyAuthoritativeEmptyCampaignRefresh(
   deps: GamesCacheRefreshDeps,
   preserveTerminalStop = false,
 ): Promise<void> {
-  if (state.appState.isRunning) {
-    await deps.stopFarmingSession({
-      stopReason: 'no-active-campaigns',
-      stopMessage: 'No active Twitch Drops campaigns found.',
-    });
-  } else if (!preserveTerminalStop) {
+  if (!state.appState.isRunning && !preserveTerminalStop) {
     state.appState = deps.clearTerminalStopStatus(deps.clearRecoveryStatus(state.appState));
   }
   deps.resetStateForAuthoritativeEmptyCampaign(state);
   state.appState.lastSuccessfulRefreshAt = Date.now();
-  deps.resetStreamTrackingState(state);
+  if (!state.appState.isRunning) deps.resetStreamTrackingState(state);
   state.lastGamesCacheRefreshAt = Date.now();
   await deps.saveState(state);
 }

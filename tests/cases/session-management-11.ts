@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
-import { syncTwitchSessionFromContentScriptExt } from '../../src/background/session-management.ts';
+import {
+  currentTwitchSessionRevision,
+  syncTwitchSessionFromContentScriptExt,
+} from '../../src/background/session-management.ts';
 import type { TwitchSession } from '../../src/background/twitch-api/types.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
@@ -20,7 +23,6 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastTrackedDropKey: null,
     lastProgressAdvanceAt: 0,
     noProgressRotationAttempts: 0,
-    playbackAttentionWarningSent: false,
     gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,
     twitchSessionFetchInFlight: null,
@@ -31,7 +33,6 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastFullRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
-    queueMissingStreak: new Map(),
     lastActivityAt: 0,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
@@ -40,7 +41,6 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     recoveryBackoffUntil: 0,
     lastRecoveryAttemptAt: 0,
     stalledRecoveryAttempts: 0,
-    recoveryNotificationSent: false,
     lastGamesCacheRefreshAt: 0,
     ...overrides,
   };
@@ -121,6 +121,32 @@ describe('syncTwitchSessionFromContentScriptExt', () => {
     expect(saved).toBe(0);
     expect(broadcasted).toBe(0);
   });
+
+  test.each([
+    { report: { userId: '' }, expectedUserId: '12345678', revisionChanged: false },
+    {
+      report: { userId: '', oauthToken: 'different12345678901234567890' },
+      expectedUserId: '',
+      revisionChanged: true,
+    },
+    { report: { userId: '87654321' }, expectedUserId: '87654321', revisionChanged: true },
+  ])(
+    'retains known identity only for an incomplete report of the same credentials (%j)',
+    async ({ report, expectedUserId, revisionChanged }) => {
+      const state = createMinimalState({ twitchSessionCache: validSession() });
+      const revision = currentTwitchSessionRevision(state);
+      const result = await syncTwitchSessionFromContentScriptExt(state, validSession(report), 42, {
+        shouldRefreshCampaignsAfterSessionSync: () => false,
+        onRefreshCampaigns: async () => {},
+        onSaveState: async () => {},
+        onBroadcastStateUpdate: () => {},
+      });
+      expect(result).toEqual({ success: true });
+      expect(state.twitchSessionCache?.userId).toBe(expectedUserId);
+      expect(mocks.storage.local._store.get('twitchSession')).toMatchObject({ userId: expectedUserId });
+      expect(currentTwitchSessionRevision(state)).toBe(revision + Number(revisionChanged));
+    },
+  );
 
   test('refreshes + saves + broadcasts when sender has tab id and callback says refresh', async () => {
     const state = createMinimalState();

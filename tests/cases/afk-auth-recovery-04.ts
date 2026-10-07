@@ -25,7 +25,7 @@ describe('AFK Twitch authentication recovery', () => {
     chromeMocks.teardown();
   });
 
-  test('blocks once when neither cached reward nor watch transport can continue', async () => {
+  test('waits for login when neither cached reward nor watch transport can continue', async () => {
     const state = createState();
     state.appState.currentDrop = null;
     state.appState.pendingDrops = [];
@@ -73,14 +73,14 @@ describe('AFK Twitch authentication recovery', () => {
 
     await gateway.fetchInventorySnapshot([drop], { sessionRecoveryMode: 'background-tab' });
 
-    expect(state.appState.isRunning).toBe(false);
-    expect(state.appState.lastStopReason).toBe('sign-in-required');
-    expect(state.appState.twitchSessionSyncState.status).toBe('blocked');
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(state.appState.twitchSessionSyncState.status).toBe('retrying');
     expect(transportStops).toBe(1);
-    expect(notifications).toBe(1);
+    expect(notifications).toBe(0);
   });
 
-  test('blocks after explicit auth recovery fails when cached rewards have no active transport', async () => {
+  test('schedules explicit authentication recovery without terminating the queue', async () => {
     const state = createState();
     state.appState.activeStreamer = null;
     state.appState.tabId = null;
@@ -94,10 +94,10 @@ describe('AFK Twitch authentication recovery', () => {
     });
 
     expect(captured.stopOptions?.stopReason).toBe('sign-in-required');
-    expect(state.appState.twitchSessionSyncState.status).toBe('blocked');
+    expect(state.appState.twitchSessionSyncState.status).toBe('retrying');
   });
 
-  test('delivers sign-in-required once through the common notifier', async () => {
+  test('shows login locally while retaining authorized targets without external notifications', async () => {
     const state = createState();
     const automaticEvents: Array<{
       event: string;
@@ -130,15 +130,9 @@ describe('AFK Twitch authentication recovery', () => {
     });
 
     expect(legacyNotifications).toBe(0);
-    expect(automaticEvents).toEqual([
-      {
-        event: 'sign-in-required',
-        transitionId: 'sign-in-required:campaign-1:0',
-        message: 'Please sign in to Twitch.',
-        campaignId: 'campaign-1',
-        title: 'Sign-in required',
-        telegramReason: 'sign-in-required',
-      },
-    ]);
+    expect(automaticEvents).toEqual([]);
+    expect(state.appState.manualQueueAuthorized).toBe(true);
+    expect(state.appState.selectedGame?.campaignId).toBe('campaign-1');
+    expect(state.appState.twitchSessionSyncState.nextRetryAt).toBeGreaterThan(Date.now());
   });
 });

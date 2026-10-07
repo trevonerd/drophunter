@@ -47,7 +47,6 @@ const UPDATE_RESET_LOCAL_KEYS = [
   TIMING_STATE_KEY,
   FARMING_AUTOMATION_FACTS_STORAGE_KEY,
   FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY,
-  'automationNotificationTransitions',
   'lastActivityAt',
 ] as const;
 

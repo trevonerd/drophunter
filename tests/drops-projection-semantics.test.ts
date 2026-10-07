@@ -180,13 +180,13 @@ test('fresh progress clears only the matching inactive campaign streamer history
     source: 'manual',
     addedAt: 1,
     reason: 'user-added',
-    stalledStreamerNames: ['a-old'],
+    attemptedStreamerNames: ['a-old'],
   };
   state.appState.queueEntryMetadataByKey[gameKey(campaignB)] = {
     source: 'manual',
     addedAt: 2,
     reason: 'user-added',
-    stalledStreamerNames: ['b-keep'],
+    attemptedStreamerNames: ['b-keep'],
   };
   state.appState.campaignDropsByKey = {
     [gameKey(campaignA)]: [dropA],
@@ -204,8 +204,8 @@ test('fresh progress clears only the matching inactive campaign streamer history
   };
   projectDropsSnapshot(state, snapshot, snapshotProvenance(snapshot));
 
-  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignA)]?.stalledStreamerNames).toBeUndefined();
-  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignB)]?.stalledStreamerNames).toEqual([
+  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignA)]?.attemptedStreamerNames).toBeUndefined();
+  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignB)]?.attemptedStreamerNames).toEqual([
     'b-keep',
   ]);
 });
@@ -224,13 +224,13 @@ test('cached unverified progress cannot clear stalled streamer history', () => {
     source: 'manual',
     addedAt: 1,
     reason: 'user-added',
-    stalledStreamerNames: ['a-old'],
+    attemptedStreamerNames: ['a-old'],
   };
   state.appState.queueEntryMetadataByKey[gameKey(campaignB)] = {
     source: 'manual',
     addedAt: 2,
     reason: 'user-added',
-    stalledStreamerNames: ['b-keep'],
+    attemptedStreamerNames: ['b-keep'],
   };
   state.appState.campaignDropsByKey = {
     [gameKey(campaignA)]: [dropA],
@@ -247,8 +247,10 @@ test('cached unverified progress cannot clear stalled streamer history', () => {
   const snapshot = { games: [campaignA, campaignB], drops: [staleProgressA, dropB], updatedAt: 20 };
   projectDropsSnapshot(state, snapshot, snapshotProvenance(snapshot));
 
-  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignA)]?.stalledStreamerNames).toEqual(['a-old']);
-  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignB)]?.stalledStreamerNames).toEqual([
+  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignA)]?.attemptedStreamerNames).toEqual([
+    'a-old',
+  ]);
+  expect(state.appState.queueEntryMetadataByKey[gameKey(campaignB)]?.attemptedStreamerNames).toEqual([
     'b-keep',
   ]);
 });

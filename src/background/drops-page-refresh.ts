@@ -1,9 +1,10 @@
+import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 import { refreshDropsPageCampaigns } from './drops-page-campaign-refresh.ts';
 import {
+  createDropsPageTabConsumers,
   type DropsPageRefreshOptions,
   type DropsPageState,
-  findOrOpenDropsPageTab,
   publishDropsPageRefreshState,
 } from './drops-page-tab-lifecycle.ts';
 import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/errors.ts';
@@ -28,6 +29,7 @@ interface OpenDropsPageRefreshOptions {
   openIfMissing?: boolean;
   waitForExistingTabMs?: number;
   isCurrent?: () => boolean;
+  closeAfterRefresh?: boolean;
 }
 
 export function createDropsPageRefresher(state: DropsPageState, options: DropsPageRefreshOptions) {
@@ -35,6 +37,8 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
   let refreshInFlight: Promise<DropsPageRefreshResult> | null = null;
   let openIsCurrent: (() => boolean) | null = null;
   let refreshIsCurrent: (() => boolean) | null = null;
+  let openRetention: { keep: boolean; active: boolean } | null = null;
+  const consumers = createDropsPageTabConsumers(state, options);
   const cancelledResult = (): DropsPageRefreshResult => ({
     success: false,
     opened: false,
@@ -128,10 +132,10 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
 
   const openAndMaybeRefresh = async (
     waitForRefresh: boolean,
-    active: boolean,
     openIfMissing: boolean,
     waitForExistingTabMs: number,
     isCurrent: () => boolean,
+    retention: { keep: boolean; active: boolean },
   ): Promise<DropsPageRefreshResult> => {
     if (!isCurrent())
       return {
@@ -145,20 +149,14 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     await options.ensureStateHydratedForCache();
     if (!isCurrent()) return cancelledResult();
 
-    const { tabId, opened } = await findOrOpenDropsPageTab(
-      options,
-      active,
+    const requestedActive = retention.active;
+    const { tabId, opened } = await consumers.acquire(
+      requestedActive,
       openIfMissing,
       waitForExistingTabMs,
       isCurrent,
+      retention,
     );
-    if (!isCurrent())
-      return {
-        success: false,
-        opened: false,
-        refreshed: false,
-        gamesCount: state.appState.availableGames.length,
-      };
     if (!tabId) {
       const error = openIfMissing
         ? 'Unable to open the Twitch Drops page.'
@@ -176,25 +174,44 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
       };
     }
 
-    await publishRefreshState(true, {
-      attemptAt: Date.now(),
-      error: null,
-    });
-    if (!isCurrent()) return cancelledResult();
+    let refreshOwnsRelease = false;
+    try {
+      if (!isCurrent()) return cancelledResult();
+      if (retention.active && !requestedActive)
+        await (options.tabsApi ?? browser.tabs).update(tabId, { active: true }).catch(() => undefined);
+      if (!isCurrent()) return cancelledResult();
+      await publishRefreshState(true, {
+        attemptAt: Date.now(),
+        error: null,
+      });
+      if (!isCurrent()) return cancelledResult();
 
-    if (!waitForRefresh) {
       const refreshPromise = refreshFromDropsPageTab(tabId, opened, isCurrent);
-      refreshPromise.catch(() => undefined);
-      return {
-        success: true,
-        opened,
-        refreshed: false,
-        gamesCount: state.appState.availableGames.length,
-      };
-    }
+      const ownedRefresh = refreshPromise.then(
+        async (result) => {
+          await consumers.release(tabId, result, retention);
+          return result;
+        },
+        async (error: unknown) => {
+          await consumers.release(tabId, cancelledResult(), retention);
+          throw error;
+        },
+      );
+      refreshOwnsRelease = true;
+      if (!waitForRefresh) {
+        ownedRefresh.catch(() => undefined);
+        return {
+          success: true,
+          opened,
+          refreshed: false,
+          gamesCount: state.appState.availableGames.length,
+        };
+      }
 
-    const refreshPromise = refreshFromDropsPageTab(tabId, opened, isCurrent);
-    return refreshPromise;
+      return await ownedRefresh;
+    } finally {
+      if (!refreshOwnsRelease) await consumers.release(tabId, cancelledResult(), retention);
+    }
   };
 
   const openDropsPageAndRefresh = (
@@ -206,25 +223,36 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     const externalIsCurrent = openOptions.isCurrent ?? (() => true);
     const deadline = Date.now() + DROPS_PAGE_OPERATION_TIMEOUT_MS;
     const isCurrent = () => Date.now() < deadline && externalIsCurrent();
+    const retention = { keep: openOptions.closeAfterRefresh !== true || active, active };
     if (openOptions.waitForRefresh === false) {
-      return openAndMaybeRefresh(false, active, openIfMissing, waitForExistingTabMs, isCurrent);
+      return openAndMaybeRefresh(false, openIfMissing, waitForExistingTabMs, isCurrent, retention);
     }
 
     if (openAndRefreshInFlight && openIsCurrent?.()) {
+      if (retention.keep) {
+        const activate = active && openRetention?.active === false;
+        if (openRetention) {
+          openRetention.keep = true;
+          openRetention.active ||= active;
+        }
+        consumers.retain(activate);
+      }
       return openAndRefreshInFlight;
     }
 
     openIsCurrent = isCurrent;
+    openRetention = retention;
     const operation = openAndMaybeRefresh(
       true,
-      active,
       openIfMissing,
       waitForExistingTabMs,
       isCurrent,
+      retention,
     ).finally(() => {
       if (openAndRefreshInFlight === operation) {
         openAndRefreshInFlight = null;
         openIsCurrent = null;
+        openRetention = null;
       }
     });
     openAndRefreshInFlight = operation;

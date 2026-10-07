@@ -1,4 +1,12 @@
-import { expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { setupChromeMocks } from './mocks/chrome.ts';
+
+let browserMocks: ReturnType<typeof setupChromeMocks>;
+beforeEach(() => {
+  browserMocks = setupChromeMocks();
+});
+afterEach(() => browserMocks.teardown());
+
 import { createActivationSyncCoordinator } from '../src/background/activation-sync-coordinator.ts';
 import { createDropsPageRefresher } from '../src/background/drops-page-refresh.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';

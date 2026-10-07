@@ -100,6 +100,7 @@ function scanTokens(source: string, filePath: string, skipTrivia: boolean): Sour
   let templateExpressionDepth = 0;
   let kind = scanner.scan();
   while (kind !== SyntaxKind.EndOfFile) {
+    if (scanner.getTokenStart() === scanner.getTokenEnd()) kind = scanner.reScanInvalidIdentifier();
     tokens.push({ end: scanner.getTokenEnd(), kind, start: scanner.getTokenStart(), text: scanner.getTokenText() });
     if (kind === SyntaxKind.TemplateHead || kind === SyntaxKind.TemplateMiddle) templateExpressionDepth = 1;
     if (templateExpressionDepth > 0 && kind === SyntaxKind.OpenBraceToken) templateExpressionDepth += 1;
@@ -170,7 +171,8 @@ function analyzeSource(source: string, relativePath: string): FileReport {
     if (token.kind === SyntaxKind.AsKeyword && tokens[index + 1]?.kind === SyntaxKind.UnknownKeyword) {
       addViolation(violations, lineStarts, relativePath, tokens[index + 1] ?? token, 'no-unknown-assertion', '`as unknown` is forbidden');
     }
-    if (token.kind === SyntaxKind.AnyKeyword && previous?.kind !== SyntaxKind.AsKeyword) {
+    if (token.kind === SyntaxKind.AnyKeyword && previous?.kind !== SyntaxKind.AsKeyword &&
+      previous?.kind !== SyntaxKind.DotToken && previous?.kind !== SyntaxKind.QuestionDotToken) {
       addViolation(violations, lineStarts, relativePath, token, 'no-any-annotation', 'explicit `any` is forbidden');
     }
     if (token.kind === SyntaxKind.EnumKeyword) {

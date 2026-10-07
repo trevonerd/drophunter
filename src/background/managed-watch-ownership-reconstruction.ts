@@ -46,6 +46,7 @@ export async function reconstructManagedWatchOwnership(
     (matching.length === 1 ? (matching[0] ?? null) : recovered.length === 1 ? (recovered[0] ?? null) : null);
   if (selected && isCurrent()) {
     const selectedPreparation = await getManagedWatchPreparation(selected);
+    if (!isCurrent()) return null;
     let predecessorRetained = false;
     if (matching.includes(selected)) {
       for (const ownership of recovered) {
@@ -70,6 +71,7 @@ export async function reconstructManagedWatchOwnership(
       selected.ownershipToken,
       streamerWatchUrl(selected.expectedChannel),
       predecessorRetained && selectedPreparation ? selectedPreparation : {},
+      isCurrent,
     );
     if (isCurrent()) {
       return selected;

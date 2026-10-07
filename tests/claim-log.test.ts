@@ -361,6 +361,18 @@ describe('loadClaimLog / appendClaimLogEntries / clearClaimLog', () => {
     expect(await loadClaimLog()).toEqual([]);
   });
 
+  test('a pending notification does not delay persisted claim history or totals', async () => {
+    setClaimRecordedHandler(() => new Promise<void>(() => {}));
+    try {
+      const target = { appState: { totalDropsClaimed: 0, availableGames: [makeGame()] } };
+      expect(await recordClaimedDrops(target, [makeDrop({ id: 'pending-notification' })])).toBe(1);
+      expect(target.appState.totalDropsClaimed).toBe(1);
+      expect(await loadClaimLog()).toHaveLength(1);
+    } finally {
+      setClaimRecordedHandler(null);
+    }
+  });
+
   test('recordClaimedDrops invokes the registered claim handler for new entries', async () => {
     const recorded: string[] = [];
     setClaimRecordedHandler(async (entries) => {

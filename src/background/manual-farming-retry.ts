@@ -1,5 +1,5 @@
-import { gameKey } from '../shared/game-selection.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
+import { restartQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 interface RetryDependencies {
@@ -9,7 +9,7 @@ interface RetryDependencies {
 }
 
 export async function retryFarmingNow(state: ServiceWorkerState, dependencies: RetryDependencies) {
-  if (!state.appState.isRunning || state.appState.isPaused || !state.appState.selectedGame) {
+  if (!state.appState.isRunning || state.appState.isPaused || state.appState.lastStopReason === 'user-stop') {
     return { success: false, error: 'Start or resume farming before retrying.' };
   }
   if (state.apiBackoffUntil > Date.now()) {
@@ -21,23 +21,13 @@ export async function retryFarmingNow(state: ServiceWorkerState, dependencies: R
   if (state.monitorTickInFlight || state.streamerAcquisitionInFlight) {
     return { success: true };
   }
-  if (state.appState.recoveryReason === 'open-failed' || state.appState.recoveryReason === 'no-streamers') {
-    const epoch = currentFarmingSessionEpoch(state);
-    const selectedKey = gameKey(state.appState.selectedGame);
-    state.recoveryBackoffUntil = 0;
-    state.appState.recoveryBackoffUntil = Date.now();
-    await dependencies.saveState();
-    if (
-      currentFarmingSessionEpoch(state) !== epoch ||
-      !state.appState.isRunning ||
-      state.appState.isPaused ||
-      !state.appState.selectedGame ||
-      gameKey(state.appState.selectedGame) !== selectedKey
-    )
-      return { success: false, error: 'Retry was cancelled by a session change.' };
-    await dependencies.acquireStreamerForSelectedGame();
-  } else {
-    await dependencies.checkDropProgress();
-  }
+  const epoch = currentFarmingSessionEpoch(state);
+  restartQueueAcquisitionRound(state);
+  state.recoveryBackoffUntil = 0;
+  state.appState.recoveryBackoffUntil = Date.now();
+  await dependencies.saveState();
+  if (currentFarmingSessionEpoch(state) !== epoch || !state.appState.isRunning || state.appState.isPaused)
+    return { success: false, error: 'Retry was cancelled by a session change.' };
+  await dependencies.checkDropProgress();
   return { success: true };
 }

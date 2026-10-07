@@ -13,7 +13,6 @@ export function preparedWatch(target: FarmingTarget, health: WatchHealth): Watch
       target,
       health,
       ownership,
-      fallbackReason: null,
       promote: () => ({ kind: 'promoted', ownership, obsolete: null }),
       dispose: async () => {},
     },

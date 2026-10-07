@@ -7,7 +7,7 @@ import {
 import { normalizeToken } from '../shared/matching';
 import { TwitchGame } from '../types';
 import { compareCampaignDeadlines, insertCampaignByDeadline } from './campaign-priority.ts';
-import { CRASH_RECOVERY_GRACE_MS, QUEUE_MISSING_CONFIRM_THRESHOLD } from './constants';
+import { retireFarmingTarget } from './farming-session-targets.ts';
 import { logDebug } from './logging';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
@@ -128,48 +128,22 @@ export function promoteQueueHead(state: ServiceWorkerState): TwitchGame | null {
 export function normalizeQueueSelection(
   state: ServiceWorkerState,
   games: TwitchGame[],
-  dropVanished = false,
+  _dropVanished = false,
 ) {
   if (!Array.isArray(state.appState.queue) || state.appState.queue.length === 0) {
     state.appState.queue = [];
     state.appState.queueEntryMetadataByKey = {};
-    state.appState.queueAcquisitionRound = null;
+    if (!state.appState.isRunning) state.appState.queueAcquisitionRound = null;
     state.appState.queueResumeOnAvailability = false;
     state.appState.forcedCampaignKey = null;
-    state.queueMissingStreak.clear();
     return;
   }
-
-  const inCrashGrace =
-    state.appState.resumedFromCrash != null &&
-    Date.now() - state.appState.resumedFromCrash < CRASH_RECOVERY_GRACE_MS;
 
   const normalized: TwitchGame[] = [];
   const seen = new Set<string>();
   state.appState.queue.forEach((queuedGame) => {
     const resolved = findMatchingGame(queuedGame, games);
-    if (!resolved && dropVanished && queuedGame.campaignId) {
-      const key = gameKey(queuedGame);
-      if (inCrashGrace) {
-        // First snapshot(s) right after a resume are the least trustworthy — don't count
-        // them toward the missing streak at all.
-      } else {
-        const streak = (state.queueMissingStreak.get(key) ?? 0) + 1;
-        if (streak >= QUEUE_MISSING_CONFIRM_THRESHOLD) {
-          state.queueMissingStreak.delete(key);
-          return;
-        }
-        state.queueMissingStreak.set(key, streak);
-      }
-      if (seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      normalized.push(queuedGame);
-      return;
-    }
     const game = resolved ?? queuedGame;
-    state.queueMissingStreak.delete(gameKey(game));
     const key = gameKey(game);
     if (seen.has(key)) {
       return;
@@ -177,12 +151,6 @@ export function normalizeQueueSelection(
     seen.add(key);
     normalized.push(game);
   });
-
-  for (const key of Array.from(state.queueMissingStreak.keys())) {
-    if (!seen.has(key)) {
-      state.queueMissingStreak.delete(key);
-    }
-  }
 
   state.appState.queue = normalized;
   reconcileQueueMetadata(state);
@@ -196,6 +164,7 @@ export function normalizeQueueSelection(
 }
 
 export function removeGameFromQueue(state: ServiceWorkerState, game: TwitchGame) {
+  retireFarmingTarget(state, game);
   removeQueueEntriesForGame(state, game);
 }
 

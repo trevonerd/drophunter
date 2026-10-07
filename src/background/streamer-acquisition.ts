@@ -1,19 +1,16 @@
-import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
+import { gameKey } from '../shared/game-selection.ts';
 import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
 import { applyApiBackoff, getLastTwitchApiFailure } from './api-operations.ts';
 import { EligibleStreamerDiscoveryUnavailableError } from './eligible-streamer-discovery.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
-import { logWarn } from './logging.ts';
 import {
   applyDirectoryUnavailableRecoveryState,
   applyGlobalStreamerRecoveryState,
-  applyNoStreamersRecoveryState,
   applyPlaybackStartRecoveryState,
   clearStreamerAcquisitionRecoveryState,
 } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
-  MAX_NO_STREAMERS_RETRIES,
   NO_STREAMERS_RETRY_MS,
   nextNoProgressRotationAttempts,
   type StreamRotationReason,
@@ -21,6 +18,7 @@ import {
 import { runStreamerAcquisitionAttempt } from './streamer-acquisition-attempt.ts';
 import type { RotateStreamerOptions } from './streamer-acquisition-contracts.ts';
 import { NoEligibleStreamerError, WatchPlaybackUnavailableError } from './streamer-selection-flow.ts';
+import { MAX_STREAMER_ATTEMPTS } from './streamer-watch-attempt.ts';
 import { classifyTwitchApiFailure, TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
 
 export type {
@@ -32,7 +30,7 @@ export { openBestStreamerForSelectedGame } from './streamer-selection-flow.ts';
 export { rotateStreamerIfInvalid } from './streamer-validation.ts';
 
 interface AcquisitionOptions {
-  onOpenStreamer?: (isCurrent: () => boolean) => Promise<boolean>;
+  onOpenStreamer?: (isCurrent: () => boolean) => Promise<boolean | 'cancelled' | 'preparing'>;
   onSkipCurrentGame?: (
     reason: 'no-streamers' | 'directory-unavailable' | 'open-failed' | 'stalled-progress',
     isCurrent?: () => boolean,
@@ -67,22 +65,8 @@ async function acquireStreamer(
   const now = Date.now();
   const acquisitionRecoveryActive = isStreamerAcquisitionRecovery(state.appState.recoveryReason);
   const selectedKey = gameKey(state.appState.selectedGame);
-  const metadata = state.appState.queueEntryMetadataByKey[selectedKey] ?? {
-    source: 'manual' as const,
-    addedAt: now,
-    reason: 'user-added' as const,
-  };
-  const previousAttempts =
-    metadata.streamerRetryAttempts ??
-    (state.appState.recoveryReason === 'no-streamers' || state.appState.recoveryReason === 'open-failed'
-      ? Math.max(0, state.appState.recoveryAttempts ?? 0)
-      : 0);
-  if (previousAttempts > 0) {
-    state.appState.queueEntryMetadataByKey[selectedKey] = {
-      ...metadata,
-      streamerRetryAttempts: previousAttempts,
-    };
-  }
+  const attempts = () =>
+    state.appState.queueEntryMetadataByKey[selectedKey]?.attemptedStreamerNames?.length ?? 0;
   if (state.apiBackoffUntil > now) {
     applyGlobalStreamerRecoveryState(state, getLastTwitchApiFailure(state)?.kind ?? 'network');
     await opts?.onSaveState?.();
@@ -93,35 +77,24 @@ async function acquireStreamer(
   if (acquisitionRecoveryActive && state.recoveryBackoffUntil > now) return false;
   let opened = false;
   try {
-    opened = opts?.onOpenStreamer ? await opts.onOpenStreamer(opts.isCurrent ?? (() => true)) : false;
+    const result = opts?.onOpenStreamer ? await opts.onOpenStreamer(opts.isCurrent ?? (() => true)) : false;
+    if (result === 'cancelled') return false;
+    if (result === 'preparing') {
+      await opts?.onSaveState?.();
+      if (opts?.isCurrent?.() !== false) await opts?.onSaveTimingState?.(state);
+      return false;
+    }
+    opened = result;
   } catch (error) {
     if (error instanceof NoEligibleStreamerError) {
       if (opts?.isCurrent?.() === false) return false;
-      if (state.appState.recoveryReason === 'stalled-progress') {
-        release();
-        await opts?.onSkipCurrentGame?.('stalled-progress', canTransition);
-        return false;
-      }
-      if (previousAttempts >= MAX_NO_STREAMERS_RETRIES) {
-        release();
-        await opts?.onSkipCurrentGame?.('no-streamers', canTransition);
-        if (opts?.isCurrent?.() === false) return false;
-        await opts?.onSaveState?.();
-        await opts?.onSaveTimingState?.(state);
-        return false;
-      }
-      const attempts = previousAttempts + 1;
-      state.appState.queueEntryMetadataByKey[selectedKey] = { ...metadata, streamerRetryAttempts: attempts };
-      const retryAt = Date.now() + NO_STREAMERS_RETRY_MS;
-      applyNoStreamersRecoveryState(state, retryAt, attempts);
-      logWarn('No eligible streamer found for current Drops; scheduling one retry', {
-        game: getGameDisplayLabel(state.appState.selectedGame),
-        retryAt,
-        attempts,
-      });
+      release();
+      await opts?.onSkipCurrentGame?.(
+        state.appState.recoveryReason === 'stalled-progress' ? 'stalled-progress' : 'no-streamers',
+        canTransition,
+      );
       await opts?.onSaveState?.();
-      if (opts?.isCurrent?.() === false) return false;
-      await opts?.onSaveTimingState?.(state);
+      if (canTransition()) await opts?.onSaveTimingState?.(state);
       return false;
     }
     if (error instanceof EligibleStreamerDiscoveryUnavailableError) {
@@ -134,7 +107,7 @@ async function acquireStreamer(
         return false;
       }
       const retryAt = Date.now() + NO_STREAMERS_RETRY_MS;
-      applyDirectoryUnavailableRecoveryState(state, retryAt, previousAttempts);
+      applyDirectoryUnavailableRecoveryState(state, retryAt, attempts());
       await opts?.onSaveState?.();
       if (opts?.isCurrent?.() === false) return false;
       await opts?.onSaveTimingState?.(state);
@@ -142,16 +115,14 @@ async function acquireStreamer(
     }
     if (error instanceof WatchPlaybackUnavailableError) {
       if (opts?.isCurrent?.() === false) return false;
-      const attempts = previousAttempts + 1;
-      state.appState.queueEntryMetadataByKey[selectedKey] = {
-        ...metadata,
-        streamerRetryAttempts: attempts,
-      };
-      if (attempts >= 3 && state.appState.recoveryReason !== 'stalled-progress') {
+      if (attempts() >= MAX_STREAMER_ATTEMPTS || error.alternativesExhausted) {
         release();
-        await opts?.onSkipCurrentGame?.('open-failed', canTransition);
+        await opts?.onSkipCurrentGame?.(
+          state.appState.recoveryReason === 'stalled-progress' ? 'stalled-progress' : 'open-failed',
+          canTransition,
+        );
       } else {
-        applyPlaybackStartRecoveryState(state, Date.now() + NO_STREAMERS_RETRY_MS, attempts);
+        applyPlaybackStartRecoveryState(state, Date.now() + NO_STREAMERS_RETRY_MS, attempts());
       }
       await opts?.onSaveState?.();
       if (opts?.isCurrent?.() === false) return false;
@@ -175,11 +146,7 @@ async function acquireStreamer(
     const selectedKey = gameKey(state.appState.selectedGame);
     const metadata = state.appState.queueEntryMetadataByKey[selectedKey];
     if (metadata) {
-      const {
-        streamerRetryAttempts: _attempts,
-        streamerWaitState: _waitState,
-        ...retainedMetadata
-      } = metadata;
+      const { streamerWaitState: _waitState, ...retainedMetadata } = metadata;
       state.appState.queueEntryMetadataByKey[selectedKey] = retainedMetadata;
     }
     await opts?.onSaveState?.();
@@ -187,23 +154,8 @@ async function acquireStreamer(
     await opts?.onSaveTimingState?.(state);
     return true;
   }
-  if (previousAttempts >= MAX_NO_STREAMERS_RETRIES) {
-    release();
-    await opts?.onSkipCurrentGame?.('no-streamers', canTransition);
-    if (opts?.isCurrent?.() === false) return false;
-    await opts?.onSaveState?.();
-    await opts?.onSaveTimingState?.(state);
-    return false;
-  }
-  const attempts = previousAttempts + 1;
-  state.appState.queueEntryMetadataByKey[selectedKey] = { ...metadata, streamerRetryAttempts: attempts };
-  const retryAt = Date.now() + NO_STREAMERS_RETRY_MS;
-  applyNoStreamersRecoveryState(state, retryAt, attempts);
-  logWarn('No eligible streamer found for current Drops; scheduling one retry', {
-    game: getGameDisplayLabel(state.appState.selectedGame),
-    retryAt,
-    attempts,
-  });
+  release();
+  await opts?.onSkipCurrentGame?.('no-streamers', canTransition);
   await opts?.onSaveState?.();
   if (opts?.isCurrent?.() === false) return false;
   await opts?.onSaveTimingState?.(state);
@@ -251,7 +203,6 @@ export async function rotateStreamer(
   state.appState.lastRotationReason = reason;
   state.appState.lastRotationAt = now;
   state.lastStreamRotationAt = now;
-  state.lastProgressAdvanceAt = now;
   state.offlineChecks = 0;
   if (!isCurrent()) return false;
   await opts?.onSaveState?.();

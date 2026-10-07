@@ -13,7 +13,9 @@ export interface TabsApiHarness {
   setQueryHandler(
     handler: (queryInfo: { url: string[] }) => Array<{ id?: number; discarded?: boolean }>,
   ): void;
-  query(queryInfo: { url: string[] }): Promise<Array<{ id?: number; discarded?: boolean }>>;
+  query(
+    queryInfo: { url: string[] } | { windowId: number },
+  ): Promise<Array<{ id?: number; discarded?: boolean }>>;
   update(tabId: number, properties?: { active?: boolean; url?: string }): Promise<{ id: number }>;
   create(createData: { url: string; active: boolean }): Promise<{ id: number }>;
 }
@@ -38,7 +40,7 @@ export function createTabsApi(): TabsApiHarness {
       queryHandler = handler;
     },
     async query(queryInfo) {
-      return queryHandler?.(queryInfo) ?? queryResult;
+      return 'url' in queryInfo ? (queryHandler?.(queryInfo) ?? queryResult) : queryResult;
     },
     async update(tabId, properties = {}) {
       updated.push({ tabId, properties });

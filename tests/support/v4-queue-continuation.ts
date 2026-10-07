@@ -12,6 +12,7 @@ export function campaign(id: string): TwitchGame {
     name: `Game ${id}`,
     imageUrl: '',
     campaignId: `campaign-${id}`,
+    dropCount: 1,
     rewardSummary: { completion: 'farmable', remainderReasons: [] },
   };
 }

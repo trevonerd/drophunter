@@ -1,4 +1,3 @@
-import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import type { PlaybackPrepResult } from '../types/index.ts';
 import { createChromeFarmingAutomationHost } from './farming-automation-chrome-host.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
@@ -17,21 +16,17 @@ export async function openOwnedManagedWatch(
   ownedTabs: ManagedWatchOwnership = createChromeFarmingAutomationHost(
     currentOwnership,
   ).managedWatchOwnership,
+  allowInitialCreation = false,
 ): Promise<ManagedTabOpenResult> {
   const epoch = currentFarmingSessionEpoch(state);
   const isCurrent = () => externalIsCurrent() && currentFarmingSessionEpoch(state) === epoch;
-  const preserveExistingWatch =
-    currentOwnership()?.kind === 'managed-tab' &&
-    state.appState.watchHealth?.isHealthy === true &&
-    state.appState.currentDrop !== null &&
-    isRewardFarmableNow(state.appState.currentDrop);
   const candidate = await ownedTabs
     .acquire(target.channelName, {
       isCurrent,
-      preserveExistingWatch,
       retainOnFailure: true,
       allowInitialCreation:
-        state.appState.manualQueueAuthorized && state.appState.farmingSessionOrigin === 'manual',
+        allowInitialCreation ||
+        (state.appState.manualQueueAuthorized && state.appState.farmingSessionOrigin === 'manual'),
     })
     .catch(() => null);
   if (!candidate) return null;
@@ -40,9 +35,12 @@ export async function openOwnedManagedWatch(
   let accepted = false;
   try {
     if (!(await candidate.confirm())) return null;
+    if (!isCurrent()) return null;
+    state.appState.activeStreamer = null;
+    state.appState.watchHealth = null;
+    state.appState.tabId = tabId;
     const prepared = await preparePlayback(tabId, isCurrent);
-    accepted =
-      isCurrent() && (prepared.isPlaybackReady === true || prepared.userInteractionRequired === true);
+    accepted = isCurrent();
     if (!accepted) return null;
     return {
       owner: 'drophunter',
@@ -50,8 +48,18 @@ export async function openOwnedManagedWatch(
       ownership: candidate.ownership,
       health: createWatchHealth(
         'managed-tab',
-        prepared.isPlaybackReady ? 'healthy' : 'degraded',
-        prepared.isPlaybackReady ? 'started' : 'user-interaction-required',
+        prepared.isPlaybackReady
+          ? 'healthy'
+          : prepared.userInteractionRequired || prepared.playbackPending
+            ? 'degraded'
+            : 'failed',
+        prepared.isPlaybackReady
+          ? 'started'
+          : prepared.userInteractionRequired
+            ? 'user-interaction-required'
+            : prepared.playbackPending
+              ? 'playback-pending'
+              : 'playback-inactive',
         Date.now,
       ),
       dispose: candidate.discard,

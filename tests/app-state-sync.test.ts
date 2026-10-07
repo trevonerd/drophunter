@@ -7,6 +7,21 @@ describe('normalizeStoredAppState', () => {
     expect(normalizeStoredAppState(null)).toEqual(createInitialState());
   });
 
+  test('retains a valid pending watch target in live UI broadcasts and rejects malformed targets', () => {
+    const game = { id: 'game', name: 'Game', imageUrl: '', campaignId: 'campaign' };
+    const pendingWatchTarget = { game, channelName: 'candidate' };
+    expect(normalizeStoredAppState({ pendingWatchTarget }).pendingWatchTarget).toEqual(pendingWatchTarget);
+    for (const invalid of [
+      null,
+      {},
+      { game },
+      { game, channelName: 42 },
+      { game: {}, channelName: 'candidate' },
+    ]) {
+      expect(normalizeStoredAppState({ pendingWatchTarget: invalid }).pendingWatchTarget).toBeNull();
+    }
+  });
+
   test('fills in missing app state fields from defaults', () => {
     const state = normalizeStoredAppState({
       isRunning: true,

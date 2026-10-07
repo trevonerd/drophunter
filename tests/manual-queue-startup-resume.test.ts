@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createServiceWorkerActivationSync } from '../src/background/service-worker-activation-sync.ts';
+import { createServiceWorkerBrowserEvents } from '../src/background/service-worker-browser-events.ts';
+import { assembleServiceWorkerFarmingAutomation } from '../src/background/service-worker-farming-automation-assembly.ts';
 import { createServiceWorkerStateLifecycle } from '../src/background/service-worker-state-lifecycle.ts';
 import {
   clearPendingTimingStateSaveForTests,
@@ -16,6 +18,31 @@ import { gameKey } from '../src/shared/game-selection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import { createDrop, createGame, createStreamer } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
+import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
+
+async function initializeAutomation(state: ReturnType<typeof createServiceWorkerState>) {
+  await assembleServiceWorkerFarmingAutomation(state, {
+    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
+    startMonitoring: () => {},
+    browserEvents: createServiceWorkerBrowserEvents(state, {
+      ensureContentScriptOnTab: async () => {},
+      fetchStreamContext: async () => null,
+      heartbeat: async () => ({ accepted: false }),
+      notify: async () => {},
+      notifyQueueComplete: async () => {},
+      clearQueueCompleteNotification: async () => {},
+    }),
+    twitchGateway: {
+      ensureTwitchSession: async () => null,
+      fetchDirectoryStreamers: async () => Object.assign([], { languageFilterApplied: false }),
+      fetchDropsSnapshot: async () => null,
+      getLatestProgressSnapshot: () => null,
+      fetchInventorySnapshot: async () => null,
+      fetchStreamContext: async () => null,
+      heartbeat: async () => ({ accepted: false }),
+    },
+  });
+}
 
 let chrome: ReturnType<typeof setupChromeMocks>;
 beforeEach(() => {
@@ -90,7 +117,10 @@ for (const idleHours of [1, 48]) {
         stopMonitoring: () => {},
         stop: async () => {},
       };
-      const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
+      const lifecycle = createServiceWorkerStateLifecycle(state, {
+        getFarmingSession: () => farming,
+        initializeFarmingAutomation: () => initializeAutomation(state),
+      });
       const activation = createServiceWorkerActivationSync({
         state,
         farmingSession: farming,
@@ -180,7 +210,10 @@ for (const idleHours of [1, 73]) {
         stopMonitoring: () => {},
         stop: async () => {},
       };
-      const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
+      const lifecycle = createServiceWorkerStateLifecycle(state, {
+        getFarmingSession: () => farming,
+        initializeFarmingAutomation: () => initializeAutomation(state),
+      });
       // When: browser state is restored after worker restart or an entire weekend.
       await lifecycle.beginInitialization(async () => {});
       expect(chrome.action.getBadgeState().text).toBe(status === 'paused' ? '⏸' : '');

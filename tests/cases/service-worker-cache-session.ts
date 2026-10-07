@@ -45,6 +45,7 @@ export function registerCacheSessionCases() {
         dropId: 'drop-completed-idle',
         currentMinutes: 60,
         requiredMinutes: 60,
+        claimed: true,
       },
     ];
 

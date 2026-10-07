@@ -125,7 +125,6 @@ export function registerWatchTransportCoordinatorStartCases() {
       kind: 'failed',
       health: { mode: 'tabless', status: 'failed', reason: 'heartbeat-failed' },
     });
-    expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 
   test('keeps explicit managed-tab preference unchanged', async () => {
@@ -234,7 +233,6 @@ export function registerWatchTransportCoordinatorStartCases() {
     expect(heartbeats).toBe(1);
     expect(health).toMatchObject({ kind: 'started', health: { mode: 'tabless' } });
     expect(state.appState.tabId).toBeNull();
-    expect(state.appState.watchFallbackReason).toBeNull();
   });
 
   test('uses the Twitch category id for heartbeat validation', async () => {

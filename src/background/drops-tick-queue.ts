@@ -3,6 +3,7 @@ import { gameKey } from '../shared/game-selection';
 import type { AddToQueueReason } from '../shared/messages.ts';
 import { isRewardWatchable } from '../shared/reward-semantics.ts';
 import type { TwitchDrop, TwitchGame } from '../types';
+import { retireFarmingTarget } from './farming-session-targets.ts';
 import { pushGameToQueue, queueContainsGame, queueEntryMatchesGame, reorderQueue } from './queue-operations';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
@@ -141,6 +142,7 @@ export async function handleRemoveFromQueue(
       return true;
     });
     for (const game of removedGames) {
+      retireFarmingTarget(state, game);
       delete state.appState.queueEntryMetadataByKey[gameKey(game)];
     }
   }

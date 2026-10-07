@@ -112,6 +112,7 @@ export function dependenciesFor(
       events.push('acquire');
       return streamer;
     },
+    persistAttempt: async () => true,
     currentFingerprint: () => 'fingerprint-a',
     loadReceipt: overrides.loadReceipt ?? (async () => ({ kind: 'ready', source: 'missing', value: null })),
     commitTransition:
@@ -132,7 +133,6 @@ export function dependenciesFor(
           watch: {
             target: { gameId: 'duplicate-game', campaignId: 'campaign-b', channelName: 'channel-b' },
             ownership: toWatch,
-            fallbackReason: null,
             health: {
               mode: 'managed-tab',
               isHealthy: true,

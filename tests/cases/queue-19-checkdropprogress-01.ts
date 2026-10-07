@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { checkDropProgress } from '../../src/background/drops-tick.ts';
 import type { StreamRotationReason } from '../../src/background/stream-rotation.ts';
 import { rotateStreamerIfInvalid } from '../../src/background/streamer-acquisition.ts';
-import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
+import { createDrop, createGame, createMinimalState, createStreamer } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
 
@@ -120,6 +120,7 @@ export function registerQueue19Part01() {
       const state = createMinimalState();
       state.appState.isRunning = true;
       state.appState.selectedGame = createGame();
+      state.appState.activeStreamer = createStreamer();
       state.lastFullRefreshAt = Date.now();
       const calls: string[] = [];
 

@@ -14,6 +14,7 @@ function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}): Runtim
   };
 
   const handlers: RuntimeMessageHandlers = {
+    dismissFarmingMessage: missing,
     activatePopup: missing,
     openDropsAndSync: missing,
     startQueuedCampaign: missing,

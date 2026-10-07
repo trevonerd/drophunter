@@ -188,7 +188,6 @@ describe('extension storage migration', () => {
         dropsPageRefreshInProgress: true,
         lastDropsPageRefreshError: 'stale refresh failure',
         watchTransportMode: 'managed-tab',
-        watchFallbackReason: 'legacy fallback',
         tabId: 91,
       },
       twitchSession: {
@@ -240,12 +239,11 @@ describe('extension storage migration', () => {
       availableGames: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       queue: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       selectedGame: { id: 'game-1', name: 'Stale Game', imageUrl: '' },
-      isRunning: false,
+      isRunning: true,
       wasRunning: true,
       dropsPageRefreshInProgress: false,
       lastDropsPageRefreshError: null,
       watchTransportMode: 'tabless',
-      watchFallbackReason: null,
       tabId: null,
     });
     expect(mocks.storage.local._store.get(EXTENSION_VERSION_STORAGE_KEY)).toBe('4.0.1');

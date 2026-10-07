@@ -1,36 +1,31 @@
 import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
-import {
-  dropMatchesSelectedGame,
-  markDropUnverifiable,
-  projectDropsSnapshot,
-  recomputeSelectedCampaignSummaryAfterLocalMarker,
-} from './drops-projection.ts';
+import { dropMatchesSelectedGame } from './drops-projection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import { EligibleStreamerDiscoveryUnavailableError } from './eligible-streamer-discovery.ts';
 import type { FarmingQueueProgression } from './farming-queue-progression.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { createFarmingSessionStallRecovery } from './farming-session-stall-recovery.ts';
-import { createPersistentRecoveryHandler } from './persistent-recovery-notification.ts';
-import { clearRecoveryState } from './recovery-state.ts';
-import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
-import { blockSelectedCampaignForStall } from './stalled-campaign-blocking.ts';
+import { applyRecoveryState, clearRecoveryState } from './recovery-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 import type { StreamRotationReason } from './stream-rotation.ts';
-import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from './stream-rotation.ts';
 import {
   acquireStreamerForSelectedGame as acquireStreamer,
   openBestStreamerForSelectedGame as openBestStreamer,
   rotateStreamerIfInvalid as rotateInvalidStreamer,
   rotateStreamer,
 } from './streamer-acquisition.ts';
+import { handleOfflineStream } from './streamer-recovery-handlers.ts';
 import { normalizePreferredStreamerLanguage, pickStreamerForPreferences } from './streamer-selection.ts';
 import { NoEligibleStreamerError, WatchPlaybackUnavailableError } from './streamer-selection-flow.ts';
+import { beginStreamerWatchAttempt } from './streamer-watch-attempt.ts';
 
 type FarmingSessionStreamingDependencies = {
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<RefreshDropsOutcome>;
   readonly queueProgression: Pick<FarmingQueueProgression, 'skipCurrent' | 'retryWaitingQueue'>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
+  readonly onWakeMonitoring: (isCurrent: () => boolean) => void;
 };
 
 export type FarmingSessionStreaming = {
@@ -59,19 +54,28 @@ export function createFarmingSessionStreaming(
   dependencies: FarmingSessionStreamingDependencies,
 ): FarmingSessionStreaming {
   const { state, adapters } = context;
-  const enterPersistentRecovery = createPersistentRecoveryHandler({
-    automationNotify: adapters.automationNotify,
-    notify: adapters.notify,
-    telegramSystemAlert: adapters.telegramSystemAlert,
-  });
 
-  async function openBestStreamerForSelectedGame(isCurrent: () => boolean = () => true): Promise<boolean> {
+  async function openBestStreamerForSelectedGame(
+    isCurrent: () => boolean = () => true,
+  ): Promise<boolean | 'cancelled' | 'preparing'> {
     if (context.transitionCampaign && state.appState.selectedGame) {
       const result = await context.transitionCampaign(state.appState.selectedGame, isCurrent);
       if (result.kind === 'started') return true;
+      if (result.kind === 'cancelled') return 'cancelled';
+      if (result.kind === 'preparing') {
+        state.recoveryBackoffUntil = result.retryAt;
+        applyRecoveryState(state, 'open-failed', result.retryAt);
+        return 'preparing';
+      }
+      if (result.kind === 'waiting' && !state.appState.recoveryReason) return true;
       if (result.kind !== 'failed') return false;
+      if (result.reason === 'open-failed')
+        throw new WatchPlaybackUnavailableError(
+          null,
+          result.failedStreamerName,
+          result.alternativesExhausted,
+        );
       if (result.alternativesExhausted) throw new NoEligibleStreamerError();
-      if (result.reason === 'open-failed') throw new WatchPlaybackUnavailableError(null);
       if (result.reason === 'directory-unavailable') throw new EligibleStreamerDiscoveryUnavailableError();
       return false;
     }
@@ -82,6 +86,11 @@ export function createFarmingSessionStreaming(
         probeStreamInfo: adapters.probeStreamInfo,
         onRefreshVerifiedGame: adapters.refreshVerifiedGame,
         onOpenForegroundChannel: adapters.openForegroundChannel,
+        onAttemptStreamer: async (game, name) => {
+          if (!isCurrent() || !beginStreamerWatchAttempt(state, game, name)) return false;
+          await adapters.saveState(state);
+          return isCurrent();
+        },
         onOpenWatchTransport: async (streamer) => {
           if (!isCurrent()) return { kind: 'cancelled' } as const;
           if (!adapters.watchTransport) {
@@ -117,8 +126,10 @@ export function createFarmingSessionStreaming(
   }
 
   async function acquireStreamerForSelectedGame(isCurrent: () => boolean = () => true): Promise<boolean> {
+    const epoch = currentFarmingSessionEpoch(state);
     const authorized = () =>
       isCurrent() &&
+      currentFarmingSessionEpoch(state) === epoch &&
       state.appState.isRunning &&
       !state.appState.isPaused &&
       state.appState.lastStopReason !== 'user-stop';
@@ -126,16 +137,32 @@ export function createFarmingSessionStreaming(
     if (state.appState.queueAcquisitionRound?.nextRoundAt != null) {
       return dependencies.queueProgression.retryWaitingQueue(authorized);
     }
-    return acquireStreamer(state, {
-      onOpenStreamer: (current) => openBestStreamerForSelectedGame(current),
-      onSkipCurrentGame: (reason, current) =>
-        reason === 'stalled-progress'
-          ? handleRecoverySkip(true, current)
-          : skipCurrentGameDueToNoStreamers(reason, current),
+    const attempt: { cancelled: (() => boolean) | null } = { cancelled: null };
+    const acquired = await acquireStreamer(state, {
+      onOpenStreamer: async (current) => {
+        const result = await openBestStreamerForSelectedGame(current);
+        if (result === 'cancelled') attempt.cancelled = current;
+        return result;
+      },
+      onSkipCurrentGame: async (reason, current) => {
+        if (reason === 'stalled-progress') await handleRecoverySkip(true, current);
+        else await skipCurrentGameDueToNoStreamers(reason, current);
+      },
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
       isCurrent: authorized,
     });
+    const cancelled = attempt.cancelled;
+    if (cancelled) {
+      dependencies.onWakeMonitoring(
+        () =>
+          cancelled() &&
+          authorized() &&
+          state.apiBackoffUntil <= context.now() &&
+          state.appState.queueAcquisitionRound?.nextRoundAt == null,
+      );
+    }
+    return acquired;
   }
 
   async function ensureWorkspaceForSelectedGame(isCurrent: () => boolean = () => true): Promise<void> {
@@ -152,52 +179,10 @@ export function createFarmingSessionStreaming(
   }
 
   async function handleRecoverySkip(
-    verifiedAlternativesExhausted = false,
+    _verifiedAlternativesExhausted = false,
     isCurrent: () => boolean = () => true,
   ): Promise<void> {
     if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
-    const exhaustedStalledRecovery =
-      verifiedAlternativesExhausted ||
-      (state.appState.queueEntryMetadataByKey[
-        state.appState.selectedGame ? gameKey(state.appState.selectedGame) : ''
-      ]?.stalledStreamerNames?.length ?? 0) >=
-        MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS + 1;
-    const stalledDrop = state.appState.currentDrop;
-    if (exhaustedStalledRecovery && stalledDrop && markDropUnverifiable(state, stalledDrop, context.now())) {
-      projectDropsSnapshot(
-        state,
-        {
-          games: state.appState.availableGames,
-          drops: state.cachedDropsSnapshot,
-          updatedAt: context.now(),
-        },
-        'cached',
-      );
-      recomputeSelectedCampaignSummaryAfterLocalMarker(state);
-      resetStreamTrackingState(state);
-      await adapters.saveTimingState(state);
-      if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
-      await dependencies.onAdvanceQueueIfCompleted();
-      if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
-      await adapters.saveState(state);
-      return;
-    }
-    if (exhaustedStalledRecovery) {
-      try {
-        const blocked = await blockSelectedCampaignForStall({
-          state,
-          now: context.now,
-          isCurrent: () => isCurrent() && state.appState.isRunning && !state.appState.isPaused,
-          fetchDirectoryStreamers: adapters.fetchDirectoryStreamersFromApi,
-          notify: adapters.automationNotify,
-        });
-        if (!blocked) return;
-      } catch {
-        // A directory outage cannot erase the confirmed failed-name history or prevent queue progress.
-      }
-      if (!isCurrent() || !state.appState.isRunning || state.appState.isPaused) return;
-    }
-
     await dependencies.queueProgression.skipCurrent('stalled-progress', isCurrent);
   }
 
@@ -207,7 +192,6 @@ export function createFarmingSessionStreaming(
     if (!state.appState.selectedGame || gameKey(state.appState.selectedGame) !== gameKey(game)) {
       return;
     }
-    await adapters.notifyCampaignUnavailable?.(game);
     await dependencies.queueProgression.skipCurrent('unfarmable');
   }
 
@@ -216,7 +200,6 @@ export function createFarmingSessionStreaming(
     onAdvanceQueueIfCompleted: dependencies.onAdvanceQueueIfCompleted,
     onAcquireStreamer: acquireStreamerForSelectedGame,
     onSkipCurrentGame: handleRecoverySkip,
-    onEnterPersistentRecovery: enterPersistentRecovery,
   });
 
   async function rotateStreamerIfInvalid(isCurrent?: () => boolean): Promise<void> {
@@ -229,7 +212,6 @@ export function createFarmingSessionStreaming(
       onSaveTimingState: adapters.saveTimingState,
       onRotateStreamer: rotateStreamer,
       onOpenStreamer: acquireStreamerForSelectedGame,
-      onEnterPersistentRecovery: enterPersistentRecovery,
       onSkipCurrentGame: handleRecoverySkip,
       onRecoverStalledProgress: recoverStalledProgress,
       onForceRefreshDropsData: (current = isCurrent) =>
@@ -253,13 +235,29 @@ export function createFarmingSessionStreaming(
     isCurrent: () => boolean = () => true,
   ): Promise<void> {
     if (!isCurrent()) return;
+    if (reason === 'offline') {
+      const channel = state.appState.activeStreamer?.name;
+      if (!channel) return;
+      await handleOfflineStream(
+        state,
+        { channelName: channel, pageUrl: `https://www.twitch.tv/${channel}` },
+        {
+          isCurrent,
+          onRotateStreamer: rotateStreamer,
+          onOpenStreamer: acquireStreamerForSelectedGame,
+          onSaveState: () => adapters.saveState(state),
+          onSaveTimingState: adapters.saveTimingState,
+        },
+        context.now(),
+      );
+      return;
+    }
     if (state.appState.recoveryReason === 'stalled-progress') clearRecoveryState(state);
     await rotateStreamer(state, reason, {
       isCurrent,
       onOpenStreamer: acquireStreamerForSelectedGame,
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: adapters.saveTimingState,
-      onEnterPersistentRecovery: enterPersistentRecovery,
       onSkipCurrentGame: handleRecoverySkip,
     });
   }

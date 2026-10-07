@@ -3,6 +3,7 @@ import { dropMatchesGame } from '../shared/game-selection';
 import type { AppState, TwitchDrop } from '../types';
 
 export function selectMonitorDrop(state: AppState): TwitchDrop | null {
+  if (state.pendingWatchTarget) return null;
   const selectedGame = state.selectedGame;
   if (!selectedGame) return null;
   const currentDrop = state.currentDrop;

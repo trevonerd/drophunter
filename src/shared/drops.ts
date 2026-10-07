@@ -36,16 +36,14 @@ export function mergeDropProgressMonotonic(nextDrop: TwitchDrop, previousDrop: T
       ? 'completed'
       : mergedClaimable
         ? 'active'
-        : mergedProgress >= 100
-          ? 'completed'
-          : mergedProgress > 0
-            ? 'active'
-            : 'pending',
+        : mergedProgress > 0
+          ? 'active'
+          : 'pending',
   };
 }
 
 export function isDropCompleted(drop: TwitchDrop): boolean {
-  return drop.claimed || (drop.progress >= 100 && !drop.claimable);
+  return drop.claimed || drop.verificationState === 'verified';
 }
 
 export function haveAllDropsExpiredOrVanished(

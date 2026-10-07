@@ -1,6 +1,5 @@
-import { dropMatchesGame, findMatchingGame, gameKey } from '../shared/game-selection.ts';
+import { dropMatchesGame, gameKey } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
-import { formatFarmingCompleteStatusLines } from '../shared/runtime-status.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
 import { splitDropsForSelectedGame } from './drops-projection.ts';
@@ -9,7 +8,6 @@ import { notifyQueueCleanup, recordQueueCleanupActivity } from './queue-availabi
 import {
   markQueueEntryManual,
   normalizeQueueSelection,
-  removeGameFromQueue,
   removeQueueEntriesForGame,
   resolveGameFromState,
 } from './queue-operations.ts';
@@ -23,7 +21,7 @@ import type {
 } from './session-lifecycle-types.ts';
 import { clearCampaignStallBlock } from './stalled-campaign-block.ts';
 
-function startRejectionMessage(game: TwitchGame): string | null {
+export function startRejectionMessage(game: TwitchGame): string | null {
   const summary = game.rewardSummary;
   if (!summary || summary.completion === 'farmable') {
     return null;
@@ -31,8 +29,7 @@ function startRejectionMessage(game: TwitchGame): string | null {
   if (summary.completion === 'all-acquired') {
     return 'All campaign rewards are already acquired.';
   }
-  const statusLines = formatFarmingCompleteStatusLines(summary.remainderReasons);
-  return statusLines.length > 0 ? statusLines.join('\n') : 'No automatable rewards remain for this campaign.';
+  return null;
 }
 
 export async function handleStartFarming(
@@ -115,7 +112,7 @@ export async function handleStartFarming(
     state.appState.manualQueueAuthorized = true;
     state.appState.farmingSessionOrigin = 'manual';
     state.appState.queueResumeOnAvailability = false;
-    state.appState.forcedCampaignKey = null;
+    state.appState.forcedCampaignKey = options?.forceCampaign ? gameKey(refreshedRequestedGame) : null;
   }
   if (!options?.preserveQueueContext) {
     state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
@@ -150,53 +147,13 @@ export async function handleStartFarming(
     });
   }
 
-  const selectedGame = state.appState.selectedGame
-    ? (findMatchingGame(state.appState.selectedGame, state.appState.availableGames) ??
-      state.appState.selectedGame)
-    : null;
-  const hasFarmablePendingNow = selectedGame
-    ? state.appState.pendingDrops.some(
-        (drop) => dropMatchesGame(drop, selectedGame) && isRewardFarmableNow(drop),
-      )
-    : false;
-  const selectedStartRejection =
-    !hasFarmablePendingNow && selectedGame ? startRejectionMessage(selectedGame) : null;
-  if (selectedStartRejection || (!hasFarmablePendingNow && state.appState.currentDrop === null)) {
-    if (options?.preserveQueueContext) {
-      state.appState.isRunning = false;
-      if (isCurrent()) await options.onSaveState?.();
-      return { success: false, error: selectedStartRejection ?? 'Campaign rewards require validation.' };
-    }
-    removeGameFromQueue(state, requestedGame);
-    state.appState.isRunning = false;
-    state.appState.isPaused = false;
-    state.appState.selectedGame = null;
-    state.appState.manualQueueAuthorized = false;
-    state.appState.farmingSessionOrigin = null;
-    if (options?.onStopMonitoring) {
-      options.onStopMonitoring();
-    }
-    if (options?.onSaveState) {
-      if (!isCurrent()) return cancelled();
-      await options.onSaveState();
-    }
-    await notifyQueueCleanup(queueCleanup, options ?? {});
-    if (options?.onBroadcastStateUpdate) {
-      options.onBroadcastStateUpdate();
-    }
-    return {
-      success: false,
-      error: selectedStartRejection ?? 'No farmable drops for this game.',
-    };
-  }
-
   if (!isCurrent()) return cancelled();
   const committedGame = state.appState.selectedGame;
   if (committedGame && (!options?.preserveQueueContext || initialSelectedKey !== gameKey(committedGame))) {
     const key = gameKey(committedGame);
     const metadata = state.appState.queueEntryMetadataByKey[key];
-    if (metadata?.stalledStreamerNames) {
-      const { stalledStreamerNames: _stalledNames, ...retained } = metadata;
+    if (metadata?.attemptedStreamerNames || metadata?.watchAttempt) {
+      const { attemptedStreamerNames: _names, watchAttempt: _watch, ...retained } = metadata;
       state.appState.queueEntryMetadataByKey[key] = retained;
     }
     state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(

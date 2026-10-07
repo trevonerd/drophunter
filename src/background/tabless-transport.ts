@@ -69,12 +69,11 @@ export class TablessTransport implements WatchTransport {
   private readonly options: TablessTransportOptions;
   private readonly now: () => number;
   private readonly failedHeartbeatLimit: number;
-  private readonly stalledProgressHeartbeats: number;
   private target: FarmingTarget | null = null;
+  private generation = 0;
   private consecutiveFailures = 0;
   private consecutiveStalls = 0;
   private progress: number | null = null;
-  private fallbackIssued = false;
   private disabledHealth: WatchHealth | null = null;
 
   constructor(options: TablessTransportOptions) {
@@ -84,19 +83,15 @@ export class TablessTransport implements WatchTransport {
       1,
       Math.floor(options.failedHeartbeatLimit ?? TABLESS_HEARTBEAT_FAILURE_LIMIT),
     );
-    this.stalledProgressHeartbeats = Math.max(
-      1,
-      Math.floor(options.stalledProgressHeartbeats ?? TABLESS_HEARTBEAT_FAILURE_LIMIT),
-    );
   }
 
   adopt(target: FarmingTarget, ownership: WatchOwnershipV1, health: WatchHealth): boolean {
     if (ownership.kind !== 'tabless') return false;
+    this.generation++;
     this.target = target;
     this.consecutiveFailures = health.consecutiveFailures;
     this.consecutiveStalls = health.consecutiveStalls;
     this.progress = health.progress;
-    this.fallbackIssued = health.shouldFallback;
     this.disabledHealth = health.status === 'disabled' ? health : null;
     return true;
   }
@@ -105,8 +100,13 @@ export class TablessTransport implements WatchTransport {
     return this.target === null ? null : { kind: 'tabless', targetKey: tablessTargetKey(this.target) };
   }
 
-  async start(target: FarmingTarget): Promise<WatchHealth> {
-    await this.stop();
+  async start(target: FarmingTarget, isCurrent: () => boolean = () => true): Promise<WatchHealth> {
+    if (!isCurrent()) return createWatchHealth(this.mode, 'stopped', 'stopped', this.now);
+    const stopping = this.stop();
+    const generation = this.generation;
+    await stopping;
+    if (!isCurrent() || generation !== this.generation)
+      return createWatchHealth(this.mode, 'stopped', 'stopped', this.now);
     if (!this.options.enabled) {
       this.disabledHealth = createWatchHealth(this.mode, 'disabled', 'transport-disabled', this.now);
       return this.disabledHealth;
@@ -125,22 +125,24 @@ export class TablessTransport implements WatchTransport {
   }
 
   async stop(): Promise<void> {
+    this.generation++;
     this.target = null;
     this.consecutiveFailures = 0;
     this.consecutiveStalls = 0;
     this.progress = null;
-    this.fallbackIssued = false;
     this.disabledHealth = null;
   }
 
   private async readHeartbeat(defaultReason: 'started' | 'heartbeat'): Promise<WatchHealth> {
     if (!this.target) return createWatchHealth(this.mode, 'not-started', 'not-started', this.now);
+    const target = this.target;
     let probe: TablessHeartbeat;
     try {
-      probe = await this.options.heartbeat(this.target);
+      probe = await this.options.heartbeat(target);
     } catch {
       probe = { accepted: false, reason: 'error' };
     }
+    if (this.target !== target) return createWatchHealth(this.mode, 'stopped', 'stopped', this.now);
     const nextProgress = normalizeWatchProgress(probe.progress);
     const healthyProbe = isHealthyWatchProbe(probe);
     const hasProgress = nextProgress != null;
@@ -155,24 +157,13 @@ export class TablessTransport implements WatchTransport {
       else this.consecutiveStalls = 0;
     }
     if (nextProgress != null) this.progress = nextProgress;
-    const stalled = this.consecutiveStalls >= this.stalledProgressHeartbeats;
-    const shouldFallback = this.consecutiveFailures >= this.failedHeartbeatLimit || stalled;
-    if (shouldFallback && !this.fallbackIssued) {
-      this.fallbackIssued = true;
-      await Promise.resolve(this.options.onFallback?.()).catch(() => undefined);
-    }
-    const reason = stalled
-      ? 'stalled-progress'
-      : reasonForWatchProbe(probe) === 'heartbeat' && defaultReason === 'started'
+    const shouldFallback = this.consecutiveFailures >= this.failedHeartbeatLimit;
+    const reason =
+      reasonForWatchProbe(probe) === 'heartbeat' && defaultReason === 'started'
         ? 'started'
         : reasonForWatchProbe(probe);
-    const status: WatchHealthStatus = stalled
-      ? 'stalled'
-      : healthyProbe && probe.hasDropsSignal === false
-        ? 'degraded'
-        : healthyProbe
-          ? 'healthy'
-          : 'failed';
+    const status: WatchHealthStatus =
+      healthyProbe && probe.hasDropsSignal === false ? 'degraded' : healthyProbe ? 'healthy' : 'failed';
     return createWatchHealth(this.mode, status, reason, this.now, {
       consecutiveFailures: this.consecutiveFailures,
       consecutiveStalls: this.consecutiveStalls,

@@ -54,10 +54,7 @@ export function isTwitchGameLike(value: unknown): value is TwitchGame {
   const dropCount = value.dropCount;
   const validDropCount =
     dropCount === undefined ||
-    (typeof dropCount === 'number' &&
-      Number.isFinite(dropCount) &&
-      Number.isInteger(dropCount) &&
-      dropCount >= 0);
+    (typeof dropCount === 'number' && Number.isInteger(dropCount) && dropCount >= 0);
   const summary = value.rewardSummary;
   const completion = isRecord(summary) ? summary.completion : undefined;
   const consistentCompletion =
@@ -192,6 +189,13 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
   const optionalResult = isValidOptionalPayload(type, payload);
   if (optionalResult !== undefined) return optionalResult;
   switch (type) {
+    case 'DISMISS_FARMING_MESSAGE':
+      return (
+        isRecord(payload) &&
+        typeof payload.id === 'string' &&
+        payload.id.trim().length > 0 &&
+        payload.id.length <= 1024
+      );
     case 'EXPORT_BACKUP':
       return payload === undefined;
     case 'PREVIEW_BACKUP':
@@ -250,7 +254,7 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
 }
 
 export function isRuntimeRequest(value: unknown): value is RuntimeRequest {
-  if (!isRecord(value)) return false;
-  const type = value.type;
-  return isRuntimeMessageType(type) && isRuntimePayloadValid(type, value.payload);
+  return (
+    isRecord(value) && isRuntimeMessageType(value.type) && isRuntimePayloadValid(value.type, value.payload)
+  );
 }

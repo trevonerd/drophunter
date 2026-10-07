@@ -160,6 +160,7 @@ export type FarmingAutomationFailureReason =
   | 'twitch-session-missing'
   | 'drops-refresh-failed'
   | 'candidate-preparation-failed'
+  | 'candidate-playback-pending'
   | 'transition-commit-failed'
   | 'persistence-failed';
 
@@ -178,7 +179,6 @@ export type FarmingAutomationOutcome =
 
 export interface FarmingAutomation {
   request(trigger: FarmingAutomationTrigger): Promise<FarmingAutomationOutcome>;
-  startQueuedCampaign?(campaignKey: string): Promise<{ readonly success: boolean; readonly error?: string }>;
   /** Invalidates an in-flight evaluation before it can commit a later transition. */
   invalidate?(): void;
   suppressCampaignUntilRefresh(campaignKey: string): Promise<'suppressed' | 'persistence-failed'>;

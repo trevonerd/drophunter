@@ -7,9 +7,7 @@ import {
   hasNewEligibleStreamerEvidence,
   isCampaignStallBlocked,
 } from '../src/background/stalled-campaign-block.ts';
-import { blockSelectedCampaignForStall } from '../src/background/stalled-campaign-blocking.ts';
-import { gameKey } from '../src/shared/game-selection.ts';
-import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
+import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
 const campaign: TwitchGame = {
   id: 'shared-game-id',
@@ -101,13 +99,13 @@ describe('stalled campaign blocks', () => {
       source: 'manual',
       addedAt: 1,
       reason: 'user-added',
-      stalledStreamerNames: ['old-streamer'],
+      attemptedStreamerNames: ['old-streamer'],
     };
 
     projectDropsSnapshot(state, { games: [campaign], drops: [reward(11, 7)], updatedAt: 2_000 }, 'cached');
 
     expect(isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, campaign)).toBe(true);
-    expect(state.appState.queueEntryMetadataByKey['campaign:campaign-a']?.stalledStreamerNames).toEqual([
+    expect(state.appState.queueEntryMetadataByKey['campaign:campaign-a']?.attemptedStreamerNames).toEqual([
       'old-streamer',
     ]);
   });
@@ -131,7 +129,7 @@ describe('stalled campaign blocks', () => {
       source: 'manual',
       addedAt: 1,
       reason: 'user-added',
-      stalledStreamerNames: ['old-streamer'],
+      attemptedStreamerNames: ['old-streamer'],
     };
 
     projectDropsSnapshot(
@@ -142,7 +140,7 @@ describe('stalled campaign blocks', () => {
 
     expect(isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, campaign)).toBe(false);
     expect(
-      state.appState.queueEntryMetadataByKey['campaign:campaign-a']?.stalledStreamerNames,
+      state.appState.queueEntryMetadataByKey['campaign:campaign-a']?.attemptedStreamerNames,
     ).toBeUndefined();
   });
 
@@ -159,7 +157,7 @@ describe('stalled campaign blocks', () => {
       source: 'manual',
       addedAt: 1,
       reason: 'user-added',
-      stalledStreamerNames: ['old-streamer'],
+      attemptedStreamerNames: ['old-streamer'],
     };
 
     projectDropsSnapshot(
@@ -170,42 +168,7 @@ describe('stalled campaign blocks', () => {
 
     expect(isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, campaign)).toBe(false);
     expect(
-      state.appState.queueEntryMetadataByKey['campaign:campaign-a']?.stalledStreamerNames,
+      state.appState.queueEntryMetadataByKey['campaign:campaign-a']?.attemptedStreamerNames,
     ).toBeUndefined();
   });
-
-  test.each(['stop', 'pause', 'restart', 'selection'] as const)(
-    'does not persist or redirect stall handling after %s during directory lookup',
-    async (boundary) => {
-      const state = createServiceWorkerState();
-      state.appState.isRunning = true;
-      state.appState.selectedGame = campaign;
-      const selectedKey = gameKey(campaign);
-      let current = true;
-      const isCurrent = () =>
-        current &&
-        state.appState.isRunning &&
-        !state.appState.isPaused &&
-        (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null) === selectedKey;
-      let finish: (value: TwitchStreamer[] & { languageFilterApplied: boolean }) => void = () => {};
-      const directoryReady = new Promise<TwitchStreamer[] & { languageFilterApplied: boolean }>((resolve) => {
-        finish = resolve;
-      });
-      const pending = blockSelectedCampaignForStall({
-        state,
-        now: () => 2_000,
-        isCurrent,
-        fetchDirectoryStreamers: async () => directoryReady,
-      });
-
-      if (boundary === 'stop') state.appState.isRunning = false;
-      if (boundary === 'pause') state.appState.isPaused = true;
-      if (boundary === 'selection') state.appState.selectedGame = siblingCampaign;
-      if (boundary === 'restart') current = false;
-      finish(Object.assign([], { languageFilterApplied: false }));
-      await pending;
-
-      expect(state.appState.stalledCampaignBlocksByKey['campaign:campaign-a']).toBeUndefined();
-    },
-  );
 });

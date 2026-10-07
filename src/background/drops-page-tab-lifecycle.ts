@@ -9,11 +9,17 @@ export interface DropsPageState {
 export interface TwitchTab {
   id?: number;
   discarded?: boolean;
+  windowId?: number;
+  url?: string;
+  pendingUrl?: string;
+  active?: boolean;
 }
 export interface TabsApi {
-  query(queryInfo: { url: string[] }): Promise<TwitchTab[]>;
+  query(queryInfo: { url: string[] } | { windowId: number }): Promise<TwitchTab[]>;
   update(tabId: number, updateProperties: { active?: boolean; url?: string }): Promise<unknown>;
   create(createProperties: { url: string; active: boolean }): Promise<TwitchTab | null>;
+  get?(tabId: number): Promise<TwitchTab>;
+  remove?(tabId: number): Promise<unknown>;
 }
 export interface DropsPageRefreshOptions {
   tabsApi?: TabsApi;
@@ -44,6 +50,94 @@ const TWITCH_DROPS_TAB_PATTERNS = [
   'https://www.twitch.tv/drops/inventory*',
   'https://twitch.tv/drops/inventory*',
 ];
+
+export function createDropsPageTabConsumers(state: DropsPageState, options: DropsPageRefreshOptions) {
+  const leases = new Map<number, { users: number; opened: boolean; keep: boolean }>();
+  let pending = 0;
+  const cleanup = async () => {
+    for (const [tabId, lease] of leases) {
+      if (pending > 0 || lease.users > 0) continue;
+      if (lease.opened && !lease.keep)
+        await closeAutomaticDropsPageTab(
+          options,
+          tabId,
+          () => pending === 0 && leases.get(tabId) === lease && lease.users === 0 && !lease.keep,
+        );
+      if (pending === 0 && leases.get(tabId) === lease && lease.users === 0) leases.delete(tabId);
+    }
+  };
+  return {
+    async acquire(
+      active: boolean,
+      openIfMissing: boolean,
+      waitMs: number,
+      isCurrent: () => boolean,
+      retention: { keep: boolean },
+    ) {
+      pending += 1;
+      try {
+        const acquired = await findOrOpenDropsPageTab(options, active, openIfMissing, waitMs, isCurrent);
+        if (acquired.tabId) {
+          const lease = leases.get(acquired.tabId) ?? { users: 0, opened: acquired.opened, keep: false };
+          lease.users += 1;
+          lease.keep ||= retention.keep;
+          leases.set(acquired.tabId, lease);
+        }
+        return acquired;
+      } finally {
+        pending -= 1;
+        await cleanup();
+      }
+    },
+    async release(
+      tabId: number,
+      result: { success: boolean; error?: string; failure?: { kind: string } },
+      retention: { keep: boolean },
+    ) {
+      const lease = leases.get(tabId);
+      if (!lease) return;
+      lease.keep ||=
+        retention.keep ||
+        result.failure?.kind === 'auth' ||
+        /sign in|detect your session/i.test(result.error ?? '') ||
+        (!result.success && !result.error && !state.appState.twitchSessionDetected);
+      if (--lease.users === 0) await cleanup();
+    },
+    retain(activate: boolean) {
+      for (const [tabId, lease] of leases) {
+        lease.keep = true;
+        if (activate)
+          void (options.tabsApi ?? browser.tabs).update(tabId, { active: true }).catch(() => undefined);
+      }
+    },
+  };
+}
+
+export async function closeAutomaticDropsPageTab(
+  options: DropsPageRefreshOptions,
+  tabId: number,
+  canClose: () => boolean = () => true,
+): Promise<void> {
+  const tabs = options.tabsApi ?? browser.tabs;
+  if (!tabs.get || !tabs.remove) return;
+  try {
+    const tab = await tabs.get(tabId);
+    if (tab.url !== TWITCH_DROPS_PAGE_URL || tab.pendingUrl || tab.active || typeof tab.windowId !== 'number')
+      return;
+    if (!(await tabs.query({ windowId: tab.windowId })).some((other) => other.id !== tabId)) return;
+    const current = await tabs.get(tabId);
+    if (
+      canClose() &&
+      current.windowId === tab.windowId &&
+      current.url === TWITCH_DROPS_PAGE_URL &&
+      !current.pendingUrl &&
+      !current.active
+    )
+      await tabs.remove(tabId);
+  } catch {
+    // Cleanup cannot turn a completed campaign refresh into a failure.
+  }
+}
 
 export async function findOrOpenDropsPageTab(
   options: DropsPageRefreshOptions,

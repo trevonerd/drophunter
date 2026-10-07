@@ -4,14 +4,16 @@ import { TWITCH_SESSION_RETRY_COOLDOWN_MS, TWITCH_SESSION_STORAGE_KEY } from './
 import { logDebug, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
-import { persistTwitchSession } from './session-credentials-storage.ts';
+import { invalidateTwitchSessionRevision, persistTwitchSession } from './session-credentials-storage.ts';
 import { recoverTwitchSessionFromStorageKeys } from './session-storage-recovery.ts';
 import { sessionDebugSummary } from './state-persistence.ts';
 import { fetchTwitchIntegrityToken } from './twitch-api/gql.ts';
 import { sanitizeTwitchSession, type TwitchSession } from './twitch-api/types.ts';
 
 export {
+  currentTwitchSessionRevision,
   discardPersistedTwitchSessionIfMatches,
+  invalidateTwitchSessionRevision,
   persistTwitchSession,
 } from './session-credentials-storage.ts';
 export { readTwitchSessionViaExecuteScript } from './session-page-extraction.ts';
@@ -20,18 +22,6 @@ export {
   recoverTwitchSessionFromStorageKeys,
   trySanitizeSessionCandidate,
 } from './session-storage-recovery.ts';
-
-const sessionRevisions = new WeakMap<ServiceWorkerState, number>();
-
-export function currentTwitchSessionRevision(state: ServiceWorkerState): number {
-  return sessionRevisions.get(state) ?? 0;
-}
-
-export function invalidateTwitchSessionRevision(state: ServiceWorkerState): number {
-  const nextRevision = currentTwitchSessionRevision(state) + 1;
-  sessionRevisions.set(state, nextRevision);
-  return nextRevision;
-}
 
 function sessionsHaveDifferentCredentials(left: TwitchSession | null, right: TwitchSession): boolean {
   return (
@@ -53,6 +43,7 @@ export async function refreshTwitchIntegrityToken(
   state: ServiceWorkerState,
   session: TwitchSession,
 ): Promise<TwitchSession | null> {
+  const sessionAtStart = state.twitchSessionCache;
   try {
     logDebug('Refreshing Twitch Client-Integrity token', {
       hasDeviceId: Boolean(session.deviceId),
@@ -61,6 +52,7 @@ export async function refreshTwitchIntegrityToken(
     });
     const token = await fetchTwitchIntegrityToken(session);
     if (!token) return null;
+    if (state.twitchSessionCache !== sessionAtStart) return null;
     const updatedSession: TwitchSession = { ...session, clientIntegrity: token };
     state.twitchSessionCache = updatedSession;
     await persistTwitchSession(updatedSession);
@@ -100,7 +92,9 @@ export async function ensureSessionIntegrity(
   forceRefresh = false,
 ): Promise<TwitchSession> {
   if (!forceRefresh && session.clientIntegrity) return session;
+  const sessionAtStart = state.twitchSessionCache;
   const pageToken = await loadPageIntegrityToken();
+  if (state.twitchSessionCache !== sessionAtStart) return session;
   if (pageToken && (!forceRefresh || pageToken !== session.clientIntegrity)) {
     logDebug('Using page-intercepted integrity token', { hasToken: true });
     const updated: TwitchSession = { ...session, clientIntegrity: pageToken };
@@ -133,7 +127,10 @@ export async function ensureTwitchSession(
   deps: EnsureTwitchSessionDeps,
 ): Promise<TwitchSession | null> {
   const sessionAtStart = state.twitchSessionCache;
-  if (!forceRefresh && state.twitchSessionCache) return state.twitchSessionCache;
+  if (!forceRefresh && state.twitchSessionCache) {
+    await bindCampaignEvidenceAccount(state, state.twitchSessionCache.userId);
+    return state.twitchSessionCache;
+  }
   if (!forceRefresh && Date.now() - state.twitchSessionLastAttemptAt < TWITCH_SESSION_RETRY_COOLDOWN_MS)
     return null;
   if (state.twitchSessionFetchInFlight) return state.twitchSessionFetchInFlight;
@@ -200,8 +197,15 @@ export async function syncTwitchSessionFromContentScriptExt(
   senderTabId: number | null | undefined,
   callbacks: SyncTwitchSessionCallbacks,
 ): Promise<{ success: boolean; error?: string }> {
-  const incoming = sanitizeTwitchSession(rawPayload);
-  if (!incoming) return { success: false, error: 'Invalid session payload' };
+  const reported = sanitizeTwitchSession(rawPayload);
+  if (!reported) return { success: false, error: 'Invalid session payload' };
+  const cached = state.twitchSessionCache;
+  // A loading Twitch page can report credentials before its user ID is available.
+  // Keep the account already identified for this token so an in-flight handoff stays valid.
+  const incoming =
+    !reported.userId && cached?.oauthToken === reported.oauthToken && cached.userId
+      ? { ...reported, userId: cached.userId }
+      : reported;
   if (sessionsHaveDifferentCredentials(state.twitchSessionCache, incoming)) {
     invalidateTwitchSessionRevision(state);
   }

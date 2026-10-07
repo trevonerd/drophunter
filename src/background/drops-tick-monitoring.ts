@@ -155,6 +155,17 @@ export async function checkDropProgress(
       return;
     }
 
+    if (
+      !state.appState.activeStreamer &&
+      state.appState.tabId === null &&
+      state.appState.watchHealth === null
+    ) {
+      if (Date.now() >= state.recoveryBackoffUntil) {
+        await callbacks.onAcquireStreamerForSelectedGame(isCurrent);
+      }
+      return;
+    }
+
     const streamerAcquisitionRecoveryActive = isStreamerAcquisitionRecovery(state.appState.recoveryReason);
     if (streamerAcquisitionRecoveryActive) {
       if (Date.now() >= state.recoveryBackoffUntil) {

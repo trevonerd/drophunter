@@ -58,11 +58,11 @@ export async function notifyQueueCleanup(
   deps: Pick<GamesCacheRefreshDeps, 'onQueueCampaignsRemoved'>,
 ): Promise<void> {
   if (result.removed.length === 0) return;
-  try {
-    await deps.onQueueCampaignsRemoved?.(result);
-  } catch (error) {
-    logWarn('Queue cleanup notification delivery failed', { error: String(error) });
-  }
+  void Promise.resolve()
+    .then(() => deps.onQueueCampaignsRemoved?.(result))
+    .catch((error: unknown) => {
+      logWarn('Queue cleanup notification delivery failed', { error: String(error) });
+    });
 }
 
 export async function persistQueueCleanup(

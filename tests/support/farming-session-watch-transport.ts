@@ -10,6 +10,7 @@ export const watchTransportGame: TwitchGame = {
   name: 'Game',
   imageUrl: '',
   campaignId: 'campaign-1',
+  dropCount: 1,
   categorySlug: 'game',
   rewardSummary: { completion: 'farmable', remainderReasons: [] },
 };
@@ -84,7 +85,6 @@ export function createWatchTransportAdapters(
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
     attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
     clearManagedTabOwnership: () => {},
     openMonitorDashboardWindow: async () => {},
     sendAlert: async () => {},

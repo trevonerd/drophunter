@@ -1,15 +1,3 @@
-import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
-
-// These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics([
-  ['[DropHunter] Entering persistent recovery mode', 5],
-  ['[DropHunter] Giving up on game after stalled drop progress', 3],
-  ['[DropHunter] No allowed streamers are live for selected game', 2],
-  ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 3],
-  ['[DropHunter] No streamer found for selected game', 10],
-  ['[DropHunter] Stalled progress recovery exhausted — skipping game', 1],
-]);
-
 import { registerQueue01Part01 } from './cases/queue-01-normalizequeueselection-01.ts';
 import { registerQueue02Part01 } from './cases/queue-02-removegamefromqueue-01.ts';
 import { registerQueue03Part01 } from './cases/queue-03-resolvegamefromstate-01.ts';
@@ -20,7 +8,6 @@ import { registerQueue07Part01 } from './cases/queue-07-handlereorderqueue-01.ts
 import { registerQueue08Part01 } from './cases/queue-08-handleremovefromqueue-01.ts';
 import { registerQueue09Part01 } from './cases/queue-09-resetstreamtrackingstate-01.ts';
 import { registerQueue10Part01 } from './cases/queue-10-applystopstate-01.ts';
-import { registerQueue11Part01 } from './cases/queue-11-enterpersistentrecovery-01.ts';
 import { registerQueue12Part01 } from './cases/queue-12-acquirestreamerforselectedgame-01.ts';
 import { registerQueue14Part01 } from './cases/queue-14-stopfarmingsession-01.ts';
 import { registerQueue17Part01 } from './cases/queue-17-handlestartfarming-01.ts';
@@ -32,7 +19,6 @@ import { registerQueue21Part01 } from './cases/queue-21-openbeststreamerforselec
 import { registerQueue21Part02 } from './cases/queue-21-openbeststreamerforselectedgame-02.ts';
 import './cases/streamer-selection-cancellation.ts';
 import { registerQueue22Part01 } from './cases/queue-22-refreshdropsdata-light-refresh-01.ts';
-import { registerQueue23Part01 } from './cases/queue-23-createfarmingsession-exhausted-stalled-rec-01.ts';
 import { registerQueue24Part01 } from './cases/queue-24-rotatestreamerifinvalid-01.ts';
 import { registerQueue24Part02 } from './cases/queue-24-rotatestreamerifinvalid-02.ts';
 import { registerQueue24Part03 } from './cases/queue-24-rotatestreamerifinvalid-03.ts';
@@ -48,7 +34,6 @@ registerQueue07Part01();
 registerQueue08Part01();
 registerQueue09Part01();
 registerQueue10Part01();
-registerQueue11Part01();
 registerQueue12Part01();
 registerQueue14Part01();
 registerQueue17Part01();
@@ -59,7 +44,6 @@ registerQueue20Part01();
 registerQueue21Part01();
 registerQueue21Part02();
 registerQueue22Part01();
-registerQueue23Part01();
 registerQueue24Part01();
 registerQueue24Part02();
 registerQueue24Part03();

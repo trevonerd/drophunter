@@ -40,7 +40,7 @@ export function registerAutoClaimFilteringCases(harness: AutoClaimHarness): void
     ]);
   });
 
-  test('Toggle ON → an authoritative empty snapshot stops farming without claiming', async () => {
+  test('Toggle ON → an empty snapshot preserves unresolved authorization without claiming', async () => {
     await harness.startFarm();
     const baselineClaims = harness.appState().totalDropsClaimed;
     await harness.refreshTo([]);
@@ -48,15 +48,10 @@ export function registerAutoClaimFilteringCases(harness: AutoClaimHarness): void
     await harness.waitTicks(5);
 
     const state = harness.appState();
-    expect(state.isRunning).toBe(false);
-    expect(state.selectedGame).toBeNull();
-    expect(state.automationActivity).toContainEqual(
-      expect.objectContaining({
-        kind: 'campaign-unfarmable',
-        message:
-          'The Farming Game campaign is no longer farmable. DropHunter is moving to the next campaign.',
-      }),
-    );
+    expect(state.isRunning).toBe(true);
+    expect(state.manualQueueAuthorized).toBe(true);
+    expect(Object.values(state.farmingSessionTargets).some((target) => !target.acquired)).toBe(true);
+    expect(state.lastStopReason).toBeNull();
     expect(state.totalDropsClaimed).toBe(baselineClaims);
     expect(harness.claimRequests).toHaveLength(0);
   });

@@ -147,7 +147,7 @@ describe('refreshGamesCacheFromHiddenFetch terminal inspection', () => {
     expect(clearCalls.count).toBe(1);
   });
 
-  test('clears a vanished selected campaign during an authoritative refresh', async () => {
+  test('retains a missing selected campaign during an authoritative refresh', async () => {
     // Given: an idle selected campaign that is absent from the refreshed campaign list.
     const state = createServiceWorkerState();
     state.appState.selectedGame = selectedCampaign;
@@ -167,12 +167,12 @@ describe('refreshGamesCacheFromHiddenFetch terminal inspection', () => {
       makeDeps({ games: [otherCampaign], drops: [], updatedAt: 1 }, clearCalls),
     );
 
-    // Then: the absent campaign is no longer selected.
-    expect(state.appState.selectedGame).toBeNull();
-    expect(clearCalls.count).toBe(1);
+    // Absence supplies no acquisition or expiry proof.
+    expect(state.appState.selectedGame?.campaignId).toBe(selectedCampaign.campaignId);
+    expect(clearCalls.count).toBe(0);
   });
 
-  test('clears an expired selected campaign during an authoritative refresh', async () => {
+  test('delegates expiry to session progression rather than clearing the target in cache refresh', async () => {
     // Given: an idle selected campaign whose end time is already in the past.
     const state = createServiceWorkerState();
     state.appState.selectedGame = selectedCampaign;
@@ -192,9 +192,10 @@ describe('refreshGamesCacheFromHiddenFetch terminal inspection', () => {
       makeDeps({ games: [expiredCampaign], drops: [], updatedAt: 1 }, clearCalls),
     );
 
-    // Then: the expired campaign is no longer selected.
-    expect(state.appState.selectedGame).toBeNull();
-    expect(clearCalls.count).toBe(1);
+    // Cache projection retains positive expiry evidence; the session owns the stop.
+    expect(state.appState.selectedGame?.campaignId).toBe(selectedCampaign.campaignId);
+    expect(state.appState.selectedGame?.endsAt).toBe(expiredCampaign.endsAt);
+    expect(clearCalls.count).toBe(0);
   });
 });
 

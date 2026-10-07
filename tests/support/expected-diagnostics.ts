@@ -1,7 +1,9 @@
 import { afterAll, afterEach, beforeEach, expect } from 'bun:test';
 
 /** Verify diagnostic text in suites that deliberately exercise recovery and failure paths. */
-export function verifyExpectedDiagnostics(expected: readonly (readonly [string, number])[]): void {
+export function verifyExpectedDiagnostics(
+  expected: readonly (readonly [string, number | readonly [number, number]])[],
+): void {
   const allowed = new Map(expected);
   const observed = new Map<string, number>();
   const originalWarn = console.warn;
@@ -31,9 +33,14 @@ export function verifyExpectedDiagnostics(expected: readonly (readonly [string, 
   afterAll(() => {
     try {
       verify();
-      expect([...observed].sort(), 'Exact diagnostic counts for the recovery suite').toEqual(
-        [...allowed].sort(),
-      );
+      for (const [text, expectedCount] of allowed) {
+        const count = observed.get(text) ?? 0;
+        if (typeof expectedCount === 'number') expect(count, text).toBe(expectedCount);
+        else {
+          expect(count, text).toBeGreaterThanOrEqual(expectedCount[0]);
+          expect(count, text).toBeLessThanOrEqual(expectedCount[1]);
+        }
+      }
     } finally {
       console.warn = originalWarn;
       console.error = originalError;

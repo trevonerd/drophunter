@@ -4,7 +4,7 @@ import { enqueueDropsSnapshot } from '../helpers/service-worker-fetch.ts';
 import { chromeMocks, dispatchMessage, getAppStateFromStorage } from '../helpers/service-worker-harness.ts';
 
 export function registerPopupActivationRecoveryCase() {
-  test('ACTIVATE_POPUP recovers a missing session through a background Twitch tab', async () => {
+  test('ACTIVATE_POPUP does not create a login page without an explicit Drops action', async () => {
     const chrome = chromeMocks.chrome;
     const createdActiveValues: boolean[] = [];
     await chrome.storage.local.set({ onboardingCompleted: true });
@@ -40,9 +40,9 @@ export function registerPopupActivationRecoveryCase() {
       result?: { kind?: string; campaignCount?: number };
     };
 
-    expect(createdActiveValues).toEqual([false]);
+    expect(createdActiveValues).toEqual([]);
     expect(response.success).toBe(true);
-    expect(response.result).toMatchObject({ kind: 'synced', campaignCount: 1 });
-    expect(getAppStateFromStorage().availableGames).toHaveLength(1);
+    expect(response.result?.kind).not.toBe('synced');
+    expect(getAppStateFromStorage().twitchSessionDetected).toBe(false);
   });
 }

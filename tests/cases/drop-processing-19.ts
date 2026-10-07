@@ -174,8 +174,8 @@ export function registerDropProcessing19(): void {
 
       subject.splitDropsForSelectedGame(state, [earnedDrop]);
 
-      expect(state.appState.completedDrops).toHaveLength(1);
-      expect(state.appState.pendingDrops).toHaveLength(0);
+      expect(state.appState.completedDrops).toHaveLength(0);
+      expect(state.appState.pendingDrops).toHaveLength(1);
       expect(state.appState.currentDrop).toBeNull();
     });
   });

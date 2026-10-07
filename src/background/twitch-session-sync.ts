@@ -5,7 +5,6 @@ function clearLegacyAuthRecovery(state: ServiceWorkerState): void {
   if (state.appState.recoveryReason !== 'sign-in-required') return;
   state.recoveryBackoffUntil = 0;
   state.lastRecoveryAttemptAt = 0;
-  state.recoveryNotificationSent = false;
   state.appState = clearRecoveryStatus(state.appState);
 }
 

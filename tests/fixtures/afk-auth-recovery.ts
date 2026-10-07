@@ -57,6 +57,8 @@ export function createAfkState() {
   state.appState.pendingDrops = [afkDrop];
   state.appState.allDrops = [afkDrop];
   state.appState.isRunning = true;
+  state.appState.manualQueueAuthorized = true;
+  state.appState.farmingSessionOrigin = 'manual';
   state.cachedDropsSnapshot = [afkDrop];
   state.twitchSessionCache = expiredTwitchSession;
   return state;
@@ -90,7 +92,6 @@ export function createAfkAdapters(overrides: Partial<FarmingSessionAdapters> = {
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
     attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
     clearManagedTabOwnership: () => {},
     openMonitorDashboardWindow: async () => {},
     sendAlert: async () => {},

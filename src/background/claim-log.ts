@@ -196,11 +196,12 @@ export async function recordClaimedDropsWithResult(
   const { added, entries: recordedEntries, persistedKeys } = await appendClaimLogEntriesWithResult(entries);
   target.appState.totalDropsClaimed += added;
   if (added > 0 && claimRecordedHandler) {
-    try {
-      await claimRecordedHandler(recordedEntries, options);
-    } catch (error) {
-      logWarn('Claim recorded handler failed:', String(error));
-    }
+    const handler = claimRecordedHandler;
+    void Promise.resolve()
+      .then(() => handler(recordedEntries, options))
+      .catch((error: unknown) => {
+        logWarn('Claim recorded handler failed:', String(error));
+      });
   }
   return { added, persistedKeys };
 }

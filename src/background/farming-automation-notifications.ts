@@ -13,11 +13,16 @@ export function createFarmingAutomationNotificationBatch(notifier: AutomationEve
       if (notification.event === 'start' || notification.event === 'preemption') {
         startedCampaigns.add(notification.campaignId);
       }
-      await notifier?.notify(notification);
+      void Promise.resolve()
+        .then(() => notifier?.notify(notification))
+        .catch(() => undefined);
     },
     async flush(): Promise<void> {
       for (const notification of discoveries.values()) {
-        if (!startedCampaigns.has(notification.campaignId)) await notifier?.notify(notification);
+        if (!startedCampaigns.has(notification.campaignId))
+          void Promise.resolve()
+            .then(() => notifier?.notify(notification))
+            .catch(() => undefined);
       }
       discoveries.clear();
     },

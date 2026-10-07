@@ -6,8 +6,11 @@ import {
   isFarmingSessionEpochCurrent,
   runInFarmingSessionCriticalSection,
 } from '../src/background/farming-session-revision.ts';
+import { reconcileFarmingSessionTargets } from '../src/background/farming-session-targets.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { bindCampaignEvidenceAccount } from '../src/background/session-account-evidence.ts';
 import type { TwitchGame } from '../src/types/index.ts';
+import { createFarmingSessionAdapters, createGame } from './fixtures/queue-management.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
 import { createDeferred, flushMicrotasks } from './support/farming-automation-fixtures.ts';
 
@@ -22,29 +25,10 @@ afterAll(() => {
 });
 
 function createAdapters(trackActivity: FarmingSessionAdapters['trackActivity']): FarmingSessionAdapters {
-  return {
-    getInitPromise: () => null,
+  return createFarmingSessionAdapters({
     trackActivity,
-    ensureTwitchSession: async () => null,
-    fetchDropsSnapshotFromApi: async () => null,
-    fetchInventorySnapshotFromApi: async () => null,
-    fetchDirectoryStreamersFromApi: async () => Object.assign([], { languageFilterApplied: true }),
-    fetchStreamContext: async () => null,
     resolveCategorySlug: async () => '',
-    openForegroundChannel: async () => undefined,
-    enforcePlaybackPolicyOnStreamTab: async () => undefined,
-    attemptPlaybackSelfHeal: async () => undefined,
-    attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
-    clearManagedTabOwnership: () => undefined,
-    openMonitorDashboardWindow: async () => undefined,
-    sendAlert: async () => undefined,
-    notify: async () => undefined,
-    saveState: async () => undefined,
-    saveTimingState: async () => undefined,
-    broadcastStateUpdate: () => undefined,
-    monitorAutoOpenDelayMs: 0,
-  };
+  });
 }
 
 type FarmingSession = ReturnType<typeof createFarmingSession>;
@@ -76,6 +60,72 @@ const mutationCases = [
 ] satisfies readonly MutationCase[];
 
 describe('farming session revision authority', () => {
+  test.each(['stop', 'pause', 'clear'] as const)(
+    'new Play supersedes a pending %s transport cleanup',
+    async (action) => {
+      const state = createServiceWorkerState();
+      const previous = createGame({ campaignId: 'previous' });
+      const next = createGame({ campaignId: 'next' });
+      Object.assign(state.appState, {
+        isRunning: true,
+        manualQueueAuthorized: true,
+        selectedGame: previous,
+        queue: [previous, next],
+        availableGames: [previous, next],
+      });
+      const entered = createDeferred<void>();
+      const release = createDeferred<void>();
+      const session = createFarmingSession(
+        state,
+        createFarmingSessionAdapters({
+          watchTransport: {
+            prepare: async () => ({ kind: 'failed', reason: 'candidate-unavailable' }),
+            start: async () => ({ kind: 'cancelled' }),
+            tick: async () => {
+              throw new Error('No tick expected');
+            },
+            setPreference: async () => {},
+            stop: async () => {
+              entered.resolve();
+              await release.promise;
+            },
+          },
+        }),
+      );
+      const pending =
+        action === 'stop'
+          ? session.handleStopFarming()
+          : action === 'pause'
+            ? session.handlePauseFarming()
+            : session.handleClearQueue();
+      await entered.promise;
+      expect((await session.handleStartQueuedCampaign('campaign:next')).success).toBe(true);
+      release.resolve();
+      await pending;
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.isPaused).toBe(false);
+      expect(state.appState.manualQueueAuthorized).toBe(true);
+      expect(state.appState.selectedGame?.campaignId).toBe('next');
+      expect(state.appState.farmingSessionTargets['campaign:next']).toBeDefined();
+      session.stopMonitoring();
+    },
+  );
+
+  test('changing Twitch account invalidates acquired target evidence while retaining authorization', async () => {
+    const state = createServiceWorkerState();
+    const game = createGame({ campaignId: 'account-target', allDropsCompleted: true });
+    state.appState.campaignEvidenceUserId = 'account-A';
+    state.appState.manualQueueAuthorized = true;
+    state.appState.queue = [game];
+    state.appState.selectedGame = game;
+    state.appState.farmingSessionTargets['campaign:account-target'] = { game, acquired: true };
+    await bindCampaignEvidenceAccount(state, 'account-B');
+    reconcileFarmingSessionTargets(state);
+    expect(state.appState.farmingSessionTargets['campaign:account-target']?.acquired).toBe(false);
+    expect(state.appState.manualQueueAuthorized).toBe(true);
+    expect(state.appState.queue[0]?.campaignId).toBe(game.campaignId);
+  });
+
   for (const mutationCase of mutationCases) {
     test(`invalidates synchronously for ${mutationCase.name}`, async () => {
       // Given
@@ -120,7 +170,7 @@ describe('farming session revision authority', () => {
     // Then
     expect(isFarmingSessionEpochCurrent(state, capturedEpoch)).toBe(false);
     await activityStarted.promise;
-    expect(state.appState.isPaused).toBe(false);
+    expect(state.appState.isPaused).toBe(true);
     releaseActivity.resolve(undefined);
     await mutation;
   });
@@ -187,7 +237,7 @@ describe('farming session revision authority', () => {
     }).toEqual({ persistedState: serializedState, independentEpoch: 0 });
   });
 
-  test('queues a manual mutation behind the active critical section', async () => {
+  test('Pause interrupts the active critical section immediately', async () => {
     // Given
     const state = createServiceWorkerState();
     const criticalSectionStarted = createDeferred<void>();
@@ -216,8 +266,8 @@ describe('farming session revision authority', () => {
 
     // Then
     expect(isFarmingSessionEpochCurrent(state, capturedEpoch)).toBe(false);
-    expect(activityCalls).toBe(0);
-    expect(state.appState.isPaused).toBe(false);
+    expect(activityCalls).toBe(1);
+    expect(state.appState.isPaused).toBe(true);
     releaseCriticalSection.resolve(undefined);
     await occupied;
     await activityStarted.promise;

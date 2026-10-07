@@ -22,10 +22,16 @@ export interface QueueEntryMetadata {
     | 'directory-unavailable'
     | 'open-failed'
     | 'stalled-progress';
-  readonly streamerRetryAttempts?: number;
-  readonly streamerRetryCycles?: number;
   readonly streamerWaitState?: 'availability';
-  readonly stalledStreamerNames?: readonly string[];
+  readonly attemptedStreamerNames?: readonly string[];
+  readonly watchAttempt?: {
+    readonly channelName: string;
+    readonly observedAt: number;
+    readonly firstPlaybackAt?: number;
+    readonly suspendedAt?: number;
+    readonly preparing?: boolean;
+    readonly preparationProgress?: number;
+  };
 }
 
 export interface QueueAcquisitionRound {

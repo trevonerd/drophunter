@@ -1,8 +1,6 @@
-import { dropStateKey } from '../../src/background/drops-projection.ts';
-import { createFarmingSession, type FarmingSessionAdapters } from '../../src/background/farming-session.ts';
+import { type FarmingSessionAdapters } from '../../src/background/farming-session.ts';
 import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
-import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from '../../src/background/stream-rotation.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 
@@ -22,7 +20,6 @@ export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}):
     noProgressRotationAttempts: 0,
     offlineChecks: 0,
     avoidStreamerName: null,
-    playbackAttentionWarningSent: false,
     gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,
     twitchSessionFetchInFlight: null,
@@ -34,7 +31,6 @@ export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}):
     lastInventoryRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
-    queueMissingStreak: new Map(),
     lastActivityAt: 0,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
@@ -43,7 +39,6 @@ export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}):
     recoveryBackoffUntil: 0,
     lastRecoveryAttemptAt: 0,
     stalledRecoveryAttempts: 0,
-    recoveryNotificationSent: false,
     lastHeartbeatAt: 0,
     lastGamesCacheRefreshAt: 0,
     hasCurrentGenerationCampaignValidation: true,
@@ -106,7 +101,6 @@ export function createFarmingSessionAdapters(
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
     attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
     clearManagedTabOwnership: () => {},
     openMonitorDashboardWindow: async () => undefined,
     sendAlert: async () => {},
@@ -117,93 +111,4 @@ export function createFarmingSessionAdapters(
     monitorAutoOpenDelayMs: 0,
     ...overrides,
   };
-}
-
-export function createExhaustedRecoveryFixture(options: {
-  progress: number;
-  currentMinutes: number;
-  campaignId?: string;
-  rewardKind?: TwitchDrop['rewardKind'];
-  additionalDrops?: TwitchDrop[];
-}) {
-  const campaignId = options.campaignId ?? 'native-campaign';
-  const game = createGame({
-    id: 'native-game',
-    name: 'Native Game',
-    campaignId,
-    categorySlug: 'native-game',
-    dropCount: 1 + (options.additionalDrops?.length ?? 0),
-    rewardSummary: { completion: 'farmable', remainderReasons: [] },
-  });
-  const nativeReward = createDrop({
-    id: 'native-reward',
-    gameId: game.id,
-    gameName: game.name,
-    campaignId,
-    categorySlug: game.categorySlug,
-    progress: options.progress,
-    currentMinutes: options.currentMinutes,
-    requiredMinutes: 60,
-    remainingMinutes: Math.max(0, 60 - options.currentMinutes),
-    acquisitionMethod: 'watch-time',
-    rewardKind: options.rewardKind ?? 'twitch-badge',
-    verificationState: 'unassessed',
-  });
-  const rewards = [nativeReward, ...(options.additionalDrops ?? [])];
-  const state = createMinimalState();
-  state.appState.isRunning = true;
-  state.appState.selectedGame = game;
-  state.appState.availableGames = [game];
-  state.appState.queue = [game];
-  state.appState.allDrops = rewards;
-  state.appState.pendingDrops = rewards;
-  state.appState.currentDrop = nativeReward;
-  state.appState.tabId = 123;
-  state.appState.activeStreamer = createStreamer({ name: 'stalled-streamer' });
-  state.appState.recoveryReason = 'stalled-progress';
-  state.appState.recoveryAttempts = MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
-  state.cachedDropsSnapshot = rewards;
-  state.previousAllDropsCount = rewards.length;
-  state.lastFullRefreshAt = Date.now();
-  state.lastTrackedDropKey = dropStateKey(nativeReward);
-  state.lastTrackedProgress = options.progress;
-  state.lastTrackedMinutes = options.currentMinutes;
-  state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
-  state.stalledRecoveryAttempts = MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
-  return { game, nativeReward, state };
-}
-
-export function createStalledRecoverySession(
-  state: ServiceWorkerState,
-  overrides: Partial<FarmingSessionAdapters> = {},
-) {
-  return createFarmingSession(
-    state,
-    createFarmingSessionAdapters({
-      fetchDropsSnapshotFromApi: async () => ({
-        games: state.appState.availableGames,
-        drops: state.appState.allDrops,
-        campaignsVerified: true,
-        inventoryVerified: true,
-        updatedAt: Date.now(),
-      }),
-      fetchInventorySnapshotFromApi: async () => ({
-        games: state.appState.availableGames,
-        drops: state.appState.allDrops,
-        inventoryVerified: true,
-        updatedAt: Date.now(),
-      }),
-      fetchStreamContext: async () => ({
-        channelName: 'stalled-streamer',
-        categorySlug: 'native-game',
-        categoryLabel: 'Native Game',
-        streamTitle: 'Drops',
-        titleContainsDrops: true,
-        hasDropsSignal: true,
-        isLive: true,
-        pageUrl: 'https://twitch.tv/stalled-streamer',
-      }),
-      ...overrides,
-    }),
-  );
 }

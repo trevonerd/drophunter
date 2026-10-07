@@ -334,7 +334,7 @@ describe('playback prep policy', () => {
   });
 });
 
-// Mirrors the decision branches of detectStreamLiveStatus in src/content/content-script.ts.
+// Mirrors the decision branches of detectStreamLiveStatus in src/content/stream-context.ts.
 // The content script reads the live DOM and is not importable under bun test, so the
 // branching logic is kept in sync here by hand to guard the offline-detection contract.
 function decideLiveStatus(input: {
@@ -343,11 +343,11 @@ function decideLiveStatus(input: {
   contentGateText: string | null;
   playerText: string | null;
 }): boolean {
-  if (input.hasLiveIndicator) {
-    return true;
-  }
   if (input.contentGateText && normalizeForCompare(input.contentGateText).includes('offline')) {
     return false;
+  }
+  if (input.hasLiveIndicator) {
+    return true;
   }
   if (input.hasPlayerScope && input.playerText) {
     const text = normalizeForCompare(input.playerText);
@@ -373,7 +373,7 @@ describe('detectStreamLiveStatus decision logic', () => {
   test('an offline content-gate overlay inside the player means offline', () => {
     expect(
       decideLiveStatus({
-        hasLiveIndicator: false,
+        hasLiveIndicator: true,
         hasPlayerScope: true,
         contentGateText: 'Channel is offline',
         playerText: '',

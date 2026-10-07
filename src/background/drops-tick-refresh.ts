@@ -5,7 +5,12 @@ import {
   detectNewlyClaimedDrops,
   recordClaimedDropsWithResult,
 } from './claim-log.ts';
-import { completedDropKeys, type DropsSnapshotProvenance, dropStateKey } from './drops-projection.ts';
+import {
+  completedDropKeys,
+  type DropsSnapshotProvenance,
+  dropStateKey,
+  retainCampaignExpiryEvidence,
+} from './drops-projection.ts';
 import { snapshotProvenance } from './drops-snapshot-provenance.ts';
 import { cleanUnavailableQueueCampaigns } from './queue-availability-cleanup.ts';
 import { notifyQueueCleanup, recordQueueCleanupActivity } from './queue-availability-cleanup-activity.ts';
@@ -86,6 +91,7 @@ export async function refreshDropsData(
     }
     if (apiSnapshot) {
       refreshSucceeded = true;
+      retainCampaignExpiryEvidence(state, apiSnapshot.games);
       state.lastFullRefreshAt = Date.now();
       const provenanceFromSnapshot = snapshotProvenance(apiSnapshot);
       const hasAuthoritativeEmptyRewardSet =

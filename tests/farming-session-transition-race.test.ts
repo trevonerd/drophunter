@@ -29,6 +29,7 @@ describe('automatic farming session transition races', () => {
   test('supersedes when the Session epoch changes during receipt loading', async () => {
     // Given: an automatic attempt blocked on its first external receipt read.
     const state = createIncumbentState();
+    const originalMetadata = structuredClone(state.appState.queueEntryMetadataByKey);
     const before = JSON.stringify(state);
     const events: string[] = [];
     const receiptRead =
@@ -47,7 +48,14 @@ describe('automatic farming session transition races', () => {
     const result = await transition;
 
     // Then: stale work performs no acquisition, preparation, write, publication, or promotion.
-    expect({ result, events, after: JSON.stringify(state) }).toEqual({
+    expect({
+      result,
+      events,
+      after: JSON.stringify({
+        ...state,
+        appState: { ...state.appState, queueEntryMetadataByKey: originalMetadata },
+      }),
+    }).toEqual({
       result: { kind: 'unchanged', reason: 'superseded-by-state-change' },
       events: [],
       after: before,
@@ -150,6 +158,7 @@ describe('automatic farming session transition races', () => {
   test('preserves incumbent and disposes B when the commit adapter rejects', async () => {
     // Given: a viable prepared candidate and a durable commit adapter that rejects.
     const state = createIncumbentState();
+    const originalMetadata = structuredClone(state.appState.queueEntryMetadataByKey);
     const before = JSON.stringify(state);
     const events: string[] = [];
     const dependencies = dependenciesFor(state, events, {
@@ -163,7 +172,14 @@ describe('automatic farming session transition races', () => {
     const result = await transitionAutomaticFarmingSession(state, request(), dependencies);
 
     // Then: B is disposed, A is byte-identical, and no publication or promotion occurs.
-    expect({ result, events, after: JSON.stringify(state) }).toEqual({
+    expect({
+      result,
+      events,
+      after: JSON.stringify({
+        ...state,
+        appState: { ...state.appState, queueEntryMetadataByKey: originalMetadata },
+      }),
+    }).toEqual({
       result: { kind: 'failed', reason: 'transition-commit-failed' },
       events: ['acquire', 'prepare', 'commit', 'dispose'],
       after: before,

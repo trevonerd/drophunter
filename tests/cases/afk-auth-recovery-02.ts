@@ -136,7 +136,7 @@ describe('AFK Twitch authentication recovery', () => {
     expect(state.appState.isRunning).toBe(true);
   });
 
-  test('blocks after invalid OAuth exhausts one temporary background-tab recovery budget', async () => {
+  test('waits silently after invalid OAuth exhausts one temporary background-tab recovery budget', async () => {
     const state = createState();
     state.twitchSessionCache = { ...twitchSession, clientIntegrity: 'existing-integrity-token' };
     let createdTabs = 0;
@@ -188,12 +188,12 @@ describe('AFK Twitch authentication recovery', () => {
 
     expect(createdTabs).toBe(1);
     expect(removedTabs).toBe(0);
-    expect(notifications).toBe(1);
-    expect(systemAlerts).toBe(1);
+    expect(notifications).toBe(0);
+    expect(systemAlerts).toBe(0);
     expect(transportStops).toBe(1);
     expect(state.appState.recoveryReason).toBeNull();
-    expect(state.appState.twitchSessionSyncState.status).toBe('blocked');
-    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.twitchSessionSyncState.status).toBe('retrying');
+    expect(state.appState.isRunning).toBe(true);
     expect(state.appState.activeStreamer).toBeNull();
   });
 

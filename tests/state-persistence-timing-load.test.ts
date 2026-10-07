@@ -43,7 +43,6 @@ describe('loadTimingState / saveTimingState', () => {
       recoveryBackoffUntil: futureTime,
       lastRecoveryAttemptAt: 101010,
       stalledRecoveryAttempts: 2,
-      recoveryNotificationSent: false,
       offlineChecks: 1,
       avoidStreamerName: 'bad-streamer',
       unverifiableRewardsByKey: {
@@ -70,7 +69,6 @@ describe('loadTimingState / saveTimingState', () => {
       integrityFallbackActiveUntil: futureTime,
       lastRecoveryAttemptAt: 101010,
       stalledRecoveryAttempts: 2,
-      recoveryNotificationSent: false,
       offlineChecks: 1,
       avoidStreamerName: 'bad-streamer',
       unverifiableRewardsByKey: {

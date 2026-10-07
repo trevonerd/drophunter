@@ -11,7 +11,7 @@ import {
   handleSetSelectedGame as setSelectedGame,
 } from './drops-tick.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
-import { runFarmingSessionMutation } from './farming-session-revision.ts';
+import { currentFarmingSessionEpoch, runFarmingSessionMutation } from './farming-session-revision.ts';
 import { logDebug, logWarn } from './logging.ts';
 import { removeGameFromQueue, resolveGameFromState } from './queue-operations.ts';
 import { parkCampaignForStreamerRetry } from './session-lifecycle-queue-parking.ts';
@@ -150,8 +150,13 @@ export function createFarmingSessionQueue(
   }
 
   async function clearQueue(): Promise<{ readonly success: true; readonly queueLength: number }> {
+    const epoch = currentFarmingSessionEpoch(state);
     await adapters.trackActivity('clear-queue');
+    if (currentFarmingSessionEpoch(state) !== epoch)
+      return { success: true, queueLength: state.appState.queue.length };
     state.appState.queue = [];
+    state.appState.farmingSessionTargets = {};
+    state.appState.campaignFailureEpisodesByKey = {};
     state.appState.queueEntryMetadataByKey = {};
     state.appState.queueAcquisitionRound = null;
     state.appState.queueResumeOnAvailability = false;

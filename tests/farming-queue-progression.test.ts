@@ -10,7 +10,7 @@ afterEach(() => mock.restore());
 
 function fixture() {
   spyOn(Date, 'now').mockReturnValue(NOW);
-  const completed = createGame({ id: 'shared', campaignId: 'completed' });
+  const completed = createGame({ id: 'shared', campaignId: 'completed', dropCount: 1 });
   const next = createGame({ id: 'shared', campaignId: 'next' });
   const state = createMinimalState();
   Object.assign(state.appState, {
@@ -71,7 +71,8 @@ test('retry attempts every remaining identity once, then observes its next deadl
   expect(deadline).toBe(now + 600_000);
   expect(await progression.retryWaitingQueue()).toBe(false);
   expect(visited).toHaveLength(1);
-  now = deadline!;
+  if (deadline == null) throw new Error('Missing retry deadline');
+  now = deadline;
   expect(await progression.retryWaitingQueue()).toBe(false);
   expect(visited.slice(1)).toEqual([gameKey(completed), gameKey(next)]);
   expect(state.appState.manualQueueAuthorized).toBe(true);
@@ -93,7 +94,6 @@ test.each([true, false])(
       streamerWaitState: 'availability',
       streamerRetryReason: 'no-streamers',
       streamerRetryAt: NOW + 600_000,
-      streamerRetryCycles: 3,
     };
     let effects = 0;
     const progression = createQueueProgressionFixture(state, {
@@ -114,7 +114,7 @@ test.each([true, false])(
     });
     progression.reconcileAvailability(evidence, NOW);
     expect(effects).toBe(0);
-    expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(failed ? NOW + 600_000 : null);
+    expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(NOW + 600_000);
     expect(state.appState.queueEntryMetadataByKey[key]).toMatchObject({
       source: 'manual',
       addedAt: 123,
@@ -182,21 +182,17 @@ test('availability with no current selection keeps unauthorized manual entries b
     },
     NOW,
   );
-  expect(state.appState.selectedGame).toEqual(favorite);
-  expect(state.appState.queue).toEqual([favorite, manual]);
+  expect(state.appState.selectedGame).toBeNull();
+  expect(state.appState.queue).toEqual([manual, favorite]);
   expect(state.appState.manualQueueAuthorized).toBe(false);
 });
 
-test('terminal completion releases ownership, persists the stop and delivers completion once', async () => {
+test('terminal completion retains its tab, persists the stop and delivers completion once', async () => {
   const { state, completed } = fixture();
   state.appState.queue = [completed];
   state.appState.tabId = 42;
   const events: string[] = [];
   const progression = createQueueProgressionFixture(state, {
-    closeManagedTabIfSafe: async (id) => {
-      events.push(`release:${id}`);
-      return true;
-    },
     clearManagedTabOwnership: () => {
       state.appState.tabId = null;
     },
@@ -212,7 +208,7 @@ test('terminal completion releases ownership, persists the stop and delivers com
   });
   expect(await progression.advanceIfCompleted()).toBe(false);
   await progression.advanceIfCompleted();
-  expect(events).toEqual(['release:42', 'monitor', 'completion', 'persist']);
+  expect(events).toEqual(['monitor', 'persist', 'completion']);
   expect(state.appState.lastStopReason).toBe('queue-complete');
   expect(state.appState.manualQueueAuthorized).toBe(false);
 });

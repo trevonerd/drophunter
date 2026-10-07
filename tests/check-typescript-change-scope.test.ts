@@ -63,6 +63,33 @@ afterEach(() => {
 
 describe('changed TypeScript scope checker', () => {
   test.serial(
+    'accepts any property access without allowing explicit any types',
+    () => {
+      const directory = createFixture();
+      writeFileSync(join(directory, 'src', 'matchers.ts'), 'expect.any(Number);\nexpect?.any(Number);\n');
+      expect(runChecker(directory).exitCode).toBe(0);
+      writeFileSync(join(directory, 'src', 'matchers.ts'), 'const value: any = input as any;\n');
+      expect(runChecker(directory).stderr).toContain('[no-any-annotation]');
+      expect(runChecker(directory).stderr).toContain('[no-any-assertion]');
+    },
+    TEST_TIMEOUT_MS,
+  );
+  test.serial(
+    'finishes scanning URL regular expressions containing a hash',
+    () => {
+      const directory = createFixture();
+      writeFileSync(
+        join(directory, 'src', 'url.ts'),
+        'const match = href.match(/\\/directory\\/category\\/([^/?#]+)/);\n',
+      );
+      const result = runChecker(directory);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('src/url.ts: 1 pure LOC');
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test.serial(
     'accepts 250 typed code lines',
     () => {
       const directory = createFixture();

@@ -68,7 +68,7 @@ test('keeps the current managed watch when its replacement cannot start', async 
   expect(state.appState.watchHealth).toBe(incumbentHealth);
   await coordinator.tick();
   expect(closes).toBe(0);
-  expect(probedTabIds).toEqual([17]);
+  expect(probedTabIds).toEqual([17, 17]);
   expect(state.appState.activeStreamer?.name).toBe('channel-1');
 });
 
@@ -120,36 +120,26 @@ test('keeps hidden watching when an automatic managed fallback cannot start', as
   expect(state.appState.watchTransportMode).toBe('tabless');
 });
 
-test('does not publish a fallback candidate after its operation is cancelled', async () => {
-  // Given
+test('Stop invalidates a pending tabless heartbeat without opening any managed tab', async () => {
   const state = createServiceWorkerState();
-  state.appState.selectedGame = {
-    id: 'game-1',
-    name: 'Game',
-    imageUrl: '',
-    campaignId: 'campaign-1',
-    categorySlug: 'game',
-  };
+  state.appState.selectedGame = { id: 'game-1', name: 'Game', imageUrl: '', campaignId: 'campaign-1' };
   state.appState.watchTransportPreference = 'tabless';
-  const opened = createDeferred<null>();
-  const opening = createDeferred<void>();
-  let heartbeatCount = 0;
-  let clock = 0;
-  let current = true;
+  const entered = createDeferred<void>();
+  const finished = createDeferred<{ accepted: boolean }>();
+  let heartbeats = 0;
+  let managedOpens = 0;
   const coordinator = createWatchTransportCoordinator({
     state,
-    now: () => clock,
-    minHeartbeatIntervalMs: 1_000,
+    minHeartbeatIntervalMs: 0,
     heartbeat: async () => {
-      heartbeatCount += 1;
-      return heartbeatCount === 1
-        ? { accepted: true, progress: 1 }
-        : { accepted: false, reason: 'heartbeat-failed' };
+      if (++heartbeats === 1) return { accepted: true };
+      entered.resolve();
+      return finished.promise;
     },
     managedTab: {
-      open: () => {
-        opening.resolve();
-        return opened.promise;
+      open: async () => {
+        managedOpens++;
+        return null;
       },
       probe: async () => ({ accepted: true }),
       close: async () => {},
@@ -158,21 +148,12 @@ test('does not publish a fallback candidate after its operation is cancelled', a
     broadcast: () => {},
   });
   await coordinator.start(firstStreamer);
-  await coordinator.setPreference('managed-tab');
-  for (let attempt = 0; attempt < 9; attempt += 1) {
-    clock += 1_000;
-    await coordinator.tick();
-  }
-  const healthBeforeFallback = state.appState.watchHealth;
-
-  // When
-  clock += 1_000;
-  const fallback = coordinator.tick(() => current);
-  await opening.promise;
-  current = false;
-  opened.resolve(null);
-  await fallback;
-
-  // Then
-  expect(state.appState.watchHealth).toBe(healthBeforeFallback);
+  const pending = coordinator.tick();
+  await entered.promise;
+  await coordinator.stop();
+  finished.resolve({ accepted: true });
+  await pending;
+  expect(coordinator.currentTarget()).toBeNull();
+  expect(state.appState.watchHealth?.status).toBe('stopped');
+  expect(managedOpens).toBe(0);
 });

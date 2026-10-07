@@ -15,7 +15,7 @@ export function registerQueue21Part02() {
         isLive: true,
       };
 
-      const opened = await openBestStreamerForSelectedGame(
+      const opening = openBestStreamerForSelectedGame(
         state,
         {
           onFetchDirectoryStreamersFromApi: async () =>
@@ -39,7 +39,7 @@ export function registerQueue21Part02() {
         },
       );
 
-      expect(opened).toBe(false);
+      await expect(opening).rejects.toMatchObject({ name: 'NoEligibleStreamerError' });
       expect(state.appState.tabId).toBe(123);
       expect(state.appState.activeStreamer?.name).toBe('old-streamer');
     });
@@ -127,7 +127,7 @@ export function registerQueue21Part02() {
       state.appState.selectedGame = createGame();
       state.avoidStreamerName = 'alpha';
 
-      const opened = await openBestStreamerForSelectedGame(
+      const opening = openBestStreamerForSelectedGame(
         state,
         {
           onFetchDirectoryStreamersFromApi: async () =>
@@ -149,7 +149,7 @@ export function registerQueue21Part02() {
         },
       );
 
-      expect(opened).toBe(false);
+      await expect(opening).rejects.toMatchObject({ name: 'NoEligibleStreamerError' });
       expect(state.avoidStreamerName).toBe('alpha');
     });
   });

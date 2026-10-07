@@ -119,7 +119,6 @@ export function registerDropProcessing20(): void {
         recoveryBackoffUntil: Date.now() + 60_000,
         lastRecoveryAttemptAt: Date.now() - 60_000,
         stalledRecoveryAttempts: 2,
-        recoveryNotificationSent: true,
       });
 
       subject.splitDropsForSelectedGame(state, [nextDrop], true);
@@ -128,7 +127,6 @@ export function registerDropProcessing20(): void {
       expect(state.noProgressRotationAttempts).toBe(0);
       expect(state.stalledRecoveryAttempts).toBe(0);
       expect(state.recoveryBackoffUntil).toBe(0);
-      expect(state.recoveryNotificationSent).toBe(false);
       expect(state.appState.recoveryReason).toBeNull();
     });
   });

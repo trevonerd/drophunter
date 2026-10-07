@@ -103,7 +103,7 @@ test('mixed campaign remains addable, while another campaign for the same game s
   expect(result.added).toBe(true);
 });
 
-test('Start cannot farm a fully earned reward and projection keeps the claim pending', async () => {
+test('Start keeps an earned unclaimed reward authorized for claim retry', async () => {
   const state = createServiceWorkerState();
   state.appState.availableGames = [game];
   state.appState.selectedGame = game;
@@ -113,9 +113,10 @@ test('Start cannot farm a fully earned reward and projection keeps the claim pen
   expect(state.appState.pendingDrops).toHaveLength(1);
   expect(state.appState.completedDrops).toEqual([]);
   const result = await handleStartFarming(state, { game });
-  expect(result.success).toBe(false);
-  expect(state.appState.isRunning).toBe(false);
-  expect(state.appState.queue).toEqual([]);
+  expect(result.success).toBe(true);
+  expect(state.appState.isRunning).toBe(true);
+  expect(state.appState.manualQueueAuthorized).toBe(true);
+  expect(state.appState.queue).toEqual([game]);
 });
 
 test('unloaded campaigns stay addable and fresh native/unknown rewards remain watchable', () => {

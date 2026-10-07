@@ -1,9 +1,10 @@
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
 import type { PlaybackPrepResult, TwitchStreamer } from '../types/index.ts';
 import { STREAM_VALIDATION_GRACE_MS } from './constants.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import type { ManualStreamContext, ManualWatchTab } from './manual-watch-detector.ts';
-import type { PlaybackAttentionPolicy } from './playback-attention-policy.ts';
 import type { PlaybackPreparationOptions, PlaybackTransport } from './playback-transport.ts';
+import type { ServiceWorkerState } from './runtime-state.ts';
 
 export type ManualPlaybackTab = ManualWatchTab & {
   readonly windowId?: number;
@@ -70,18 +71,9 @@ export async function observeManualPlayback(
   };
 }
 
-interface PlaybackState {
-  readonly appState: {
-    tabId: number | null;
-    activeStreamer: TwitchStreamer | null;
-  };
-  invalidStreamChecks: number;
-  streamValidationGraceUntil: number;
-}
-
 interface PlaybackOrchestratorOptions {
   readonly transport: PlaybackTransport;
-  readonly attention: PlaybackAttentionPolicy;
+  readonly shouldMuteManagedFarmingTab: () => boolean;
   readonly streamerWatchUrl: (channelName: string) => string;
   readonly now?: () => number;
 }
@@ -90,8 +82,20 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function createPlaybackOrchestrator(state: PlaybackState, options: PlaybackOrchestratorOptions) {
+export function createPlaybackOrchestrator(state: ServiceWorkerState, options: PlaybackOrchestratorOptions) {
   const now = () => options.now?.() ?? Date.now();
+
+  function farmingPlaybackGuard(externalIsCurrent: () => boolean = () => true): () => boolean {
+    const epoch = currentFarmingSessionEpoch(state);
+    const tick = state.tickGeneration;
+    return () =>
+      externalIsCurrent() &&
+      currentFarmingSessionEpoch(state) === epoch &&
+      state.tickGeneration === tick &&
+      state.appState.isRunning &&
+      !state.appState.isPaused &&
+      state.appState.lastStopReason !== 'user-stop';
+  }
 
   async function prepareStreamPlayback(
     tabId: number,
@@ -109,25 +113,25 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
     if (prepared.gateDismissed) {
       await delay(700);
       if (!isCurrent()) return;
-      const retried = await prepareStreamPlayback(tabId, {
-        unmuteTab: true,
-        muteAfterPrep: options.attention.muteAfterPreparation(),
+      await prepareStreamPlayback(tabId, {
+        unmuteTab: false,
+        muteAfterPrep: options.shouldMuteManagedFarmingTab(),
+        isCurrent,
       });
-      if (isCurrent()) await options.attention.notifyIfNeeded(retried);
       return;
     }
-    await options.attention.notifyIfNeeded(prepared);
   }
 
   async function attemptPlaybackSelfHeal(
     tabId: number,
-    isCurrent: () => boolean = () => true,
+    externalIsCurrent: () => boolean = () => true,
   ): Promise<void> {
+    const isCurrent = farmingPlaybackGuard(externalIsCurrent);
     if (!isCurrent()) return;
-    options.attention.beginAttempt();
     const prepared = await prepareStreamPlayback(tabId, {
-      unmuteTab: true,
-      muteAfterPrep: options.attention.muteAfterPreparation(),
+      unmuteTab: false,
+      muteAfterPrep: options.shouldMuteManagedFarmingTab(),
+      isCurrent,
     });
     await warnIfPlaybackNeedsAttention(tabId, prepared, isCurrent);
   }
@@ -136,23 +140,30 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
     streamer: TwitchStreamer,
     openOptions?: { readonly focus?: boolean },
   ): Promise<number | null> {
+    const isCurrent = farmingPlaybackGuard();
+    if (!isCurrent()) return null;
     const channelName = streamer.name.toLowerCase();
     const displayName = streamer.displayName || channelName;
     const targetUrl = options.streamerWatchUrl(channelName);
     const isStreamerChange =
       !state.appState.activeStreamer || state.appState.activeStreamer.name !== channelName;
     const shouldFocus = isStreamerChange && openOptions?.focus !== false;
-    const managedTabId = await options.transport.openManaged(state.appState.tabId, targetUrl, shouldFocus);
-    if (managedTabId === null) return null;
+    const managedTabId = await options.transport.openManaged(
+      state.appState.tabId,
+      targetUrl,
+      shouldFocus,
+      isCurrent,
+    );
+    if (managedTabId === null || !isCurrent()) return null;
     const tabId = managedTabId;
 
     async function prepareVisiblePlayback(): Promise<void> {
-      options.attention.beginAttempt();
       const prepared = await options.transport.prepareVisible(tabId, {
         focus: shouldFocus,
-        muteAfterPrep: options.attention.muteAfterPreparation(),
+        muteAfterPrep: options.shouldMuteManagedFarmingTab(),
+        isCurrent,
       });
-      await warnIfPlaybackNeedsAttention(tabId, prepared);
+      await warnIfPlaybackNeedsAttention(tabId, prepared, isCurrent);
     }
 
     void prepareVisiblePlayback().catch(() => undefined);
@@ -171,12 +182,14 @@ export function createPlaybackOrchestrator(state: PlaybackState, options: Playba
 
   async function enforcePlaybackPolicyOnStreamTab(): Promise<void> {
     const tabId = state.appState.tabId;
-    if (tabId === null || now() >= state.streamValidationGraceUntil) return;
-    if (!(await options.transport.hasTab(tabId))) return;
+    const isCurrent = farmingPlaybackGuard(() => state.appState.tabId === tabId);
+    if (!isCurrent() || tabId === null || now() >= state.streamValidationGraceUntil) return;
+    if (!(await options.transport.hasTab(tabId)) || !isCurrent()) return;
     const prepared = await prepareStreamPlayback(tabId, {
-      muteAfterPrep: options.attention.muteAfterPreparation(),
+      muteAfterPrep: options.shouldMuteManagedFarmingTab(),
+      isCurrent,
     });
-    await warnIfPlaybackNeedsAttention(tabId, prepared);
+    await warnIfPlaybackNeedsAttention(tabId, prepared, isCurrent);
   }
 
   return {

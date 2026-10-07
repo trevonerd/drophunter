@@ -105,6 +105,9 @@ export function createServiceWorkerStateLifecycle(
     await clearExtensionRuntimeStorage();
     await saveTimingState(state);
     await persistExtensionResetState(state);
+    if (state.appState.isRunning && !state.appState.isPaused) {
+      dependencies.getFarmingSession().startMonitoring();
+    }
   }
 
   function handleExtensionStorageCleared(): Promise<void> {

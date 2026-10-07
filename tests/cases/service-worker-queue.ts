@@ -8,7 +8,7 @@ import {
 } from '../helpers/service-worker-harness.ts';
 
 export function registerQueueCases() {
-  test('normalizeGameSelection clears selectedGame when exact campaign no longer exists', async () => {
+  test('normalizeGameSelection retains a missing exact campaign instead of borrowing sibling identity', async () => {
     const gameWithCampaignA: TwitchGame = {
       id: 'game-a',
       name: 'Game With Campaign A',
@@ -44,10 +44,10 @@ export function registerQueueCases() {
     });
 
     state = getAppStateFromStorage();
-    expect(state.selectedGame).toBeNull();
+    expect(state.selectedGame?.campaignId).toBe('campaign-a');
   });
 
-  test('normalizeQueueSelection removes queue entries when their campaign vanishes', async () => {
+  test('normalizeQueueSelection retains missing campaigns across repeated partial snapshots', async () => {
     const gameWithCampaignB: TwitchGame = {
       id: 'game-b',
       name: 'Queued Game B',
@@ -175,6 +175,6 @@ export function registerQueueCases() {
     });
 
     state = getAppStateFromStorage();
-    expect(state.selectedGame).toBeNull();
+    expect(state.selectedGame?.campaignId).toBe('campaign-c');
   });
 }

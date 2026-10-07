@@ -93,7 +93,7 @@ export async function readTwitchSessionViaExecuteScript(tabId: number): Promise<
       logDebug('Extracted Twitch session via executeScript', { tabId, ...sessionDebugSummary(session) });
       return session;
     }
-    logWarn('executeScript session extraction returned empty payload', { tabId });
+    logDebug('executeScript session extraction found no session', { tabId });
     return null;
   } catch (error) {
     logWarn('executeScript session extraction failed', { tabId, error: String(error) });

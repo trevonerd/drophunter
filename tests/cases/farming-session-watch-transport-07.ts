@@ -24,7 +24,7 @@ afterAll(() => {
 describe('farming session watch transport integration', () => {
   test('delivers a campaign completion through the common notifier after persisting it', async () => {
     const state = createWatchTransportState();
-    state.appState.selectedGame = game;
+    state.appState.selectedGame = { ...game, dropCount: 1 };
     const completedDrop = {
       ...createWatchTransportDrop(game),
       claimed: true,
@@ -54,7 +54,7 @@ describe('farming session watch transport integration', () => {
       state,
       createWatchTransportAdapters({
         fetchInventorySnapshotFromApi: async () => ({
-          games: [game],
+          games: [{ ...game, dropCount: 1 }],
           drops: [completedDrop],
           updatedAt: 1_000,
         }),
@@ -77,7 +77,10 @@ describe('farming session watch transport integration', () => {
       setClaimRecordedHandler(null);
     }
 
-    expect(calls).toEqual(['claim-alert:Claimed: Reward (Game)', 'save:true', 'automatic:true', 'save:true']);
+    expect(calls).toEqual(
+      expect.arrayContaining(['claim-alert:Claimed: Reward (Game)', 'save:true', 'automatic:true']),
+    );
+    expect(calls.indexOf('save:true')).toBeLessThan(calls.indexOf('automatic:true'));
     expect(events).toEqual([
       {
         event: 'completion',

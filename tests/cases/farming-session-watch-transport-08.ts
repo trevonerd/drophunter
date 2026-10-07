@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { createFarmingSession } from '../../src/background/farming-session.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
 import { createFarmingSessionManualWatchFixture } from '../support/farming-session-manual-watch.ts';
@@ -11,6 +11,10 @@ import {
 } from '../support/farming-session-watch-transport.ts';
 
 export function registerManualWatchTransportCases(getChromeMocks: () => ChromeMocks) {
+  const originalNow = Date.now;
+  afterEach(() => {
+    Date.now = originalNow;
+  });
   test('suspends, preserves suspension on observation failure, and resumes after playback ends', async () => {
     const chromeMocks = getChromeMocks();
     const state = createWatchTransportState();
@@ -21,6 +25,7 @@ export function registerManualWatchTransportCases(getChromeMocks: () => ChromeMo
     let manualPlayback = true;
     let observationFails = false;
     let currentTime = 1_000;
+    Date.now = () => 1_000_000 + currentTime;
     let starts = 0;
     let ticks = 0;
     let stops = 0;
@@ -39,7 +44,6 @@ export function registerManualWatchTransportCases(getChromeMocks: () => ChromeMo
       },
       stop: async () => {
         stops += 1;
-        state.appState.tabId = null;
       },
       setPreference: async () => {},
     };
@@ -135,7 +139,7 @@ export function registerManualWatchTransportCases(getChromeMocks: () => ChromeMo
       starts: 2,
       stops: 1,
       ticks: 0,
-      refreshes: refreshesDuringManualPlayback,
+      refreshes: refreshesDuringManualPlayback + 1,
     });
     expect(automationEvents).toEqual([
       { event: 'manual-suspended', transitionId: 'manual-suspended:campaign-1:1000' },

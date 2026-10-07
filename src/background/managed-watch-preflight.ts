@@ -20,13 +20,14 @@ export async function reconcileManagedWatchesBeforeCreate(
 ): Promise<ManagedWatchPreflight> {
   const registered = await listManagedWatches();
   const handles = new Map(registered.map((item) => [item.ownershipToken, item]));
-  if (currentOwnership?.kind === 'managed-tab')
+  if (currentOwnership?.kind === 'managed-tab' && !handles.has(currentOwnership.ownershipToken))
     handles.set(currentOwnership.ownershipToken, currentOwnership);
   const tabs = await operations.tabs.query({});
   const recovered = new Map<number, ManagedOwnership>();
+  let uncertainHistory = false;
   for (const ownership of handles.values()) {
     if (!isCurrent()) return { kind: 'blocked' };
-    const proven = await recoverManagedTabOwnership(ownership, operations, true);
+    const proven = await recoverManagedTabOwnership(ownership, operations, true, true);
     if (proven) {
       const tab = await operations.tabs.get(proven.tabId);
       if (tab?.status === 'loading' || tab?.pendingUrl) return { kind: 'blocked' };
@@ -44,14 +45,19 @@ export async function reconcileManagedWatchesBeforeCreate(
       streamerWatchUrl(ownership.expectedChannel),
     );
     if (!isCurrent()) return { kind: 'blocked' };
-    if (result.kind === 'unavailable' || result.kind === 'ambiguous') return { kind: 'blocked' };
+    if (result.kind === 'ambiguous') return { kind: 'blocked' };
+    if (result.kind === 'unavailable') {
+      uncertainHistory = true;
+      continue;
+    }
     if (result.kind === 'missing') {
-      if (tabs.some((tab) => tab.id === ownership.tabId)) return { kind: 'blocked' };
+      if (tabs.some((tab) => tab.id === ownership.tabId)) uncertainHistory = true;
       continue;
     }
     recovered.set(result.tab.id, { ...ownership, tabId: result.tab.id });
   }
   if (!isCurrent() || recovered.size > 1) return { kind: 'blocked' };
   const ownership = recovered.values().next().value;
+  if (!ownership && uncertainHistory) return { kind: 'blocked' };
   return ownership ? { kind: 'reuse', ownership } : { kind: 'create', previouslyOwned: handles.size > 0 };
 }

@@ -228,9 +228,11 @@ export function cheapFarmingAutomationGate(
   if (state.appState.isPaused) return { kind: 'unchanged', reason: 'paused' };
   const authorizedParkedQueue =
     state.appState.manualQueueAuthorized &&
-    state.appState.queue.some(
-      (game) => state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt !== undefined,
-    );
+    (state.appState.queueAcquisitionRound !== null ||
+      Object.keys(state.appState.farmingSessionTargets).length > 0 ||
+      state.appState.queue.some(
+        (game) => state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt !== undefined,
+      ));
   if (
     !state.appState.autoStartFavoriteGames &&
     !hasParkedCampaigns &&

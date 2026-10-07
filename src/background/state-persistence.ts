@@ -71,7 +71,7 @@ export function broadcastStateUpdate(appState: AppState) {
   if (appState.isPaused) {
     browser.action.setBadgeText({ text: '⏸' });
     browser.action.setBadgeBackgroundColor({ color: '#B45309' });
-  } else if (badgeDrop && appState.isRunning) {
+  } else if (badgeDrop && appState.isRunning && !appState.pendingWatchTarget) {
     browser.action.setBadgeText({ text: `${badgeDrop.progress}%` });
     browser.action.setBadgeBackgroundColor({ color: '#9146FF' });
   } else if (appState.isRunning) {
@@ -147,6 +147,7 @@ export async function loadState(
     ]);
     if (result.appState) {
       state.appState = normalizeStoredAppState(result.appState);
+      state.appState.pendingWatchTarget = null;
       await reconcileFarmingRecoveryAlarm(state.appState);
       if (!Array.isArray(state.appState.queue)) {
         state.appState.queue = [];
@@ -213,6 +214,9 @@ export async function resetStateForInactivity(
     queue: savedState.queue,
     queueEntryMetadataByKey: savedState.queueEntryMetadataByKey,
     queueAcquisitionRound: savedState.queueAcquisitionRound,
+    farmingSessionTargets: savedState.farmingSessionTargets,
+    campaignFailureEpisodesByKey: savedState.campaignFailureEpisodesByKey,
+    dismissedFarmingMessageIds: savedState.dismissedFarmingMessageIds,
     selectedGame: savedState.selectedGame,
     stalledCampaignBlocksByKey: savedState.stalledCampaignBlocksByKey,
     availableGames: savedState.availableGames,
@@ -265,7 +269,6 @@ export async function resetStateForInactivity(
   state.recoveryBackoffUntil = 0;
   state.lastRecoveryAttemptAt = 0;
   state.stalledRecoveryAttempts = 0;
-  state.recoveryNotificationSent = false;
   state.unverifiableRewardsByKey = {};
   state.lastActivityAt = resetAt;
   await Promise.all([

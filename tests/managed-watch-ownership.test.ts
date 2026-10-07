@@ -59,7 +59,7 @@ test('obsolete ownership in a reused tab cannot release the current channel', as
 });
 
 test.each(['page-load', 'marker-write'] as const)(
-  'discard during %s waits for pending proof and restores the retained watch once',
+  'discard during %s waits for pending proof without rolling back the retained tab',
   async (stage) => {
     const page = tabs.add('https://www.twitch.tv/incumbent');
     await managedWatchMarker.write(page.id, 'incumbent', page.url);
@@ -104,9 +104,11 @@ test.each(['page-load', 'marker-write'] as const)(
     expect(await confirmation).toBe(false);
     await Promise.all([disposal, repeated]);
     expect(await candidate.confirm()).toBe(false);
-    expect(page.url).toBe('https://www.twitch.tv/incumbent');
-    expect(await listManagedWatches()).toEqual([current]);
-    expect(tabs.updated.filter((update) => update.properties.url === page.url)).toHaveLength(1);
+    expect(page.url).toBe('https://www.twitch.tv/replacement');
+    expect(await listManagedWatches()).toEqual(
+      stage === 'marker-write' ? [candidate.ownership] : [{ ...current, expectedChannel: 'replacement' }],
+    );
+    expect(tabs.navigated.filter((navigation) => navigation.url === page.url)).toHaveLength(1);
     expect(tabs.removed).toEqual([]);
   },
 );

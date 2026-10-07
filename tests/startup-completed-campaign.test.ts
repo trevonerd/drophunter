@@ -73,10 +73,6 @@ async function resume(game: TwitchGame, withNext: boolean, heartbeatAge = 1_000,
           await acquireStreamerForSelectedGame();
           return result;
         },
-        closeManagedTabIfSafe: async (tabId) => {
-          events.push(`close:${tabId}`);
-          return true;
-        },
         clearManagedTabOwnership: () => {
           state.appState.tabId = null;
         },
@@ -107,16 +103,16 @@ describe('startup persisted completed campaign', () => {
     expect(events).toEqual(['acquire:next', 'monitor:next']);
   });
 
-  test('stops and releases managed ownership through lifecycle when no campaign remains', async () => {
+  test('stops monitoring while retaining managed ownership when all targets are acquired', async () => {
     const { state, events } = await resume(completed, false);
 
     expect(state.appState.isRunning).toBe(false);
     expect(state.appState.lastStopReason).toBe('queue-complete');
-    expect(state.appState.tabId).toBeNull();
-    expect(events).toEqual(['close:12', 'stop-monitoring']);
+    expect(state.appState.tabId).toBe(12);
+    expect(events).toEqual(['stop-monitoring']);
   });
 
-  test('keeps farming-complete truth instead of treating gated rewards as acquired', async () => {
+  test('keeps gated rewards unresolved and resumes monitoring after startup', async () => {
     const { state, events } = await resume(
       {
         ...next,
@@ -125,10 +121,10 @@ describe('startup persisted completed campaign', () => {
       false,
     );
 
-    expect(state.appState.isRunning).toBe(false);
-    expect(state.appState.lastStopReason).toBe('farming-complete');
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.lastStopReason).toBeNull();
     expect(state.appState.selectedGame?.allDropsCompleted).not.toBe(true);
-    expect(events).toEqual(['close:12', 'stop-monitoring']);
+    expect(events).toEqual(['monitor:next']);
   });
 
   test('preserves ordinary startup monitoring for a campaign without completion evidence', async () => {

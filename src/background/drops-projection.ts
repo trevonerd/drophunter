@@ -21,6 +21,7 @@ import {
   reconcileUnverifiableRewardMarkers,
 } from './drops-projection-semantics.ts';
 import { dropMatchesSelectedGame, splitDropsForSelectedGame } from './drops-selected-projection.ts';
+import { reconcileFarmingSessionTargets } from './farming-session-targets.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { clearCampaignStallBlock, hasNewRewardProgressEvidence } from './stalled-campaign-block.ts';
 
@@ -44,15 +45,32 @@ export {
   splitDropsForSelectedGame,
 } from './drops-selected-projection.ts';
 
-export function normalizeGameSelection(state: ServiceWorkerState, games: TwitchGame[], dropVanished = false) {
+export function normalizeGameSelection(
+  state: ServiceWorkerState,
+  games: TwitchGame[],
+  _dropVanished = false,
+) {
   if (!state.appState.selectedGame) {
     return;
   }
   const selected = findMatchingGame(state.appState.selectedGame, games);
   if (selected) {
     state.appState.selectedGame = selected;
-  } else if (dropVanished && state.appState.selectedGame.campaignId) {
-    state.appState.selectedGame = null;
+  }
+}
+
+export function retainCampaignExpiryEvidence(state: ServiceWorkerState, games: readonly TwitchGame[]): void {
+  const expiredGames = games.filter((game) => isExpiredGame(game));
+  if (expiredGames.length === 0) return;
+  normalizeGameSelection(state, expiredGames);
+  state.appState.queue = state.appState.queue.map((game) => findMatchingGame(game, expiredGames) ?? game);
+  state.appState.availableGames = state.appState.availableGames.filter(
+    (game) => !findMatchingGame(game, expiredGames),
+  );
+  for (const game of expiredGames) {
+    const key = gameKey(game);
+    const target = state.appState.farmingSessionTargets[key];
+    if (target) state.appState.farmingSessionTargets[key] = { ...target, game };
   }
 }
 
@@ -122,6 +140,7 @@ export function projectDropsSnapshot(
   if (snapshot.campaignChannelsMap) {
     state.cachedCampaignChannelsMap = snapshot.campaignChannelsMap;
   }
+  retainCampaignExpiryEvidence(state, snapshot.games);
   const orderedGames =
     snapshot.games.length > 0
       ? applyGameDisplayNames(
@@ -172,15 +191,15 @@ export function projectDropsSnapshot(
         state.appState.stalledCampaignBlocksByKey,
         game,
       );
+      delete state.appState.campaignFailureEpisodesByKey[key];
       const metadata = state.appState.queueEntryMetadataByKey[key];
       if (metadata) {
         const {
           streamerRetryAt: _at,
           streamerRetryReason: _reason,
-          streamerRetryAttempts: _attempts,
-          streamerRetryCycles: _cycles,
           streamerWaitState: _wait,
-          stalledStreamerNames: _stalledStreamers,
+          attemptedStreamerNames: _attempted,
+          watchAttempt: _watch,
           ...ready
         } = metadata;
         state.appState.queueEntryMetadataByKey[key] = ready;
@@ -189,6 +208,7 @@ export function projectDropsSnapshot(
   }
   normalizeGameSelection(state, annotatedGames);
   splitDropsForSelectedGame(state, reconciledDrops, provenance !== 'cached');
+  if (state.appState.isRunning) reconcileFarmingSessionTargets(state);
 }
 
 // Idle-campaign clearing policy: when farming is idle, the selected game has no
@@ -224,6 +244,8 @@ export function clearSelectedCompletedIdleCampaignExt(state: ServiceWorkerState)
 // / saveState orchestration.
 export function resetStateForAuthoritativeEmptyCampaignExt(state: ServiceWorkerState): void {
   state.appState.availableGames = [];
+  // Absence from Twitch's current directory is not reward acquisition or expiry.
+  if (state.appState.isRunning || state.appState.isPaused) return;
   state.appState.queue = [];
   state.appState.queueEntryMetadataByKey = {};
   state.appState.selectedGame = null;

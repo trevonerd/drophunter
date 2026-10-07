@@ -1,5 +1,6 @@
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
-import type { ManagedWatchMarker } from './managed-watch-marker.ts';
+import { type ManagedWatchMarker, pauseManagedWatch } from './managed-watch-marker.ts';
+import { waitForTabComplete } from './tab-management.ts';
 import type { WatchReleaseResult } from './watch-transport-transition.ts';
 
 const FARMING_AUTOMATION_OWNERSHIP_KEY_PREFIX = 'farmingAutomationOwnedWatch:';
@@ -20,8 +21,9 @@ export interface ManagedTabOwnershipOperations {
     update(
       tabId: number,
       properties: { readonly url: string; readonly active: false; readonly muted: true },
+      isCurrent?: () => boolean | Promise<boolean>,
     ): Promise<void>;
-    remove(tabId: number): Promise<void>;
+    remove(tabId: number, isCurrent?: () => boolean | Promise<boolean>): Promise<void>;
   };
   readonly sessionStorage: {
     get(key: string): Promise<Readonly<Record<string, unknown>>>;
@@ -57,6 +59,7 @@ export async function recoverManagedTabOwnership(
   ownership: ManagedWatchOwnership,
   operations: ManagedTabOwnershipOperations,
   includePending = false,
+  allowNavigation = false,
 ): Promise<ManagedWatchOwnership | null> {
   const key = managedTabOwnershipKey(ownership.ownershipToken);
   const stored = await attemptOwnedTabOperation(() => operations.sessionStorage.get(key));
@@ -77,19 +80,19 @@ export async function recoverManagedTabOwnership(
   )
     return ownership;
   const marked = await operations.managedWatchMarker
-    ?.locate(ownership.ownershipToken, expectedUrl)
+    ?.locate(ownership.ownershipToken, expectedUrl, allowNavigation)
     .catch(() => null);
-  return typeof marked?.id === 'number' && marked.url === expectedUrl && typeof marked.windowId === 'number'
+  return typeof marked?.id === 'number' &&
+    (marked.url === expectedUrl || (allowNavigation && marked.url?.startsWith('https://www.twitch.tv/'))) &&
+    typeof marked.windowId === 'number'
     ? { ...ownership, tabId: marked.id }
     : null;
 }
 
 export type ReusedManagedTab = {
   readonly id: number;
-  readonly restorePrevious: () => Promise<void>;
+  readonly reused: true;
 };
-
-const managedNavigationVersions = new Map<number, symbol>();
 
 export async function retireManagedTabOwnership(
   ownershipToken: string,
@@ -108,63 +111,57 @@ export async function retireManagedTabOwnership(
 export async function reuseManagedTabOwnership(
   ownership: ManagedWatchOwnership,
   expectedUrl: string,
-  operations: ManagedTabOwnershipOperations,
-  waitForComplete: (tabId: number, timeoutMs: number) => Promise<void>,
+  operations: ManagedTabOwnershipOperations & {
+    sessionStorage: { set(values: Readonly<Record<string, unknown>>): Promise<void> };
+  },
   isCurrent: () => boolean = () => true,
 ): Promise<ReusedManagedTab | null> {
-  const recovered = await recoverManagedTabOwnership(ownership, operations, true);
+  const recovered = await recoverManagedTabOwnership(ownership, operations, true, true);
   if (!recovered || !isCurrent()) return null;
-  const previousUrl = streamerWatchUrl(ownership.expectedChannel);
-  const version = Symbol();
-  managedNavigationVersions.set(recovered.tabId, version);
   const tab = await attemptOwnedTabOperation(() => operations.tabs.get(recovered.tabId));
   if (!tab || !isCurrent()) return null;
   const needsNavigation = tab.url !== expectedUrl && tab.pendingUrl !== expectedUrl;
   if (needsNavigation) {
     const navigated = await attemptOwnedTabOperation(async () => {
-      await operations.tabs.update(recovered.tabId, { url: expectedUrl, active: false, muted: true });
-      return true;
+      await operations.tabs.update(
+        recovered.tabId,
+        { url: expectedUrl, active: false, muted: true },
+        isCurrent,
+      );
+      return isCurrent();
     });
-    if (!navigated) return null;
-  }
-
-  const restorePrevious = async (): Promise<void> => {
-    if (managedNavigationVersions.get(recovered.tabId) !== version) return;
-    const current = await attemptOwnedTabOperation(() => operations.tabs.get(recovered.tabId));
-    if (managedNavigationVersions.get(recovered.tabId) !== version) return;
-    const stillOnReplacement =
-      current?.id === recovered.tabId &&
-      (current.url === expectedUrl || (current.url === 'about:blank' && current.pendingUrl === expectedUrl));
-    if (!stillOnReplacement) return;
-    if (needsNavigation && current?.url !== previousUrl) {
-      const restored = await attemptOwnedTabOperation(async () => {
-        await operations.tabs.update(recovered.tabId, {
-          url: previousUrl,
-          active: false,
-          muted: true,
-        });
-        return true;
-      });
-      if (!restored) return;
-      await waitForComplete(recovered.tabId, 15_000).catch(() => undefined);
+    if (!navigated) {
+      const current = await attemptOwnedTabOperation(() => operations.tabs.get(recovered.tabId));
+      if (current?.url !== expectedUrl && current?.pendingUrl !== expectedUrl) return null;
     }
-    if (managedNavigationVersions.get(recovered.tabId) !== version) return;
-    await operations.managedWatchMarker
-      ?.write(recovered.tabId, ownership.ownershipToken, previousUrl)
-      .catch(() => false);
-  };
-
+  }
   if (!isCurrent()) {
-    await restorePrevious();
+    // Only finish proof for a navigation that actually reached our owned tab.
+    const current = await attemptOwnedTabOperation(() => operations.tabs.get(recovered.tabId));
+    if (current?.url !== expectedUrl && current?.pendingUrl !== expectedUrl) return null;
+  }
+  // Retain proof of our completed navigation even if the farming intent was
+  // cancelled. The next acquisition must recover this tab instead of creating one.
+  await operations.sessionStorage.set({
+    [managedTabOwnershipKey(recovered.ownershipToken)]: { version: 1, expectedUrl },
+  });
+  if (needsNavigation) await waitForTabComplete(recovered.tabId, 15_000);
+  const marked = await operations.managedWatchMarker?.write(
+    recovered.tabId,
+    recovered.ownershipToken,
+    expectedUrl,
+  );
+  if (!isCurrent()) {
+    await pauseManagedWatch({ ...recovered, expectedChannel: new URL(expectedUrl).pathname.slice(1) });
     return null;
   }
-  return { id: recovered.tabId, restorePrevious };
+  return marked ? { id: recovered.tabId, reused: true } : null;
 }
 
 export async function releaseManagedTabOwnership(
   ownership: ManagedWatchOwnership,
   operations: ManagedTabOwnershipOperations,
-  options: { readonly discard?: boolean } = {},
+  options: { readonly discard?: boolean; readonly isCurrent?: () => boolean } = {},
 ): Promise<WatchReleaseResult> {
   const recovered = await recoverManagedTabOwnership(ownership, operations, true);
   if (!recovered) return { kind: 'abandoned-unproven' };
@@ -175,15 +172,51 @@ export async function releaseManagedTabOwnership(
       operations.tabs.query({ windowId: tab.windowId }),
     );
     if (!windowTabs) return { kind: 'abandoned-unproven' };
+    const stillOwned = async () => {
+      if (options.isCurrent?.() === false) return false;
+      const proof = await recoverManagedTabOwnership(recovered, operations, true);
+      if (!proof || proof.tabId !== recovered.tabId) return false;
+      if (operations.managedWatchMarker) {
+        const marked = await operations.managedWatchMarker
+          .locate(recovered.ownershipToken, streamerWatchUrl(recovered.expectedChannel))
+          .catch(() => null);
+        if (marked?.id !== recovered.tabId) return false;
+      }
+      const latest = await attemptOwnedTabOperation(() => operations.tabs.get(recovered.tabId));
+      return (
+        options.isCurrent?.() !== false &&
+        latest !== null &&
+        latest.windowId === tab.windowId &&
+        latest.url === streamerWatchUrl(recovered.expectedChannel) &&
+        !latest.pendingUrl
+      );
+    };
+    if (!(await stillOwned())) return { kind: 'abandoned-unproven' };
+    const requireOwnership = async () => {
+      if (!(await stillOwned())) throw new Error('Managed tab ownership changed before cleanup');
+      return true;
+    };
+    const requireSafeRemoval = async () => {
+      await requireOwnership();
+      const siblings = await operations.tabs.query({ windowId: tab.windowId });
+      if (!siblings.some((other) => other.id !== recovered.tabId))
+        throw new Error('Managed tab is the last tab in its window');
+      return requireOwnership();
+    };
     const closed =
       windowTabs.some((other) => other.id !== recovered.tabId) &&
       (await attemptOwnedTabOperation(async () => {
-        await operations.tabs.remove(recovered.tabId);
+        await requireSafeRemoval();
+        await operations.tabs.remove(recovered.tabId, requireSafeRemoval);
         return true;
       }));
     if (!closed) {
       const neutralized = await attemptOwnedTabOperation(async () => {
-        await operations.tabs.update(recovered.tabId, { url: 'about:blank', active: false, muted: true });
+        await operations.tabs.update(
+          recovered.tabId,
+          { url: 'about:blank', active: false, muted: true },
+          requireOwnership,
+        );
         return true;
       });
       if (!neutralized) return { kind: 'abandoned-unproven' };
@@ -197,8 +230,4 @@ export async function releaseManagedTabOwnership(
 export function streamerWatchUrl(channelName: string): string {
   const channel = encodeURIComponent(channelName.toLowerCase());
   return `https://www.twitch.tv/${channel}`;
-}
-
-export function clearManagedNavigationVersion(tabId: number): void {
-  managedNavigationVersions.delete(tabId);
 }

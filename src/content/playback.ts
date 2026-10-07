@@ -21,6 +21,10 @@ export interface PlayableVideo {
 type PlaybackSample = { time: number; advancedAt: number | null };
 const playbackSamples = new WeakMap<object, PlaybackSample>();
 
+export function resetPlaybackObservation(video: object): void {
+  playbackSamples.delete(video);
+}
+
 export function isVideoPlaybackAdvancing(
   video: Pick<HTMLVideoElement, 'currentTime' | 'paused' | 'ended' | 'readyState'>,
   now = Date.now(),
@@ -30,6 +34,10 @@ export function isVideoPlaybackAdvancing(
     return false;
   }
   const previous = playbackSamples.get(video);
+  if (previous && video.currentTime < previous.time) {
+    playbackSamples.set(video, { time: video.currentTime, advancedAt: null });
+    return false;
+  }
   const advancedAt =
     previous && video.currentTime > previous.time + 0.01 ? now : (previous?.advancedAt ?? null);
   playbackSamples.set(video, { time: video.currentTime, advancedAt });
@@ -41,10 +49,13 @@ export async function observePlaybackAdvance(
   wait: (milliseconds: number) => Promise<void> = (milliseconds) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds)),
   waitWhilePaused = false,
+  isCurrent: () => boolean = () => true,
 ): Promise<boolean> {
+  if (!isCurrent()) return false;
   if (isVideoPlaybackAdvancing(video)) return true;
   for (let attempt = 0; attempt < 8; attempt++) {
     await wait(250);
+    if (!isCurrent()) return false;
     if (isVideoPlaybackAdvancing(video)) return true;
     if (video.ended || (video.paused && !waitWhilePaused)) return false;
   }
@@ -53,7 +64,9 @@ export async function observePlaybackAdvance(
 
 export async function startMutedPlayback(
   video: PlayableVideo,
+  isCurrent: () => boolean = () => true,
 ): Promise<{ played: boolean; error?: unknown }> {
+  if (!isCurrent()) return { played: false };
   if (!video.paused) return { played: true };
   video.muted = true;
   const play = async () => {
@@ -74,12 +87,13 @@ export async function startMutedPlayback(
   };
   try {
     await play();
-    return { played: true };
+    return { played: isCurrent() };
   } catch {
+    if (!isCurrent()) return { played: false };
     video.muted = true;
     try {
       await play();
-      return { played: true };
+      return { played: isCurrent() };
     } catch (error) {
       return { played: false, error };
     }

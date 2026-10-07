@@ -50,13 +50,11 @@ test('main view model owns popup campaign, queue, and transient activity project
     queueGames: [campaign],
     pendingDrops: [],
     completedDrops: [],
-    dismissedQueueCleanupActivityId: null,
     now: 1_000,
   });
 
   expect(model.startDisabled).toBe(false);
   expect(model.highlightedCampaignKey).toBe(gameKey(campaign));
-  expect(model.queueCleanupActivity).toEqual(cleanupActivity);
   expect(model.favoriteIds.size).toBeGreaterThan(0);
   expect(model.loadedCampaignKeys).toEqual(new Set());
   expect(model.campaignProgressByKey.get(gameKey(campaign))).toEqual({
@@ -74,39 +72,7 @@ test('main view model owns popup campaign, queue, and transient activity project
     queueGames: [campaign],
     pendingDrops: [],
     completedDrops: [],
-    dismissedQueueCleanupActivityId: cleanupActivity.id,
     now: 1_000,
   });
-  expect(dismissed.queueCleanupActivity).toBeUndefined();
   expect(dismissed.sessionRequired).toBe(true);
-});
-
-test('main view model does not display recovered historical skips as current problems', () => {
-  const activity = {
-    id: 'queue-recovery:no-streamers:campaign:campaign-1:1000',
-    kind: 'queue-retries-exhausted' as const,
-    at: 1_000,
-    campaignId: campaign.campaignId,
-    message: 'No eligible streamer was found. DropHunter stopped.',
-  };
-  const state = { ...createInitialState(), automationActivity: [activity] };
-  const input = {
-    state,
-    campaignSyncStatus: 'fresh' as const,
-    sortedGames: [campaign],
-    queueGames: [campaign],
-    pendingDrops: [],
-    completedDrops: [],
-    now: 1_000,
-  };
-
-  expect(
-    createMainViewModel({ ...input, dismissedQueueCleanupActivityId: null }).queueCleanupActivity,
-  ).toBeUndefined();
-  expect(
-    createMainViewModel({
-      ...input,
-      dismissedQueueCleanupActivityId: activity.id,
-    }).queueCleanupActivity,
-  ).toBeUndefined();
 });

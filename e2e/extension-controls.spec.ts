@@ -281,10 +281,16 @@ for (const isPaused of [false, true]) {
         await expect.poll(async () => popup.evaluate(async () => {
           const { appState, storageSchemaVersion, lastInitializedExtensionVersion } = await chrome.storage.local.get(['appState', 'storageSchemaVersion', 'lastInitializedExtensionVersion']);
           const state = appState as Record<string, unknown>;
-          return [storageSchemaVersion, lastInitializedExtensionVersion, state.recoveryReason, state.recoveryBackoffUntil, state.isPaused, state.isRunning, state.wasRunning,
+          // Active intent resumes immediately. With this offline fixture, its
+          // first tick may already have scheduled a fresh API recovery.
+          const freshRecovery = state.recoveryReason === null ||
+            (!state.isPaused && state.recoveryReason === 'twitch-data-unavailable');
+          const boundedDeadline = state.recoveryBackoffUntil === null ||
+            (typeof state.recoveryBackoffUntil === 'number' && state.recoveryBackoffUntil <= Date.now() + 86_400_000);
+          return [storageSchemaVersion, lastInitializedExtensionVersion, freshRecovery, boundedDeadline, state.isPaused, state.isRunning, state.wasRunning,
             state.manualQueueAuthorized,
             (state.queue as Array<{ campaignId: string }>)[0]?.campaignId];
-        })).toEqual([4, resolveReleaseVersion(packageJson.version).manifestVersion, null, null, isPaused, isPaused, !isPaused, true, 'e2e-campaign']);
+        })).toEqual([4, resolveReleaseVersion(packageJson.version).manifestVersion, true, true, isPaused, true, !isPaused, true, 'e2e-campaign']);
       } finally {
         await upgraded.shutdown();
       }

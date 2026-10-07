@@ -230,7 +230,7 @@ describe('Farming automation ordered effects', () => {
       activity: subject.state.appState.automationActivity.map(({ kind }) => kind),
     }).toEqual({
       outcome: { kind: 'started', campaignKey: gameKey(subject.candidate), transition: 'start' },
-      events: ['refresh', 'broadcast', 'commit', 'facts', 'broadcast', 'alarm'],
+      events: ['refresh', 'broadcast', 'broadcast', 'commit', 'facts', 'broadcast', 'alarm'],
       activity: ['auto-started', 'favorite-added', 'favorite-added'],
     });
     expect(subject.storage.getLocal(FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY)).toMatchObject({

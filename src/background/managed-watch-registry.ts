@@ -9,7 +9,9 @@ export async function rememberManagedWatch(
   ownershipToken: string,
   expectedUrl: string,
   options: { readonly provisional?: true; readonly replacesOwnershipToken?: string } = {},
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
+  if (!isCurrent()) return;
   const expectedChannel = new URL(expectedUrl).pathname.slice(1);
   const ownership: ManagedOwnership = { kind: 'managed-tab', tabId, ownershipToken, expectedChannel };
   await browser.storage.local.set({
@@ -19,7 +21,9 @@ export async function rememberManagedWatch(
       ...(options.replacesOwnershipToken ? { replacesOwnershipToken: options.replacesOwnershipToken } : {}),
     },
   });
+  if (!isCurrent()) return;
   const registered = await listManagedWatches();
+  if (!isCurrent()) return;
   await Promise.all(
     registered
       .filter((item) => item.tabId === tabId && item.ownershipToken !== ownershipToken)

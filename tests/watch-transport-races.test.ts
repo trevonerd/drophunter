@@ -7,11 +7,7 @@ const streamer = { id: 'channel-1', name: 'channel-1', displayName: 'Channel 1',
 const session = { owner: 'drophunter', tabId: 7 } as const;
 
 function deferred<T>() {
-  let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((complete) => {
-    resolve = complete;
-  });
-  return { promise, resolve };
+  return Promise.withResolvers<T>();
 }
 
 function setup(managedTab: ManagedTabOperations) {
@@ -215,7 +211,6 @@ test('strict tabless health recovery never opens a managed tab', async () => {
 
   expect(opens).toBe(0);
   expect(state.appState.watchHealth?.status).toBe('stopped');
-  expect(state.appState.watchFallbackReason).toBeNull();
 });
 
 test.each(['start', 'restore'] as const)(

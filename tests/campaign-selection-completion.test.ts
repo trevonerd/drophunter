@@ -46,22 +46,23 @@ function setup(game: TwitchGame, running = true) {
 }
 
 describe('campaign selection completion guard', () => {
-  test.each(
-    terminalCampaigns,
-  )('rejects terminal campaign before changing a running session: %j', async (game) => {
-    const { state, callbacks, deps } = setup(game);
-    const queue = [...state.appState.queue];
+  test.each(terminalCampaigns)(
+    'rejects terminal campaign before changing a running session: %j',
+    async (game) => {
+      const { state, callbacks, deps } = setup(game);
+      const queue = [...state.appState.queue];
 
-    const result = await handleSetSelectedGame(state, { game: target }, callbacks, deps);
+      const result = await handleSetSelectedGame(state, { game: target }, callbacks, deps);
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBeTruthy();
-    expect(state.appState.selectedGame).toEqual(active);
-    expect(state.appState.queue).toEqual(queue);
-    expect(callbacks.onEnsureWorkspace).not.toHaveBeenCalled();
-    expect(callbacks.onRefreshDropsData).not.toHaveBeenCalled();
-    expect(callbacks.onOpenBestStreamer).not.toHaveBeenCalled();
-  });
+      expect(result.success).toBe(false);
+      expect(result.error).toBeTruthy();
+      expect(state.appState.selectedGame).toEqual(active);
+      expect(state.appState.queue).toEqual(queue);
+      expect(callbacks.onEnsureWorkspace).not.toHaveBeenCalled();
+      expect(callbacks.onRefreshDropsData).not.toHaveBeenCalled();
+      expect(callbacks.onOpenBestStreamer).not.toHaveBeenCalled();
+    },
+  );
 
   test.each(terminalCampaigns)('allows idle inspection of a terminal campaign: %j', async (game) => {
     const { state, callbacks, deps } = setup(game, false);

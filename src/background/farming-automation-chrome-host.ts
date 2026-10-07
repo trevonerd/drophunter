@@ -1,7 +1,8 @@
 import { browser } from '../shared/browser-api.ts';
 import type { FarmingAutomationChromeHost } from './farming-automation-browser.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
-import { managedWatchMarker } from './managed-watch-marker.ts';
+import { managedWatchMarker, serializeManagedWatchMutation } from './managed-watch-marker.ts';
+import { updateManagedWatchTab } from './managed-watch-navigation.ts';
 import { createManagedWatchOwnership, type ManagedWatchOwnership } from './managed-watch-ownership.ts';
 import { createManagedWatchTabAcquisition } from './managed-watch-ownership-acquisition.ts';
 import { waitForTabComplete } from './tab-management.ts';
@@ -18,8 +19,14 @@ export function createChromeFarmingAutomationHost(
       create: (...args) => acquireTab(...args),
       get: (tabId) => browser.tabs.get(tabId),
       query: (query) => browser.tabs.query(query),
-      update: async (tabId, properties) => void (await browser.tabs.update(tabId, properties)),
-      remove: async (tabId) => void (await browser.tabs.remove(tabId)),
+      update: async (tabId, properties, isCurrent = () => true) =>
+        void (await serializeManagedWatchMutation(async () =>
+          updateManagedWatchTab(tabId, properties, isCurrent),
+        )),
+      remove: async (tabId, isCurrent = () => true) =>
+        void (await serializeManagedWatchMutation(async () =>
+          (await isCurrent()) ? browser.tabs.remove(tabId) : null,
+        )),
     },
     sessionStorage: {
       get: (key) => browser.storage.session.get(key),

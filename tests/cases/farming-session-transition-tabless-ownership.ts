@@ -57,6 +57,7 @@ export function registerTablessOwnershipCases() {
       },
       {
         acquireStreamer: async () => streamer,
+        persistAttempt: async () => true,
         currentFingerprint: () => 'fingerprint-a',
         loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
         commitTransition: async (commit) => {
@@ -117,6 +118,7 @@ export function registerTablessOwnershipCases() {
       },
       {
         acquireStreamer: async () => streamer,
+        persistAttempt: async () => true,
         currentFingerprint: () => 'fingerprint-a',
         loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
         commitTransition: async (commit) => {

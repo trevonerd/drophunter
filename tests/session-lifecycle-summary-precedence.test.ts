@@ -106,7 +106,7 @@ describe('farming-complete summary precedence', () => {
     expect(refreshCalls).toBe(1);
   });
 
-  test('still rejects Start before mutation when only a subscription reward remains', async () => {
+  test('keeps Start authorized when only an unresolved subscription reward remains', async () => {
     // Given
     const state = createServiceWorkerState();
     const requested = createGame({
@@ -130,14 +130,11 @@ describe('farming-complete summary precedence', () => {
     );
 
     // Then
-    expect(result).toEqual({
-      success: false,
-      error: 'All farmable rewards claimed · Subscription required for remaining rewards',
-    });
-    expect(state.appState.isRunning).toBe(false);
-    expect(state.appState.selectedGame).toBeNull();
-    expect(state.appState.queue).toEqual([queued]);
-    expect(refreshCalls).toBe(0);
+    expect(result).toEqual({ success: true });
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.selectedGame).toEqual(requested);
+    expect(state.appState.queue).toEqual([requested, queued]);
+    expect(refreshCalls).toBe(1);
   });
 
   test('rejects an all-acquired campaign before mutating the farming session', async () => {
@@ -170,7 +167,7 @@ describe('farming-complete summary precedence', () => {
     expect(refreshCalls).toBe(0);
   });
 
-  test('retains subscription-only terminal inspection and reason-specific stop state', async () => {
+  test('waits on subscription-only rewards without declaring completion', async () => {
     // Given
     const state = createServiceWorkerState();
     const terminal = createGame({
@@ -186,16 +183,18 @@ describe('farming-complete summary precedence', () => {
     state.appState.currentDrop = null;
 
     // When
-    const running = await createQueueProgressionFixture(state).advanceIfCompleted();
+    const running = await createQueueProgressionFixture(state, {
+      transitionCampaign: async () => ({ kind: 'waiting' }),
+    }).advanceIfCompleted();
 
     // Then
-    expect(running).toBe(false);
+    expect(running).toBe(true);
     expect(state.appState.selectedGame).toEqual(terminal);
-    expect(state.appState.lastStopReason).toBe('farming-complete');
-    expect(state.appState.lastStopMessage).toContain('Subscription required');
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeGreaterThan(Date.now());
   });
 
-  test('retains unverifiable-only terminal inspection and reason-specific stop state', async () => {
+  test('waits on unverifiable rewards without declaring completion', async () => {
     // Given
     const state = createServiceWorkerState();
     const terminal = createGame({
@@ -214,12 +213,14 @@ describe('farming-complete summary precedence', () => {
     state.appState.currentDrop = null;
 
     // When
-    const running = await createQueueProgressionFixture(state).advanceIfCompleted();
+    const running = await createQueueProgressionFixture(state, {
+      transitionCampaign: async () => ({ kind: 'waiting' }),
+    }).advanceIfCompleted();
 
     // Then
-    expect(running).toBe(false);
+    expect(running).toBe(true);
     expect(state.appState.selectedGame).toEqual(terminal);
-    expect(state.appState.lastStopReason).toBe('unverifiable-twitch');
-    expect(state.appState.lastStopMessage).toContain('could not be verified');
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeGreaterThan(Date.now());
   });
 });

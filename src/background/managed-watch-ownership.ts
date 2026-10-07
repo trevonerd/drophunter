@@ -1,8 +1,8 @@
 import type { FarmingAutomationChromeHost } from './farming-automation-browser.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
+import { pauseManagedWatch } from './managed-watch-marker.ts';
 import { resolveManagedWatchTabIds } from './managed-watch-observation.ts';
 import {
-  clearManagedNavigationVersion,
   managedTabOwnershipKey,
   releaseManagedTabOwnership,
   retireManagedTabOwnership,
@@ -25,7 +25,6 @@ export interface ManagedWatchCandidate {
 
 export interface ManagedWatchAcquisitionIntent {
   readonly allowInitialCreation?: boolean;
-  readonly preserveExistingWatch?: boolean;
   readonly retainOnFailure?: boolean;
   readonly purpose?: 'watch' | 'selection';
   readonly knownTabId?: number | null;
@@ -87,6 +86,14 @@ export function createManagedWatchOwnership(
     }
     const result = await releaseManagedTabOwnership(ownership, host, {
       discard: current?.kind === 'managed-tab' && current.tabId !== ownership.tabId,
+      isCurrent: () => {
+        const settled = currentOwnership();
+        return (
+          settled?.kind !== 'managed-tab' ||
+          settled.tabId !== ownership.tabId ||
+          settled.ownershipToken === ownership.ownershipToken
+        );
+      },
     });
     const settled = currentOwnership();
     if (
@@ -117,15 +124,10 @@ export function createManagedWatchOwnership(
     const token = (dependencies.createOwnershipToken ?? (() => globalThis.crypto.randomUUID()))();
     const expectedUrl = streamerWatchUrl(channel);
     const key = managedTabOwnershipKey(token);
-    const incumbent = currentOwnership();
-    const preparation =
-      intent.preserveExistingWatch && incumbent?.kind === 'managed-tab'
-        ? { provisional: true as const, replacesOwnershipToken: incumbent.ownershipToken }
-        : {};
     let handedOff = false;
     try {
       const persisted = await attempt(async () => {
-        await host.sessionStorage.set({ [key]: { version: 1, expectedUrl, ...preparation } });
+        await host.sessionStorage.set({ [key]: { version: 1, expectedUrl } });
         return true;
       });
       if (!persisted || !isCurrent()) return null;
@@ -134,7 +136,6 @@ export function createManagedWatchOwnership(
           { url: expectedUrl, active: false, muted: true },
           isCurrent,
           intent.allowInitialCreation ?? false,
-          intent.preserveExistingWatch ?? false,
         ),
       );
       if (typeof tab?.id !== 'number') return null;
@@ -155,9 +156,8 @@ export function createManagedWatchOwnership(
             if (isCurrent()) await dependencies.waitForTabComplete(ownership.tabId, 15_000);
             if (!isCurrent() || disposal) return false;
             if (host.managedWatchMarker) {
-              if (!(await host.managedWatchMarker.write(ownership.tabId, token, expectedUrl))) return false;
-              if (intent.preserveExistingWatch && dependencies.recordDurableOwnership)
-                await rememberManagedWatch(ownership.tabId, token, expectedUrl, preparation);
+              if (!(await host.managedWatchMarker.write(ownership.tabId, token, expectedUrl, isCurrent)))
+                return false;
             }
             confirmed = isCurrent() && disposal === null;
             return confirmed;
@@ -167,11 +167,13 @@ export function createManagedWatchOwnership(
         discard: () => {
           disposal ??= Promise.resolve().then(async () => {
             await confirmation?.catch(() => false);
-            if (tab.restorePrevious) {
-              await retireManagedTabOwnership(ownership.ownershipToken, host);
-              await tab.restorePrevious();
+            if (tab.reused) {
+              // A shared tab can already host a newer campaign. Discarding a
+              // superseded candidate must never navigate or close that page.
+              await pauseManagedWatch(ownership);
+              return;
             } else if (intent.retainOnFailure) {
-              await releaseManagedTabOwnership(ownership, host, { discard: intent.preserveExistingWatch });
+              await releaseManagedTabOwnership(ownership, host);
             } else {
               await release(ownership);
             }
@@ -179,7 +181,7 @@ export function createManagedWatchOwnership(
           return disposal;
         },
       };
-      if (intent.purpose === 'selection' && tab.restorePrevious && !(await candidate.confirm())) {
+      if (intent.purpose === 'selection' && tab.reused && !(await candidate.confirm())) {
         await candidate.discard();
         return null;
       }
@@ -197,9 +199,4 @@ export function createManagedWatchOwnership(
       reconstructManagedWatchOwnership(host, receipt, readSelection, isCurrent),
     observeTabIds: () => resolveManagedWatchTabIds(host),
   };
-}
-
-export async function closeManagedTabIfSafe(tabId: number | null): Promise<boolean> {
-  if (tabId !== null) clearManagedNavigationVersion(tabId);
-  return false;
 }

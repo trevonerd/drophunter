@@ -1,14 +1,29 @@
 import { expect, test } from 'bun:test';
+import { farmingMessages } from '../../src/shared/farming-messages.ts';
 import type { TwitchGame } from '../../src/types/index.ts';
 import { demoGame } from '../fixtures/service-worker-games.ts';
-import { enqueueDirectoryResult, enqueueDropsSnapshot } from '../helpers/service-worker-fetch.ts';
+import {
+  enqueueDirectoryResult,
+  enqueueDropsSnapshot,
+  setStableDropsSnapshot,
+} from '../helpers/service-worker-fetch.ts';
 import {
   chromeMocks,
   dispatchMessage,
   getAppStateFromStorage,
   syncTestSession,
+  triggerMonitorAlarm,
   waitForAppState,
 } from '../helpers/service-worker-harness.ts';
+
+function captureNotifications() {
+  const notifications: unknown[] = [];
+  chromeMocks.chrome.notifications.create = async (options) => {
+    notifications.push(options);
+    return 'notification-id';
+  };
+  return notifications;
+}
 
 export function registerStartAndSettingsCases() {
   test('START_FARMING returns an error when no game is provided', async () => {
@@ -20,12 +35,7 @@ export function registerStartAndSettingsCases() {
 
   test('CHANNEL_POINTS_BONUS_CLAIMED increments and persists channel point stats', async () => {
     const baseline = getAppStateFromStorage().totalChannelPointsClaimed;
-    const chrome = chromeMocks.chrome;
-    const notifications: unknown[] = [];
-    chrome.notifications.create = async (options) => {
-      notifications.push(options);
-      return 'notification-id';
-    };
+    const notifications = captureNotifications();
     chromeMocks.permissions.setContainsResult(true);
     await dispatchMessage({
       type: 'SET_NOTIFICATIONS_ENABLED',
@@ -47,22 +57,24 @@ export function registerStartAndSettingsCases() {
     );
   });
 
-  test('START_FARMING exits cleanly when no farmable drops are available', async () => {
+  test('START_FARMING retains authorization while Twitch reward data is temporarily unavailable', async () => {
     await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame] });
     const response = await dispatchMessage({
       type: 'START_FARMING',
       payload: { game: demoGame },
     });
 
-    expect(response).toEqual({ success: false, error: 'No farmable drops for this game.' });
-
+    expect(response).toEqual({ success: true });
+    await triggerMonitorAlarm();
     const state = getAppStateFromStorage();
-    expect(state.isRunning).toBe(false);
+    expect(state.isRunning).toBe(true);
     expect(state.isPaused).toBe(false);
-    expect(state.selectedGame).toBeNull();
+    expect(state.selectedGame?.campaignId).toBe(demoGame.campaignId);
+    expect(state.manualQueueAuthorized).toBe(true);
+    expect(state.recoveryReason).toBe('twitch-network');
   });
 
-  test('START_FARMING rejects a farming-complete campaign without mutating the queue', async () => {
+  test('START_FARMING accepts intent while the main flow revalidates stale completion evidence', async () => {
     const farmingCompleteGame: TwitchGame = {
       ...demoGame,
       id: 'farming-complete-game',
@@ -81,16 +93,16 @@ export function registerStartAndSettingsCases() {
       payload: { game: farmingCompleteGame },
     });
 
-    expect(response).toEqual({
-      success: false,
-      error: 'Farming finished · Twitch reward acquisition could not be verified',
-    });
+    expect(response).toEqual({ success: true });
+    await triggerMonitorAlarm();
     const state = getAppStateFromStorage();
-    expect(state.isRunning).toBe(false);
-    expect(state.queue).toEqual([]);
+    expect(state.isRunning).toBe(true);
+    expect(state.activeStreamer).toBeNull();
+    expect(state.queue.map((game) => game.campaignId)).toEqual([farmingCompleteGame.campaignId]);
   });
 
   test('PAUSE_FARMING sets isPaused via chrome.runtime.onMessage.trigger', async () => {
+    await dispatchMessage({ type: 'START_FARMING', payload: { game: demoGame } });
     chromeMocks.runtime.onMessage.trigger({ type: 'PAUSE_FARMING' });
 
     const state = await waitForAppState((next) => next.isPaused === true, 'pause state did not persist');
@@ -108,6 +120,7 @@ export function registerStartAndSettingsCases() {
     expect(await dispatchMessage({ type: 'START_FARMING', payload: { game: demoGame } })).toEqual({
       success: true,
     });
+    await triggerMonitorAlarm();
     await waitForAppState(
       (next) => next.isRunning && next.activeStreamer !== null,
       'running watch did not persist',
@@ -121,12 +134,7 @@ export function registerStartAndSettingsCases() {
   });
 
   test('SET_NOTIFICATIONS_ENABLED persists the notification preference and suppresses alerts', async () => {
-    const chrome = chromeMocks.chrome;
-    const notifications: unknown[] = [];
-    chrome.notifications.create = async (options) => {
-      notifications.push(options);
-      return 'notification-id';
-    };
+    const notifications = captureNotifications();
 
     const disabled = await dispatchMessage({
       type: 'SET_NOTIFICATIONS_ENABLED',
@@ -194,12 +202,7 @@ export function registerStartAndSettingsCases() {
   });
 
   test('notification alerts are skipped when optional permission is missing', async () => {
-    const chrome = chromeMocks.chrome;
-    const notifications: unknown[] = [];
-    chrome.notifications.create = async (options) => {
-      notifications.push(options);
-      return 'notification-id';
-    };
+    const notifications = captureNotifications();
 
     chromeMocks.permissions.setContainsResult(true);
     await dispatchMessage({
@@ -219,6 +222,7 @@ export function registerStartAndSettingsCases() {
   });
 
   test('STOP_FARMING clears running flags and stores terminal stop metadata', async () => {
+    await dispatchMessage({ type: 'START_FARMING', payload: { game: demoGame } });
     chromeMocks.runtime.onMessage.trigger({ type: 'PAUSE_FARMING' });
     await waitForAppState((next) => next.isPaused === true, 'pause state did not persist');
 
@@ -230,5 +234,52 @@ export function registerStartAndSettingsCases() {
 
     expect(stopped.lastStopReason).toBe('user-stop');
     expect(stopped.lastStopMessage).toBe('Stopped by user.');
+  });
+  test('the main alarm publishes local playback guidance without an external notification', async () => {
+    const notifications: unknown[] = [];
+    const originalCreate = chromeMocks.chrome.notifications.create;
+    const originalSend = chromeMocks.chrome.tabs.sendMessage;
+    chromeMocks.chrome.notifications.create = async (...args: unknown[]) => {
+      notifications.push(
+        args.find((value) => typeof value === 'object' && value !== null && 'title' in value),
+      );
+      return 'attention-notification';
+    };
+    chromeMocks.chrome.tabs.sendMessage = async (tabId, message) => {
+      if (message.type === 'PREPARE_STREAM_PLAYBACK')
+        return { success: true, isPlaybackReady: false, userInteractionRequired: true };
+      const result = await originalSend(tabId, message);
+      if (
+        message.type === 'GET_STREAM_CONTEXT' &&
+        result &&
+        typeof result === 'object' &&
+        'context' in result &&
+        result.context &&
+        typeof result.context === 'object'
+      ) {
+        return { ...result, context: { ...result.context, isPlaybackReady: false } };
+      }
+      return result;
+    };
+    try {
+      setStableDropsSnapshot([{ game: demoGame, dropId: 'gesture-drop', currentMinutes: 10 }]);
+      enqueueDirectoryResult('streamer-current');
+      chromeMocks.permissions.setContainsResult(true);
+      await dispatchMessage({ type: 'SET_NOTIFICATIONS_ENABLED', payload: { enabled: true } });
+      await dispatchMessage({ type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'managed-tab' } });
+      await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame] });
+      await syncTestSession();
+      expect(await dispatchMessage({ type: 'START_FARMING', payload: { game: demoGame } })).toEqual({
+        success: true,
+      });
+      expect(notifications).toEqual([]);
+      await triggerMonitorAlarm();
+      expect(getAppStateFromStorage().watchHealth?.reason).toBe('user-interaction-required');
+      expect(farmingMessages(getAppStateFromStorage()).some((message) => message.kind === 'info')).toBe(true);
+      expect(notifications).toEqual([]);
+    } finally {
+      chromeMocks.chrome.notifications.create = originalCreate;
+      chromeMocks.chrome.tabs.sendMessage = originalSend;
+    }
   });
 }

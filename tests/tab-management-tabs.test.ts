@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { createChromeFarmingAutomationHost } from '../src/background/farming-automation-chrome-host.ts';
+import { createFarmingSession } from '../src/background/farming-session.ts';
 import { managedWatchMarker } from '../src/background/managed-watch-marker.ts';
 import { openOwnedManagedWatch } from '../src/background/managed-watch-open.ts';
 import { rememberManagedWatch } from '../src/background/managed-watch-registry.ts';
+import { createPlaybackOrchestrator } from '../src/background/playback-orchestrator.ts';
+import { createPlaybackTransport } from '../src/background/playback-transport.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
-import {
-  closeManagedTabIfSafe,
-  createManagedTab,
-  ensureManagedTab,
-} from '../src/background/tab-management.ts';
+import { createManagedTab, ensureManagedTab } from '../src/background/tab-management.ts';
+import { createFarmingSessionAdapters, createStreamer } from './fixtures/queue-management.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
 import { createDeferred } from './support/farming-automation-fixtures.ts';
 import { installManagedWatchPages } from './support/managed-watch-pages.ts';
@@ -36,7 +36,8 @@ test('foreground opening recovers a registered tab even when appState lost its I
   expect(page.active).toBe(true);
   expect(page.url).toBe('https://www.twitch.tv/next_channel');
   expect(await ensureManagedTab(null, 'https://www.twitch.tv/next_channel', true)).toBe(page.id);
-  expect(tabs.updated.filter((item) => item.properties.url)).toHaveLength(1);
+  expect(tabs.navigated).toHaveLength(1);
+  expect(tabs.updated.some((item) => item.properties.url)).toBe(false);
   expect(tabs.created).toEqual([]);
   expect(tabs.removed).toEqual([]);
 });
@@ -163,11 +164,72 @@ test('foreground fallback never takes an unproven user tab', async () => {
   expect(tabs.created).toEqual([]);
 });
 
-test('Stop cleanup preserves the video even with other tabs in its window', async () => {
-  const page = tabs.add(url);
-  tabs.add('https://example.com');
-  expect(await closeManagedTabIfSafe(page.id)).toBe(false);
-  expect(page.url).toBe(url);
-  expect(tabs.removed).toEqual([]);
-  expect(tabs.updated).toEqual([]);
-});
+test.each(['proof', 'creation'] as const)(
+  'Stop during owned-tab %s prevents late legacy navigation or focus',
+  async (boundary) => {
+    const page = boundary === 'proof' ? tabs.add(url) : null;
+    if (page) await managedWatchMarker.write(page.id, 'retained', url);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const nativeScript = mocks.chrome.scripting.executeScript;
+    const nativeCreate = mocks.chrome.tabs.create;
+    let holdProof = true;
+    mocks.chrome.scripting.executeScript = async (options) => {
+      if (boundary === 'proof' && holdProof) {
+        holdProof = false;
+        entered.resolve();
+        await release.promise;
+      }
+      return nativeScript(options);
+    };
+    if (boundary === 'creation')
+      mocks.chrome.tabs.create = async (properties) => {
+        entered.resolve();
+        await release.promise;
+        return nativeCreate(properties);
+      };
+    const state = createServiceWorkerState();
+    state.appState.isRunning = true;
+    const messages: unknown[] = [];
+    const orchestrator = createPlaybackOrchestrator(state, {
+      transport: createPlaybackTransport({
+        tabsApi: {
+          get: (tabId) => mocks.chrome.tabs.get(tabId),
+          update: (tabId, properties) => mocks.chrome.tabs.update(tabId, properties),
+          sendMessage: async (_tabId, message) => {
+            messages.push(message);
+            return {};
+          },
+        },
+        windowsApi: { update: async () => null },
+        ensureContentScriptOnTab: async () => {},
+        ensureManagedTab: (tabId, targetUrl, active, isCurrent) =>
+          ensureManagedTab(tabId, targetUrl, active, true, isCurrent),
+        waitForTabComplete: async () => {},
+      }),
+      shouldMuteManagedFarmingTab: () => true,
+      streamerWatchUrl: (channel) => `https://www.twitch.tv/${channel}`,
+    });
+    const session = createFarmingSession(state, createFarmingSessionAdapters());
+    const opening = orchestrator.openForegroundChannel(createStreamer({ name: 'next_channel' }));
+    try {
+      await entered.promise;
+      await session.handleStopFarming();
+      release.resolve();
+      expect(await opening).toBeNull();
+      if (page) expect(page.url).toBe(url);
+      else {
+        expect(tabs.pages.size).toBe(1);
+        expect(tabs.pages.get(20)?.url).toBe('about:blank');
+      }
+      expect(tabs.updated).toEqual([]);
+      expect(tabs.created).toEqual(boundary === 'proof' ? [] : [20]);
+      expect(tabs.removed).toEqual([]);
+      expect(messages).toEqual([]);
+      expect(state.appState.activeStreamer).toBeNull();
+    } finally {
+      release.resolve();
+      await opening;
+    }
+  },
+);

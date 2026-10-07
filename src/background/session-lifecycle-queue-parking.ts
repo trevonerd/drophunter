@@ -1,33 +1,20 @@
 import { gameKey } from '../shared/game-selection.ts';
+import { applyRecoveryStatus } from '../shared/runtime-status.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { QueueEntryMetadata, TwitchGame } from '../types/index.ts';
-import type { AutomationEventNotification } from './automation-event-notifier.ts';
 import { expiryTime } from './campaign-priority.ts';
 import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
-import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
+import { unresolvedFarmingTargets } from './farming-session-targets.ts';
+import { markQueueCampaignAttempted, QUEUE_ROUND_RETRY_MS } from './queue-acquisition-round.ts';
 import {
   applyDirectoryUnavailableRecoveryState,
   applyNoStreamersRecoveryState,
   applyPlaybackStartRecoveryState,
 } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { hasCompletedCampaignWatchTime } from './session-lifecycle-completion.ts';
 import { parkCampaignAtQueueTail } from './session-lifecycle-queue-selection.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
-
-const PARKED_QUEUE_RETRY_MS = 60_000;
-export const MAX_PARKED_QUEUE_RETRY_CYCLES = 3;
-
-export function queueWaitingNotification(transitionAt: number): AutomationEventNotification {
-  return {
-    transitionId: `queue-waiting:${transitionAt}`,
-    event: 'recovery',
-    campaignId: 'queue',
-    telegramReason: 'recovery',
-    title: 'Queue waiting for available campaigns',
-    message:
-      'No queued campaign has an eligible streamer right now. DropHunter will keep checking and resume farming when one becomes available.',
-  };
-}
 
 export function parkCampaignForStreamerRetry(
   state: ServiceWorkerState,
@@ -38,10 +25,6 @@ export function parkCampaignForStreamerRetry(
 ): void {
   const key = gameKey(game);
   const previousMetadata = state.appState.queueEntryMetadataByKey[key];
-  const cycles =
-    reason === 'no-streamers' || reason === 'open-failed'
-      ? (previousMetadata?.streamerRetryCycles ?? 0) + 1
-      : 0;
   if (!preserveQueuePosition) {
     markQueueCampaignAttempted(state, game);
     parkCampaignAtQueueTail(state, game);
@@ -52,15 +35,8 @@ export function parkCampaignForStreamerRetry(
       reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
       addedAt: now,
     }),
-    streamerRetryAt:
-      now +
-      (reason === 'open-failed' && cycles >= MAX_PARKED_QUEUE_RETRY_CYCLES
-        ? 10 * PARKED_QUEUE_RETRY_MS
-        : PARKED_QUEUE_RETRY_MS),
+    streamerRetryAt: now + QUEUE_ROUND_RETRY_MS,
     streamerRetryReason: reason,
-    streamerRetryAttempts: undefined,
-    streamerRetryCycles:
-      reason === 'no-streamers' || reason === 'open-failed' ? cycles : previousMetadata?.streamerRetryCycles,
     streamerWaitState: reason === 'no-streamers' ? 'availability' : undefined,
   };
 }
@@ -87,27 +63,30 @@ export async function waitForParkedQueue(
       const rightRetry = state.appState.queueEntryMetadataByKey[gameKey(right)]?.streamerRetryAt ?? 0;
       return leftRetry - rightRetry || expiryTime(left) - expiryTime(right);
     });
-  const next = parked[0];
+  const unresolved = unresolvedFarmingTargets(state);
+  const next =
+    parked[0] ?? unresolved.find((game) => !hasCompletedCampaignWatchTime(state, game)) ?? unresolved[0];
   if (!next) return false;
+  const watchComplete = hasCompletedCampaignWatchTime(state, next);
   const metadata = state.appState.queueEntryMetadataByKey[gameKey(next)];
-  const retryAt = Math.max(
-    metadata?.streamerRetryAt ?? 0,
-    state.appState.queueAcquisitionRound?.nextRoundAt ?? 0,
-  );
+  const scheduled = state.appState.queueAcquisitionRound?.nextRoundAt;
+  const retryAt =
+    watchComplete && (scheduled ?? 0) <= now
+      ? now + QUEUE_ROUND_RETRY_MS
+      : (scheduled ?? now + QUEUE_ROUND_RETRY_MS);
+  state.appState.queueAcquisitionRound = {
+    attemptedCampaignKeys: state.appState.queueAcquisitionRound?.attemptedCampaignKeys ?? [],
+    nextRoundAt: retryAt,
+  };
   if (retryAt <= now) return false;
-  const alreadyWaiting = state.appState.recoveryBackoffUntil === retryAt;
   resetStreamTrackingState(state);
-  const retainedWatch = state.appState.activeStreamer !== null;
-  if (!retainedWatch) state.appState.selectedGame = next;
+  await options.onSuspendTransport?.();
+  if (!options.isCurrent()) return true;
+  state.appState.selectedGame = next;
   state.appState.isRunning = true;
   state.appState.queueResumeOnAvailability = false;
-  if (!retainedWatch) {
-    state.appState.activeStreamer = null;
-    state.appState.currentDrop = null;
-    state.appState.allDrops = [];
-    state.appState.pendingDrops = [];
-    state.appState.completedDrops = [];
-  }
+  state.appState.activeStreamer = null;
+  state.appState.watchHealth = null;
   state.previousAllDropsCount = 0;
   const applyRecovery =
     metadata?.streamerRetryReason === 'directory-unavailable'
@@ -115,10 +94,12 @@ export async function waitForParkedQueue(
       : metadata?.streamerRetryReason === 'open-failed'
         ? applyPlaybackStartRecoveryState
         : applyNoStreamersRecoveryState;
-  applyRecovery(state, retryAt, 0);
+  if (watchComplete) {
+    state.recoveryBackoffUntil = retryAt;
+    state.appState = applyRecoveryStatus(state.appState, { reason: 'rewards-pending', retryAt, attempts: 0 });
+  } else applyRecovery(state, retryAt, 0);
   await options?.onSaveState?.();
   if (options?.isCurrent?.() === false) return true;
   await options?.onSaveTimingState?.(state);
-  if (!alreadyWaiting && options?.isCurrent?.() !== false) await options?.onQueueWaiting?.(now);
   return true;
 }

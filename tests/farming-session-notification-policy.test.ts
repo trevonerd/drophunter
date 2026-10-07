@@ -13,6 +13,7 @@ test('keeps routine stalled-progress retries silent', async () => {
   state.appState.isRunning = true;
   state.appState.selectedGame = createGame();
   state.appState.currentDrop = createDrop({ progress: 10 });
+  state.appState.activeStreamer = { id: 'current', name: 'current', displayName: 'Current', isLive: true };
   const notifications: string[] = [];
   const context = createFarmingSessionContext(
     state,
@@ -28,7 +29,6 @@ test('keeps routine stalled-progress retries silent', async () => {
     onAdvanceQueueIfCompleted: async () => false,
     onAcquireStreamer: async () => true,
     onSkipCurrentGame: async () => {},
-    onEnterPersistentRecovery: async () => {},
   });
 
   const result = await recover({ kind: 'managed-tab', tabId: 42 });

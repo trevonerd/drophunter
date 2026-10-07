@@ -181,7 +181,8 @@ describe('Campaign completion through public farming automation', () => {
 
     // Then: the obsolete preparation never starts farming.
     expect(outcome.kind).not.toBe('started');
-    expect(subject.state.appState.isRunning).toBe(false);
+    expect(subject.state.appState.activeStreamer).toBeNull();
+    expect(subject.state.appState.currentDrop).toBeNull();
   });
 
   test('queues a favorite with future rewards without starting playback', async () => {

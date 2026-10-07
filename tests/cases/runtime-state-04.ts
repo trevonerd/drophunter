@@ -28,7 +28,6 @@ describe('applyStartupResumePolicy', () => {
     state.recoveryBackoffUntil = 90_000;
     state.lastRecoveryAttemptAt = 80_000;
     state.stalledRecoveryAttempts = 2;
-    state.recoveryNotificationSent = true;
     state.unverifiableRewardsByKey = {
       '["campaign","reward"]': { progress: 99, currentMinutes: 59, markedAt: 123_456 },
     };
@@ -139,7 +138,6 @@ describe('applyStartupResumePolicy', () => {
       state.recoveryBackoffUntil = 90_000;
       state.lastRecoveryAttemptAt = 80_000;
       state.stalledRecoveryAttempts = 0;
-      state.recoveryNotificationSent = false;
       return state;
     }
 

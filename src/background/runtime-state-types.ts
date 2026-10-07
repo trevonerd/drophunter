@@ -10,8 +10,14 @@ export interface ServiceWorkerState {
   runtimeHandlersInFlight: number;
   optionalPermissionRevisions: { notificationsEnabled: number; telegramAlertsEnabled: number };
   monitorTickInFlight: boolean;
+  cancelledAcquisitionMonitoringWake: (() => boolean) | null;
   monitorTickDeadlineAt: number;
   streamerAcquisitionInFlight: Promise<boolean> | null;
+  queueProgressionInFlight: {
+    readonly epoch: number;
+    readonly generation: number;
+    readonly promise: Promise<boolean>;
+  } | null;
   streamerAcquisitionDeadlineAt: number;
   streamerAcquisitionGeneration: number;
   streamerAcquisitionPhase: 'directory' | 'playback' | null;
@@ -27,7 +33,6 @@ export interface ServiceWorkerState {
   noProgressRotationAttempts: number;
   offlineChecks: number;
   avoidStreamerName: string | null;
-  playbackAttentionWarningSent: boolean;
   gamesCacheRefreshInFlight: Promise<TwitchGame[]> | null;
   twitchSessionCache: TwitchSession | null;
   twitchSessionFetchInFlight: Promise<TwitchSession | null> | null;
@@ -39,7 +44,6 @@ export interface ServiceWorkerState {
   lastInventoryRefreshAt: number;
   dropClaimInFlight: boolean;
   dropClaimRetryAtById: Map<string, number>;
-  queueMissingStreak: Map<string, number>;
   lastActivityAt: number;
   apiConsecutiveFailures: number;
   apiBackoffUntil: number;
@@ -49,7 +53,6 @@ export interface ServiceWorkerState {
   recoveryBackoffUntil: number;
   lastRecoveryAttemptAt: number;
   stalledRecoveryAttempts: number;
-  recoveryNotificationSent: boolean;
   lastHeartbeatAt: number;
   lastLifecycleCheckAt: number;
   lastGamesCacheRefreshAt: number;

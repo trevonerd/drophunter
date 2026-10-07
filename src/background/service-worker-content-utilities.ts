@@ -6,7 +6,11 @@ import {
   attemptAutoClaimChannelPointsBonusExt,
   recordChannelPointsBonusClaimedExt,
 } from './channel-points.ts';
-import { annotateGameCompletion, normalizeGameSelection } from './drops-projection.ts';
+import {
+  annotateGameCompletion,
+  normalizeGameSelection,
+  retainCampaignExpiryEvidence,
+} from './drops-projection.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
 import { normalizeQueueSelection } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -52,6 +56,7 @@ export function createServiceWorkerContentUtilities(
       ...state.appState.queue,
       ...(state.appState.selectedGame ? [state.appState.selectedGame] : []),
     ]);
+    retainCampaignExpiryEvidence(state, payload ?? []);
     state.appState.availableGames = preserveAcquiredCampaigns(
       state.appState,
       replaceAvailableGames(payload ?? []),

@@ -4,6 +4,7 @@ import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logWarn } from './logging.ts';
 import { applyGlobalStreamerRecoveryState, applyPlaybackStartRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { MAX_STREAMER_ATTEMPTS } from './streamer-watch-attempt.ts';
 
 const ACQUISITION_TIMEOUT_MS = 60_000;
 
@@ -56,14 +57,9 @@ export function runStreamerAcquisitionAttempt(
       state.streamerAcquisitionPhase = null;
       if (timedOutPhase === 'playback') {
         const metadata = key ? state.appState.queueEntryMetadataByKey[key] : undefined;
-        const attempts = (metadata?.streamerRetryAttempts ?? 0) + 1;
-        if (key)
-          state.appState.queueEntryMetadataByKey[key] = {
-            ...(metadata ?? { source: 'manual', addedAt: Date.now(), reason: 'user-added' }),
-            streamerRetryAttempts: attempts,
-          };
+        const attempts = metadata?.attemptedStreamerNames?.length ?? 0;
         applyPlaybackStartRecoveryState(state, Date.now() + 30_000, attempts);
-        if (attempts >= 3) {
+        if (attempts >= MAX_STREAMER_ATTEMPTS) {
           void callbacks
             .onSkipCurrentGame?.('open-failed', () => authorized())
             .catch((error: unknown) => {

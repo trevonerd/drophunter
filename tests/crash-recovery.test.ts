@@ -28,7 +28,6 @@ function makeState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerSt
     lastTrackedDropKey: null,
     lastProgressAdvanceAt: 0,
     noProgressRotationAttempts: 0,
-    playbackAttentionWarningSent: false,
     gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,
     twitchSessionFetchInFlight: null,
@@ -39,7 +38,6 @@ function makeState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerSt
     lastFullRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
-    queueMissingStreak: new Map(),
     lastActivityAt: 0,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
@@ -48,7 +46,6 @@ function makeState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerSt
     recoveryBackoffUntil: 0,
     lastRecoveryAttemptAt: 0,
     stalledRecoveryAttempts: 0,
-    recoveryNotificationSent: false,
     lastHeartbeatAt: 0,
     lastGamesCacheRefreshAt: 0,
     ...overrides,
@@ -215,14 +212,14 @@ describe('false recovery proof guard (freshTimingState)', () => {
 
     expect(state.noProgressRotationAttempts).toBe(3);
     expect(state.recoveryBackoffUntil).toBeGreaterThan(Date.now());
-    expect(state.lastProgressAdvanceAt).toBeGreaterThan(0);
+    expect(state.lastProgressAdvanceAt).toBe(0);
   });
 
   test('subsequent tick with real values does trigger recovery proof', () => {
     const state = makeState({
       lastTrackedProgress: 40,
       lastTrackedMinutes: 40,
-      lastTrackedDropKey: 'g1::c1',
+      lastTrackedDropKey: 'd1::c1',
       lastProgressAdvanceAt: Date.now() - 10_000,
       noProgressRotationAttempts: 2,
       recoveryBackoffUntil: Date.now() + 60_000,

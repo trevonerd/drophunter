@@ -1,20 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import { createPlaybackAttentionPolicy } from '../src/background/playback-attention-policy.ts';
 import {
   createPlaybackOrchestrator,
   observeManualPlayback,
 } from '../src/background/playback-orchestrator.ts';
 import { createPlaybackTransport } from '../src/background/playback-transport.ts';
-import { createInitialState } from '../src/shared/utils.ts';
+import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import type { TwitchStreamer } from '../src/types';
 
 function createState() {
-  return {
-    appState: createInitialState(),
-    playbackAttentionWarningSent: false,
-    invalidStreamChecks: 3,
-    streamValidationGraceUntil: 0,
-  };
+  const state = createServiceWorkerState();
+  state.appState.isRunning = true;
+  state.invalidStreamChecks = 3;
+  return state;
 }
 
 function createTabsApi() {
@@ -111,24 +108,14 @@ describe('playback orchestrator', () => {
           return { isPlaybackReady: true, gateDismissed: false };
         },
       },
-      attention: {
-        beginAttempt() {
-          events.push('attention:begin');
-        },
-        muteAfterPreparation() {
-          return false;
-        },
-        async notifyIfNeeded(prepared) {
-          events.push(`attention:${prepared.isPlaybackReady ? 'ready' : 'needed'}`);
-        },
-      },
+      shouldMuteManagedFarmingTab: () => false,
       streamerWatchUrl: (channelName) => `https://www.twitch.tv/${channelName}`,
       now: () => 1_000,
     });
 
     await orchestrator.attemptPlaybackSelfHeal(77);
 
-    expect(events).toEqual(['attention:begin', 'prepare:77', 'attention:needed']);
+    expect(events).toEqual(['prepare:77']);
   });
 
   test('opening a foreground channel claims tab ownership and resets stream validation state', async () => {
@@ -146,11 +133,7 @@ describe('playback orchestrator', () => {
         },
         waitForTabComplete: async () => {},
       }),
-      attention: createPlaybackAttentionPolicy(state, {
-        shouldMuteManagedFarmingTab: () => true,
-        needsPlaybackAttention: () => false,
-        notify: async () => {},
-      }),
+      shouldMuteManagedFarmingTab: () => true,
       streamerWatchUrl: (channelName) => `https://www.twitch.tv/${channelName}`,
       now: () => 1_000,
     });
@@ -165,7 +148,7 @@ describe('playback orchestrator', () => {
     expect(state.streamValidationGraceUntil).toBeGreaterThan(1_000);
   });
 
-  test('self-heal can send a fresh attention notification for each recovery attempt', async () => {
+  test('playback preparation stays muted and does not send attention notifications', async () => {
     const state = createState();
     const notifications: string[] = [];
     const orchestrator = createPlaybackOrchestrator(state, {
@@ -176,13 +159,7 @@ describe('playback orchestrator', () => {
         ensureManagedTab: async () => 1,
         waitForTabComplete: async () => {},
       }),
-      attention: createPlaybackAttentionPolicy(state, {
-        shouldMuteManagedFarmingTab: () => false,
-        needsPlaybackAttention: () => true,
-        notify: async (title) => {
-          notifications.push(title);
-        },
-      }),
+      shouldMuteManagedFarmingTab: () => true,
       streamerWatchUrl: (channelName) => `https://www.twitch.tv/${channelName}`,
       now: () => 1_000,
     });
@@ -190,7 +167,6 @@ describe('playback orchestrator', () => {
     await orchestrator.attemptPlaybackSelfHeal(77);
     await orchestrator.attemptPlaybackSelfHeal(77);
 
-    expect(notifications).toEqual(['DropHunter needs your attention', 'DropHunter needs your attention']);
-    expect(state.playbackAttentionWarningSent).toBe(true);
+    expect(notifications).toEqual([]);
   });
 });

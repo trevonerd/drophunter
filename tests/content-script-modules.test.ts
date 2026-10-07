@@ -6,6 +6,7 @@ import {
   observePlaybackAdvance,
   startMutedPlayback,
 } from '../src/content/playback.ts';
+import { extractStreamContext } from '../src/content/stream-context.ts';
 import { prepareStreamPlayback } from '../src/content/stream-playback.ts';
 
 const originalGlobals = new Map<string, PropertyDescriptor | undefined>();
@@ -36,7 +37,11 @@ test('runtime stream context uses the extracted primary-category module and live
   installGlobal('document', {
     title: 'Drops enabled - Twitch',
     querySelector: (selector: string) =>
-      selector.includes('stream-title') ? { textContent: 'Drops enabled' } : {},
+      selector.includes('stream-title')
+        ? { textContent: 'Drops enabled' }
+        : selector.includes('persistent-player')
+          ? { querySelector: () => null }
+          : {},
     querySelectorAll: (selector: string) => {
       if (selector === 'video') return [video];
       if (selector === 'a[data-a-target="stream-game-link"]') return [watchedCategory];
@@ -65,6 +70,25 @@ test('runtime stream context uses the extracted primary-category module and live
       },
     },
   ]);
+});
+
+test('an explicit player offline gate overrides a stale live viewer count', () => {
+  const scope = {
+    textContent: 'This channel is offline',
+    querySelector: () => ({ textContent: 'This channel is offline' }),
+  };
+  installGlobal('window', { location: { href: 'https://www.twitch.tv/watched_channel' } });
+  installGlobal('document', {
+    title: 'Drops enabled - Twitch',
+    querySelector: (selector: string) =>
+      selector.includes('stream-title')
+        ? { textContent: 'Drops enabled' }
+        : selector.includes('persistent-player')
+          ? scope
+          : {},
+    querySelectorAll: () => [],
+  });
+  expect(extractStreamContext()?.isLive).toBe(false);
 });
 
 test('a resolved play request and an unpaused frozen video are not playback proof', async () => {
@@ -239,7 +263,9 @@ test.each([
   expect(result.isPlaybackReady).toBe(supported || kind === 'healthy');
   expect(result.userInteractionRequired).toBe(kind === 'denied');
   expect(clicks).toBe(supported || kind === 'denied' ? 1 : 0);
-  expect(nativeCalls).toBe(kind === 'healthy' ? 0 : supported ? 1 : kind === 'denied' ? 3 : 2);
+  expect(nativeCalls).toBe(
+    kind === 'healthy' || kind === 'stale-video' ? 0 : supported ? 1 : kind === 'denied' ? 3 : 2,
+  );
 });
 
 test('runtime dispatch rejects malformed requests and safely prepares a non-channel page', async () => {

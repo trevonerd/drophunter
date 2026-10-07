@@ -20,7 +20,6 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastTrackedDropKey: null,
     lastProgressAdvanceAt: 0,
     noProgressRotationAttempts: 0,
-    playbackAttentionWarningSent: false,
     gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,
     twitchSessionFetchInFlight: null,
@@ -31,7 +30,6 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     lastFullRefreshAt: 0,
     dropClaimInFlight: false,
     dropClaimRetryAtById: new Map(),
-    queueMissingStreak: new Map(),
     lastActivityAt: 0,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
@@ -40,7 +38,6 @@ function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): Servic
     recoveryBackoffUntil: 0,
     lastRecoveryAttemptAt: 0,
     stalledRecoveryAttempts: 0,
-    recoveryNotificationSent: false,
     lastGamesCacheRefreshAt: 0,
     ...overrides,
   };

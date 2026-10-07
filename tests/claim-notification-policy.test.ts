@@ -66,15 +66,19 @@ for (const scenario of ['disabled', 'permission-denied'] as const) {
         saves++;
       },
     });
-    setClaimRecordedHandler(
-      createClaimRecordedHandler({
-        notifyBrowser: controller.notify,
-        notifyTelegram: async () => {
-          telegramCalls++;
-        },
-      }),
-    );
+    const handler = createClaimRecordedHandler({
+      notifyBrowser: controller.notify,
+      notifyTelegram: async () => {
+        telegramCalls++;
+      },
+    });
+    let delivery: Promise<void> | undefined;
+    setClaimRecordedHandler((entries, options) => {
+      delivery = handler(entries, options);
+      return delivery;
+    });
     await recordClaimedDrops(state, [{ ...createWatchTransportDrop(watchTransportGame), claimed: true }]);
+    await delivery;
     expect(desktopCalls).toBe(0);
     expect(telegramCalls).toBe(1);
     expect(state.appState.notificationsEnabled).toBe(false);

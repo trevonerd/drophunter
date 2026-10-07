@@ -66,7 +66,7 @@ test('does not open Twitch Drops for integrity recovery during the first run', a
   expect(openedWith).toEqual([]);
 });
 
-test('opens Twitch Drops in the background after wake once onboarding is complete', async () => {
+test('does not recreate a closed login page after wake', async () => {
   const { openedWith, performSync, controller } = createSessionRecoveryAttempt(true);
 
   const result = await performSync('wake', {
@@ -74,12 +74,11 @@ test('opens Twitch Drops in the background after wake once onboarding is complet
     isCurrent: () => true,
   });
 
-  expect(result).toEqual({ kind: 'synced', campaignCount: 1 });
-  expect(openedWith).toHaveLength(1);
-  expect(openedWith[0]).toMatchObject({ active: false, openIfMissing: true, waitForExistingTabMs: 10_000 });
+  expect(result).toEqual({ kind: 'needs-session', errorKind: 'auth' });
+  expect(openedWith).toEqual([]);
 });
 
-test('opens Twitch Drops in the background for a newly starred favorite after onboarding', async () => {
+test('does not recreate a login page when a favorite is added', async () => {
   const { openedWith, performSync, controller } = createSessionRecoveryAttempt(true);
 
   const result = await performSync('favorite-change', {
@@ -87,7 +86,6 @@ test('opens Twitch Drops in the background for a newly starred favorite after on
     isCurrent: () => true,
   });
 
-  expect(result).toEqual({ kind: 'synced', campaignCount: 1 });
-  expect(openedWith).toHaveLength(1);
-  expect(openedWith[0]).toMatchObject({ active: false, openIfMissing: true, waitForExistingTabMs: 0 });
+  expect(result).toEqual({ kind: 'needs-session', errorKind: 'auth' });
+  expect(openedWith).toEqual([]);
 });

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
 import type { StreamRotationReason } from '../../src/background/stream-rotation.ts';
-import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from '../../src/background/stream-rotation.ts';
 import { rotateStreamerIfInvalid } from '../../src/background/streamer-acquisition.ts';
 import type { RotateStreamerIfInvalidOptions } from '../../src/background/streamer-acquisition-contracts.ts';
+import { gameKey } from '../../src/shared/game-selection.ts';
 import type { TwitchDrop } from '../../src/types/index.ts';
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
@@ -138,7 +138,7 @@ export function registerQueue24Part03() {
 
       expect(forceRefreshCalled).toBe(true);
       expect(observed.rotateReason).toBe('stalled-progress');
-      expect(state.stalledRecoveryAttempts).toBe(2);
+      expect(state.stalledRecoveryAttempts).toBe(1);
     });
 
     test('skips current game when stalled progress reaches the human attempt cap', async () => {
@@ -147,7 +147,13 @@ export function registerQueue24Part03() {
       state.appState.tabId = 123;
       state.appState.currentDrop = createDrop({ requiredMinutes: 60 });
       state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
-      state.stalledRecoveryAttempts = MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS;
+      const game = state.appState.selectedGame;
+      state.appState.queueEntryMetadataByKey[gameKey(game)] = {
+        source: 'manual',
+        addedAt: 1,
+        reason: 'user-added',
+        attemptedStreamerNames: ['a', 'b', 'c', 'd'],
+      };
       state.lastStreamRotationAt = 0;
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
@@ -166,6 +172,7 @@ export function registerQueue24Part03() {
           pageUrl: 'https://twitch.tv/streamer',
         }),
         onResolveCategorySlug: async () => 'test-game',
+        onForceRefreshDropsData: async () => 'refreshed',
         onSkipCurrentGame: async () => {
           skipCalled = true;
         },

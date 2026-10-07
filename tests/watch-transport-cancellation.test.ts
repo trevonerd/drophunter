@@ -7,7 +7,7 @@ import {
 import { createDeferred } from './support/farming-automation-fixtures.ts';
 
 describe('watch transport cancellation', () => {
-  test('retains a managed candidate without publishing it when cancellation occurs during open', async () => {
+  test('clears the pending target without publishing a managed candidate cancelled during open', async () => {
     const state = createServiceWorkerState();
     state.appState.selectedGame = {
       id: 'game-1',
@@ -56,7 +56,8 @@ describe('watch transport cancellation', () => {
     expect(closes).toBe(0);
     expect(state.appState.activeStreamer).toBeNull();
     expect(state.appState.watchHealth).toBeNull();
-    expect(persists).toBe(0);
-    expect(broadcasts).toBe(0);
+    expect(state.appState.pendingWatchTarget).toBeNull();
+    expect(persists).toBe(2);
+    expect(broadcasts).toBe(2);
   });
 });

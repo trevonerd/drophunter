@@ -1,5 +1,133 @@
 # Matrice di recupero e aggiornamento
 
+## Verifica beta.63 — 7 ottobre 2026
+
+Navigazione interna verificata su Twitch reale in Brave: Play dalla coda Albion → SMITE 2 ha conservato tab `1782644565`, documento, elemento video e attivazione iniziale. Il player è rimasto in background senza clic aggiuntivi. Il progresso autorevole è passato da 85% / 308 minuti a 86% / 312 minuti e 90% / 324 minuti; anche il successivo canale `adaptingx` conserva documento e video, con popup e tab allineati.
+
+Verifiche finali con Bun 1.4.2: TypeScript sorgenti/test, lint, 2.726 test unitari in 319 file e tutti i 42 E2E Chrome MV3 superati. I fixture di playback fallito mostrano il canale corretto e un errore definitivo del video; non simulano più un player ancora in montaggio. La suite Chrome completa è stata eseguita con due worker. Audit senza vulnerabilità; build e ZIP Chrome/Edge con manifest `3.99.0.63`, controllati dalle funzioni del release checker. Dopo la correzione dei fixture, le verifiche del gate sono state completate per singola fase.
+
+Pulizia Ponytail e review concluse senza refactor aggiuntivi. Sleep/wake reale e consegna Telegram reale restano non verificati; riavvio, riciclo worker, annullamento e notifiche sono coperti dai test. Le osservazioni delle versioni precedenti riportate sotto rimangono storiche.
+
+## Contratto farming — 7 ottobre 2026
+
+Questa sezione sostituisce le vecchie aspettative su gesto iniziale indefinito, seconda tab, fallback tabless→tab, rollback e stop per login. Le sezioni dal 6 ottobre in giù registrano implementazioni e osservazioni storiche: non descrivono il contratto attuale.
+
+| Scenario | Risultato previsto | Prove automatiche |
+| --- | --- | --- |
+| Progresso reale crescente | Mantiene il canale, risolve l'episodio | farming-cycle-contract, drops-projection-semantics |
+| Video/heartbeat sano senza progressi | Refresh prima dello stall, finestra proporzionale 5–20 minuti | farming-cycle-contract, native-reward-stall-recovery, strict-stall-refresh |
+| Player ancora in caricamento dopo 30 secondi | Conserva canale e tab; progresso della campagna rinnova la finestra 5–20 minuti, errori di ownership restano ignoti | managed-watch-cold-loading, automatic-pending-playback |
+| Scadenza verificata del caricamento | Sospende il candidato, cancella Switching, prova il prossimo streamer e conserva i fallimenti reali | managed-watch-cold-loading, automatic-pending-playback |
+| Play in coda e cambio canale Twitch | Navigazione interna nella stessa tab/documento; la sola URL non conferma il nuovo player, servono intestazione/categoria e avanzamento | managed-watch-internal-navigation, content-internal-navigation, queue-campaign-handoff E2E |
+| Navigazione manuale nella tab posseduta | Recupera il token nella stessa origine per riutilizzare la tab; cleanup mantiene guardie esatte | managed-watch-internal-navigation, managed-watch-stale-cleanup |
+| Video riutilizzato con tempo azzerato | Il precedente avanzamento non conferma il nuovo sorgente | managed-playback-suspension |
+| Chrome rifiuta sincronicamente alwaysOnTop | Il monitor usa il fallback focused-only senza fallire l'apertura | tab-management-window, monitor-dashboard |
+| Fallimenti misti | Prenotazione persistita prima della preparazione, massimo quattro nomi distinti | farming-cycle-contract, playback-start-retry-budget, streamer-transport-failure |
+| Player offline, anche con contatore spettatori residuo | Due letture consecutive; prevale su playback inattivo e deadline dello stallo | watch-transport, content-script-modules, offline-farming-recovery |
+| Cinque cambi offline consecutivi con tre errori reali precedenti | Rimuove solo la prenotazione offline prima della ricerca; conserva errori, campagna e tab | offline-farming-recovery |
+| Ultimo streamer offline, nessuna alternativa verificata | Parcheggia Rainbow Six e continua la coda; errore directory resta disponibilità ignota | offline-farming-recovery, farming-cycle-contract, e2e/queue-campaign-handoff.spec.ts |
+| Uno–tre streamer falliti o meno di quattro alternative | Recupero e retry continuano; nessun avviso campagna bloccata né alert Telegram/browser | campaign-failure-alert-threshold, farming-automation-notifications, queue-availability-resume |
+| Quarto streamer distinto fallito | Un solo episodio di errore, avviso persistente e invii deduplicati per destinazione | campaign-failure-alert-threshold, farming-cycle-contract |
+| Warhammer tutto 100% claimable, account non collegato | Esce dalla coda farming; target non acquisito resta per verifica claim/link; Brawlhalla prosegue | claim-pending-queue-continuation |
+| Solo ricompense da riscattare, anche dopo restart | Tempo completato / collegare account; nessuna acquisizione streamer, retry inventario programmato | claim-pending-queue-continuation |
+| Candidato passa da 90% a 100% durante refresh | Pubblica prove complete, conserva player incumbent, nessuna preparazione del candidato | claim-pending-queue-continuation |
+| Navigazione gestita lenta, fallita o superata | Popup e monitor mostrano Switching to; nessun premio precedente in esecuzione; commit atomico o recupero sospeso | queued-managed-campaign-handoff, watch-transport-cancellation, watch-transport-replacement, e2e/queue-campaign-handoff.spec.ts |
+| Refresh Drops automatico, condiviso, annullato o scaduto | Chiude solo la pagina creata dopo l'ultimo consumatore; conserva pagine esplicite/esistenti, navigazione utente, login e finestre con una tab | drops-page-cleanup, drops-page-refresh |
+| Stato pending ripristinato dopo worker restart | Nessuna navigazione immaginata; target transitorio nullo, tentativi reali conservati | app-state-sync, state-persistence-session |
+| Meno di quattro canali | Non ripete i nomi, passa alla campagna successiva | farming-cycle-contract, queue-acquisition-round |
+| Ultimo target irrisolto fallito | Warning persistito, trasporto sospeso, retry reale fra dieci minuti | farming-cycle-contract, queue-acquisition-round |
+| Retry anticipato / senza selezione | Riapre giro e budget, rispetta cooldown HTTP verificato | manual-farming-retry |
+| Play da ogni stato | Persiste intento, risveglia monitoraggio, conserva precedente in coda | queued-campaign-start, farming-session-revision |
+| Snapshot mancante/parziale, reward futuro, claim fallito | Target conservato, nessuna acquisizione inventata | farming-cycle-contract, claimable-queue-eligibility, native-reward-stall-recovery |
+| Tutti acquisiti, scaduti o misti | Stop solo quando ogni obiettivo è terminale | farming-cycle-contract, session-lifecycle-summary-precedence |
+| Campagna scaduta filtrata dai candidati | Conserva la scadenza valida prima del filtro | games-cache-orchestration, service-worker |
+| Pause/Stop con operazioni pendenti | Niente navigazione, promozione, heartbeat o claim tardivi | managed-watch-pending-navigation, farming-session-revision, watch-transport-races |
+| Cambio gestito / ownership incerta | Stesso ID provato; nessun duplicato su prova incerta | single-managed-watch-tab, managed-watch-preflight-retry |
+| ID storico riutilizzato dopo restart | Cerca tutte le prove prima di decidere; riusa l'unica tab provata, l'incertezza impedisce creazione | managed-watch-preflight-recovery |
+| Prova della tab temporaneamente indisponibile | Restituisce la prenotazione e conserva retry persistiti senza consumare quattro canali | watch-preparation-budget, managed-watch-preflight-retry |
+| Preemption preferiti durante preparazione o fallimento | Stesso coordinatore di Play, pending pubblicato prima della navigazione; player trattenuto sospeso, nessuno stato sano obsoleto | managed-watch-startup-integration |
+| Cleanup precedente dopo navigazione più recente | Ricontrolla token, URL, finestra e ultima tab prima della mutazione serializzata; non chiude né neutralizza il watch nuovo | managed-watch-stale-cleanup |
+| Vecchio alert prematuro già consegnato | Primo esaurimento verificato crea una nuova identità, poi deduplica browser e Telegram | campaign-failure-alert-threshold |
+| Tabless / cambio modalità | Nessun fallback di visione, sospende prima il player precedente | farming-cycle-contract, watch-transport-handoff |
+| Browser restart / recycle | Browser pulisce avvisi operativi; recycle conserva finestre e budget | farming-cycle-contract, worker-recycle-progress, crash-recovery |
+| Login tardivo / Stop | Recupero programmato, Stop prevale sul login tardivo | afk-auth-recovery, queue-auth-recovery-persistence |
+| Warning ripetuti e notifiche guaste | Un episodio, ricevute indipendenti, farming non bloccato | farming-cycle-contract, automation-event-notifier, claim-log |
+| Risposta API/integrity/claim del vecchio account | Non ricrea prove né backoff e non sblocca claim nuovi | session-account-evidence |
+| Monitor, × o avviso Drops durante persistenza | Non annulla il watch valido, conserva presentazione aggiornata | farming-campaign-transition |
+| Play interrompe un canale sano al quarto tentativo | Riprende il tentativo sospeso, nessun quinto nome | farming-cycle-contract |
+| Claim pendente durante Pause/Play | Scarta esito vecchio, il batch successivo rimane eseguibile | session-account-evidence |
+| Messaggi nel popup | Espansione, × e chiusura persistite dopo popup e riciclo worker | e2e/farming-messages.spec.ts |
+| Servizio heartbeat tabless indisponibile | Recupero globale, nessun warning attribuito ai canali; sospende il tempo di osservazione | farming-cycle-contract, streamer-transport-failure |
+| Risposta tabless ripristinata, anche degradata | Riprende il tempo dal punto sospeso senza stall immediato | farming-cycle-contract |
+| Pubblicazione annullata per stato concorrente | Non parcheggia né consuma il canale; risveglia lo stesso allarme dopo il tick proprietario, salvo blocchi o cooldown | farming-campaign-handoff |
+| Timeout playback con risposta tardiva | Il tentativo rimane consumato; nessuna promozione tardiva | farming-campaign-handoff |
+| Restore con probe fallito o Stop durante probe | Conserva subito ownership dormiente e sospende la tab provata | watch-transport-handoff |
+| Restore con Pausa/Stop persistiti | Sospende il player ripristinato dal browser, senza playback nuovo | watch-transport-handoff |
+| Pause/Stop dopo un candidato fallito riavviato dall’utente | Recupera la prova corrente della tab e sospende il player, anche senza watch pubblicato | managed-watch-candidate-preservation, e2e/queue-campaign-handoff.spec.ts |
+| Stop superato durante ricostruzione o coda delle mutazioni | Non sovrascrive il registro né sospende la navigazione nuova | managed-watch-pending-navigation |
+| Stop durante osservazione del controllo Twitch o play pendente | Sospende anche l’intento del player, disattiva keepalive e impedisce retry nativi tardivi | managed-playback-suspension |
+| Stop/Play durante policy, self-heal o apertura legacy asincroni | Ricontrolla la revisione prima di preparare, navigare o pubblicare; nessun PREPARE tardivo | playback-orchestrator, playback-self-heal-cancellation, tab-management-tabs |
+| Stop durante persistenza o marker della prima tab | Completa soltanto la prova della propria tab, la sospende e restituisce un candidato annullato | managed-watch-initial-cancellation |
+
+I nomi indicano file in `tests/`. `e2e/queue-campaign-handoff.spec.ts` usa listener MV3 e video reali locali per cambio nella stessa tab, gesto iniziale, Pause/Stop, recycle, browser restart, giri bloccati e chiusura. Progresso e claim vengono forniti dalla fixture: sono risposte Twitch simulate.
+
+Verifica parziale del 7 ottobre su Twitch di produzione, in Brave con estensione locale beta.61: Albion / Dragonfire ha accumulato progresso 21→22→26%; Overwatch / Reign of Talon S5 Launch 81→83→86→96→97%. Play, rotazioni e reload hanno conservato una sola tab di visione (ID 1782644014). Al termine il Play esplicito ha riportato la sessione su Reign of Talon; il monitor di prova è stato chiuso e il farming lasciato attivo.
+
+La verifica di Stop ha fatto emergere ulteriori lacune nel restore e nelle operazioni pendenti, coperte da regressioni fallenti prima della correzione. La suite Chrome finale verifica video realmente in riproduzione→pausa, intento del controllo del sito e assenza di retry tardivi. Sul profilo Twitch finale è stato osservato `video.paused: true`, ma non un confronto completo prima/dopo con video sicuramente in riproduzione: Stop/Resume reale resta una verifica parziale. Il testo del pulsante Twitch può rimanere «Pausa» anche dopo una pausa DOM e non viene usato da solo come prova.
+
+La prova tabless sul profilo reale non certifica progresso: richieste Twitch di inventario e configurazione pubblica rispondevano, ma l'endpoint heartbeat Spade restituiva `ERR_CONNECTION_REFUSED`. Non sono state modificate protezioni del browser, rete o credenziali. Questa indisponibilità globale non deve consumare quattro streamer né generare warning distinti; la politica corretta è coperta dai test. Bootstrap/login da installazione fresca, riapertura completa del browser con la build finale, sleep/wake reale, acquisizione completa di tutti i reward e consegne reali browser/Telegram restano non verificati sulla build attuale. Riavvio e riciclo sono verificati automaticamente con Twitch simulato.
+
+Gate finale sulla versione corretta: `bun run test:types`, `bun run test:ts`, `bun run lint`, 2.647 test unitari in 300 file, 40 E2E Chrome MV3 e `bun run build:all` Chrome/Edge superati. Le review Spec e Standards non riportano rilievi concreti aperti. `vexp verify_done` non segnala errori di parsing o deriva documentale; tutti i 70 avvisi di import dell’indice sono stati ricondotti agli import reali e verificati anche da un probe TypeScript dedicato. Il lavoro conserva il diff preesistente; nessun commit, pubblicazione o release automatica.
+
+
+## Regressioni Start, Play e riavvio — 6 ottobre 2026
+
+La verifica diretta in Brave sulla beta.61 ha mostrato Start Queue con cambi di streamer prima dell'avvio stabile e Pausa/Stop disabilitati durante l'attesa. Albion ha poi accumulato progresso reale (0→1→3%); Play di SMITE non ha sostituito Albion. Questo conferma che la riuscita occasionale del farming non convalida gli altri flussi.
+
+Sono state riprodotte tre lacune prima delle correzioni:
+
+- Il test di startup saltava `prepareBrowserSessionResume`: includendo questa fase, il vecchio ID della tab assente cancellava lo streamer prima della ricostruzione dell'ownership. Il test ora attraversa preparazione e ripristino reali, compresi tab assente, Pausa e Stop.
+- Una pagina Twitch con documento completo ma video ancora assente, o schermata iniziale appena rimossa, veniva scartata al primo tentativo. `queued-managed-playback-readiness.test.ts` usa preparazione content reale e ownership nativa: prima della correzione tutti e quattro i casi fallivano, aprendo un secondo streamer o rifiutando Play.
+- L'E2E con navigazione candidata sospesa mostrava Stop disabilitato. Pausa e Stop ora restano disponibili mentre Start/Play attende; le prove browser verificano anche l'interruzione e che il candidato tardivo non riparta.
+
+Start Queue e Play della coda registrano soltanto l'intento e risvegliano l'allarme del farming: il gestore del clic non esegue chiamate Twitch, ricerca streamer o preparazione playback. Il modulo separato `farming-automation-queued-start.ts` è stato rimosso. Il normale monitoraggio acquisisce lo streamer e gestisce progresso, completamento e recupero. Play attiva la campagna richiesta e mette la precedente in coda; un cambio fallito ripristina la precedente soltanto se il suo watch conservato supera una nuova verifica. Un primo avvio senza streamer conserva l'autorizzazione alla riprova. Pausa/Stop invalidano anche le operazioni già in corso.
+
+Il reload dell'estensione durante ricerca/recupero ha riprodotto un secondo problema di startup: il reset di aggiornamento conservava l'intento ma impostava `isRunning: false`, subordinando la ripresa alla riuscita dell'inventario. Il reset conserva ora l'intento attivo e riattiva il monitoraggio dopo la persistenza; Pausa e Stop restano vincolanti. Le regressioni attraversano worker recycle, riapertura browser, migrazione di versione e aggiornamento live, sia durante il primo avvio sia durante recupero playback.
+
+Due ulteriori regressioni sono state isolate con prove fallenti: cleanup campagne e completamento iniziavano contemporaneamente la stessa transizione, invalidandosi a vicenda; inoltre i fallimenti del transport gestito saltavano la normale verifica di progresso recente, grace iniziale e cooldown. La progressione automatica ora condivide l'operazione già in corso per la stessa sessione; il transport gestito torna al validatore esistente, preservando i calcoli temporali.
+
+La prova del watch precedente è asincrona: un nuovo Play durante quella lettura deve invalidarne il risultato. La regressione con due Start reali riproduceva B→C→A alla conclusione della vecchia prova; acquisizione e rollback controllano ora anche la revisione della sessione e la selezione dopo l'attesa, lasciando valida soltanto C.
+
+L'avvio tenta un solo streamer per scadenza, con 30 secondi fra i tentativi e un massimo di quattro canali distinti (iniziale più tre alternative). I nomi falliti persistono nei metadati della campagna e si azzerano all'inizio del successivo giro, non ad ogni controllo. La verifica reale di Play su Albion ha inoltre riprodotto il contatore oltre limite quando il watch precedente risultava degradato: la perdita del segnale Drops nel DOM rendeva `isHealthy` falso anche con video in riproduzione e categoria corretta. Il rollback deve conservare questa prova di playback valido; un incumbent realmente inutilizzabile deve invece lasciare proseguire la coda dopo il limite, senza attesa infinita.
+
+L'attesa di un gesto sul player viene notificata dal flusso principale tramite il notifier comune, con ricevute persistenti separate per browser e Telegram. Le prove verificano invio, mancata duplicazione dopo tick/restart e riprova del solo canale fallito. Una richiesta manuale può mantenere il nuovo player in attesa di Play; una transizione automatica non sostituisce un incumbent valido con un candidato che richiede intervento.
+
+Il browser ha riprodotto anche un doppio avviso quando il progresso dell'inventario cambiava prima del successivo campione del player: l'identità della notifica ora usa il watch (campagna, streamer e tab), non il contatore di progresso. L'E2E intercetta l'API notifiche risolta da WXT, che può essere distinta da `chrome.notifications`, e verifica una sola consegna prima e dopo il clic sul player.
+
+Una successiva riapertura reale ha mostrato che la stessa prova di playback valido senza etichetta Drops serve anche al ripristino del coordinatore e alla protezione del watch esistente: questi percorsi ora condividono il predicato con il rollback. L'E2E di riavvio rimuove l'etichetta prima e dopo la chiusura del profilo e verifica video e progresso senza Start.
+
+La preparazione a freddo su Twitch reale ha inoltre restituito `playbackPending` oltre il precedente limite di 10 secondi e chiuso il canale del content script durante una navigazione in back/forward cache. La preparazione mantiene lo stesso candidato, ritenta il ricevitore dopo la navigazione e usa un limite totale di 30 secondi; cancellazione e numero massimo di campioni restano verificati anche con orologio congelato. Il test copre playback disponibile dopo 12 secondi e l'esatto errore Chrome osservato.
+
+Infine, una richiesta reale di gesto sul player Nika arrivava con categoria DOM ancora vuota: trattare il dato assente come categoria diversa scartava il player prima della notifica. Un nuovo E2E mantiene la categoria assente fino al clic Play e, prima della correzione, fallisce perché nessuno streamer viene mantenuto. La categoria esplicitamente diversa resta un motivo di rifiuto; l'assenza temporanea non costituisce quella prova. Dopo la correzione il test verifica mantenimento della scheda, una notifica e ripresa nella stessa tab. Il playback appena avviato riceve la normale grace anche senza etichetta Drops; la categoria ignota da sola non prova mai playback sano.
+
+Verifica diretta della build corretta beta.61 in Brave: Play di SMITE sostituisce Albion; il player Nika risulta nella categoria SMITE 2, non in pausa, con `readyState: 4`. Il progresso del primo bundle aumenta da 31→32→35% durante la verifica, poi da 40→41% dopo il caricamento della build corretta. Pausa e Resume sono stati esercitati dal popup. Dopo chiusura completa di Brave (processo non in esecuzione) e riapertura, SMITE riparte senza premere Avvia e il bundle aumenta 41→42→43%. Dopo la correzione del reset di aggiornamento, un ulteriore reload mantiene SMITE attiva e il progresso aumenta 57→58→60%, ancora senza Avvia. La prova finale di Play su Albion fallisce l'acquisizione e ritorna automaticamente a SMITE al 61%, senza altri clic Play/Start: lo stesso scenario prima restava in recupero oltre quattro tentativi. Non sono stati inseriti progressi né alterate credenziali sul profilo reale.
+
+Un ulteriore Play manuale di SMITE riproduce il nuovo caso reale: il popup mostra «Start the video» e mantiene Nika; portando in primo piano la scheda Twitch, il player risulta già in riproduzione e nella categoria SMITE 2. Tornati al popup, il normale monitoraggio passa a Running e il bundle avanza 65→66%, senza un nuovo Start. L'avvio automatico dei preferiti del profilo è rimasto attivo; il Play esplicito mantiene la priorità manuale.
+
+Dopo un'altra chiusura completa di Brave, confermata dal processo non in esecuzione, la riapertura ripristina SMITE senza Start. Il caricamento a freddo passa per un tentativo di recupero e mantiene poi Nika con «Start the video» quando il browser richiede intervento; popup e monitor concordano. Il progresso reale raggiunge 68%. Questa prova non certifica autoplay incondizionato al riavvio: la richiesta del browser deve poter restare visibile fino all'intervento. Le notifiche sono verificate sul confine API browser/Telegram; il banner del sistema operativo non è stato verificato visivamente.
+
+Sulla build definitiva, dopo apertura della scheda richiesta, il monitoraggio riconosce la riproduzione e torna a Running. Rimettendo Twitch in background, Nika resta lo streamer di SMITE e il bundle avanza 68→70% senza nuovi Start o Play della coda. Tutti gli hook temporanei di diagnostica sono stati rimossi e DevTools chiuso; il farming viene lasciato attivo.
+
+Verifica finale: 2.586 test unitari in 298 file, 35 E2E Chrome MV3, TypeScript sorgenti/test, lint senza warning, build Chrome/Edge e audit di 229 dipendenze superati. Dopo l'ultima correzione della grace post-gesto, tutti i sei E2E interessati (avvio, gesto, notifica e riavvio) sono stati ripetuti con successo sulla build definitiva. `vexp verify_done` riporta zero errori di parsing e zero deriva documentale; i 76 avvisi di import su export/re-export validi sono stati ricontrollati con ricerca nativa e compilatori. La suite completa comprende i 155 file di test interessati dall'indice. La verifica con Twitch simulato resta distinta dal servizio reale; sleep/wake reale e completamento integrale dei drop non sono stati osservati in questa prova.
+
+## Play della coda durante caricamento Twitch — 6 ottobre 2026
+
+Una pagina Twitch appena aperta può inviare lo stesso token OAuth con `userId` ancora vuoto. La sincronizzazione cancellava l'identità già rilevata e invalidava il cambio campagna richiesto da Play: la tab apriva il nuovo stream e tornava al precedente. La sincronizzazione conserva ora l'identità nota soltanto quando il token è identico; token diverso o identità esplicita diversa continuano a invalidare la sessione precedente.
+
+`tests/queued-managed-campaign-handoff.test.ts` riproduce il report incompleto durante la preparazione nella composizione reale di automazione e transport gestito, con watch precedente sano o degradato, e verifica selezione, coda, ownership e URL dopo il tick successivo. `tests/session-management.test.ts` verifica anche persistenza e cambio credenziali/account. TypeScript sorgenti/test, lint, build Chrome e tutti i 2.533 test unitari superati.
+
+Verifica manuale sulla build locale beta.61 corretta caricata in Brave: Play di Albion Online durante farming SMITE 2 passa ad Albion e mantiene la nuova campagna attiva dopo il completamento del comando. Questa osservazione convalida il cambio Play; non estende la copertura manuale a restart o sleep/wake.
+
 ## Verifica release 4.0.0-beta.61 — 6 ottobre 2026
 
 Gate completo `bun run release:check` superato con Bun 1.4.2: controllo dello scope TypeScript, compilatori sorgenti/test, lint senza warning, 2.528 test unitari, 28 E2E Chrome MV3, audit dipendenze, build e archivi Chrome/Edge, controlli dei manifest e degli archivi. La verifica finale vexp conferma assenza di errori di parsing e deriva documentale; i 261 test nelle 37 suite indicate sono superati e i 7 avvisi sui re-export/fixture sono stati ricontrollati con ricerca nativa e compilatori.

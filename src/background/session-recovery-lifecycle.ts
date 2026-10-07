@@ -23,9 +23,11 @@ export async function withRecoveryTimeout<T>(
       resolve(null);
     }, timeoutMs);
   });
-  const result = await Promise.race([promise, timeout]);
-  if (timer) clearTimeout(timer);
-  return result;
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function closeUntouchedRecoveryTab(

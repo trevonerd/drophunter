@@ -1,109 +1,125 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { createFarmingAutomation } from '../src/background/farming-automation.ts';
+import { expect, test } from 'bun:test';
 import { createFarmingAutomationBrowser } from '../src/background/farming-automation-browser.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
-import {
-  deriveSafeRefreshPatch,
-  type FarmingAutomationTwitchSnapshot,
-} from '../src/background/farming-automation-twitch.ts';
-import { currentFarmingSessionEpoch } from '../src/background/farming-session-revision.ts';
 import { listManagedWatches } from '../src/background/managed-watch-registry.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { createServiceWorkerBrowserEvents } from '../src/background/service-worker-browser-events.ts';
+import { setTimingSaveDebounceMsForTests } from '../src/background/timing-state-persistence.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { createDrop, createGame, createStreamer } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { installManagedWatchPages } from './support/managed-watch-pages.ts';
 import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
-
-let mocks: ReturnType<typeof setupChromeMocks>;
-beforeEach(() => {
-  mocks = setupChromeMocks();
-});
-afterEach(() => mocks.teardown());
+import { createQueuedFarmingSession } from './support/queued-farming-session.ts';
 
 test('a stopped queued Play authorizes the first managed tab while automatic preparation cannot', async () => {
-  const tabs = installManagedWatchPages(mocks);
-  const state = createServiceWorkerState();
-  const game = createGame({
-    campaignId: 'smite-campaign',
-    categorySlug: 'smite',
-    endsAt: '2030-08-04T12:00:00.000Z',
-    rewardSummary: { completion: 'farmable', remainderReasons: [] },
-  });
-  const drop = createDrop({ gameId: game.id, campaignId: game.campaignId });
-  const streamer = createStreamer({ name: 'smite_streamer' });
-  state.appState.watchTransportPreference = 'managed-tab';
-  state.appState.queue = [game];
-  const snapshot: FarmingAutomationTwitchSnapshot = {
-    games: [game],
-    drops: [drop],
-    campaignDropsByKey: { [gameKey(game)]: [drop] },
-    campaignChannelsMap: {},
-    updatedAt: Date.now(),
-  };
-  const browser = createFarmingAutomationBrowser({
-    getManualStreamContext: async () => null,
-    watch: {
-      tablessEnabled: false,
-      heartbeat: async () => ({ accepted: false }),
-      waitForTabComplete: async () => {},
-      preparePlayback: async () => ({ isPlaybackReady: true }),
-      probeManaged: async () => ({
-        accepted: true,
-        isLive: true,
-        sameChannel: true,
-        sameGame: true,
+  const mocks = setupChromeMocks();
+  setTimingSaveDebounceMsForTests(0);
+  try {
+    const tabs = installManagedWatchPages(mocks);
+    const state = createServiceWorkerState();
+    const game = createGame({
+      campaignId: 'smite-campaign',
+      categorySlug: 'smite',
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    });
+    const drop = createDrop({ gameId: game.id, campaignId: game.campaignId, requiredMinutes: 60 });
+    const streamer = createStreamer({ name: 'smite_streamer' });
+    const fetchStreamContext = async (tabId: number) => {
+      const tab = await mocks.chrome.tabs.get(tabId);
+      const channelName = new URL(tab.url ?? 'https://www.twitch.tv/smite_streamer').pathname.slice(1);
+      return {
+        channelName,
+        categorySlug: 'smite',
+        categoryLabel: 'SMITE',
+        streamTitle: 'Drops enabled',
+        titleContainsDrops: true,
         hasDropsSignal: true,
-      }),
-    },
-  });
-  expect(await browser.watch.prepare({ gameId: game.id, channelName: streamer.name }, 'managed-tab')).toEqual(
-    { kind: 'failed', reason: 'candidate-unavailable' },
-  );
-  expect(tabs.created).toEqual([]);
-  expect(await listManagedWatches()).toEqual([]);
-
-  const automation = createFarmingAutomation({
-    reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
-    state,
-    browser,
-    persistence: createInMemoryFarmingAutomationPersistence({
-      state,
-      storage: createInMemoryFarmingAutomationStorage(),
-      getSessionRevision: () => String(currentFarmingSessionEpoch(state)),
-      broadcast: () => {},
-    }),
-    twitch: {
-      refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-      fetchDirectory: async () => ({
-        kind: 'ready',
-        target: {
-          campaignKey: gameKey(game),
-          campaignId: game.campaignId ?? null,
-          gameId: game.id,
-          gameName: game.name,
-          categoryId: null,
-          categorySlug: 'smite',
-        },
-        streamers: [streamer],
-        languageFilterApplied: false,
-      }),
-    },
-  });
-  expect(await automation.startQueuedCampaign?.(gameKey(game))).toEqual({ success: true });
-  expect(tabs.created).toHaveLength(1);
-  expect(tabs.pages.get(tabs.created[0]!)?.url).toBe('https://www.twitch.tv/smite_streamer');
-  expect(state.appState.isRunning).toBe(true);
-  expect(state.appState.manualQueueAuthorized).toBe(true);
-  expect(state.appState.farmingSessionOrigin).toBe('manual');
-  expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
-  expect(browser.watch.currentOwnership()).toMatchObject({
-    kind: 'managed-tab',
-    tabId: tabs.created[0],
-    expectedChannel: streamer.name,
-  });
-  expect(await listManagedWatches()).toHaveLength(1);
+        isLive: true,
+        isPlaybackReady: true,
+        pageUrl: tab.url ?? '',
+      };
+    };
+    state.appState.watchTransportPreference = 'managed-tab';
+    state.appState.queue = [game];
+    const automaticBrowser = createFarmingAutomationBrowser({
+      getManualStreamContext: async () => null,
+      watch: {
+        tablessEnabled: false,
+        heartbeat: async () => ({ accepted: false }),
+        waitForTabComplete: async () => {},
+        preparePlayback: async () => ({ isPlaybackReady: true }),
+        probeManaged: async () => ({ accepted: true }),
+      },
+    });
+    expect(
+      await automaticBrowser.watch.prepare({ gameId: game.id, channelName: streamer.name }, 'managed-tab'),
+    ).toMatchObject({
+      kind: 'failed',
+      reason: 'candidate-unavailable',
+      health: { mode: 'managed-tab', status: 'failed', reason: 'managed-tab-unavailable' },
+    });
+    expect(tabs.created).toEqual([]);
+    mocks.chrome.tabs.sendMessage = async () => ({ isPlaybackReady: true });
+    const browserEvents = createServiceWorkerBrowserEvents(state, {
+      ensureContentScriptOnTab: async () => {},
+      fetchStreamContext,
+      heartbeat: async () => ({ accepted: false }),
+      notify: async () => {},
+      notifyQueueComplete: async () => {},
+      clearQueueCompleteNotification: async () => {},
+    });
+    const snapshot = {
+      games: [game],
+      drops: [drop],
+      campaignsVerified: true,
+      inventoryVerified: true,
+      updatedAt: Date.now(),
+    };
+    const farming = createQueuedFarmingSession(state, {
+      browserEvents,
+      reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
+      startMonitoring: () => {},
+      twitchGateway: {
+        ensureTwitchSession: async () => null,
+        fetchDropsSnapshot: async () => snapshot,
+        fetchInventorySnapshot: async () => snapshot,
+        getLatestProgressSnapshot: () => snapshot,
+        fetchDirectoryStreamers: async () => Object.assign([streamer], { languageFilterApplied: false }),
+        fetchStreamContext,
+        heartbeat: async () => ({ accepted: false }),
+      },
+    });
+    const result = await farming.handleStartQueuedCampaign(gameKey(game));
+    expect(result).toEqual({ success: true });
+    expect(tabs.created).toEqual([]);
+    expect(state.appState).toMatchObject({
+      isRunning: true,
+      manualQueueAuthorized: true,
+      farmingSessionOrigin: 'manual',
+      forcedCampaignKey: gameKey(game),
+      activeStreamer: null,
+      tabId: null,
+      watchHealth: null,
+    });
+    await farming.checkDropProgress();
+    expect(tabs.created).toHaveLength(1);
+    const tabId = tabs.created[0];
+    if (tabId === undefined) throw new Error('Missing created tab');
+    expect(tabs.pages.get(tabId)?.url).toBe('https://www.twitch.tv/smite_streamer');
+    expect(state.appState).toMatchObject({
+      isRunning: true,
+      manualQueueAuthorized: true,
+      farmingSessionOrigin: 'manual',
+      forcedCampaignKey: gameKey(game),
+    });
+    expect(browserEvents.watchTransport.currentOwnership()).toMatchObject({
+      kind: 'managed-tab',
+      tabId: tabs.created[0],
+      expectedChannel: streamer.name,
+    });
+    expect(await listManagedWatches()).toHaveLength(1);
+  } finally {
+    setTimingSaveDebounceMsForTests(null);
+    mocks.teardown();
+  }
 });

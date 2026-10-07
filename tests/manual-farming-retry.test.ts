@@ -26,10 +26,24 @@ function setup() {
 }
 
 describe('manual farming retry', () => {
+  test('reopens an exhausted queue round immediately, including a round without a selected campaign', async () => {
+    const { state, calls, deps } = setup();
+    if (!state.appState.selectedGame) throw new Error('Missing selected campaign');
+    state.appState.queue = [state.appState.selectedGame];
+    state.appState.queueAcquisitionRound = {
+      attemptedCampaignKeys: ['campaign:campaign'],
+      nextRoundAt: Date.now() + 600_000,
+    };
+    state.appState.selectedGame = null;
+    expect(await retryFarmingNow(state, deps)).toEqual({ success: true });
+    expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBeLessThanOrEqual(Date.now());
+    expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).toEqual([]);
+    expect(calls).toEqual(['save', 'tick']);
+  });
   test('retries a local playback failure without waiting for its old deadline', async () => {
     const { state, calls, deps } = setup();
     expect(await retryFarmingNow(state, deps)).toEqual({ success: true });
-    expect(calls).toEqual(['save', 'acquire']);
+    expect(calls).toEqual(['save', 'tick']);
     expect(state.appState.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now());
   });
 

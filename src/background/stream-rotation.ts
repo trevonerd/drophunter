@@ -1,11 +1,6 @@
 export const MAX_NO_PROGRESS_ROTATION_ATTEMPTS = 3;
-export const MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS = 3;
 export const STALLED_PROGRESS_RETRY_MS = 60_000;
-export const MAX_PERSISTENT_RECOVERY_CYCLES = 5;
-export const RECOVERY_BACKOFF_BASE_MS = 60_000;
-export const MAX_RECOVERY_BACKOFF_MS = 15 * 60_000;
 export const NO_STREAMERS_RETRY_MS = 30_000;
-export const MAX_NO_STREAMERS_RETRIES = 1;
 
 export const PROGRESS_STALL_THRESHOLD_MS = 5 * 60_000;
 export const MAX_PROGRESS_STALL_THRESHOLD_MS = 20 * 60_000;
@@ -48,7 +43,8 @@ export function didDropMinutesAdvance(previousMinutes: number, currentMinutes: n
 }
 
 export function computeEffectiveStallThreshold(requiredMinutes: number | null | undefined): number {
-  if (requiredMinutes == null || requiredMinutes <= 0) return PROGRESS_STALL_THRESHOLD_MS;
+  if (requiredMinutes == null || !Number.isFinite(requiredMinutes) || requiredMinutes <= 0)
+    return PROGRESS_STALL_THRESHOLD_MS;
   const longDropThreshold = ((requiredMinutes / 100) * 5 + 2) * 60_000;
   return Math.min(MAX_PROGRESS_STALL_THRESHOLD_MS, Math.max(PROGRESS_STALL_THRESHOLD_MS, longDropThreshold));
 }
@@ -84,11 +80,6 @@ export function detectRecoveryProof(input: RecoveryProofInput): boolean {
   }
 
   return false;
-}
-
-export function computeRecoveryBackoffMs(attempts: number): number {
-  const safeAttempts = Math.max(1, Math.floor(attempts));
-  return Math.min(RECOVERY_BACKOFF_BASE_MS * 2 ** (safeAttempts - 1), MAX_RECOVERY_BACKOFF_MS);
 }
 
 export interface StreamHealthInput {

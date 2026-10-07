@@ -15,14 +15,19 @@ import {
   isFarmingSessionEpochCurrent,
   runInFarmingSessionCriticalSection,
 } from './farming-session-revision.ts';
+import { retainPendingStreamerPreparation } from './pending-streamer-preparation.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
   candidateWorkingState,
+  createAutomaticTransitionReceipt,
   existingReceiptResult,
   FarmingSessionTransitionInvariantError,
   pairMatchesState,
+  persistAutomaticTransitionAttempt,
   sameOwnership,
 } from './session-lifecycle-transition-state.ts';
+import { beginStreamerWatchAttempt } from './streamer-watch-attempt.ts';
+import { isWatchPreparationUnavailable } from './watch-health.ts';
 import type { PreparedWatch, WatchTransportTransition } from './watch-transport-transition.ts';
 
 type TransitionBase = {
@@ -48,7 +53,13 @@ export type AutomaticFarmingSessionTransitionResult =
     }
   | { readonly kind: 'replayed'; readonly receipt: FarmingSessionTransitionReceiptV1 }
   | { readonly kind: 'unchanged'; readonly reason: 'superseded-by-state-change' }
-  | { readonly kind: 'failed'; readonly reason: 'candidate-preparation-failed' | 'transition-commit-failed' };
+  | {
+      readonly kind: 'failed';
+      readonly reason:
+        | 'candidate-preparation-failed'
+        | 'candidate-playback-pending'
+        | 'transition-commit-failed';
+    };
 
 export type AutomaticFarmingSessionTransitionDependencies = {
   readonly acquireStreamer: (
@@ -56,6 +67,7 @@ export type AutomaticFarmingSessionTransitionDependencies = {
     snapshot: FarmingAutomationTwitchSnapshot,
   ) => Promise<TwitchStreamer | null>;
   readonly currentFingerprint: () => string;
+  readonly persistAttempt: () => Promise<boolean>;
   readonly loadReceipt: FarmingAutomationPersistence['loadReceipt'];
   readonly commitTransition: FarmingAutomationPersistence['commitTransition'];
   readonly watch: WatchTransportTransition;
@@ -82,12 +94,15 @@ export async function transitionAutomaticFarmingSession(
   const replay = existingReceiptResult(await dependencies.loadReceipt(), request);
   if (replay) return replay;
   const now = dependencies.now?.() ?? Date.now();
+  let expectedFingerprint = request.expectedFingerprint;
+  let committedPreparation = false;
   const isCurrent = () =>
     campaignRejectionReason(request.candidate, dependencies.now?.() ?? Date.now()) === null &&
     isFarmingSessionEpochCurrent(state, epoch) &&
-    dependencies.currentFingerprint() === request.expectedFingerprint &&
-    pairMatchesState(state, request) &&
-    sameOwnership(dependencies.watch.currentOwnership(), fromWatch);
+    (committedPreparation ||
+      (dependencies.currentFingerprint() === expectedFingerprint &&
+        pairMatchesState(state, request) &&
+        sameOwnership(dependencies.watch.currentOwnership(), fromWatch)));
   if (!isCurrent()) return { kind: 'unchanged', reason: 'superseded-by-state-change' };
   const workingCandidate = candidateWorkingState(state, request, now);
   if (!workingCandidate) return { kind: 'failed', reason: 'candidate-preparation-failed' };
@@ -99,6 +114,17 @@ export async function transitionAutomaticFarmingSession(
   }
   if (!streamer) return { kind: 'failed', reason: 'candidate-preparation-failed' };
   if (!isCurrent()) return { kind: 'unchanged', reason: 'superseded-by-state-change' };
+  const key = gameKey(workingCandidate.candidate);
+  const beforeReservation = state.appState.queueEntryMetadataByKey[key];
+  if (!beginStreamerWatchAttempt(state, workingCandidate.candidate, streamer.name, now))
+    return { kind: 'failed', reason: 'candidate-preparation-failed' };
+  expectedFingerprint = dependencies.currentFingerprint();
+  if (!(await persistAutomaticTransitionAttempt(dependencies.persistAttempt))) {
+    return { kind: 'failed', reason: 'transition-commit-failed' };
+  }
+  if (!isCurrent()) return { kind: 'unchanged', reason: 'superseded-by-state-change' };
+  const reservation = state.appState.queueEntryMetadataByKey[key];
+  workingCandidate.state.appState.queueEntryMetadataByKey[key] = state.appState.queueEntryMetadataByKey[key];
   let preparation: Awaited<ReturnType<WatchTransportTransition['prepare']>>;
   try {
     preparation = await dependencies.watch.prepare(
@@ -116,15 +142,56 @@ export async function transitionAutomaticFarmingSession(
       request.manualOverride === true,
     );
   } catch {
+    preparation = { kind: 'failed', reason: 'candidate-unavailable', health: null };
+  }
+  if (preparation.kind === 'failed') {
+    if (!isCurrent()) return { kind: 'unchanged', reason: 'superseded-by-state-change' };
+    const pending = retainPendingStreamerPreparation(
+      state,
+      request.candidate,
+      preparation.health,
+      workingCandidate.state,
+      dependencies.now?.() ?? Date.now(),
+    );
+    expectedFingerprint = dependencies.currentFingerprint();
+    if (pending) {
+      if (!(await persistAutomaticTransitionAttempt(dependencies.persistAttempt))) {
+        return { kind: 'failed', reason: 'transition-commit-failed' };
+      }
+      return { kind: 'failed', reason: 'candidate-playback-pending' };
+    }
+    if (preparation.health?.reason === 'playback-pending') {
+      await dependencies.watch.suspend?.(isCurrent);
+      if (!isCurrent()) return { kind: 'unchanged', reason: 'superseded-by-state-change' };
+    }
+    if (
+      isWatchPreparationUnavailable(preparation.health) &&
+      isFarmingSessionEpochCurrent(state, epoch) &&
+      state.appState.queueEntryMetadataByKey[key] === reservation
+    ) {
+      if (beforeReservation) state.appState.queueEntryMetadataByKey[key] = beforeReservation;
+      else delete state.appState.queueEntryMetadataByKey[key];
+      if (!(await persistAutomaticTransitionAttempt(dependencies.persistAttempt))) {
+        return { kind: 'failed', reason: 'transition-commit-failed' };
+      }
+    }
     return { kind: 'failed', reason: 'candidate-preparation-failed' };
   }
-  if (preparation.kind === 'failed') return { kind: 'failed', reason: 'candidate-preparation-failed' };
   if (!isCurrent()) {
     return disposeForResult(preparation.watch, {
       kind: 'unchanged',
       reason: 'superseded-by-state-change',
     });
   }
+  retainPendingStreamerPreparation(
+    state,
+    request.candidate,
+    preparation.watch.health,
+    workingCandidate.state,
+    dependencies.now?.() ?? Date.now(),
+  );
+  expectedFingerprint = dependencies.currentFingerprint();
+  workingCandidate.state.appState.queueEntryMetadataByKey[key] = state.appState.queueEntryMetadataByKey[key];
   return runInFarmingSessionCriticalSection(state, async () => {
     if (
       !isCurrent() ||
@@ -141,25 +208,9 @@ export async function transitionAutomaticFarmingSession(
     working.appState.activeStreamer = structuredClone(streamer);
     working.appState.watchTransportMode = preparation.watch.health.mode;
     working.appState.watchHealth = structuredClone(preparation.watch.health);
-    working.appState.watchFallbackReason = preparation.watch.fallbackReason;
     working.appState.tabId =
       preparation.watch.ownership.kind === 'managed-tab' ? preparation.watch.ownership.tabId : null;
-    const receipt: FarmingSessionTransitionReceiptV1 = {
-      version: 1,
-      attemptId: request.attemptId,
-      transition: request.transition,
-      fromCampaignKey: request.fromCampaignKey,
-      toCampaignKey: gameKey(request.candidate),
-      toStreamerName: streamer.name,
-      committedAt: now,
-      sessionRevision: String(epoch),
-      fromWatch,
-      toWatch: preparation.watch.ownership,
-      cleanup:
-        fromWatch?.kind === 'managed-tab'
-          ? { kind: 'pending', obsolete: fromWatch }
-          : { kind: 'not-required' },
-    };
+    const receipt = createAutomaticTransitionReceipt(request, preparation.watch, fromWatch, now, epoch);
     const commit: FarmingSessionTransitionCommit = {
       expectedSessionRevision: String(epoch),
       nextAppState: working.appState,
@@ -187,6 +238,7 @@ export async function transitionAutomaticFarmingSession(
             reason: 'superseded-by-state-change',
           });
         }
+        committedPreparation = true;
         Object.assign(state, working);
         const promotion = preparation.watch.promote();
         if (promotion.kind === 'discarded') {
