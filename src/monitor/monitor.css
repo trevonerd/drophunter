@@ -236,3 +236,11 @@ body {
     transition: none;
   }
 }
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+summary,
+select:not(:disabled),
+label[for] {
+  cursor: pointer;
+}

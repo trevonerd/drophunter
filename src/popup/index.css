@@ -1,6 +1,17 @@
 @import "tailwindcss";
 @config "../../tailwind.config.js";
 
+/* Tailwind v4 preflight resets buttons to the default cursor. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  select:not(:disabled),
+  label[for] {
+    cursor: pointer;
+  }
+}
+
 :root {
   color-scheme: dark;
   --dh-bg-0: oklch(0.145 0.014 292);
