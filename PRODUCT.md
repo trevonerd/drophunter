@@ -14,4 +14,4 @@ DropHunter helps Twitch viewers choose campaigns, earn watch-time rewards, claim
 
 Use a compact dark violet control surface with clear status, readable progress, and restrained motion. Put farming essentials first and secondary controls in Advanced. Avoid decorative metrics, oversized marketing elements, and unnecessary confirmation steps.
 
-Use native controls, accessible labels, visible focus, and polite live regions for status changes. Color must not be the sole indicator of state. The implementation contract is in `DESIGN.md`; domain terms are in `CONTEXT.md`.
+Use native controls, accessible labels, visible focus, and polite live regions for status changes. Color must not be the sole indicator of state. The implementation contract is in `DESIGN.md`; domain terms are in `GLOSSARY.md`.

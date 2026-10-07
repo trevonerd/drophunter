@@ -1,148 +1,148 @@
 # Agent Notes
 
-Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `AGENTS.original.md` first, then recompress.
+Fast path for future agents working on DropHunter. Keep this file human-readable and update it only when workflow, architecture, or domain rules change.
 
 ## Project
 - WXT Chrome/Edge MV3 extension using React 19, TypeScript, Tailwind CSS, Bun.
 - Package manager: Bun only. Use `bun install`, `bun test`, `bun run build:all`.
 - Main code: `src/background/`, `src/popup/`, `src/monitor/`, `src/content/`, `src/shared/`.
-- Entrypoints in `src/entrypoints/`: background service worker, popup HTML, monitor HTML, Twitch content scripts, integrity interceptor.
-- Builds/zips in `.output/`; don't hand-edit generated files.
+- Entrypoints live in `src/entrypoints/`: background service worker, popup HTML, monitor HTML, Twitch content scripts, and integrity interceptor.
+- Generated builds and release zips live under `.output/`; do not hand-edit generated files.
 
 ## Architecture Map
-- `src/background/service-worker.ts` wires controllers, runtime messages, alarms, lifecycle, tab orchestration, Twitch API calls, cache refresh delegation, persistence. Farming session behavior goes through `src/background/farming-session.ts`; games-cache refresh orchestration goes through `src/background/games-cache-orchestration.ts`.
-- Background modules take `ServiceWorkerState` and mutate it. Add behavior to focused modules before growing `service-worker.ts`.
-- `src/background/farming-session.ts` exports `createFarmingSession`, composing start/stop/pause/resume, monitoring, acquisition, queue controls/progression, recovery. Wire consumers through this facade.
-- Start Queue/queued Play persist manual intent + wake farming alarm only; no Twitch/discovery/playback in click handlers. Main monitor owns checks/retries. Play queues incumbent; failed requested campaign parks and follows normal queue order. Unavailable/scheduled initial starts retain authorization. Current cancelled preparation wakes the same alarm after its tick, without parking/budget use. Pause/Stop cancel; automatic queue progression is serialized.
-- `src/background/farming-queue-progression.ts` binds deps once; owns selection, parking, rounds, waiting, persistence, completion through `advanceIfCompleted`, `skipCurrent`, `retryWaitingQueue`, synchronous `reconcileAvailability`. Focused logic: `session-lifecycle-queue*.ts`; execution contract internal. Automation supplies positive availability + rehabilitated campaign keys; reconciliation never starts playback. Acquisition never selects round heads independently.
-- `src/background/farming-campaign-transition.ts` prepares/commits playback; managed changes reuse one owned tab and suppress stale active-channel projection. Verified unclaimed future watch-time rewards return `waiting`, stay queued for existing checks. Progression uses prepared transitions only; no refresh/boolean-open fallback.
-- `src/background/drops-projection.ts` owns Drops snapshot projection: campaign-aware drop matching, game completion annotation, selected-game drop splitting, monotonic progress preservation, progress-recovery proof.
-- `src/background/runtime-state.ts` owns `ServiceWorkerState`, `createServiceWorkerState()`, timing normalization, crash/startup resume policy, rotation metadata clearing.
-- `src/background/state-persistence.ts` = storage boundary for `appState`, snapshot cache, timing state, activity timestamps, badge updates, state broadcasts.
-- `src/background/farming-recovery-alarm.ts` reconciles the retry alarm; `manual-farming-retry.ts` handles popup Retry without bypassing Twitch cooldown. `src/shared/recovery-presentation.ts` derives phase/operation/reason/deadline/action from persisted state; `user-status.ts` shares it across popup/monitor.
+- `src/background/service-worker.ts` wires controllers, runtime messages, alarms, lifecycle, tab orchestration, Twitch API calls, cache refresh delegation, and persistence. Farming session behavior should go through `src/background/farming-session.ts`; games-cache refresh orchestration should go through `src/background/games-cache-orchestration.ts`.
+- Extracted background modules take `ServiceWorkerState` and mutate that passed state object. Prefer adding behavior to focused modules before growing `service-worker.ts`.
+- `src/background/farming-session.ts` exports `createFarmingSession`, the facade that composes start/stop/pause/resume, monitoring, streamer acquisition, queue controls, progression, and recovery. Wire consumers through this facade rather than importing its implementation modules directly.
+- Start Queue and queued campaign Play only persist manual intent and wake the normal farming alarm; no Twitch/discovery/playback work runs in the click handler. The main monitoring flow owns preparation, checks and retries. Queue Play moves the previous campaign into the queue; a failed requested campaign is parked and follows normal queue order. Initial unavailable/scheduled campaigns retain manual authorization. A cancelled preparation with current authorization wakes the existing alarm after the owning monitoring tick finishes; it neither parks the campaign nor consumes the channel. Preserve Pause/Stop cancellation and serialize concurrent automatic queue progression.
+- `src/background/farming-queue-progression.ts` is composed once inside that facade. Its four operations (`advanceIfCompleted`, `skipCurrent`, `retryWaitingQueue`, synchronous `reconcileAvailability`) own queue selection, parking, retry rounds, waiting, persistence sequencing, and completion effects with dependencies bound once. Focused implementations stay in `session-lifecycle-queue*.ts`; their execution contract is internal. Automation supplies positive directory evidence and newly rehabilitated campaign keys; reconciliation never starts playback. Streamer acquisition does not independently choose retry-round heads.
+- `src/background/farming-campaign-transition.ts` prepares and commits campaign playback; managed changes reuse the same owned tab and suppress stale active-channel projection during navigation. Verified unclaimed future watch-time rewards return `waiting`, remain queued, and use existing checks; they are not completed campaigns. Progression uses only prepared transitions, with no refresh-and-boolean-open fallback.
+- `src/background/drops-projection.ts` owns Drops snapshot projection: campaign-aware drop matching, game completion annotation, selected-game drop splitting, monotonic progress preservation, and progress-recovery proof.
+- `src/background/runtime-state.ts` owns `ServiceWorkerState`, `createServiceWorkerState()`, timing normalization, crash/startup resume policy, and rotation metadata clearing.
+- `src/background/state-persistence.ts` is the storage boundary for `appState`, drops snapshot cache, timing state, activity timestamps, badge updates, and state broadcasts.
+- `src/background/farming-recovery-alarm.ts` reconciles the dedicated retry alarm; `manual-farming-retry.ts` implements the popup's deduplicated Retry action without overriding Twitch cooldown. `src/shared/recovery-presentation.ts` derives phase, operation, reason, deadline, and action from persisted state; `src/shared/user-status.ts` uses it for popup and monitor.
 - `src/background/automation-event-notifier.ts` owns notification-event deduplication, per-channel receipts, and isolated browser/Telegram delivery. Channel adapters only deliver; routine recovery retries stay silent.
-- `src/background/farming-automation-manual-watch.ts` owns serialized manual-view evaluation: a pure decision derives durable facts; the controller performs observation, persistence, deadlines, and transport suspend/resume effects.
-- `src/background/queue-operations.ts` owns campaign-aware queue identity + pure mutators (`normalizeQueueSelection`, `removeGameFromQueue`, `resolveGameFromState`, `pushGameToQueue`, `reorderQueue`, plus shared helpers `queueContainsGame`, `queueEntryMatchesGame`, `removeQueueEntriesForGame`, `promoteQueueHead`, `removeQueueEntriesForHeadGame`). DAG leaf — no imports from drops-projection, stream-rotation, state-persistence.
-- `src/background/recovery-state.ts` owns recovery-backoff + terminal stop-state mutators (`clearRecoveryState`, `clearStopState`, `applyRecoveryState`, `clearNoStreamersRecoveryState`, `applyNoStreamersRecoveryState`, `applyStopState`). DAG leaf — no imports from drops-projection, queue-operations, state-persistence.
-- `src/background/streamer-acquisition.ts` owns streamer acquisition, rotation policy, and best-streamer selection (`acquireStreamerForSelectedGame`, `rotateStreamer`, `rotateStreamerIfInvalid`, `openBestStreamerForSelectedGame`, plus internal `shouldKeepStreamerWhileDropProgresses`, `OpenBestStreamerCallbacks`). Shared eligibility, language fallback, direct channel verification: `eligible-streamer-discovery.ts`. DAG leaf — no imports from drops-projection, queue-operations, state-persistence.
-- `src/background/drops-tick.ts` = re-export barrel over the per-tick drop-progress + queue-mutation handlers (`checkDropProgress`, `refreshDropsData`, `handleSetSelectedGame`, `handleAddToQueue`, `handleRemoveFromQueue`, `handleReorderQueue`) plus their `*Callbacks`/`*Deps` interfaces; real logic in `drops-tick-monitoring.ts`, `drops-tick-queue.ts`, `drops-tick-refresh.ts`, `drops-tick-selection.ts`. Hold no state of their own — run against `ServiceWorkerState` + injected callbacks.
-- `src/background/session-lifecycle.ts` re-exports initial Start, Stop, tracking reset, `QueueSkipReason`; `queueSkipCopy` lives in focused Stop impl. Start and paused/stopped selection retain workspace/refresh deps; progression goes through bound module/farming facade.
-- `src/background/games-cache-orchestration.ts` owns Twitch games-cache refresh orchestration (`refreshGamesCacheFromHiddenFetch`, `handleEnsureGamesCache`) plus `GamesCacheRefreshDeps`/`EnsureGamesCacheDeps`/`RefreshGamesCacheOptions` interfaces. Stateless+deps pattern — free functions taking explicit `ServiceWorkerState` + dep callbacks, no shared mutable state.
-- `src/background/managed-watch-ownership.ts` owns managed farming tab acquisition/confirmation, finalization, startup reconstruction, retained-tab observation, and safe release. Candidate discard never rolls back reused-tab navigation and waits for pending proof. Acquisition, proof/navigation guards, and reconstruction remain internal; Chrome host adapts browser operations. Farming, automation, paused/stopped selection, startup, and manual-view observation use the seam. Preserve proof strengths, initial authorization, serialization, failure retention, sole-window protection, and storage keys. Playback/promotion stay in transports; read startup selection after proof recovery.
-- `src/background/watch-candidate-preparation.ts` owns shared playback candidate prepare/validate/dispose. `watch-transport-coordinator.ts` promotes viable candidates before releasing the active transport; `watch-transport-transition.ts` uses the same contract for automation transactions. Failed/superseded candidates never replace a working watch.
-- `src/background/drops-page-refresh.ts`, `api-operations.ts`, `session-management.ts`, `twitch-api/` own Twitch session, inventory, campaign, integrity, hidden refresh flows.
-- `src/content/` inspects Twitch pages, prepares playback; keep DOM parsing defensive—Twitch markup changes often.
-- `src/popup/` = user control UI; hooks own app state, settings toggles, onboarding, recovery clocks, Drops refresh state. `components/main-view-model.ts` owns `MainView` campaign/queue/startup/activity projection. Settings expose farming essentials first; secondary controls live in Advanced.
-- `src/monitor/` = compact live status window. Keep status semantics aligned with popup runtime status helpers.
-- `src/shared/` = cross-context contracts: runtime messages, game/campaign identity, state normalization, browser API wrapper, drop helpers. `src/shared/user-status.ts` is the single popup/monitor session-status model; recovery copy stays concise and UI omits retry counters.
+- `src/background/farming-automation-manual-watch.ts` owns serialized manual-view evaluation. Its pure decision step derives the durable manual-watch fact; the controller alone performs observation, persistence, deadline replacement, and transport suspension/resume effects.
+- `src/background/queue-operations.ts` owns campaign-aware queue identity and pure mutators (`normalizeQueueSelection`, `removeGameFromQueue`, `resolveGameFromState`, `pushGameToQueue`, `reorderQueue`, plus shared helpers `queueContainsGame`, `queueEntryMatchesGame`, `removeQueueEntriesForGame`, `promoteQueueHead`, `removeQueueEntriesForHeadGame`). It is a DAG leaf: no imports from drops-projection, stream-rotation, or state-persistence.
+- `src/background/recovery-state.ts` owns recovery-backoff and terminal stop-state mutators (`clearRecoveryState`, `clearStopState`, `applyRecoveryState`, `applyNoStreamersRecoveryState`, `applyStopState`). It is a DAG leaf: no imports from drops-projection, queue-operations, or state-persistence.
+- `src/background/streamer-acquisition.ts` owns streamer acquisition, rotation policy, and best-streamer selection (`acquireStreamerForSelectedGame`, `rotateStreamer`, `rotateStreamerIfInvalid`, `openBestStreamerForSelectedGame`, plus internal `shouldKeepStreamerWhileDropProgresses`, `OpenBestStreamerCallbacks`). Shared campaign eligibility, language fallback, and direct authorized-channel verification live in `eligible-streamer-discovery.ts`. It is a DAG leaf: no imports from drops-projection, queue-operations, or state-persistence.
+- `src/background/drops-tick.ts` is a stable re-export barrel over the per-tick drop-progress and queue-mutation handlers (`checkDropProgress`, `refreshDropsData`, `handleSetSelectedGame`, `handleAddToQueue`, `handleRemoveFromQueue`, `handleReorderQueue`) plus their `*Callbacks`/`*Deps` interfaces; the actual logic lives in `drops-tick-monitoring.ts`, `drops-tick-queue.ts`, `drops-tick-refresh.ts`, `drops-tick-selection.ts`. None of them hold state of their own — they run against `ServiceWorkerState` with injected callbacks.
+- `src/background/session-lifecycle.ts` re-exports initial Start, Stop, stream tracking reset, the automatic session transition (`transitionAutomaticFarmingSession`), and `QueueSkipReason`. Start and paused/stopped selection retain their workspace and refresh dependencies; queue progression consumers use the bound module through the farming-session facade.
+- `src/background/games-cache-orchestration.ts` owns Twitch games-cache refresh orchestration (`refreshGamesCacheFromHiddenFetch`, `handleEnsureGamesCache`) plus `GamesCacheRefreshDeps`/`EnsureGamesCacheDeps`/`RefreshGamesCacheOptions` interfaces. Stateless+deps pattern — free functions taking explicit `ServiceWorkerState` and dep callbacks, with no shared mutable state.
+- `src/background/managed-watch-ownership.ts` owns the managed farming tab protocol. Its bound interface acquires and confirms candidates, finalizes ownership, reconstructs startup proof, observes retained managed tab IDs, and releases obsolete ownership. Candidate discard never rolls back reused-tab navigation and waits for in-flight confirmation. Native acquisition, proof/navigation guards, and reconstruction stay in focused internal implementations; the Chrome host only adapts browser operations. Ordinary farming, automation, paused/stopped selection, startup, and manual-view observation use this seam. Preserve exact proof strength, initial-create authorization, browser-wide serialization, failure retention, sole-window protection, and existing storage keys. Playback readiness and watch promotion stay in the transport modules; startup selection is read after asynchronous proof recovery.
+- `src/background/watch-candidate-preparation.ts` owns the shared prepare/validate/dispose contract for playback candidates. `watch-transport-coordinator.ts` promotes a viable candidate before releasing the active transport; `watch-transport-transition.ts` uses the same contract for farming-automation transactions. Failed or superseded candidates must not replace a working watch.
+- `src/background/drops-page-refresh.ts`, `api-operations.ts`, `session-management.ts`, and `twitch-api/` own Twitch session, inventory, campaign, integrity, and hidden refresh flows.
+- `src/content/` inspects Twitch pages and prepares playback; keep DOM parsing defensive because Twitch markup changes often.
+- `src/popup/` is user control UI; hooks own app state, settings toggles, onboarding, recovery clocks, and Drops refresh state. `components/main-view-model.ts` owns campaign, queue, startup, and transient-activity projection for `MainView`. Settings keep farming scope, watch source, and notifications visible; secondary controls live in the native Advanced disclosure.
+- `src/monitor/` is the compact live status window. Keep status semantics aligned with popup runtime status helpers.
+- `src/shared/` contains contracts used across extension contexts: runtime messages, game/campaign identity, app state normalization, browser API wrapper, and drop helpers. `src/shared/user-status.ts` is the single user-facing session-status model for popup and monitor; keep recovery copy concise and keep retry counters out of UI surfaces.
 
 ## Domain Rules
-- Twitch campaigns ≠ plain games. Prefer `campaignId` identity when available.
+- Twitch campaigns are not plain games. Prefer `campaignId` identity whenever available.
 - Use `src/shared/game-selection.ts`: `gameIdentity`, `isSameGameIdentity`, `gameKey`, `getGameDisplayLabel`.
-- Dropdown/queue/start/remove/completion flows must not key only by `game.id`; duplicate campaigns share game-ish IDs.
-- Campaign titles display as `Game · Campaign Title` even with one campaign per game.
-- Queue order matters. Remove/clear/complete/expire/skip must preserve selected campaign semantics; advance only for real terminal/completed/expired states.
-- Event-based drops ≠ farmable watch-time rewards. Don't treat as pending watch progress.
-- Twitch data can vanish, go stale, have missing fields, or arrive with duplicate benefit IDs. Keep parsing tolerant, progress merging conservative.
-- Progress sources: inventory, campaign pages, hidden refresh, content inspection, cached state. Prefer higher/claimed progress over weaker data.
+- Dropdown, queue, start, remove, and completion flows must not key only by `game.id`; duplicate campaigns can share game-ish IDs.
+- Real campaign titles should display as `Game · Campaign Title`, even when only one campaign exists for that game.
+- Queue order matters. Removing, clearing, completing, expiring, or skipping a campaign must preserve selected campaign semantics and advance only for real terminal/completed/expired states.
+- Event-based drops are not farmable watch-time rewards. Do not treat them as pending watch progress.
+- Twitch data can vanish, be stale, have missing fields, or arrive with duplicate benefit IDs. Keep parsing tolerant and progress merging conservative.
+- Progress can come from inventory, campaign pages, hidden refresh, content inspection, or cached state. Prefer preserving higher/claimed progress over replacing with weaker data.
 
 ## Runtime And Recovery Rules
 - Session targets survive missing candidates; explicit Remove/Clear/Stop retires them. Budget/observation/round deadlines survive worker recycle; a new browser session clears visible operational warnings and attempt state while retaining episode IDs, per-channel receipts, proofs and manual blocks. Operational metadata is local and excluded from portable backups.
-- Managed farming reuses one proved tab; recreate only after verified absence. Pause/Stop/completion/tabless switching suspend its player and retain the tab; clear keepalive, pause proved playing control/native videos, cancel pending content retries. Tabless never falls back to a viewing tab. Old navigation cleanup cannot overwrite markers, roll back or pause a newer player.
-- Reused Twitch pages use MAIN History router; preserve document/activation. Blank initial page uses browser navigation. Pending route waits for rendered channel header before category/playback proof. Same-origin user navigation retains token proof for acquisition only; cleanup keeps exact URL/token/window guards. Injection failure recovers, never creates a tab.
-- Cold playback keeps reserved channel across 30s slices/restart; campaign-authoritative progress renews existing 5–20m observation. Unknown ownership/service preserves observation. Verified expiry spends failure and suspends candidate. Ready commit clears preparing metadata without self-invalidating fingerprint; video time reset clears old readiness proof.
-- Unique settled proof permits reuse despite obsolete handles/remapped IDs; uncertainty forbids creation. Destructive cleanup rechecks token/URL/window/siblings inside mutation serialization. Automatic favorites share queued Play runtime preparation/publication; failed navigation suspends retained playback and stale healthy presentation.
-- Unknown ownership/shared-service failures release guarded reservations before recovery persistence. Legacy unqualified episodes get fresh alert identity at first verified four-streamer exhaustion; qualified retries retain deduplication.
-- Explicit offline beats inactive playback/stale viewer count. Confirm twice; remove only departing reservation, persist before same-campaign acquisition, exclude departing channel. Offline consumes no failure budget. Empty eligible alternatives park/follow queue; directory/API errors stay unknown.
-- Campaign-stuck popup/browser/Telegram alerts require four distinct failed streamers. Fewer alternatives park silently; successful second attempt sends no exhaustion alert.
-- Complete identified all-100%/claimable watch rewards leave farming queue, clear failure metadata, retain claim/link target without acquired proof. Sole pending target uses `rewards-pending`: watch-time complete UI, suspended player, scheduled inventory/claims. Publish fresh candidate completion before progression; partial/missing rewards prove nothing.
-- Managed navigation publishes transient `pendingWatchTarget`, clears incumbent playback presentation; popup/monitor show pending campaign, suspend rewards. Commit campaign/streamer/rewards/ownership/health together. Restoration clears pending; late candidates cannot overwrite newer state.
-- Automatic Drops sync may set `closeAfterRefresh`: close only operation-created page after last consumer, verify URL/navigation. Preserve existing/explicit/active/sign-in pages and sole-tab windows; new consumer during cleanup prevents removal.
+- Managed farming reuses one proved tab; recreate only after verified absence. Pause/Stop/completion/tabless switching suspend its player and retain the tab. Suspension clears playback keepalive, pauses the site's proved playing control and native videos, and invalidates pending content playback retries. Tabless never falls back to a viewing tab. Old navigation cleanup cannot overwrite markers, roll back or pause a newer player.
+- Reused Twitch pages navigate through the MAIN-world History router, preserving their document and user activation. Initial blank pages use browser navigation. A pending route cannot borrow the incumbent's category/playback proof: content waits for the rendered channel header. Same-origin user navigation retains token proof for acquisition only; cleanup still requires exact URL/token/window proof. Injection failure schedules recovery, never a new tab.
+- Cold playback remains on its reserved channel across 30-second preparation slices and worker restoration. Observe campaign-specific authoritative progress before the existing 5–20-minute deadline; unknown ownership/service evidence preserves this observation. Only verified expiry spends a failure and suspends the retained candidate. Ready commit clears preparation metadata without invalidating its own fingerprint; video time resets invalidate old playback evidence.
+- A unique settled ownership proof permits reuse despite obsolete registry handles or browser-remapped IDs; uncertain history still forbids creation. Recheck token, URL, window and sibling tabs inside serialized destructive cleanup. Automatic favorites use the same runtime preparation/publication path as queued Play; failed navigation suspends retained playback and cannot leave stale healthy presentation.
+- Explicit player offline evidence wins over inactive playback and a stale viewer count. Confirm it twice, remove only the departing channel's reservation, persist before replacement, and exclude that channel during same-campaign acquisition. Offline turnover does not spend the four-channel failure budget; verified empty alternatives park the campaign and follow normal queue order, while directory/API errors stay unknown.
+- Campaign-stuck popup warnings and browser/Telegram recovery alerts require four distinct failed streamer attempts. Fewer eligible streamers may park a campaign silently; recovery on the next streamer does not emit an exhaustion alert.
+- Unavailable ownership proof and shared service failures release their guarded reservation before persisting recovery; they do not exhaust playback budgets. Legacy unqualified failure episodes receive a fresh notification identity only upon their first verified four-streamer exhaustion; qualified retries retain deduplication.
+- A complete identified reward set with all watch time at 100% or claimable leaves the farming queue without inventing acquisition. Clear its streamer failure metadata; retain the authorized target for claim/link verification. A sole claim-pending target uses `rewards-pending`, displays watch-time completion, suspends the retained player, and keeps scheduled inventory/claim checks. Fresh completion found during candidate refresh must reach public state before queue progression; missing/partial reward sets never prove completion.
+- Managed navigation publishes transient `pendingWatchTarget` and clears incumbent playback presentation before opening. Popup and monitor show the pending campaign with suspended reward progress. Commit campaign, streamer, rewards, ownership and health together; clear pending state on restoration and prevent late candidates from overwriting newer state.
+- Automatic Drops synchronization may opt into `closeAfterRefresh`; close only an operation-created page after its last consumer, verifying its URL and navigation state. Preserve existing/explicitly opened pages, sign-in pages, active pages and sole-tab windows. A new consumer during cleanup prevents removal.
 - `DISMISS_FARMING_MESSAGE` hides only a recognized message ID and persists/broadcasts; warning history never determines the current campaign color. Notifications are independent and detached from queue progression.
 
-- MV3 service workers restart often. Persist durable state, restore timing state; don't rely on in-memory vars surviving.
-- `PROGRESS_POLL_MS` must stay ≥ Chrome alarm minimum (0.5 min floor).
-- Crash/restart depends on `lastHeartbeatAt`, `CRASH_DETECTION_THRESHOLD_MS`, `resumedFromCrash`. Resume previously active sessions; retired `autoResumeOnStartup` never blocks recovery. Cover crash/recovery tests.
-- Stale heartbeat alone is not browser restart. `chrome.storage.session` survives worker recycle and clears on browser restart/update. Preserve active farming across both paths; test first progress, worker recycle, browser restart.
-- Manual **Pause** preserves authorized queue/position; playback and monitoring stop until explicit Resume/Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends session, clears manual authorization until Start. Explicit favorite auto-start enable may clear either block; adding a favorite never restarts farming. Browser recovery never overrides Pause/Stop.
-- `resumedFromCrash` = transient UI state. Clear lazily via normal ticks/save paths, not timer-only cleanup.
-- Recovery: one four-distinct-streamer budget for playback failures/stalls; park failures and retry unresolved rounds after ten minutes. Automatic terminal stop requires every authorized target positively acquired or validly expired. Missing data, claim failure, nonautomatable rewards and sign-in remain nonterminal scheduled recovery.
-- Separate Twitch API/directory errors from local playback failures. Playback failure must not cause API backoff/session reset. Bound candidate/cycle retries, park the failed campaign, continue eligible queue entries, and recheck later.
-- Every recovery countdown needs a real alarm/attempt. Reconcile alarms after restart/sleep, keep farming ticks independent of campaign sync, deduplicate alarm/popup/heartbeat, and show “retrying” only after work starts.
-- On update preserve preferences, progress evidence, campaign identity/order, queue authorization, Pause and manual Stop; rebuild volatile retry/sync/acquisition/transport/integrity state. Migration must survive interrupted writes; same-version load normalizes corrupt state. Repair historical summary/boolean contradictions without deleting campaigns. Scheduler failure cannot suppress future checks.
-- Bound legacy API/recovery deadlines on load. Preserve longer `Retry-After` only with recent persisted HTTP proof; cap verified values at one day. A timestamp alone is not rate-limit proof.
-- For recovery edits use `docs/recovery-case-matrix.md`; test HTTP→directory→playback, migration/restart, alarms, Stop/Pause races and storage failure. Diagnostics are local and allowlisted, never tokens/raw Twitch responses.
-- Don't close only tab in Chrome window when releasing managed tab. Preserve user windows.
-- Inactivity reset = long-horizon cleanup. Preserve lifetime stats/preferences; clear volatile farming/session/timing data.
+- MV3 service workers restart often. Persist durable state, restore timing state, and avoid relying on in-memory variables surviving.
+- `PROGRESS_POLL_MS` must stay compatible with Chrome alarm minimums. Chrome alarms enforce a 0.5 minute minimum; keep alarm period at or above that floor.
+- Crash/restart handling depends on `lastHeartbeatAt`, `CRASH_DETECTION_THRESHOLD_MS`, and `resumedFromCrash`. Resume sessions that were active when the browser stopped; the retired `autoResumeOnStartup` preference must not block recovery. Cover changes with crash/recovery tests.
+- Never infer a browser restart from a stale heartbeat alone: Chrome may recycle an MV3 worker between progress alarms. `chrome.storage.session` survives recycling but clears on browser restart or extension update. Preserve active farming across both paths, including after the first nonzero progress update.
+- Manual **Pause** preserves the authorized queue and session position in `AppState`; playback and monitoring stay stopped until an explicit Resume or Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends the session, and clears manual queue authorization until an explicit Start. Explicitly enabling favorite auto-start may clear either block; merely adding a favorite must not restart farming. Browser recovery never overrides Pause or Stop.
+- `resumedFromCrash` is transient UI state. Clear it lazily through normal ticks/save paths rather than adding timer-only cleanup paths.
+- Recovery shares a four-distinct-streamer budget across playback failure and duration-based stalls; park failures and retry unresolved rounds after ten minutes. Terminal automatic stops require every authorized target positively acquired or validly expired. Missing data, nonautomatable rewards, claim failure and sign-in required remain scheduled nonterminal recovery.
+- Keep Twitch directory/API failures separate from local watch-transport failures. A successful directory lookup followed by failed playback must not consume API backoff or reset the Twitch session. Bound candidate attempts and recovery cycles; park a failed campaign and continue eligible queued campaigns, then recheck at a spaced deadline.
+- A recovery countdown must correspond to a scheduled alarm and an actual attempt. Reconcile alarms after worker restart and sleep/wake; do not block farming monitoring behind campaign synchronization. Deduplicate popup Retry, alarms, and periodic ticks. Never describe a due but unstarted attempt as “retrying.”
+- Storage upgrades must preserve queue authorization, campaign identity/order, preferences, progress evidence, Pause, and manual Stop while rebuilding volatile retry, sync, acquisition, transport, and integrity state. Make migrations repeatable after interrupted writes. Apply defensive normalization on same-version load too; repair contradictory but valid historical campaign summaries rather than deleting campaigns. A failed scheduler write may not prevent all future checks.
+- Bound legacy API/recovery deadlines on load. A longer `Retry-After` may survive worker restart only with recent persisted proof that it came from an HTTP response; cap even verified values to one day. Never use a timestamp alone as evidence of a valid rate limit.
+- For recovery changes, consult `docs/recovery-case-matrix.md` and add focused regression tests for HTTP→directory→playback, migration/restart, alarm delivery, Stop/Pause races, and inaccessible storage. Keep diagnostics allowlisted and local; never include tokens or raw Twitch responses.
+- Do not close the only tab in a Chrome window when releasing a managed tab. Preserve user browser windows.
+- Inactivity reset is long-horizon cleanup. Preserve lifetime stats and user preferences while clearing volatile farming/session/timing data.
 
 ## Privacy And Session Rules
-- Operational state stays local. No analytics, remote logging, dev-owned backend calls. Optional Telegram alerts use user's bot/chat after configuration and optional host permission.
-- Twitch session credentials: read from user's browser context only to call Twitch endpoints. Never send elsewhere.
-- No `cookies` permission, no `chrome.cookies` fallback. Session recovery uses Twitch page storage, content-script extraction, open Twitch tabs, integrity interceptor data.
-- Keep `notifications` optional. Request/use only via existing user-facing setting flow.
-- Required hosts Twitch-only; Telegram uses optional `api.telegram.org`. Never include Twitch credentials in alerts.
-- Portable JSON backup follows [docs/backup-format.md](docs/backup-format.md): DropHunter format ID, root + independent section versions, strict allowlist for settings/favorites/hidden/history/statistics, max 10 MiB. Exclude secrets/session/runtime/campaign progress. Unknown data is ignored and surfaced; incompatible root rejects, incompatible sections skip. Keep migrations pure with permanent historical fixtures. Merge adds channel-point totals and unions distinct history (drop total floored by local count, history capped at 5,000); replacement affects selected present sections. Favorite auto-start turns off after every import; desktop notifications turn off when backup settings apply. Import requires farming stopped and never resumes Pause.
-- Backup evolution: optional additions keep section versions; missing fields preserve local/default values. Incompatible changes need tested migrations or explicit preview errors + release notes. Root version bumps only for radical envelope changes; retain all published fixtures.
+- DropHunter stores operational state locally. Do not add analytics, remote logging, or developer-owned backend calls. Optional Telegram alerts use the user's bot and chat after explicit configuration and optional host permission.
+- Twitch session credentials are read from the user's browser context only to call Twitch endpoints. Never send them anywhere except Twitch.
+- No `cookies` permission and no `chrome.cookies` fallback. Session recovery uses Twitch page storage, content-script extraction, open Twitch tabs, and integrity interceptor data.
+- Keep `notifications` optional. Request/use it only through the existing user-facing setting flow.
+- Required host permissions remain Twitch-only; Telegram uses optional `api.telegram.org` access. Never include Twitch credentials in alerts.
+- Portable backup must follow [docs/backup-format.md](docs/backup-format.md): use a DropHunter-owned format identifier, independently versioned sections, and an explicit field allowlist. Export only settings, favorites, hidden games, statistics, and claim log; exclude credentials, sessions, campaign/progress state, queue authorization, runtime state, and transport data. Treat backup JSON as untrusted input and enforce the 10 MiB limit.
+- Backup evolution must retain published fixtures and pure migrations. Optional additions keep the section version; absent fields preserve local values or fresh-install defaults. Surface ignored data and unavailable sections before import. Incompatible representation changes require a tested migration or an explicit preview error and release note; reserve root version changes for radical envelope changes. Merge adds channel-point totals and deduplicates history before retention, flooring the drop count at the local total. Replace only selected present sections. Imports require Stop, disable favorite auto-start, and require explicit reactivation of restored notifications; never import authorization or override Pause.
 
 ## Runtime Message Rules
-- Runtime message changes must update all contracts: `RUNTIME_MESSAGE_TYPES`, `RuntimeRequest`, `RuntimeResponseByType`, payload validation, background router handling, tests.
+- Runtime message changes must update all contracts together: `RUNTIME_MESSAGE_TYPES`, `RuntimeRequest`, `RuntimeResponseByType`, payload validation, background router handling, and tests.
 - Homogeneous message clusters (uniform request+response shape) use the table-driven pattern in `src/shared/messages.ts` (see `BOOLEAN_TOGGLE_MESSAGES`, `NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES`) instead of literal arms; heterogeneous clusters stay literal until a per-type response-shape table is designed.
-- Validate payloads before invoking handlers. Critical actions fail closed on malformed input.
-- Responses include useful `error` text on failure. Don't swallow clear/remove/start failures.
-- After state-changing handlers, persist + broadcast unless local pattern delegates.
+- Validate payloads before invoking handlers. Critical actions should fail closed on malformed input.
+- Responses should include useful `error` text when user actions fail. Do not swallow clear/remove/start failures silently.
+- After state-changing handlers, persist state and broadcast updates unless the local pattern explicitly delegates that work.
 
 ## Popup And UI Rules
-- Popup must stay campaign-aware. Use shared identity helpers for select options, queue chips, start/remove flows, display labels.
-- Async failures surface in popup state. Don't leave UI stuck loading or silently unchanged.
-- Queue/status feedback screen-reader friendly. Use `role="status"` and `aria-live="polite"` for non-modal status.
-- Loading fallback timers secondary; prefer clearing from real background broadcasts/responses.
-- Preserve visual language. Extension popup/control surface, not marketing page.
+- Popup must stay campaign-aware. Use shared identity helpers for select options, queue chips, start/remove flows, and display labels.
+- User-facing async failures should surface in popup state. Do not leave the UI stuck loading or silently unchanged.
+- Queue/status feedback should be screen-reader friendly. Use `role="status"` and `aria-live="polite"` for non-modal status messages.
+- Loading fallback timers are secondary; prefer clearing loading from real background broadcasts/responses.
+- Preserve existing visual language. This is an extension popup/control surface, not a marketing page.
 
 ## Background Edit Rules
-- `service-worker.ts` = orchestration glue. Domain logic goes in focused modules.
-- New mutable state goes in `ServiceWorkerState` and `createServiceWorkerState()`.
-- Extracted functions receive `state` + deps explicitly, matching controller/module patterns.
-- Changing persistence/timing fields: update load/save normalization, default state factory, round-trip tests.
-- Changing queue semantics: check start/pause/resume/skip/complete/expired/vanished/selected-game behavior.
-- Twitch API parsing: prefer explicit guards + typed normalization helpers over trusting nested fields.
+- Keep `service-worker.ts` as orchestration glue. Put domain logic in focused modules where a matching module exists.
+- New mutable service-worker state belongs in `ServiceWorkerState` and `createServiceWorkerState()`.
+- Extracted functions should receive `state` and dependencies explicitly, matching existing controller/module patterns.
+- When changing persistence or timing fields, update load/save normalization, default state factory, and round-trip tests.
+- When changing queue semantics, check start, pause/resume, skip, complete, expired/vanished, and selected-game behavior.
+- When changing Twitch API parsing, prefer explicit guards and typed normalization helpers over trusting nested fields.
 
 ## Common Change Recipes
-- New popup setting: add default/type, storage normalization, messages, handler, hook/UI, tests; declare backup portability/default/sensitivity/import behavior. Add portable fields to the registry and preserve published fixtures.
-- Backup format changes: document field portability/default/sensitivity/import behavior in [docs/backup-format.md](docs/backup-format.md); update `AGENTS.original.md` first, then this compressed copy.
-- New background action: add runtime message contract, payload validator, router handler, state persistence/broadcast behavior, failure response tests.
-- New campaign identity behavior: update shared helper first, then queue, popup selector/chips, drop matching, campaign label tests.
-- New recovery behavior: update runtime status helpers if user-visible, timing persistence if durable, monitor/popup display, soak-test notes if manual QA changes.
+- New popup setting: add state default/type, storage normalization, runtime message contract, background handler, hook/UI toggle, and source tests. Declare portability, default, sensitivity, and missing-field/import behavior in the backup contract; portable fields must join the modular registry without breaking published fixtures.
+- Backup format changes: update [docs/backup-format.md](docs/backup-format.md) and this file. Keep migrations pure and covered by permanent historical fixtures.
+- New background action: add runtime message contract, payload validator, router handler, state persistence/broadcast behavior, and failure response tests.
+- New campaign identity behavior: update shared helper first, then queue, popup selector/chips, drop matching, and campaign label tests.
+- New recovery behavior: update runtime status helpers if user-visible, timing persistence if durable, monitor/popup display, and soak-test notes if manual QA changes.
 - New Twitch API field: normalize in `twitch-api/parsing.ts` or nearby parser, keep raw response optional, add null/missing/wrong-shape tests.
-- New release behavior: update `scripts/release-check.mjs`, docs/checklist when store handoff changes, release-check UI tests if terminal output changes.
+- New release behavior: update `scripts/release-check.mjs`, docs/checklist when store handoff changes, and release-check UI tests if terminal output changes.
 
 ## Testing Matrix
 - Queue/farming regressions: `tests/queue-management.test.ts`, `tests/queue-start.test.ts`, `tests/service-worker.test.ts`.
-- Progression/scheduled transitions: `tests/farming-queue-progression.test.ts`, `tests/farming-queue-scheduled-successor.test.ts`, `tests/queue-acquisition-round.test.ts`, `tests/queue-availability-resume.test.ts`, `tests/v4-queue-continuation.test.ts`, `tests/queue-advancement-cancellation.test.ts`, `tests/farming-campaign-handoff.test.ts`.
-- Campaign identity/labels: `tests/replace-games.test.ts`, `tests/campaign-selection.test.ts`.
+- Queue progression interface and composed scheduled transitions: `tests/farming-queue-progression.test.ts`, `tests/farming-queue-scheduled-successor.test.ts`, `tests/queue-acquisition-round.test.ts`, `tests/queue-availability-resume.test.ts`, `tests/v4-queue-continuation.test.ts`, `tests/queue-advancement-cancellation.test.ts`, `tests/farming-campaign-handoff.test.ts`.
+- Campaign identity and labels: `tests/replace-games.test.ts`, `tests/campaign-selection.test.ts`.
 - Runtime persistence/recovery: `tests/runtime-state.test.ts`, `tests/state-persistence-session.test.ts`, `tests/crash-recovery.test.ts`, `tests/worker-recycle-progress.test.ts`.
 - Manual-watch policy/controller: `tests/manual-watch-policy.test.ts`, `tests/farming-automation-manual-watch.test.ts`.
 - Favorite preemption: `tests/farming-automation-preemption.test.ts`.
 - Playback handoff: `tests/watch-transport-handoff.test.ts`.
-- Managed tab ownership: `tests/managed-watch-ownership.test.ts`, `tests/tab-management-tabs.test.ts`, `tests/managed-watch-durable-ownership.test.ts`, `tests/managed-watch-provisional-recovery.test.ts`, `tests/managed-watch-startup-integration.test.ts`, `tests/managed-watch-candidate-preservation.test.ts`, `tests/retained-managed-manual-watch.test.ts`.
+- Managed farming tab ownership: `tests/managed-watch-ownership.test.ts`, `tests/tab-management-tabs.test.ts`, `tests/managed-watch-durable-ownership.test.ts`, `tests/managed-watch-provisional-recovery.test.ts`, `tests/managed-watch-startup-integration.test.ts`, `tests/managed-watch-candidate-preservation.test.ts`, `tests/retained-managed-manual-watch.test.ts`.
 - Messages/router contracts: `tests/messages.test.ts`, `tests/message-router.test.ts`.
 - Twitch API/session/integrity parsing: `tests/client-parsing.test.ts`, `tests/integrity-token.test.ts`, `tests/session-management.test.ts`, `tests/api-operations.test.ts`.
 - Popup source behavior: `tests/popup-source.test.ts`.
 - Content/playback changes: `tests/content-script.test.ts`, `tests/content-app-state.test.ts`, `tests/playback-orchestrator.test.ts`.
-- Browser extension E2E: `e2e/extension-controls.spec.ts` via `bun run test:e2e` after a real Chrome MV3 build.
+- Browser extension E2E: `e2e/extension-controls.spec.ts` through `bun run test:e2e` after a real Chrome MV3 build.
 - Release UI/check scripts: `tests/release-check-ui.test.ts`, `scripts/release-check.mjs`.
 
 ## Work Rules
-- Preserve dirty worktree unless user asks to revert.
+- Preserve dirty worktree changes unless the user explicitly asks to revert.
 - Use `rg` first for search.
 - Edit manually with `apply_patch`; avoid unrelated refactors.
-- Keep imports/exports type-safe. Type-only re-exports like `export type { ServiceWorkerState }` OK for backward compat, erase at runtime.
-- Don't amend commits unless asked.
-- No destructive git commands unless explicitly asked + risk clear.
-- Run smallest relevant tests during dev. `bun run test:types` and `bun run test:ts` are mandatory before handoff; run the full release gate before release/store handoff.
-- Stable Bun ≥1.4.2; CI reads pinned package-manager version from `package.json`.
-- Short English Conventional Commits; author/committer `trevonerd <marco.trevisani81@gmail.com>`. Preserve historical ImgBotApp attribution. No co-author/generated-by trailers.
-- Keep only review/debugging/TDD/code design/domain/research/conflict skills; maintain valid references.
-- Vexp indices/machine configs stay local, untracked. Use orientation + `verify_done` when available, native search fallback. RTK exploration summaries OK; inspect full release logs.
+- Keep imports and exports type-safe. Type-only re-exports such as `export type { ServiceWorkerState }` are okay for backward compatibility and erase at runtime.
+- Do not amend commits unless explicitly asked.
+- Do not use destructive git commands unless the user explicitly asks and the risk is clear.
+- Run the smallest relevant tests during development. `bun run test:types` and `bun run test:ts` are mandatory before handoff for every change; run the full release gate before release/store handoff.
+- Use stable Bun 1.4.2 or newer; CI reads the pinned package-manager version from `package.json`.
+- Commit subjects use short English Conventional Commits. Author and committer: `trevonerd <marco.trevisani81@gmail.com>`; preserve historical ImgBotApp attribution. No co-author or generated-by trailers.
+- Repo skills are limited to review, debugging, TDD, code design, domain modeling, and research, pinned in `skills-lock.json`. Keep their references valid; do not vendor a general skill catalog.
+- Vexp indices (`.vexp/`), hooks and machine-specific tool configuration stay local and untracked; the vexp instruction blocks in `AGENTS.md`, `.github/copilot-instructions.md` and `.cursor/rules/vexp.mdc` are tracked and managed by vexp. Use Vexp for orientation and `verify_done` for multi-file checks when available; native search is the fallback. RTK may summarize exploration output, but release validation must inspect full logs.
 
 ## Release And Store Handoff
 - Treat `4.0.0-beta.N` as GitHub/local-only builds. The manifest uses technical version `3.99.0.N` plus visible `version_name`; never upload these betas to browser stores.
@@ -155,20 +155,19 @@ Fast path for agents on DropHunter. `AGENTS.md` = compressed prompt copy. Edit `
   - `bun run test:e2e`
   - `bun run build:all`
   - `bun audit`
-- Preferred release gate: `bun run release:check`; runs source and test TypeScript, Biome, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
+- Preferred release gate is `bun run release:check`; it runs source and test TypeScript, Biome, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
 - Regenerate release zips with `bun run release:zip`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
-- Stable store handoff: verify `README.md`, `PRIVACY.md`, screenshots, permission justifications, listing copy against exact production artifacts.
-- Long-run farming changes: exercise real eligible campaign progress, worker restart, sleep/wake, strict tabless recovery without viewing-tab fallback, manual viewing, notifications, recovery.
-- Touching video/promotional assets: also run `cd video && bun audit` and relevant `video:*` commands.
+- Before a stable store handoff, verify `README.md`, `PRIVACY.md`, screenshots, permission justifications, and listing copy against the exact production artifacts.
+- For long-run farming changes, exercise a real eligible campaign across progress, service-worker restart, sleep/wake, strict tabless recovery without a viewing-tab fallback, manual Twitch viewing, notifications, and recovery.
+- If touching video/promotional assets, also run `cd video && bun audit` and relevant `video:*` commands.
 
 ## Stability Hotspots
-- Queue advancement/drop refresh/crash recovery/session+integrity recovery: regression-prone. Add/update focused tests.
-- Campaign labels/duplicate-game campaigns: regression-prone. Cover real campaign titles + duplicate IDs.
-- MV3 lifecycle/alarms/storage timing: subtle. Test restart/resume paths, don't assume live worker.
-- Twitch DOM/API shape changes normal. Keep code defensive, tests explicit about null/missing/duplicate/stale data.
+- Queue advancement, drop refresh, crash recovery, and session/integrity recovery are regression-prone. Add or update focused tests.
+- Campaign labels and duplicate-game campaigns are regression-prone. Cover real campaign titles and duplicate IDs.
+- MV3 lifecycle, alarms, and storage timing are subtle. Test restart/resume paths rather than assuming a live worker.
+- Twitch DOM/API shape changes are normal. Keep code defensive and tests explicit about null, missing, duplicate, and stale data.
 
-
-## vexp - Context-Aware AI Coding <!-- vexp v3.3.0 -->
+## vexp - Context-Aware AI Coding <!-- vexp v3.3.2 -->
 
 ### Context strategy: call run_pipeline ONCE at task start
 If the task already names the files/symbols to touch, SKIP vexp. Otherwise one

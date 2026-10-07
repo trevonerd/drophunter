@@ -12,7 +12,7 @@ Farming uses **twitch.tv** and your existing browser session. State stays local;
 - Favorite games to discover and automatically farm their campaigns by earliest expiry; urgent favorites can interrupt and later resume an authorized manual queue
 - Track current reward progress directly from the popup and extension badge
 - Open and validate an eligible Twitch stream for the selected campaign
-- Rotate to a new streamer only when the current stream becomes invalid or progress stalls
+- Rotate to a new streamer only when the current stream goes offline, becomes invalid, or progress stalls
 - Auto-claim completed drops across all campaigns when Twitch marks them claimable
 - Keep a local claim log so you can review recently claimed drops grouped by campaign
 - Back up and restore selected preferences, favorites, hidden games, statistics, and claim history
@@ -59,7 +59,7 @@ New installations enable favorite auto-start and prefer hidden farming. Browser 
 
 From there, DropHunter will:
 
-- use hidden farming when possible, falling back to a muted background Twitch tab if needed
+- farm with the transport you choose: hidden (tabless) farming never falls back to a viewing tab; managed farming reuses one Twitch tab
 - track progress and update the extension badge
 - claim completed drops when they become available
 - claim free channel points bonuses on open Twitch channel tabs when enabled
@@ -70,7 +70,7 @@ DropHunter checks for new campaigns every five minutes and after relevant change
 
 **Pause** keeps the authorized queue and current position, then stops playback until you explicitly resume or start. **Stop** ends the session and clears manual queue authorization until you explicitly start again. Turning favorite auto-start on explicitly may reactivate automation; merely adding a favorite never overrides Pause or Stop. Your personal Twitch streams take priority even in background tabs; farming resumes after all of them stop, close, or leave the channel, with a short grace period.
 
-If a campaign stalls after recovery attempts, it remains queued but excluded until there is positive progress, a newly eligible streamer, or you explicitly press Start. Other authorized campaigns can continue; otherwise the popup explains why farming stopped.
+If a campaign cannot progress, DropHunter tries up to four distinct streamers, then parks it and continues with the other authorized campaigns. Unresolved campaigns are retried after ten minutes; the popup and optional alerts report a stuck campaign only after four streamers failed.
 
 After a prolonged browser absence, DropHunter keeps your queue and preferences
 while checking saved campaign data. It attempts session recovery in the background;
@@ -131,8 +131,10 @@ DropHunter backup files are local JSON. They include settings, favorites, hidden
 bun run dev
 bun run build
 bun run lint
-bun test
+bun test tests/
 bun run test:ts
+bun run test:types
+bun run test:e2e
 bun run check
 bun run clean
 bun run deps:outdated
@@ -157,6 +159,8 @@ bun run update:interactive
 - `src/monitor/` - standalone monitor window UI
 - `src/shared/` - shared utilities, matching logic, and drop helpers
 - `tests/` - unit tests
+- `e2e/` - Chrome MV3 browser tests (Playwright)
+- `docs/` - backup format, recovery matrix, architecture decisions
 - `video/` - promotional video scene/source assets
 
 ## Copyright and Disclaimer
@@ -183,7 +187,7 @@ Before publishing a beta or handing off a stable store build:
 2. Confirm Chrome and Edge manifests, archive names, package version, tag, and release all agree.
 3. Load the freshly generated Chrome and Edge artifacts and check connection, campaign discovery, favorites, manual queue start, pause/resume/stop, hidden and managed watching, progress, auto-claim, monitor, recovery, and optional notifications.
 4. Verify `PRIVACY.md`, screenshots, permission justifications, and store copy still match the shipped behavior.
-5. For long-running farming changes, exercise a real eligible campaign across progress, a service-worker restart, sleep/wake, hidden-to-managed fallback, manual Twitch viewing, and recovery.
+5. For long-running farming changes, exercise a real eligible campaign across progress, a service-worker restart, sleep/wake, strict tabless recovery without a viewing-tab fallback, manual Twitch viewing, and recovery.
 
 The release gate produces `.output/drophunter-<version>-chrome.zip` and
 `.output/drophunter-<version>-edge.zip`.

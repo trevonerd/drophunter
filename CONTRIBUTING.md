@@ -10,4 +10,4 @@
 
 ## Checks
 
-Use stable Bun as pinned in `package.json`. Before handoff, run both TypeScript checks and the relevant tests. Before a release, run `bun run release:check`; lint warnings fail the gate. Tests must verify intentional diagnostics rather than print or silently discard them. See `AGENTS.original.md` for domain and recovery rules.
+Use stable Bun as pinned in `package.json`. Before handoff, run both TypeScript checks and the relevant tests. Before a release, run `bun run release:check`; lint warnings fail the gate. Tests must verify intentional diagnostics rather than print or silently discard them. See `AGENTS.md` for domain and recovery rules.
