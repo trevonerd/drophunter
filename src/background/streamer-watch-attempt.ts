@@ -23,6 +23,18 @@ export function streamerCandidatesForWatchAttempt(
   });
 }
 
+type WatchAttempt = NonNullable<QueueEntryMetadata['watchAttempt']>;
+
+/** Shifts observation clocks past the suspended interval. */
+function resumedAttempt({ suspendedAt, ...attempt }: WatchAttempt, now: number): WatchAttempt {
+  const elapsed = Math.max(0, now - (suspendedAt ?? now));
+  return {
+    ...attempt,
+    observedAt: attempt.observedAt + elapsed,
+    ...(attempt.firstPlaybackAt !== undefined ? { firstPlaybackAt: attempt.firstPlaybackAt + elapsed } : {}),
+  };
+}
+
 export function beginStreamerWatchAttempt(
   state: ServiceWorkerState,
   game: TwitchGame,
@@ -38,33 +50,15 @@ export function beginStreamerWatchAttempt(
   const name = channel.trim().toLowerCase();
   const attempted = metadata.attemptedStreamerNames ?? [];
   const interrupted = metadata.watchAttempt;
-  if (
-    name &&
-    attempted.includes(name) &&
-    interrupted?.channelName === name &&
-    interrupted.preparing &&
-    interrupted.suspendedAt === undefined
-  )
-    return true;
-  if (
-    name &&
-    attempted.includes(name) &&
-    interrupted?.channelName === name &&
-    interrupted.suspendedAt !== undefined
-  ) {
-    const { suspendedAt, ...attempt } = interrupted;
-    const elapsed = Math.max(0, now - suspendedAt);
-    state.appState.queueEntryMetadataByKey[key] = {
-      ...metadata,
-      watchAttempt: {
-        ...attempt,
-        observedAt: attempt.observedAt + elapsed,
-        ...(attempt.firstPlaybackAt !== undefined
-          ? { firstPlaybackAt: attempt.firstPlaybackAt + elapsed }
-          : {}),
-      },
-    };
-    return true;
+  if (name && attempted.includes(name) && interrupted?.channelName === name) {
+    if (interrupted.suspendedAt !== undefined) {
+      state.appState.queueEntryMetadataByKey[key] = {
+        ...metadata,
+        watchAttempt: resumedAttempt(interrupted, now),
+      };
+      return true;
+    }
+    if (interrupted.preparing) return true;
   }
   if (!name || attempted.includes(name) || attempted.length >= MAX_STREAMER_ATTEMPTS) return false;
   state.appState.queueEntryMetadataByKey[key] = {
@@ -96,17 +90,11 @@ export function resumeWatchObservation(state: ServiceWorkerState, now: number): 
   const metadata = game ? state.appState.queueEntryMetadataByKey[gameKey(game)] : undefined;
   const attempt = metadata?.watchAttempt;
   if (!game || !metadata || !attempt?.suspendedAt) return;
-  const elapsed = Math.max(0, now - attempt.suspendedAt);
-  const { suspendedAt: _suspended, ...observed } = attempt;
   state.appState.queueEntryMetadataByKey[gameKey(game)] = {
     ...metadata,
-    watchAttempt: {
-      ...observed,
-      observedAt: attempt.observedAt + elapsed,
-      ...(attempt.firstPlaybackAt ? { firstPlaybackAt: attempt.firstPlaybackAt + elapsed } : {}),
-    },
+    watchAttempt: resumedAttempt(attempt, now),
   };
-  if (state.lastProgressAdvanceAt > 0) state.lastProgressAdvanceAt += elapsed;
+  if (state.lastProgressAdvanceAt > 0) state.lastProgressAdvanceAt += Math.max(0, now - attempt.suspendedAt);
 }
 
 export function watchObservationStartedAt(state: ServiceWorkerState): number {
