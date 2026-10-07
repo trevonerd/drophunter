@@ -4,6 +4,19 @@ Shared language for DropHunter's Twitch Drops farming domain. Use these terms wh
 
 ## Language
 
+**Authorized session target**:
+A campaign identity retained until explicit retirement, positive acquisition proof, or a valid expiry. Its absence from available candidates never removes the objective. All targets must be acquired or expired before automatic termination.
+
+**Streamer watch attempt**:
+A normalized channel reserved and persisted before preparation, plus observation start and optional first verified playback. Opening failure, blocked playback and confirmed progress stalls share a maximum of four distinct channels per campaign cycle.
+
+**Acquisition round**:
+The authorized queue pass that records tried campaign keys. When unresolved targets cannot start, the session suspends playback and schedules a real ten-minute retry. Explicit Retry or Play opens a new cycle without bypassing proven HTTP cooldown.
+
+**Campaign failure episode**:
+A persistent campaign-specific problem identity spanning retries and browser restarts. Each enabled notification channel has its own receipt. Only verified progress, acquisition, expiry or explicit retirement resolves it; hiding its message changes no farming decisions.
+
+
 **Twitch Drops campaign**:
 A Twitch-defined reward campaign for one game or category, identified by `campaignId` when Twitch provides it.
 _Avoid_: Plain game, game-only campaign
@@ -28,6 +41,10 @@ _Avoid_: Auto-start coordinator, automatic farming session, favorite-game automa
 A queue the user has explicitly started, whose manual campaigns may continue after an intervening favorite campaign. Adding campaigns alone does not authorize their playback.
 _Avoid_: Any non-empty queue, automatic queue
 
+**Queued campaign Play**:
+An explicit request that makes a queued campaign the farming target and queues the previous campaign. The click persists this intent and wakes the normal farming alarm; the same farming flow owns streamer acquisition, progress checks, recovery and progression. If the requested campaign cannot start, it is parked and normal queue order selects the next authorized target.
+_Avoid_: Queue player, second farming loop
+
 **Favorite campaign preemption**:
 The replacement of the active campaign by a newly discovered favorite campaign with a known, strictly earlier expiry and a proven eligible streamer; the interrupted campaign remains next in the queue.
 _Avoid_: Streamer rotation, queue reset, equal-expiry preemption
@@ -37,7 +54,7 @@ A successful, complete Twitch campaign refresh that can prove whether a specific
 _Avoid_: Any refresh, cached refresh, empty response
 
 **Unfarmable campaign**:
-An active campaign whose exact identity is absent from an authoritative campaign refresh, or which no longer contains an obtainable watch-time reward.
+A campaign with no currently automatable reward. Missing data, failed claims and nonautomatable rewards leave its authorized session target unresolved; absence alone never proves expiry or acquisition.
 _Avoid_: Stalled campaign, temporarily missing campaign, offline streamer
 
 **Parked campaign**:
@@ -49,7 +66,7 @@ The transition from the current Twitch Drops campaign to the next authorized far
 _Avoid_: Queue loop, next-game handling
 
 **Watch handoff**:
-The prepare-then-promote transition that keeps current playback authoritative until a replacement is viable. Failed and superseded candidates are disposed without interrupting the active farm.
+The prepare-then-promote transition that publishes the new campaign, streamer, rewards and ownership together. Managed changes navigate the same owned tab; the old channel is no longer presented as active during navigation. Superseded cleanup cannot pause or roll back a newer navigation.
 _Avoid_: Player swap, transport restart, close-then-open
 
 **Watch start result**:
@@ -61,7 +78,7 @@ Observed advancement of the managed video's playback time. Opening a tab, resolv
 _Avoid_: Tab opened means farming works
 
 **Initial playback gesture wait**:
-An authorized managed watch awaiting an initial gesture after confirmed autoplay refusal, or after Twitch pauses the same video despite its verified paused Play control before any user activation. This wait preserves the campaign without consuming availability retries or displacing a working incumbent; buffering, player replacement and a control's displayed state do not confirm a gesture requirement or playback.
+An authorized managed watch awaiting an initial gesture after confirmed autoplay refusal, or after Twitch pauses the same video despite its verified paused Play control before any user activation. This wait uses the ordinary duration-based observation window and streamer budget. One first verified video start may grant a full window once per attempt; buffering, player replacement and a control's displayed state do not confirm playback or reward progress.
 _Avoid_: No eligible streamer, stalled campaign
 
 **Streamer availability evidence**:
@@ -88,15 +105,15 @@ An explicit invalid-OAuth response that remains unresolved after one silent sess
 _Avoid_: Network failure, Twitch service failure, expired integrity token, missing cached session
 
 **Farming-complete campaign**:
-A Twitch Drops campaign with no remaining reward that DropHunter can obtain automatically. It may still contain subscription-gated rewards or Twitch-native rewards whose acquisition is unverifiable.
+A campaign display classification with no remaining automatically farmable reward. It does not prove acquisition and cannot terminate an authorized unresolved target.
 _Avoid_: Completed campaign, all rewards claimed
 
 **Managed farming tab**:
-The browser tab DropHunter owns for watching the current farming session stream.
+The single browser tab DropHunter owns for farming. Changes reuse its ID; only positively established absence permits recreation. Pause, Stop and tabless switching suspend its player and retain the tab.
 _Avoid_: Stream tab, player tab
 
 **Hidden farming transport**:
-The preferred farming mode that runs without a DropHunter-managed Twitch tab. When it cannot work, DropHunter can recover through a muted managed tab while preserving the hidden preference.
+The farming mode that runs without a viewing tab. Failures use the same bounded attempts and queue rounds as managed farming, without a managed-tab fallback. Login and Drops service pages are separate.
 _Avoid_: Background tab, guaranteed tabless playback
 
 **Manual Twitch viewing**:
@@ -108,7 +125,7 @@ The pure transition from the latest manual-tab classification and durable farmin
 _Avoid_: Manual-tab scan, transport transaction
 
 **Stalled campaign exclusion**:
-A campaign-specific block after recovery attempts are exhausted, lifted by positive progress, a newly eligible streamer, or explicit Start. A refresh or service-worker restart alone is not new evidence.
+Historical campaign block metadata retained for migration compatibility. Current farming parks failed targets within an acquisition round and retries unresolved targets after ten minutes.
 _Avoid_: Expired campaign, unfarmable campaign, timed retry
 
 **Drops snapshot projection**:

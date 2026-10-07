@@ -5,6 +5,27 @@ import {
 } from '../src/background/automation-event-notifier.ts';
 import { fixture } from './support/farming-automation-queue-fixture.ts';
 
+test.each([false, true])(
+  'unfinished external delivery does not hold scheduler evaluations (manual: %s)',
+  async (manual) => {
+    let deliveries = 0;
+    const subject = fixture('priority-list-only', {
+      manual,
+      automationNotify: {
+        notify: async () => {
+          deliveries++;
+          await new Promise<void>(() => {});
+        },
+      },
+    });
+    const outcome = await subject.automation.request('campaign-refresh');
+    expect(outcome.kind).toBe(manual ? 'unchanged' : 'started');
+    expect(deliveries).toBeGreaterThan(0);
+    const next = await subject.automation.request('periodic');
+    expect(next.kind).toBe('unchanged');
+  },
+);
+
 test('sends one favorite auto-start alert per destination across overlapping evaluations', async () => {
   const deliveries: string[] = [];
   const subject = fixture('priority-list-only', {
@@ -69,5 +90,7 @@ test('keeps the favorite discovery alert when stream preparation fails', async (
 
   expect(outcome.kind).toBe('failed');
   expect(subject.state.appState.isRunning).toBe(false);
+  expect(subject.state.appState.nextAutomationCheckAt).toBeGreaterThan(0);
   expect(notifications.map(({ event }) => event)).toEqual(['discovery']);
+  expect(subject.state.appState.campaignFailureEpisodesByKey).toEqual({});
 });

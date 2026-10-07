@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 function fixture(includeReadySuccessor = false) {
-  const incumbent = createGame({ campaignId: 'completed' });
+  const incumbent = createGame({ campaignId: 'completed', dropCount: 1 });
   const scheduled = createGame({ campaignId: 'scheduled' });
   const ready = createGame({ campaignId: 'ready' });
   const completedDrop = createDrop({ campaignId: incumbent.campaignId, claimed: true, progress: 100 });
@@ -87,7 +87,6 @@ function fixture(includeReadySuccessor = false) {
             target,
             ownership,
             health,
-            fallbackReason: null,
             promote: () => ({ kind: 'promoted', ownership, obsolete: null }),
             dispose: async () => {},
           },
@@ -121,7 +120,8 @@ test('a scheduled successor is parked while a ready campaign with the same game 
 
 test('a scheduled current campaign and successor both remain authorized without playback', async () => {
   const subject = fixture();
-  const current = subject.state.appState.selectedGame!;
+  const current = subject.state.appState.selectedGame;
+  if (!current) throw new Error('Missing selected campaign');
   const future = createDrop({
     campaignId: current.campaignId,
     startsAt: new Date(NOW + 60_000).toISOString(),
@@ -151,7 +151,8 @@ test.each([false, true])(
       state.cachedDropsSnapshot = structuredClone(subject.state.cachedDropsSnapshot);
       session = createFarmingSession(state, subject.adapters);
     }
-    now = deadline! - 1;
+    if (deadline == null) throw new Error('Missing retry deadline');
+    now = deadline - 1;
     expect(await session.acquireStreamerForSelectedGame()).toBe(false);
     expect(subject.preparations()).toBe(0);
     now += 1;
@@ -171,7 +172,8 @@ test.each(['pause', 'stop'] as const)(
     const deadline = subject.state.appState.queueAcquisitionRound?.nextRoundAt;
     if (action === 'pause') await subject.session.handlePauseFarming();
     else await subject.session.stop({ stopReason: 'user-stop' });
-    now = deadline! + 1;
+    if (deadline == null) throw new Error('Missing retry deadline');
+    now = deadline + 1;
     expect(await subject.session.acquireStreamerForSelectedGame()).toBe(false);
     expect(subject.preparations()).toBe(0);
     expect(subject.state.appState.queue.map(gameKey)).toEqual([gameKey(subject.scheduled)]);

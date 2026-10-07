@@ -2,10 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import type { FarmingTarget, WatchHealth } from '../src/background/watch-transport.ts';
 import { createWatchTransportCoordinator } from '../src/background/watch-transport-coordinator.ts';
-import {
-  createWatchTransportTransition,
-  type ProvisionalWatchCandidate,
-} from '../src/background/watch-transport-transition.ts';
+import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 
 const healthyManaged = (checkedAt: number): WatchHealth => ({
   mode: 'managed-tab',
@@ -20,6 +17,80 @@ const healthyManaged = (checkedAt: number): WatchHealth => ({
 });
 
 describe('watch transport handoff', () => {
+  test.each(['manual', 'automatic', 'other-campaign'] as const)(
+    'gesture-wait replacement respects %s campaign intent while an old watch exists',
+    async (intent) => {
+      const state = createServiceWorkerState();
+      state.appState.isRunning = true;
+      state.appState.manualQueueAuthorized = intent !== 'automatic';
+      state.appState.farmingSessionOrigin = intent === 'automatic' ? 'automatic' : 'manual';
+      state.appState.watchTransportPreference = 'managed-tab';
+      state.appState.selectedGame = {
+        id: intent === 'manual' ? 'b' : 'a',
+        name: 'Selection',
+        imageUrl: '',
+        campaignId: intent === 'manual' ? 'campaign-b' : 'campaign-a',
+      };
+      const ownershipA = {
+        kind: 'managed-tab' as const,
+        tabId: 11,
+        ownershipToken: 'a',
+        expectedChannel: 'a',
+      };
+      const ownershipB = {
+        kind: 'managed-tab' as const,
+        tabId: 22,
+        ownershipToken: 'b',
+        expectedChannel: 'b',
+      };
+      const coordinator = createWatchTransportCoordinator({
+        state,
+        heartbeat: async () => ({ accepted: false }),
+        managedTab: {
+          open: async () => ({
+            owner: 'drophunter',
+            tabId: 22,
+            ownership: ownershipB,
+            health: {
+              ...healthyManaged(2),
+              isHealthy: false,
+              status: 'degraded',
+              reason: 'user-interaction-required',
+            },
+          }),
+          probe: async () => ({
+            accepted: false,
+            isLive: true,
+            sameChannel: true,
+            sameGame: true,
+            reason: 'playback-inactive',
+          }),
+          close: async () => {},
+        },
+        persist: async () => {},
+        broadcast: () => {},
+      });
+      coordinator.adopt({
+        target: { gameId: 'a', campaignId: 'campaign-a', channelName: 'a' },
+        ownership: ownershipA,
+        health: healthyManaged(1),
+        obsolete: null,
+      });
+      const prepared = await coordinator.prepare({
+        gameId: 'b',
+        selectionId: 'b',
+        campaignId: 'campaign-b',
+        channelName: 'b',
+      });
+      expect(prepared.kind).toBe('prepared');
+      expect(coordinator.currentOwnership()).toEqual(ownershipA);
+      if (prepared.kind === 'prepared') {
+        expect(prepared.watch.promote().kind).toBe('promoted');
+        expect(coordinator.currentOwnership()).toEqual(ownershipB);
+      }
+    },
+  );
+
   test('promotes B into the coordinator used by the live Farming session', async () => {
     const events: string[] = [];
     const state = createServiceWorkerState();
@@ -37,13 +108,23 @@ describe('watch transport handoff', () => {
       ownershipToken: 'token-a',
       expectedChannel: 'a',
     };
+    const ownershipB = {
+      kind: 'managed-tab' as const,
+      tabId: 11,
+      ownershipToken: 'token-b',
+      expectedChannel: 'b',
+    };
     const coordinator = createWatchTransportCoordinator({
       state,
       heartbeat: async () => ({ accepted: true }),
       managedTab: {
         open: async (target) => {
           events.push(`live-open:${target.channelName}`);
-          return { owner: 'drophunter', tabId: 11, ownership: ownershipA };
+          return {
+            owner: 'drophunter',
+            tabId: 11,
+            ownership: target.channelName === 'a' ? ownershipA : ownershipB,
+          };
         },
         probe: async (_session, target) => {
           events.push(`live-probe:${target.channelName}`);
@@ -64,22 +145,10 @@ describe('watch transport handoff', () => {
       categorySlug: 'b',
       channelName: 'b',
     };
-    const ownershipB = {
-      kind: 'managed-tab' as const,
-      tabId: 22,
-      ownershipToken: 'token-b',
-      expectedChannel: 'b',
-    };
-    const candidate: ProvisionalWatchCandidate = {
-      target: targetB,
-      ownership: ownershipB,
-      health: healthyManaged(2),
-      dispose: async () => {},
-    };
     const transition = createWatchTransportTransition({
       currentOwnership: null,
       runtime: coordinator,
-      prepareManaged: async () => candidate,
+      prepareManaged: async () => null,
       prepareTabless: async () => null,
       release: async (ownership) => {
         events.push(`release:${ownership.kind === 'managed-tab' ? ownership.expectedChannel : 'tabless'}`);
@@ -105,7 +174,7 @@ describe('watch transport handoff', () => {
     await coordinator.tick();
 
     expect(transition.currentOwnership()).toEqual(ownershipB);
-    expect(events).toEqual(['live-open:a', 'commit-b', 'live-probe:b']);
+    expect(events).toEqual(['live-open:a', 'live-open:b', 'commit-b', 'live-probe:b']);
   });
 
   test('restores committed ownership without opening B again after an MV3 recycle', async () => {

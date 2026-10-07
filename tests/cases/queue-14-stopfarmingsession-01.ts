@@ -46,18 +46,6 @@ export function registerQueue14Part01() {
       expect(state.dropClaimInFlight).toBe(false);
     });
 
-    test('closes managed tab via callback', async () => {
-      const state = createMinimalState();
-      state.appState.tabId = 123;
-      const closedTab: { id: number | null } = { id: null };
-      await stopFarmingSession(state, {
-        onCloseManagedTab: async (tabId) => {
-          closedTab.id = tabId;
-        },
-      });
-      expect(closedTab.id).toBe(123);
-    });
-
     test('resets running and paused flags', async () => {
       const state = createMinimalState();
       state.appState.isRunning = true;

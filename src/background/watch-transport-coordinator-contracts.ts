@@ -23,15 +23,27 @@ export interface WatchTransportCoordinatorOptions {
 
 export interface WatchTransportCoordinator {
   readonly start: (streamer: TwitchStreamer, isCurrent?: () => boolean) => Promise<WatchStartResult>;
-  readonly prepare?: (target: FarmingTarget, isCurrent?: () => boolean) => Promise<WatchPreparation>;
+  readonly prepare?: (
+    target: FarmingTarget,
+    isCurrent?: () => boolean,
+    allowInitialCreation?: boolean,
+  ) => Promise<WatchPreparation>;
   readonly currentTarget?: () => FarmingTarget | null;
+  readonly currentOwnership?: () => WatchOwnershipV1 | null;
+  readonly probeCurrent?: () => Promise<WatchHealth | null>;
   readonly tick: (isCurrent?: () => boolean) => Promise<WatchHealth>;
   readonly stop: () => Promise<void>;
   readonly setPreference: (mode: WatchTransportMode) => Promise<void>;
 }
 
 export interface WatchTransportRuntimeCoordinator extends WatchTransportCoordinator, WatchTransportRuntime {
-  readonly prepare: (target: FarmingTarget, isCurrent?: () => boolean) => Promise<WatchPreparation>;
+  readonly stop: () => Promise<void>;
+  readonly currentOwnership: () => WatchOwnershipV1 | null;
+  readonly prepare: (
+    target: FarmingTarget,
+    isCurrent?: () => boolean,
+    allowInitialCreation?: boolean,
+  ) => Promise<WatchPreparation>;
   readonly currentTarget: () => FarmingTarget | null;
   readonly restore: (ownership: WatchOwnershipV1) => Promise<boolean>;
 }

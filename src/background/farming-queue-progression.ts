@@ -1,10 +1,10 @@
 import { gameKey } from '../shared/game-selection.ts';
+import { recordCampaignFailure } from './campaign-failure-episodes.ts';
 import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
 import type { FarmingSessionContext } from './farming-session-context.ts';
 import { currentFarmingSessionEpoch, isFarmingSessionEpochCurrent } from './farming-session-revision.ts';
 import { applyNoStreamersRecoveryState, applyStopState } from './recovery-state.ts';
 import { advanceQueueIfCompleted, skipCurrentGameAndAdvanceQueue } from './session-lifecycle-queue.ts';
-import { queueWaitingNotification } from './session-lifecycle-queue-parking.ts';
 import { progressFarmingQueue } from './session-lifecycle-queue-progression.ts';
 import {
   isAutomaticFavoriteSession,
@@ -34,6 +34,19 @@ export function createFarmingQueueProgression(
   dependencies: Dependencies,
 ): FarmingQueueProgression {
   const { state, adapters, now } = context;
+  const runProgression = (operation: () => Promise<boolean>): Promise<boolean> => {
+    const epoch = currentFarmingSessionEpoch(state);
+    const generation = state.tickGeneration;
+    const pending = state.queueProgressionInFlight;
+    if (pending?.epoch === epoch && pending.generation === generation) return pending.promise;
+    const promise = Promise.resolve()
+      .then(operation)
+      .finally(() => {
+        if (state.queueProgressionInFlight?.promise === promise) state.queueProgressionInFlight = null;
+      });
+    state.queueProgressionInFlight = { epoch, generation, promise };
+    return promise;
+  };
   const effects = {
     now,
     onTransitionToCampaign: (game, isCurrent) =>
@@ -54,13 +67,23 @@ export function createFarmingQueueProgression(
         // Transport cleanup cannot prevent a durable terminal queue state.
       }
     },
-    onCloseManagedTabIfSafe: adapters.closeManagedTabIfSafe,
-    onClearManagedTabOwnership: adapters.clearManagedTabOwnership,
     onApplyStopState: applyStopState,
     onNotify: adapters.notify,
     onStopFarmingSession: dependencies.onStopFarmingSession,
-    onQueueWaiting: async (transitionAt) => {
-      await adapters.automationNotify?.(queueWaitingNotification(transitionAt));
+    onSuspendTransport: async () => {
+      try {
+        await adapters.watchTransport?.stop();
+      } catch {
+        /* Keep the durable retry even if transport cleanup fails. */
+      }
+    },
+    onCampaignFailure: async (game, reason) => {
+      const notification = recordCampaignFailure(state, game, reason, now());
+      await adapters.saveState(state);
+      if (notification)
+        void Promise.resolve()
+          .then(() => adapters.automationNotify?.(notification))
+          .catch(() => undefined);
     },
     onSendAlert: async (kind, message) => {
       if (kind === 'all-complete' && state.appState.completionNotified && adapters.automationNotify) return;
@@ -92,36 +115,44 @@ export function createFarmingQueueProgression(
   };
 
   return {
-    advanceIfCompleted: (isCurrent) => advanceQueueIfCompleted(state, execution(isCurrent)),
-    skipCurrent: (reason, isCurrent) => {
+    advanceIfCompleted: (isCurrent) => {
       const options = execution(isCurrent);
-      return skipCurrentGameAndAdvanceQueue(
-        state,
-        reason,
-        reason === 'unfarmable'
-          ? {
-              ...options,
-              onNotify: undefined,
-              onStopFarmingSession: (request) =>
-                dependencies.onStopFarmingSession({ ...request, suppressNotifications: true }),
-            }
-          : options,
-      );
+      return runProgression(() => advanceQueueIfCompleted(state, options));
     },
-    async retryWaitingQueue(isCurrent) {
+    skipCurrent: async (reason, isCurrent) => {
       const options = execution(isCurrent);
-      const deadline = state.appState.queueAcquisitionRound?.nextRoundAt;
-      if (!options.isCurrent() || !state.appState.isRunning || deadline == null || deadline > now())
-        return false;
-      const result = await progressFarmingQueue(state, {
-        restrictUnauthorizedManualContinuation: isAutomaticFavoriteSession(
+      await runProgression(async () => {
+        await skipCurrentGameAndAdvanceQueue(
           state,
-          state.appState.selectedGame,
-        ),
-        terminalFarmingCompleteGame: null,
-        options,
+          reason,
+          reason === 'unfarmable'
+            ? {
+                ...options,
+                onNotify: undefined,
+                onStopFarmingSession: (request) =>
+                  dependencies.onStopFarmingSession({ ...request, suppressNotifications: true }),
+              }
+            : options,
+        );
+        return options.isCurrent() && state.appState.isRunning;
       });
-      return result.kind === 'advanced';
+    },
+    retryWaitingQueue: (isCurrent) => {
+      const options = execution(isCurrent);
+      return runProgression(async () => {
+        const deadline = state.appState.queueAcquisitionRound?.nextRoundAt;
+        if (!options.isCurrent() || !state.appState.isRunning || deadline == null || deadline > now())
+          return false;
+        const result = await progressFarmingQueue(state, {
+          restrictUnauthorizedManualContinuation: isAutomaticFavoriteSession(
+            state,
+            state.appState.selectedGame,
+          ),
+          terminalFarmingCompleteGame: null,
+          options,
+        });
+        return result.kind === 'advanced';
+      });
     },
     reconcileAvailability(evidence, observedAt) {
       if (evidence.rehabilitatedCampaignKeys.size > 0) {
@@ -130,12 +161,6 @@ export function createFarmingQueueProgression(
             ([key]) => !evidence.rehabilitatedCampaignKeys.has(key),
           ),
         );
-        for (const key of evidence.rehabilitatedCampaignKeys) {
-          const metadata = state.appState.queueEntryMetadataByKey[key];
-          if (!metadata?.stalledStreamerNames) continue;
-          const { stalledStreamerNames: _names, ...retained } = metadata;
-          state.appState.queueEntryMetadataByKey[key] = retained;
-        }
       }
       const readyKeys = new Set<string>();
       for (const game of state.appState.queue) {
@@ -147,17 +172,13 @@ export function createFarmingQueueProgression(
           (metadata.streamerWaitState !== 'availability' && !evidence.rehabilitatedCampaignKeys.has(key))
         )
           continue;
-        const {
-          streamerWaitState: _wait,
-          streamerRetryCycles: _cycles,
-          streamerRetryAttempts: _attempts,
-          ...ready
-        } = metadata;
+        const { streamerWaitState: _wait, ...ready } = metadata;
         state.appState.queueEntryMetadataByKey[key] = { ...ready, streamerRetryAt: observedAt };
         readyKeys.add(key);
       }
       const round = state.appState.queueAcquisitionRound;
       if (readyKeys.size === 0 || !round) return;
+      if (round.nextRoundAt !== null && round.nextRoundAt > observedAt) return;
       state.appState.queueAcquisitionRound = {
         attemptedCampaignKeys: round.attemptedCampaignKeys.filter((key) => !readyKeys.has(key)),
         nextRoundAt: null,

@@ -89,6 +89,18 @@ export function createUserStatusModel({
   const manualWatchState = state.manualWatchState ?? 'inactive';
   const campaignSyncStatus = state.campaignSyncState?.status;
 
+  if (state.isRunning && !state.isPaused && state.pendingWatchTarget) {
+    return {
+      mode: 'pending-validation',
+      progressState: 'waiting',
+      label: 'Switching to',
+      badge: 'SWITCHING',
+      subject: getGameDisplayLabel(state.pendingWatchTarget.game),
+      detail: `Preparing ${state.pendingWatchTarget.channelName}.`,
+      tone: 'neutral',
+    };
+  }
+
   if (manualWatchState !== 'inactive' && runtimeMode === 'idle') {
     return {
       mode: 'ready',
@@ -116,11 +128,24 @@ export function createUserStatusModel({
       badge: 'ATTENTION',
       subject,
       detail: 'Click Play in the Twitch tab. Farming resumes when playback starts.',
-      tone: 'warning',
+      tone: 'neutral',
     };
   }
 
   if (runtimeMode === 'recovering') {
+    if (state.recoveryReason === 'rewards-pending')
+      return {
+        mode: 'attention-required',
+        progressState: 'complete',
+        label: 'Watch time complete',
+        badge: 'DONE',
+        subject,
+        detail:
+          state.selectedGame?.isConnected === false
+            ? 'Link your game account to claim the rewards.'
+            : 'Waiting for reward claims to be confirmed.',
+        tone: 'neutral',
+      };
     const queueRetry = state.queueAcquisitionRound !== null;
     const waiting =
       (state.queueAcquisitionRound?.nextRoundAt ?? state.recoveryBackoffUntil ?? 0) > recoveryNow;
@@ -132,7 +157,7 @@ export function createUserStatusModel({
       subject,
       detail: recoveryDetail(state, recoveryNow),
       recovery: getRecoveryPresentation(state, recoveryNow) ?? undefined,
-      tone: 'warning',
+      tone: 'neutral',
     };
   }
 
@@ -162,7 +187,7 @@ export function createUserStatusModel({
         badge: 'RETRYING',
         subject,
         detail: 'Checking playback and waiting for Twitch progress.',
-        tone: 'warning',
+        tone: 'neutral',
       };
     }
     if (currentAutomatableDrop) {

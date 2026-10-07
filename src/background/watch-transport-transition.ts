@@ -1,6 +1,8 @@
+import type { WatchTransportMode } from '../types/index.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import { prepareWatchCandidate } from './watch-candidate-preparation.ts';
-import type { FarmingTarget, WatchHealth, WatchHealthReason } from './watch-transport.ts';
+import { createWatchHealth, isTablessServiceFailure } from './watch-health.ts';
+import type { FarmingTarget, WatchHealth } from './watch-transport.ts';
 
 export type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 
@@ -28,16 +30,20 @@ export interface PreparedWatch {
   readonly target: FarmingTarget;
   readonly ownership: WatchOwnershipV1;
   readonly health: WatchHealth;
-  readonly fallbackReason: WatchHealthReason | null;
   promote(): WatchPromotion;
   dispose(): Promise<void>;
 }
 
 export type WatchPreparation =
   | { readonly kind: 'prepared'; readonly watch: PreparedWatch }
-  | { readonly kind: 'failed'; readonly reason: 'candidate-unavailable' };
+  | {
+      readonly kind: 'failed';
+      readonly reason: 'candidate-unavailable';
+      readonly health?: WatchHealth | null;
+    };
 
 export interface WatchTransportTransition {
+  suspend?(isCurrent?: () => boolean): Promise<void>;
   prepare(
     target: FarmingTarget,
     mode: WatchHealth['mode'],
@@ -56,7 +62,14 @@ export type WatchTransportAdoption = {
 };
 
 export interface WatchTransportRuntime {
+  readonly stop?: () => Promise<void>;
   readonly currentOwnership: () => WatchOwnershipV1 | null;
+  readonly prepare?: (
+    target: FarmingTarget,
+    isCurrent?: () => boolean,
+    allowInitialCreation?: boolean,
+    mode?: WatchTransportMode,
+  ) => Promise<WatchPreparation>;
   readonly hasViableManagedWatch?: () => boolean;
   readonly adopt: (adoption: WatchTransportAdoption) => void;
 }
@@ -102,6 +115,8 @@ export function createWatchTransportTransition(
     isCurrent = () => true,
     allowInitialCreation = false,
   ): Promise<WatchPreparation> => {
+    if (options.runtime?.prepare)
+      return options.runtime.prepare(target, isCurrent, allowInitialCreation, mode);
     const preparePreferred = mode === 'tabless' ? options.prepareTabless : options.prepareManaged;
     const preferred = await prepareWatchCandidate({
       prepare: () => preparePreferred(target, isCurrent, allowInitialCreation),
@@ -110,12 +125,22 @@ export function createWatchTransportTransition(
         health.isHealthy ||
         (mode === 'managed-tab' &&
           health.status === 'degraded' &&
-          (health.reason === 'drops-inactive' ||
-            (health.reason === 'user-interaction-required' && currentOwnership() === null))),
+          (health.reason === 'drops-inactive' || health.reason === 'user-interaction-required')),
     });
-    if (preferred.kind === 'failed') return { kind: 'failed', reason: 'candidate-unavailable' };
+    if (preferred.kind === 'failed')
+      return {
+        kind: 'failed',
+        reason: 'candidate-unavailable',
+        ...(mode === 'managed-tab'
+          ? {
+              health:
+                preferred.health ?? createWatchHealth(mode, 'failed', 'managed-tab-unavailable', Date.now),
+            }
+          : isTablessServiceFailure(preferred.health)
+            ? { health: preferred.health }
+            : {}),
+      };
     const candidate = preferred.candidate;
-    const fallbackReason = null;
 
     let promotion: WatchPromotion | null = null;
     let disposal: Promise<void> | null = null;
@@ -124,7 +149,6 @@ export function createWatchTransportTransition(
       target: candidate.target,
       ownership: candidate.ownership,
       health: candidate.health,
-      fallbackReason,
       promote: () => {
         if (promotion) return promotion;
         if (discarded) return { kind: 'discarded', ownership: candidate.ownership };
@@ -157,5 +181,12 @@ export function createWatchTransportTransition(
     return options.release(obsolete);
   };
 
-  return { prepare, release, currentOwnership };
+  return {
+    prepare,
+    release,
+    currentOwnership,
+    suspend: async (isCurrent = () => true) => {
+      if (isCurrent()) await options.runtime?.stop?.();
+    },
+  };
 }

@@ -15,7 +15,7 @@ function resolvePendingSaves() {
   for (const resolve of resolvers) resolve();
 }
 
-export function clearPendingTimingStateSaveForTests() {
+function clearPendingTimingStateSave() {
   if (saveTimer !== null) {
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -23,9 +23,11 @@ export function clearPendingTimingStateSaveForTests() {
   resolvePendingSaves();
 }
 
+export const clearPendingTimingStateSaveForTests = clearPendingTimingStateSave;
+
 export function setTimingSaveDebounceMsForTests(delayMs: number | null) {
   if (delayMs === null) {
-    clearPendingTimingStateSaveForTests();
+    clearPendingTimingStateSave();
     testDebounceMs = null;
     return;
   }
@@ -53,7 +55,6 @@ function createTimingState(state: ServiceWorkerState): TimingState {
     recoveryBackoffUntil: state.recoveryBackoffUntil,
     lastRecoveryAttemptAt: state.lastRecoveryAttemptAt,
     stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-    recoveryNotificationSent: state.recoveryNotificationSent,
     lastHeartbeatAt: state.lastHeartbeatAt,
     lastLifecycleCheckAt: state.lastLifecycleCheckAt,
     offlineChecks: state.offlineChecks,
@@ -64,7 +65,12 @@ function createTimingState(state: ServiceWorkerState): TimingState {
   };
 }
 
-export async function saveTimingState(state: ServiceWorkerState) {
+export async function saveTimingState(state: ServiceWorkerState, options: { immediate?: boolean } = {}) {
+  if (options.immediate) {
+    await browser.storage.local.set({ [TIMING_STATE_KEY]: createTimingState(state) });
+    clearPendingTimingStateSave();
+    return;
+  }
   return new Promise<void>((resolve) => {
     saveResolvers.push(resolve);
     if (saveTimer !== null) clearTimeout(saveTimer);
@@ -106,7 +112,6 @@ export async function loadTimingState(state: ServiceWorkerState) {
       recoveryBackoffUntil: saved.recoveryBackoffUntil,
       lastRecoveryAttemptAt: saved.lastRecoveryAttemptAt,
       stalledRecoveryAttempts: saved.stalledRecoveryAttempts,
-      recoveryNotificationSent: saved.recoveryNotificationSent,
       lastHeartbeatAt: saved.lastHeartbeatAt,
       lastLifecycleCheckAt: saved.lastLifecycleCheckAt,
       offlineChecks: saved.offlineChecks,

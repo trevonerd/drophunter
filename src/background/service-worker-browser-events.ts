@@ -1,5 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
-import { isExpectedStreamCategory } from '../shared/stream-category.ts';
+import { observedStreamCategoryMatch } from '../shared/stream-category.ts';
 import type { ActivationTrigger } from '../types/index.ts';
 import { ALARM_NAME, CAMPAIGN_SYNC_RETRY_ALARM_NAME, INVALID_STREAM_THRESHOLD } from './constants.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
@@ -12,10 +12,9 @@ import { createChromeFarmingAutomationHost } from './farming-automation-chrome-h
 import { FARMING_RECOVERY_RETRY_ALARM_NAME } from './farming-recovery-alarm.ts';
 import type { StreamContext } from './farming-session.ts';
 import { logInfo, logWarn } from './logging.ts';
+import { pauseManagedWatch } from './managed-watch-marker.ts';
 import { openOwnedManagedWatch } from './managed-watch-open.ts';
 import { openMonitorDashboardWindow as openMonitorDashboardWindowController } from './monitor-dashboard.ts';
-import { needsPlaybackAttention } from './playback.ts';
-import { createPlaybackAttentionPolicy } from './playback-attention-policy.ts';
 import { createPlaybackOrchestrator } from './playback-orchestrator.ts';
 import { createPlaybackTransport } from './playback-transport.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -60,23 +59,19 @@ export function createServiceWorkerBrowserEvents(
 ) {
   const playbackTransport = createPlaybackTransport({
     ensureContentScriptOnTab: dependencies.ensureContentScriptOnTab,
-    ensureManagedTab: (tabId, url, active) =>
+    ensureManagedTab: (tabId, url, active, isCurrent) =>
       ensureManagedTab(
         tabId,
         url,
         active,
         state.appState.manualQueueAuthorized && state.appState.farmingSessionOrigin === 'manual',
+        isCurrent,
       ),
     waitForTabComplete,
   });
-  const playbackAttention = createPlaybackAttentionPolicy(state, {
-    shouldMuteManagedFarmingTab: () => shouldMuteManagedFarmingTab(state),
-    needsPlaybackAttention,
-    notify: dependencies.notify,
-  });
   const playbackOrchestrator = createPlaybackOrchestrator(state, {
     transport: playbackTransport,
-    attention: playbackAttention,
+    shouldMuteManagedFarmingTab: () => shouldMuteManagedFarmingTab(state),
     streamerWatchUrl,
   });
 
@@ -89,30 +84,43 @@ export function createServiceWorkerBrowserEvents(
     enabled: true,
     heartbeat: dependencies.heartbeat,
     managedTab: {
+      pause: async (session) => {
+        if (session.ownership) await pauseManagedWatch(session.ownership);
+      },
+      pauseRetained: async (isCurrent) => {
+        const ownership = await ownedTabs.reconstruct(
+          null,
+          () => ({
+            running: false,
+            activeChannel: null,
+            tabId: null,
+          }),
+          isCurrent,
+        );
+        if (ownership && isCurrent()) await pauseManagedWatch(ownership, isCurrent);
+      },
       finalizeOwnership: ownedTabs.finalize,
       open: (target, options) =>
         openOwnedManagedWatch(
           state,
           target,
-          async (tabId, isCurrent) => {
-            playbackAttention.beginAttempt();
-            const prepared = await playbackOrchestrator.prepareStreamPlayback(tabId, {
+          (tabId, isCurrent) =>
+            playbackOrchestrator.prepareStreamPlayback(tabId, {
               unmuteTab: false,
               muteAfterPrep: true,
-            });
-            if (isCurrent()) await playbackAttention.notifyIfNeeded(prepared);
-            return prepared;
-          },
+              isCurrent,
+            }),
           () => watchTransport.currentOwnership(),
           options.isCurrent,
           ownedTabs,
+          options.allowInitialCreation,
         ),
       probe: async (session, target) => {
         const context = await dependencies.fetchStreamContext(session.tabId);
         const sameChannel = context?.channelName.toLowerCase() === target.channelName.toLowerCase();
-        const sameGame = isExpectedStreamCategory(context, target);
+        const sameGame = observedStreamCategoryMatch(context, target);
         return {
-          accepted: Boolean(context) && sameChannel && sameGame && context?.isPlaybackReady === true,
+          accepted: Boolean(context) && sameChannel && sameGame === true && context?.isPlaybackReady === true,
           isLive: context?.isLive,
           sameChannel,
           sameGame,
@@ -122,11 +130,13 @@ export function createServiceWorkerBrowserEvents(
             ? 'heartbeat-failed'
             : !sameChannel
               ? 'wrong-channel'
-              : !sameGame
+              : sameGame === false
                 ? 'wrong-game'
                 : context.isPlaybackReady !== true
                   ? 'playback-inactive'
-                  : 'heartbeat',
+                  : sameGame === undefined
+                    ? 'heartbeat-failed'
+                    : 'heartbeat',
         };
       },
       close: async (session) => {
@@ -225,7 +235,6 @@ export function createServiceWorkerBrowserEvents(
     attemptPlaybackSelfHeal: playbackOrchestrator.attemptPlaybackSelfHeal,
     clearQueueCompleteNotification: dependencies.clearQueueCompleteNotification,
     clearManagedTabOwnership: () => clearManagedTabOwnership(state),
-    closeManagedTabIfSafe: async () => false,
     enforcePlaybackPolicyOnStreamTab: playbackOrchestrator.enforcePlaybackPolicyOnStreamTab,
     openForegroundChannel: playbackOrchestrator.openForegroundChannel,
     openMonitorDashboardWindow,

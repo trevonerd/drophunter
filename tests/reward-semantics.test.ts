@@ -92,7 +92,7 @@ describe('isRewardAcquired', () => {
     expect(result).toBe(true);
   });
 
-  test('keeps existing completion compatibility for an ordinary reward', () => {
+  test('requires positive acquisition even when an ordinary reward reached 100 percent', () => {
     // Given
     const drop = createDrop({ progress: 100, claimable: false, rewardKind: 'in-game' });
 
@@ -100,7 +100,7 @@ describe('isRewardAcquired', () => {
     const result = isRewardAcquired(drop);
 
     // Then
-    expect(result).toBe(true);
+    expect(result).toBe(false);
   });
 });
 

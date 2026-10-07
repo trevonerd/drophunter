@@ -24,6 +24,8 @@ export function currentFarmingSessionEpoch(state: ServiceWorkerState): number {
 export function invalidateFarmingSessionEpoch(state: ServiceWorkerState): number {
   const revision = revisionState(state);
   revision.epoch += 1;
+  state.dropClaimInFlight = false;
+  state.appState.pendingWatchTarget = null;
   return revision.epoch;
 }
 

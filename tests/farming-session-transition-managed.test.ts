@@ -86,6 +86,7 @@ describe('automatic farming session managed transition', () => {
     let ownership: WatchOwnershipV1 | null = fromWatch;
     const dependencies: AutomaticFarmingSessionTransitionDependencies = {
       acquireStreamer: async () => streamer,
+      persistAttempt: async () => true,
       currentFingerprint: () => 'fingerprint-a',
       loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
       commitTransition: async (commit) => {
@@ -110,7 +111,6 @@ describe('automatic farming session managed transition', () => {
                 channelName: 'channel-b',
               },
               ownership: toWatch,
-              fallbackReason: null,
               health: {
                 mode: 'managed-tab',
                 isHealthy: true,
@@ -217,6 +217,7 @@ describe('automatic farming session managed transition', () => {
       state.appState.queue = [incumbent];
       state.lastTrackedProgress = 77;
       state.recoveryBackoffUntil = 9_000;
+      const originalMetadata = structuredClone(state.appState.queueEntryMetadataByKey);
       const before = JSON.stringify(state);
       let fingerprint = 'fingerprint-a';
       let disposals = 0;
@@ -226,6 +227,7 @@ describe('automatic farming session managed transition', () => {
           if (failure === 'revision after streamer') fingerprint = 'fingerprint-b';
           return streamer;
         },
+        persistAttempt: async () => true,
         currentFingerprint: () => fingerprint,
         loadReceipt: async () => ({ kind: 'ready', source: 'missing', value: null }),
         commitTransition: async () => ({ kind: 'failed', reason: 'transition-commit-failed' }),
@@ -243,7 +245,6 @@ describe('automatic farming session managed transition', () => {
               watch: {
                 target: { gameId: 'shared-game', campaignId: 'campaign-b', channelName: 'channel-b' },
                 ownership: toWatch,
-                fallbackReason: null,
                 health: {
                   mode: 'managed-tab',
                   isHealthy: true,
@@ -284,7 +285,10 @@ describe('automatic farming session managed transition', () => {
 
       // Then: every protected A byte is unchanged and only provisional B is disposed.
       expect({
-        after: JSON.stringify(state),
+        after: JSON.stringify({
+          ...state,
+          appState: { ...state.appState, queueEntryMetadataByKey: originalMetadata },
+        }),
         resultReason: result.kind === 'failed' || result.kind === 'unchanged' ? result.reason : result.kind,
         disposals,
       }).toEqual({ after: before, resultReason: expectedReason, disposals: expectedDisposals });

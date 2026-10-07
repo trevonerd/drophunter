@@ -22,7 +22,6 @@ describe('extension update reset', () => {
       selectedGame: { id: 'game-1', name: 'Stale Game', imageUrl: '' },
       isRunning: true,
       watchTransportMode: 'managed-tab',
-      watchFallbackReason: 'legacy fallback',
       tabId: 91,
     });
 
@@ -33,9 +32,8 @@ describe('extension update reset', () => {
       availableGames: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       queue: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       selectedGame: { id: 'game-1', name: 'Stale Game', imageUrl: '' },
-      isRunning: false,
+      isRunning: true,
       wasRunning: true,
-      watchFallbackReason: null,
       tabId: null,
     });
     expect(reset.favoriteGames).toHaveLength(1);
@@ -69,7 +67,7 @@ describe('extension update reset', () => {
     expect(state.cachedDropsSnapshot).toEqual([]);
     expect(state.apiBackoffUntil).toBe(0);
     expect(state.dropClaimRetryAtById.size).toBe(0);
-    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.isRunning).toBe(true);
     expect(state.appState.wasRunning).toBe(true);
     expect(state.appState).toBe(appStateReference);
   });

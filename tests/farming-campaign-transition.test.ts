@@ -21,7 +21,7 @@ verifyExpectedDiagnostics([
 function fixture(refreshOutcome: RefreshDropsOutcome = 'refreshed') {
   const state = createMinimalState();
   const incumbent = createGame({ id: 'smite', campaignId: 'smite-campaign' });
-  const candidate = createGame({ id: 'r6', campaignId: 'r6-campaign' });
+  const candidate = createGame({ id: 'r6', campaignId: 'r6-campaign', dropCount: 1 });
   state.appState.isRunning = true;
   state.appState.selectedGame = incumbent;
   state.appState.activeStreamer = createStreamer({ name: 'smite-streamer' });
@@ -85,7 +85,6 @@ function fixture(refreshOutcome: RefreshDropsOutcome = 'refreshed') {
             target,
             ownership,
             health,
-            fallbackReason: null,
             promote: () => {
               promotions += 1;
               return { kind: 'promoted', ownership, obsolete: null };
@@ -158,6 +157,38 @@ describe('campaign transition staging guards', () => {
     expect(subject.state.appState.selectedGame).toBe(subject.incumbent);
     expect(subject.counts().promotions).toBe(0);
     expect(subject.counts().disposals).toBe(1);
+  });
+
+  test('dismissing a message during candidate persistence keeps the watch and the dismissal', async () => {
+    const subject = fixture();
+    subject.duringCandidateSave(() => {
+      subject.state.appState.dismissedFarmingMessageIds = ['watch-interaction'];
+    });
+    expect(await subject.transition()).toEqual({ kind: 'started' });
+    expect(subject.state.appState.dismissedFarmingMessageIds).toEqual(['watch-interaction']);
+    expect(subject.counts()).toMatchObject({ disposals: 0, promotions: 1 });
+  });
+
+  test('a completed Drops service-page notice does not consume a valid prepared channel', async () => {
+    const subject = fixture();
+    subject.duringCandidateSave(() => {
+      subject.state.appState.lastDropsPageRefreshCompletedAt = 73;
+      subject.state.appState.lastDropsPageRefreshNoticeSeenAt = 74;
+    });
+    expect(await subject.transition()).toEqual({ kind: 'started' });
+    expect(subject.state.appState.lastDropsPageRefreshCompletedAt).toBe(73);
+    expect(subject.state.appState.lastDropsPageRefreshNoticeSeenAt).toBe(74);
+    expect(subject.counts()).toEqual({ prepares: 1, disposals: 0, promotions: 1 });
+  });
+
+  test('opening the monitor during candidate persistence does not consume or discard a valid watch', async () => {
+    const subject = fixture();
+    subject.duringCandidateSave(() => {
+      subject.state.appState.monitorWindowId = 71;
+    });
+    expect(await subject.transition()).toEqual({ kind: 'started' });
+    expect(subject.state.appState.monitorWindowId).toBe(71);
+    expect(subject.counts()).toEqual({ prepares: 1, disposals: 0, promotions: 1 });
   });
 
   test('a timing storage failure cannot report failure after the actual watch was promoted', async () => {
@@ -277,7 +308,10 @@ describe('campaign transition staging guards', () => {
           subject.state.cachedDropsSnapshot = [{ ...drop, claimed: true, progress: 100, currentMinutes: 60 }];
         } else subject.state.appState.acquiredCampaignIds = [subject.candidate.campaignId ?? ''];
       });
-      expect(await subject.transition()).toEqual({ kind: 'completed' });
+      expect(await subject.transition()).toMatchObject({
+        kind: 'completed',
+        game: { rewardSummary: { completion: 'all-acquired' } },
+      });
       expect(subject.state.appState.selectedGame).toBe(subject.incumbent);
       expect(subject.counts()).toEqual({ prepares: 1, disposals: 1, promotions: 0 });
       if (source === 'claimed-reward') expect(subject.state.cachedDropsSnapshot[0]?.claimed).toBe(true);
@@ -320,6 +354,7 @@ describe('campaign transition staging guards', () => {
     const subject = fixture();
     expect(await subject.transition()).toEqual({ kind: 'started' });
     expect(subject.saves).toEqual([
+      { deferred: false, promotions: 0 },
       { deferred: true, promotions: 0 },
       { deferred: false, promotions: 1 },
     ]);

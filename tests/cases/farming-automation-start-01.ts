@@ -187,6 +187,7 @@ describe('Farming automation start', () => {
     expect(fixture.events).toEqual([
       'refresh',
       'broadcast',
+      'broadcast',
       'commit',
       'facts',
       'broadcast',

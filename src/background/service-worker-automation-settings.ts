@@ -213,7 +213,6 @@ export function createServiceWorkerAutomationSettingsHandlers(
     await trackActivity('set-watch-transport-mode');
     const transport = dependencies.browserEvents.watchTransport;
     const currentStreamer = state.appState.activeStreamer;
-    if (state.appState.isRunning && !state.appState.isPaused && currentStreamer) await transport.stop();
     await transport.setPreference(payload.mode);
     if (state.appState.isRunning && !state.appState.isPaused && currentStreamer) {
       await transport.start(currentStreamer);

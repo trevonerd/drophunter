@@ -62,19 +62,34 @@ function resetSelectedProjection(state: ServiceWorkerState): void {
 }
 
 function clearRecoveredStall(state: ServiceWorkerState, selected: TwitchGame): void {
+  if (
+    state.appState.queueEntryMetadataByKey[gameKey(selected)]?.watchAttempt?.preparing &&
+    !state.appState.activeStreamer
+  ) {
+    state.lastProgressAdvanceAt = Date.now();
+    return;
+  }
   resetQueueAcquisitionRound(state);
   const metadata = state.appState.queueEntryMetadataByKey[gameKey(selected)];
   if (metadata) {
     const {
       streamerRetryAt: _retryAt,
       streamerRetryReason: _retryReason,
-      streamerRetryAttempts: _attempts,
-      streamerRetryCycles: _cycles,
       streamerWaitState: _waitState,
-      stalledStreamerNames: _stalledStreamers,
+      attemptedStreamerNames: _attempted,
+      watchAttempt: _watch,
       ...retained
     } = metadata;
-    state.appState.queueEntryMetadataByKey[gameKey(selected)] = retained;
+    const activeName = state.appState.activeStreamer?.name.trim().toLowerCase();
+    state.appState.queueEntryMetadataByKey[gameKey(selected)] = {
+      ...retained,
+      ...(activeName
+        ? {
+            attemptedStreamerNames: [activeName],
+            watchAttempt: { channelName: activeName, observedAt: Date.now() },
+          }
+        : {}),
+    };
   }
   state.lastProgressAdvanceAt = Date.now();
   state.noProgressRotationAttempts = 0;
@@ -83,7 +98,6 @@ function clearRecoveredStall(state: ServiceWorkerState, selected: TwitchGame): v
   state.recoveryBackoffUntil = 0;
   state.lastRecoveryAttemptAt = 0;
   state.stalledRecoveryAttempts = 0;
-  state.recoveryNotificationSent = false;
   state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
     state.appState.stalledCampaignBlocksByKey,
     selected,
@@ -138,10 +152,7 @@ export function splitDropsForSelectedGame(
   state.lastTrackedProgress = nextProgress;
   state.lastTrackedMinutes = Math.max(previousMinutes, nextMinutes);
 
-  if (freshTiming) {
-    state.lastProgressAdvanceAt = Date.now();
-    return;
-  }
+  if (freshTiming) return;
   const recoveryProof = detectRecoveryProof({
     previousDropKey: previousKey,
     previousProgress,
@@ -151,7 +162,10 @@ export function splitDropsForSelectedGame(
     nextCompletedKeys: completedDropKeys(completed),
   });
   const minuteAdvance =
-    !recoveryProof && nextKey !== null && didDropMinutesAdvance(previousMinutes, nextMinutes);
+    !recoveryProof &&
+    nextKey !== null &&
+    nextKey === previousKey &&
+    didDropMinutesAdvance(previousMinutes, nextMinutes);
   const acquiredTrackedReward =
     previousKey !== null &&
     !previousCompletedKeys.has(previousKey) &&

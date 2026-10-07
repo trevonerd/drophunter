@@ -173,90 +173,35 @@ test('a retry scheduling failure remains understandable without a retry action',
   expect(markup).toContain('data-session-mode="pending-validation"');
 });
 
-test('queue cleanup remains visible when favorite auto-start is disabled', () => {
-  const state = {
-    ...appState(null),
-    autoStartFavoriteGames: false,
-    automationActivity: [
-      {
-        id: 'queue-cleanup:expired:campaign:closed-campaign',
-        kind: 'queue-campaigns-removed',
-        at: Date.now(),
-        message: 'Removed 1 expired campaign from the queue: Closed Campaign.',
-      },
-    ],
-  } satisfies AppState;
-
+test('campaign warnings remain visible with favorite auto-start disabled', () => {
+  const campaign = game({ campaignName: 'Problem Campaign' });
+  const state = appState(null);
+  state.autoStartFavoriteGames = false;
+  state.campaignFailureEpisodesByKey = { 'campaign:problem': {
+    id: 'failure:problem', game: campaign, reason: 'stalled-progress',
+    startedAt: 1, lastAttemptAt: 1, visible: true,
+  } };
   const markup = renderMainView(state);
-
-  expect(markup).toContain('aria-label="Queue campaign update"');
+  expect(markup).toContain('aria-label="Farming messages"');
   expect(markup).toContain('<summary');
-  expect(markup).toContain('>Queue updated</summary>');
-  expect(markup).toContain('Closed Campaign');
-  expect(markup).toContain('aria-label="Dismiss queue update"');
+  expect(markup).toContain('Campaign warnings (1)');
+  expect(markup).toContain('Problem Campaign');
+  expect(markup).toContain('aria-label="Dismiss farming message"');
 });
 
-test('historical retry exhaustion is hidden when no unresolved campaign remains', () => {
-  const state = {
-    ...appState(null),
-    autoStartFavoriteGames: true,
-    automationActivity: [
-      {
-        id: 'queue-recovery:no-streamers:campaign:last-campaign:1000',
-        kind: 'queue-retries-exhausted',
-        at: Date.now(),
-        campaignId: 'last-campaign',
-        message:
-          'No eligible streamer was found for Last Campaign after repeated attempts. DropHunter stopped because no other campaign can be farmed right now. Favorite auto-start remains available when enabled.',
-      },
-    ],
-  } satisfies AppState;
-
+test('persisted dismissal hides its episode without hiding a new campaign failure', () => {
+  const campaign = game({ campaignName: 'Problem Campaign' });
+  const state = appState(null);
+  const episode = { id: 'failure:problem', game: campaign, reason: 'stalled-progress',
+    startedAt: 1, lastAttemptAt: 1, visible: true };
+  state.campaignFailureEpisodesByKey = { 'campaign:problem': episode };
+  state.dismissedFarmingMessageIds = [episode.id];
+  expect(renderMainView(state)).not.toContain('aria-label="Farming messages"');
+  state.campaignFailureEpisodesByKey['campaign:new'] = { ...episode, id: 'failure:new',
+    game: { ...campaign, campaignId: 'new', campaignName: 'New Problem' } };
   const markup = renderMainView(state);
-
-  expect(markup).not.toContain('aria-label="Queue campaign update"');
-  expect(markup).not.toContain('>Farming stopped</summary>');
-});
-
-test('a dismissed queue cleanup stays hidden until a new update arrives', () => {
-  // Given
-  const dismissedActivity = {
-    id: 'queue-cleanup:expired:campaign:closed-campaign',
-    kind: 'queue-campaigns-removed' as const,
-    at: Date.now(),
-    message: 'Removed Closed Campaign.',
-  };
-  const dismissedState = {
-    ...appState(null),
-    automationActivity: [dismissedActivity],
-  } satisfies AppState;
-  const dismissedOverrides = {
-    runtimeMode: 'idle' as const,
-    dismissedQueueCleanupActivityId: dismissedActivity.id,
-    onDismissQueueCleanup: () => {},
-  };
-
-  // When
-  const dismissedMarkup = renderMainView(dismissedState, [], dismissedOverrides);
-  const newerMarkup = renderMainView(
-    {
-      ...dismissedState,
-      automationActivity: [
-        {
-          ...dismissedActivity,
-          id: 'queue-cleanup:expired:campaign:newly-closed-campaign',
-          message: 'Removed Newly Closed Campaign.',
-        },
-      ],
-    },
-    [],
-    dismissedOverrides,
-  );
-
-  // Then
-  expect(dismissedMarkup).not.toContain('aria-label="Queue campaign update"');
-  expect(newerMarkup).toContain('aria-label="Queue campaign update"');
-  expect(newerMarkup).toContain('Newly Closed Campaign');
+  expect(markup).toContain('Campaign warnings (1)');
+  expect(markup).toContain('New Problem');
 });
 
 test('unverified recovery does not show the fresh-campaign success banner', () => {

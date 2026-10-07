@@ -6,6 +6,12 @@ import {
   target,
 } from './support/farming-automation-browser-fixture.ts';
 
+const failedManagedPreparation = (reason: string) => ({
+  kind: 'failed',
+  reason: 'candidate-unavailable',
+  health: { mode: 'managed-tab', status: 'failed', reason, isHealthy: false },
+});
+
 describe('farming automation browser', () => {
   test('keeps A active until forced-muted B is promoted', async () => {
     // Given: Chrome host operations and an incumbent managed farming tab.
@@ -84,14 +90,14 @@ describe('farming automation browser', () => {
     // Given: B loads, but the typed content-script preparation reports playback blocked.
     const operations: string[] = [];
     const adapter = createAdapter(createHost(operations), operations, {
-      playbackPreparation: { isPlaybackReady: false, userInteractionRequired: true },
+      playbackPreparation: { isPlaybackReady: false, userInteractionRequired: false },
     });
 
     // When: the managed candidate is prepared.
     const preparation = await adapter.watch.prepare(target, 'managed-tab');
 
     // Then: verified target identity cannot make blocked B replace working A.
-    expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
+    expect(preparation).toMatchObject(failedManagedPreparation('playback-inactive'));
     expect(operations).toEqual([
       'open:false:true',
       'wait:15000',
@@ -172,7 +178,8 @@ describe('farming automation browser', () => {
 
     const preparation = await adapter.watch.prepare(target, 'managed-tab');
 
-    expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
+    expect(preparation).toMatchObject(failedManagedPreparation(probe.reason));
+    expect(operations.filter((operation) => /^(remove|update):/.test(operation))).toEqual(['remove:22']);
     expect(adapter.watch.currentOwnership()).toEqual(incumbent);
   });
 

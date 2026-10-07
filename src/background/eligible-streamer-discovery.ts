@@ -36,6 +36,14 @@ export class EligibleStreamerDiscoveryUnavailableError extends Error {
   }
 }
 
+export class NoEligibleStreamerError extends Error {
+  readonly name = 'NoEligibleStreamerError';
+
+  constructor() {
+    super('Twitch verified that this campaign has no eligible alternative streamer.');
+  }
+}
+
 export interface EligibleStreamerDiscoveryOptions {
   readonly game: TwitchGame;
   readonly language: string;

@@ -11,22 +11,11 @@ export type WatchStartResult =
   | { readonly kind: 'cancelled' }
   | { readonly kind: 'failed'; readonly health: WatchHealth | null };
 
-export type EnterPersistentRecoveryFn = (
-  state: ServiceWorkerState,
-  reason: StreamRotationReason,
-  message: string,
-  opts?: {
-    onSkipCurrentGame?: () => Promise<void>;
-    onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
-  },
-) => Promise<void>;
-
 export interface RotateStreamerOptions {
   readonly isCurrent?: () => boolean;
   onOpenStreamer?: (isCurrent?: () => boolean) => Promise<boolean>;
   onSaveState?: () => Promise<void>;
   onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
-  onEnterPersistentRecovery?: EnterPersistentRecoveryFn;
   onSkipCurrentGame?: () => Promise<void>;
 }
 
@@ -56,7 +45,6 @@ export interface RotateStreamerIfInvalidOptions {
   onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
   onRotateStreamer?: RotateStreamerFn;
   onOpenStreamer?: () => Promise<boolean>;
-  onEnterPersistentRecovery?: EnterPersistentRecoveryFn;
   onSkipCurrentGame?: () => Promise<void>;
   onForceRefreshDropsData?: (isCurrent?: () => boolean) => Promise<RefreshDropsOutcome>;
   onTablessWatchActive?: () => boolean;
@@ -67,6 +55,7 @@ export interface RotateStreamerIfInvalidOptions {
 }
 
 export interface OpenBestStreamerCallbacks {
+  readonly onAttemptStreamer?: (game: TwitchGame, channelName: string) => Promise<boolean>;
   onFetchDirectoryStreamersFromApi: (
     game: TwitchGame,
     forceRefresh?: boolean,
@@ -91,7 +80,6 @@ export function rotateStreamerOptsFrom(
     onOpenStreamer: opts?.onOpenStreamer,
     onSaveState: opts?.onSaveState,
     onSaveTimingState: opts?.onSaveTimingState,
-    onEnterPersistentRecovery: opts?.onEnterPersistentRecovery,
     onSkipCurrentGame: opts?.onSkipCurrentGame,
   };
 }

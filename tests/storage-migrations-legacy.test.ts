@@ -179,7 +179,7 @@ describe('legacy extension storage migration', () => {
     expect(mocks.storage.local._store.get('appState')).toMatchObject({
       queue: [queuedGame],
       selectedGame: queuedGame,
-      isRunning: false,
+      isRunning: true,
       wasRunning: true,
     });
   });

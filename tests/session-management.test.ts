@@ -8,7 +8,6 @@ verifyExpectedDiagnostics([
     1,
   ],
   ['[DropHunter] executeScript session extraction failed', 1],
-  ['[DropHunter] executeScript session extraction returned empty payload', 2],
 ]);
 
 import './cases/session-management-01.ts';

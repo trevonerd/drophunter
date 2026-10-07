@@ -131,6 +131,7 @@ export async function callTelegramApi<T extends TelegramApiResponse>(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
   });
   const payload = (await response.json().catch(() => null)) as T | null;
   if (!payload?.ok) throw new Error(payload?.description ?? `Telegram API ${method} failed`);

@@ -1,21 +1,18 @@
-import { logDebug, logInfo, logWarn } from './logging.ts';
-import { applyRecoveryState, clearRecoveryState } from './recovery-state.ts';
+import { gameKey } from '../shared/game-selection.ts';
+import { logDebug, logInfo } from './logging.ts';
+import { clearRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import {
-  MAX_PERSISTENT_RECOVERY_CYCLES,
-  MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-  OFFLINE_CONFIRMATION_CHECKS,
-  STALLED_PROGRESS_RETRY_MS,
-} from './stream-rotation.ts';
+import { OFFLINE_CONFIRMATION_CHECKS } from './stream-rotation.ts';
 import {
   type RotateStreamerIfInvalidOptions,
   rotateStreamerOptsFrom,
   type StreamContext,
 } from './streamer-acquisition-contracts.ts';
+import { MAX_STREAMER_ATTEMPTS } from './streamer-watch-attempt.ts';
 
 export async function handleOfflineStream(
   state: ServiceWorkerState,
-  context: StreamContext,
+  context: Pick<StreamContext, 'channelName' | 'pageUrl'>,
   opts: RotateStreamerIfInvalidOptions | undefined,
   now: number,
 ): Promise<void> {
@@ -42,14 +39,22 @@ export async function handleOfflineStream(
     });
     return;
   }
-  if (state.stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
-    logWarn('Offline recovery exhausted — skipping game', {
-      stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-      channel: state.appState.activeStreamer?.name ?? context.channelName,
-    });
-    await opts?.onSkipCurrentGame?.();
-    return;
+  const channel = (state.appState.activeStreamer?.name ?? context.channelName).trim().toLowerCase();
+  const game = state.appState.selectedGame;
+  const metadata = game ? state.appState.queueEntryMetadataByKey[gameKey(game)] : undefined;
+  if (game && metadata) {
+    const { watchAttempt, ...retained } = metadata;
+    state.appState.queueEntryMetadataByKey[gameKey(game)] = {
+      ...retained,
+      attemptedStreamerNames: metadata.attemptedStreamerNames?.filter((name) => name !== channel),
+      ...(watchAttempt && watchAttempt.channelName !== channel ? { watchAttempt } : {}),
+    };
   }
+  state.avoidStreamerName = channel;
+  await opts?.onSaveState?.();
+  if (opts?.isCurrent?.() === false) return;
+  await opts?.onSaveTimingState?.(state);
+  if (opts?.isCurrent?.() === false) return;
   state.invalidStreamChecks = 0;
   logInfo('Offline stream detected, rotating immediately', {
     channel: state.appState.activeStreamer?.name ?? context.channelName,
@@ -60,69 +65,34 @@ export async function handleOfflineStream(
 
 export async function handleStalledProgress(
   state: ServiceWorkerState,
-  tab: { id?: number },
+  _tab: { id?: number },
   opts: RotateStreamerIfInvalidOptions | undefined,
-  now: number,
-  stallThreshold: number,
+  _now: number,
+  _stallThreshold: number,
 ): Promise<void> {
   if (opts?.isCurrent?.() === false) return;
-  if (state.stalledRecoveryAttempts >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS) {
-    logWarn('Stalled progress recovery exhausted — skipping game', {
-      stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-      maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-      progress: state.appState.currentDrop?.progress ?? null,
-      currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
-    });
+  const previousDrop = state.appState.currentDrop;
+  // Production callers use the common recovery controller. This leaf path
+  // still requires fresh inventory proof before treating a stall as confirmed.
+  if ((await opts?.onForceRefreshDropsData?.(opts.isCurrent)) !== 'refreshed') return;
+  if (opts?.isCurrent?.() === false || !state.appState.currentDrop) return;
+  const currentDrop = state.appState.currentDrop;
+  if (
+    previousDrop &&
+    currentDrop.id === previousDrop.id &&
+    currentDrop.campaignId === previousDrop.campaignId &&
+    (currentDrop.progress > previousDrop.progress ||
+      (currentDrop.currentMinutes ?? -1) > (previousDrop.currentMinutes ?? -1))
+  )
+    return;
+  const game = state.appState.selectedGame;
+  if (
+    game &&
+    (state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames?.length ?? 0) >=
+      MAX_STREAMER_ATTEMPTS
+  ) {
     await opts?.onSkipCurrentGame?.();
     return;
   }
-  if (
-    state.recoveryBackoffUntil > 0 &&
-    now < state.recoveryBackoffUntil &&
-    state.appState.recoveryReason === 'stalled-progress'
-  )
-    return;
-  if (state.stalledRecoveryAttempts === 0) {
-    state.stalledRecoveryAttempts = 1;
-    state.lastRecoveryAttemptAt = now;
-    state.recoveryBackoffUntil = now + STALLED_PROGRESS_RETRY_MS;
-    applyRecoveryState(state, 'stalled-progress', state.recoveryBackoffUntil);
-    logInfo('Attempting in-place playback self-heal before rotating', {
-      stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-      maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-      recoveryBackoffUntil: state.recoveryBackoffUntil,
-    });
-    if (opts?.onAttemptPlaybackSelfHeal && tab.id) {
-      await opts.onAttemptPlaybackSelfHeal(tab.id, opts.isCurrent);
-    }
-    if (opts?.isCurrent?.() === false) return;
-    await opts?.onSaveState?.();
-    if (opts?.isCurrent?.() === false) return;
-    await opts?.onSaveTimingState?.(state);
-    return;
-  }
-  if (opts?.onForceRefreshDropsData) {
-    const refreshOutcome = await opts.onForceRefreshDropsData(opts.isCurrent);
-    if (opts?.isCurrent?.() === false) return;
-    if (refreshOutcome === 'auth-required') return;
-    if (state.stalledRecoveryAttempts === 0 || state.appState.currentDrop == null) return;
-  }
-  state.stalledRecoveryAttempts = Math.min(
-    MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-    state.stalledRecoveryAttempts + 1,
-  );
-  state.lastRecoveryAttemptAt = now;
-  state.recoveryBackoffUntil = 0;
-  state.invalidStreamChecks = 0;
-  applyRecoveryState(state, 'stalled-progress', null);
-  logInfo('Drop progress stalled, rotating to a different streamer', {
-    stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-    maxAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-    progress: state.appState.currentDrop?.progress ?? null,
-    currentMinutes: state.appState.currentDrop?.currentMinutes ?? null,
-    requiredMinutes: state.appState.currentDrop?.requiredMinutes ?? null,
-    effectiveThresholdMs: stallThreshold,
-    stalledForMs: now - state.lastProgressAdvanceAt,
-  });
   await opts?.onRotateStreamer?.(state, 'stalled-progress', rotateStreamerOptsFrom(opts));
 }

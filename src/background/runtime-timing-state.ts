@@ -26,7 +26,6 @@ export interface TimingState {
   recoveryBackoffUntil: number;
   lastRecoveryAttemptAt: number;
   stalledRecoveryAttempts: number;
-  recoveryNotificationSent: boolean;
   lastHeartbeatAt: number;
   lastLifecycleCheckAt: number;
   offlineChecks: number;
@@ -57,7 +56,6 @@ export function createInitialTimingState(): TimingState {
     recoveryBackoffUntil: 0,
     lastRecoveryAttemptAt: 0,
     stalledRecoveryAttempts: 0,
-    recoveryNotificationSent: false,
     lastHeartbeatAt: 0,
     lastLifecycleCheckAt: 0,
     offlineChecks: 0,
@@ -166,7 +164,6 @@ export function normalizeTimingState(input: unknown, now = Date.now()): TimingSt
     recoveryBackoffUntil: recoveryUntil > now ? Math.min(recoveryUntil, maximumRestoredDeadline) : 0,
     lastRecoveryAttemptAt: finiteNumber(source.lastRecoveryAttemptAt, initial.lastRecoveryAttemptAt),
     stalledRecoveryAttempts: finiteNumber(source.stalledRecoveryAttempts, initial.stalledRecoveryAttempts),
-    recoveryNotificationSent: Boolean(source.recoveryNotificationSent) && recoveryUntil > now,
     lastHeartbeatAt: finiteNumber(source.lastHeartbeatAt, initial.lastHeartbeatAt),
     lastLifecycleCheckAt: finiteNumber(source.lastLifecycleCheckAt, initial.lastLifecycleCheckAt),
     offlineChecks: finiteNumber(source.offlineChecks, initial.offlineChecks),

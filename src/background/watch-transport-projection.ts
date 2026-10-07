@@ -4,11 +4,6 @@ import type { ServiceWorkerState } from './runtime-state.ts';
 export type WatchTransportProjection =
   | { readonly kind: 'started'; readonly health: WatchHealthSnapshot }
   | { readonly kind: 'checked'; readonly health: WatchHealthSnapshot }
-  | {
-      readonly kind: 'fallback';
-      readonly health: WatchHealthSnapshot;
-      readonly reason: string;
-    }
   | { readonly kind: 'stopped'; readonly health: WatchHealthSnapshot }
   | { readonly kind: 'preference'; readonly mode: WatchTransportMode };
 
@@ -34,25 +29,19 @@ export function createWatchTransportProjectionStore(
         case 'started':
           state.watchTransportMode = projection.health.mode;
           state.watchHealth = projection.health;
-          state.watchFallbackReason = null;
           break;
         case 'checked':
           state.watchTransportMode = projection.health.mode;
           state.watchHealth = projection.health;
           break;
-        case 'fallback':
-          state.watchTransportMode = projection.health.mode;
-          state.watchHealth = projection.health;
-          state.watchFallbackReason = projection.reason;
-          break;
         case 'stopped':
+          state.pendingWatchTarget = null;
           state.watchTransportMode = projection.health.mode;
           state.watchHealth = {
             ...projection.health,
             status: 'stopped',
             reason: 'stopped',
           };
-          state.watchFallbackReason = null;
           break;
         case 'preference':
           state.watchTransportPreference = projection.mode;

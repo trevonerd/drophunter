@@ -71,11 +71,11 @@ test('merge status is active when progress > 0', () => {
   expect(merged.status).toBe('active');
 });
 
-test('merge status is completed when progress is 100 and not claimable', () => {
+test('merge keeps 100 percent active until acquisition is verified', () => {
   const next = createDrop({ progress: 100, claimable: false, claimed: false });
   const prev = createDrop({ progress: 90, claimable: false, claimed: false });
   const merged = mergeDropProgressMonotonic(next, prev);
-  expect(merged.status).toBe('completed');
+  expect(merged.status).toBe('active');
 });
 
 test('merge status is pending when no progress', () => {
@@ -140,8 +140,8 @@ test('isDropCompleted returns true when claimed', () => {
   expect(isDropCompleted(createDrop({ claimed: true }))).toBe(true);
 });
 
-test('isDropCompleted returns true when progress 100 and not claimable', () => {
-  expect(isDropCompleted(createDrop({ progress: 100, claimable: false }))).toBe(true);
+test('isDropCompleted returns false without acquisition at progress 100', () => {
+  expect(isDropCompleted(createDrop({ progress: 100, claimable: false }))).toBe(false);
 });
 
 test('isDropCompleted returns false when progress 100 but claimable', () => {

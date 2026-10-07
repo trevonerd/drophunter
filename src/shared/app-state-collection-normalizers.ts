@@ -110,25 +110,31 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
   if (!isRecord(value)) return {};
   return Object.fromEntries(
     Object.entries(value)
-      .filter((entry): entry is [string, AppState['queueEntryMetadataByKey'][string]] => {
-        const metadata = entry[1];
-        return (
-          isRecord(metadata) &&
-          (metadata.source === 'manual' || metadata.source === 'favorite-auto') &&
-          Number.isFinite(metadata.addedAt) &&
-          (metadata.reason === 'user-added' ||
-            metadata.reason === 'favorite-discovered' ||
-            metadata.reason === 'retained-after-hide')
-        );
-      })
-      .map(([key, metadata]) => {
+      .filter(
+        (entry): entry is [string, AppState['queueEntryMetadataByKey'][string] & Record<string, unknown>] => {
+          const metadata = entry[1];
+          return (
+            isRecord(metadata) &&
+            (metadata.source === 'manual' || metadata.source === 'favorite-auto') &&
+            Number.isFinite(metadata.addedAt) &&
+            (metadata.reason === 'user-added' ||
+              metadata.reason === 'favorite-discovered' ||
+              metadata.reason === 'retained-after-hide')
+          );
+        },
+      )
+      .map(([key, typedMetadata]) => {
+        const metadata: Record<string, unknown> & typeof typedMetadata = typedMetadata;
         const {
           streamerRetryAt,
           streamerRetryReason,
-          streamerRetryAttempts,
-          streamerRetryCycles,
+          streamerRetryAttempts: _legacyAttempts,
+          streamerRetryCycles: _legacyCycles,
           streamerWaitState,
           stalledStreamerNames,
+          failedPlaybackStreamerNames,
+          attemptedStreamerNames,
+          watchAttempt,
           ...provenance
         } = metadata;
         const validRetry =
@@ -136,18 +142,9 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
         return [
           key,
           {
-            ...provenance,
-            ...(typeof streamerRetryAttempts === 'number' &&
-            Number.isInteger(streamerRetryAttempts) &&
-            streamerRetryAttempts >= 1 &&
-            streamerRetryAttempts <= 3
-              ? { streamerRetryAttempts }
-              : {}),
-            ...(Number.isInteger(streamerRetryCycles) &&
-            typeof streamerRetryCycles === 'number' &&
-            streamerRetryCycles >= 0
-              ? { streamerRetryCycles: Math.min(streamerRetryCycles, 3) }
-              : {}),
+            source: provenance.source,
+            addedAt: provenance.addedAt,
+            reason: provenance.reason,
             ...(validRetry ? { streamerRetryAt: Math.min(streamerRetryAt, Date.now() + 600_000) } : {}),
             ...(validRetry &&
             (streamerRetryReason === 'no-streamers' ||
@@ -157,16 +154,48 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
               ? { streamerRetryReason }
               : {}),
             ...(streamerWaitState === 'availability' ? { streamerWaitState } : {}),
-            ...(Array.isArray(stalledStreamerNames)
+            ...([attemptedStreamerNames, stalledStreamerNames, failedPlaybackStreamerNames].some(
+              Array.isArray,
+            )
               ? {
-                  stalledStreamerNames: Array.from(
-                    new Set(
-                      stalledStreamerNames
+                  attemptedStreamerNames: [
+                    ...new Set(
+                      [attemptedStreamerNames, stalledStreamerNames, failedPlaybackStreamerNames]
+                        .flatMap((names) => (Array.isArray(names) ? names : []))
                         .filter((name): name is string => typeof name === 'string')
                         .map((name) => name.trim().toLowerCase())
                         .filter(Boolean),
                     ),
-                  ).slice(0, 4),
+                  ].slice(0, 4),
+                }
+              : {}),
+            ...(isRecord(watchAttempt) &&
+            typeof watchAttempt.channelName === 'string' &&
+            watchAttempt.channelName.trim() &&
+            typeof watchAttempt.observedAt === 'number' &&
+            Number.isFinite(watchAttempt.observedAt) &&
+            watchAttempt.observedAt > 0
+              ? {
+                  watchAttempt: {
+                    channelName: watchAttempt.channelName.trim().toLowerCase(),
+                    observedAt: Math.min(watchAttempt.observedAt, Date.now()),
+                    ...(watchAttempt.preparing === true ? { preparing: true } : {}),
+                    ...(typeof watchAttempt.preparationProgress === 'number' &&
+                    Number.isFinite(watchAttempt.preparationProgress) &&
+                    watchAttempt.preparationProgress >= 0
+                      ? { preparationProgress: watchAttempt.preparationProgress }
+                      : {}),
+                    ...(typeof watchAttempt.suspendedAt === 'number' &&
+                    Number.isFinite(watchAttempt.suspendedAt) &&
+                    watchAttempt.suspendedAt >= watchAttempt.observedAt
+                      ? { suspendedAt: Math.min(watchAttempt.suspendedAt, Date.now()) }
+                      : {}),
+                    ...(typeof watchAttempt.firstPlaybackAt === 'number' &&
+                    Number.isFinite(watchAttempt.firstPlaybackAt) &&
+                    watchAttempt.firstPlaybackAt >= watchAttempt.observedAt
+                      ? { firstPlaybackAt: Math.min(watchAttempt.firstPlaybackAt, Date.now()) }
+                      : {}),
+                  },
                 }
               : {}),
           },

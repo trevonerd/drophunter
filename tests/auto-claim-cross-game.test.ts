@@ -4,7 +4,6 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 verifyExpectedDiagnostics([
   ['[DropHunter] Drops snapshot API skipped: Twitch session missing', 7],
   ['[DropHunter] No Twitch session recovered from storage keys', 7],
-  ['[DropHunter] Removing campaign after an authoritative refresh proved it unfarmable', 1],
 ]);
 
 import { afterAll, afterEach, beforeEach, describe } from 'bun:test';

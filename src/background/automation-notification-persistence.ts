@@ -19,8 +19,30 @@ export const automationNotificationPersistence: AutomationNotificationPersistenc
     const write = pendingWrite.then(async () => {
       const transitions = await readTransitions();
       if (transitions.includes(key)) return;
+      const stored = await browser.storage.local.get('appState');
+      const app = stored.appState;
+      const episodes =
+        app &&
+        typeof app === 'object' &&
+        'campaignFailureEpisodesByKey' in app &&
+        app.campaignFailureEpisodesByKey &&
+        typeof app.campaignFailureEpisodesByKey === 'object'
+          ? app.campaignFailureEpisodesByKey
+          : {};
+      const active = new Set(
+        Object.values(episodes).flatMap((episode: unknown) =>
+          episode && typeof episode === 'object' && 'id' in episode && typeof episode.id === 'string'
+            ? [episode.id]
+            : [],
+        ),
+      );
+      const receipts = [...transitions, key];
+      const protectedReceipt = (receipt: string) => active.has(receipt.replace(/^(browser|telegram):/, ''));
       await browser.storage.local.set({
-        [AUTOMATION_NOTIFICATION_TRANSITIONS_KEY]: [...transitions, key].slice(-MAX_PERSISTED_TRANSITIONS),
+        [AUTOMATION_NOTIFICATION_TRANSITIONS_KEY]: [
+          ...receipts.filter(protectedReceipt),
+          ...receipts.filter((receipt) => !protectedReceipt(receipt)).slice(-MAX_PERSISTED_TRANSITIONS),
+        ],
       });
     });
     pendingWrite = write.then(

@@ -46,14 +46,14 @@ export function registerQueue01Part01() {
       expect(state.appState.queue[0].campaignId).toBe('campaign-1');
     });
 
-    test('keeps a vanished game on the first miss and prunes only after consecutive confirmations', () => {
+    test('keeps an unresolved missing campaign across consecutive empty snapshots', () => {
       const state = createMinimalState();
       const vanishedGame = createGame({ id: 'vanished', campaignId: 'campaign-gone' });
       state.appState.queue = [vanishedGame];
       normalizeQueueSelection(state, [], true);
       expect(state.appState.queue).toHaveLength(1);
       normalizeQueueSelection(state, [], true);
-      expect(state.appState.queue).toHaveLength(0);
+      expect(state.appState.queue).toHaveLength(1);
     });
 
     test('keeps vanished games in queue when dropVanished is false', () => {
@@ -64,7 +64,7 @@ export function registerQueue01Part01() {
       expect(state.appState.queue).toHaveLength(1);
     });
 
-    test('resets the missing streak when the game reappears', () => {
+    test('preserves campaign position while its data disappears and reappears', () => {
       const state = createMinimalState();
       const game = createGame({ id: 'flaky', campaignId: 'campaign-flaky' });
       state.appState.queue = [game];
@@ -75,10 +75,10 @@ export function registerQueue01Part01() {
       normalizeQueueSelection(state, [], true);
       expect(state.appState.queue).toHaveLength(1);
       normalizeQueueSelection(state, [], true);
-      expect(state.appState.queue).toHaveLength(0);
+      expect(state.appState.queue).toHaveLength(1);
     });
 
-    test('does not count misses toward the streak while within the crash-recovery grace window', () => {
+    test('keeps unresolved campaign data during crash recovery', () => {
       const state = createMinimalState();
       state.appState.resumedFromCrash = Date.now();
       const vanishedGame = createGame({ id: 'vanished', campaignId: 'campaign-gone' });
@@ -98,9 +98,9 @@ export function registerQueue01Part01() {
       // First post-grace snapshot only reports diablo (museum missing) — should survive.
       normalizeQueueSelection(state, [diablo], true);
       expect(state.appState.queue.map((g) => g.id)).toEqual(['museum', 'diablo']);
-      // A second consecutive snapshot still missing museum confirms the prune.
+      // Repeated partial data is still not acquisition or expiry proof.
       normalizeQueueSelection(state, [diablo], true);
-      expect(state.appState.queue.map((g) => g.id)).toEqual(['diablo']);
+      expect(state.appState.queue.map((g) => g.id)).toEqual(['museum', 'diablo']);
     });
   });
 }

@@ -11,7 +11,6 @@ export interface StartupResumePolicyState {
   recoveryBackoffUntil: number;
   lastRecoveryAttemptAt: number;
   stalledRecoveryAttempts: number;
-  recoveryNotificationSent: boolean;
 }
 
 export interface StartupAutoResumeState extends StartupResumePolicyState {

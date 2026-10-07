@@ -24,3 +24,12 @@ export function isExpectedStreamCategory(
   const name = normalized(expected.categoryName);
   return label.length > 0 && name.length > 0 && label === name;
 }
+
+/** Twitch can mount its player before rendering category metadata. */
+export function observedStreamCategoryMatch(
+  observed: StreamCategory | null,
+  expected: ExpectedCategory,
+): boolean | undefined {
+  if (!normalized(observed?.categorySlug) && !normalized(observed?.categoryLabel)) return undefined;
+  return isExpectedStreamCategory(observed, expected);
+}

@@ -1,11 +1,10 @@
-import { formatFarmingCompleteStatusLines } from '../shared/runtime-status.ts';
 import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
+import { unresolvedFarmingTargets } from './farming-session-targets.ts';
 import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { clearRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type {
   CompletedQueueContext,
-  QueueSkipCopy,
   QueueSkipReason,
   StopFarmingSessionOptions,
 } from './session-lifecycle-types.ts';
@@ -26,7 +25,6 @@ export function resetStreamTrackingState(state: ServiceWorkerState, preserveReco
   state.offlineChecks = 0;
   state.avoidStreamerName = null;
   resetNoProgressRotationAttempts(state);
-  state.playbackAttentionWarningSent = false;
   if (!preserveRecovery) clearRecoveryState(state);
 }
 
@@ -34,6 +32,7 @@ export async function stopFarmingSession(
   state: ServiceWorkerState,
   options?: StopFarmingSessionOptions,
 ): Promise<void> {
+  if (options?.isCurrent?.() === false) return;
   const preserveQueueContext = options?.stopReason === 'sign-in-required';
   if (!preserveQueueContext) {
     resetQueueAcquisitionRound(state);
@@ -43,13 +42,7 @@ export async function stopFarmingSession(
     state.appState.queueEntryMetadataByKey = Object.fromEntries(
       Object.entries(state.appState.queueEntryMetadataByKey).map(([key, metadata]) => {
         if (metadata.streamerWaitState !== 'availability') return [key, metadata];
-        const {
-          streamerWaitState: _waitState,
-          streamerRetryCycles: _cycles,
-          streamerRetryAt: _retryAt,
-          streamerRetryAttempts: _attempts,
-          ...ready
-        } = metadata;
+        const { streamerWaitState: _waitState, streamerRetryAt: _retryAt, ...ready } = metadata;
         return [key, ready];
       }),
     );
@@ -62,10 +55,6 @@ export async function stopFarmingSession(
   state.dropClaimInFlight = false;
   state.monitorTickInFlight = false;
   state.tickGeneration += 1;
-
-  if (options?.onCloseManagedTab) {
-    await options.onCloseManagedTab(state.appState.tabId);
-  }
 
   if (options?.onClearRotationMetadata) {
     state.appState = {
@@ -105,8 +94,10 @@ export async function stopFarmingSession(
       await options.onSystemAlert(options.stopReason, alertMessage);
     }
   }
+  if (options?.isCurrent?.() === false) return;
   if (options?.onSaveState) {
     await options.onSaveState();
+    if (options.isCurrent?.() === false) return;
   }
   if (options?.skipTimingStateSave) {
     return;
@@ -124,135 +115,76 @@ export async function finalizeCompletedQueue(
   options: QueueProgressionExecution,
 ): Promise<void> {
   if (options?.isCurrent?.() === false) return;
+  if (unresolvedFarmingTargets(state).length > 0) return;
   resetQueueAcquisitionRound(state);
-  if (options?.onCloseManagedTabIfSafe) {
-    await options.onCloseManagedTabIfSafe(state.appState.tabId);
-    if (options.isCurrent?.() === false) return;
-  }
-  if (options?.onClearManagedTabOwnership) {
-    options.onClearManagedTabOwnership();
-  }
   state.appState.isRunning = false;
   state.appState.isPaused = false;
   state.appState.manualQueueAuthorized = false;
   state.appState.queueResumeOnAvailability = false;
   state.appState.forcedCampaignKey = null;
   state.appState.farmingSessionOrigin = null;
-  state.appState.selectedGame = context.terminalFarmingCompleteGame;
+  state.appState.selectedGame = null;
+  state.appState.activeStreamer = null;
+  state.appState.watchHealth = null;
   state.appState.completionNotified = false;
   state.appState.lastRotationReason = null;
   state.appState.lastRotationAt = null;
-  const queueCompleteMessage = context.completedWhileNoStreamers
-    ? `Queue completed. No eligible streamer was found for ${context.completedGameName}.`
-    : 'Queue completed. No pending rewards left.';
-  const queueCompleteNotificationMessage = context.completedWhileNoStreamers
-    ? `No eligible streamer was found for the Drops in ${context.completedGameName}. DropHunter has stopped.`
-    : queueCompleteMessage;
-  const farmingCompleteReasons = context.terminalFarmingCompleteGame?.rewardSummary?.remainderReasons ?? [];
-  const farmingCompleteLines = formatFarmingCompleteStatusLines(farmingCompleteReasons);
-  const stopReason = context.terminalFarmingCompleteGame
-    ? farmingCompleteReasons.includes('unverifiable-twitch')
-      ? 'unverifiable-twitch'
-      : 'farming-complete'
-    : 'queue-complete';
-  const stopMessage = context.terminalFarmingCompleteGame
-    ? farmingCompleteLines.join('\n') || 'Farming finished.'
-    : queueCompleteMessage;
+  const targets = Object.values(state.appState.farmingSessionTargets);
+  const acquired = targets.filter((target) => target.acquired).length;
+  const expired = targets.length - acquired;
+  const queueCompleteMessage =
+    expired > 0
+      ? `Farming ended: ${acquired} campaigns acquired, ${expired} expired.`
+      : targets.length > 0
+        ? 'All authorized campaign rewards were acquired.'
+        : 'No authorized campaigns remain.';
+  const queueCompleteNotificationMessage = queueCompleteMessage;
+  const stopReason = 'queue-complete';
+  const stopMessage = queueCompleteMessage;
   if (options?.onApplyStopState) {
     options.onApplyStopState(state, stopReason, stopMessage);
-  }
-  if (options?.onSystemAlert) {
-    await options.onSystemAlert(stopReason, stopMessage);
-    if (options.isCurrent?.() === false) return;
   }
   if (options?.onStopMonitoring) {
     await options.onStopMonitoring();
     if (!options.isCurrent()) return;
   }
+  await options.onSaveState();
+  if (!options.isCurrent()) return;
+  void Promise.resolve()
+    .then(async () => {
+      await options.onSystemAlert?.(stopReason, stopMessage);
+    })
+    .catch(() => undefined);
   if (!context.terminalFarmingCompleteGame) {
-    if (context.completedWhileNoStreamers) {
-      if (options?.onQueueCompleteNotification) {
-        await options.onQueueCompleteNotification('Queue completed', queueCompleteNotificationMessage);
-      } else if (options?.onNotify) {
-        await options.onNotify('Queue completed', queueCompleteNotificationMessage);
-      }
-    } else if (options?.onSendAlert) {
-      await options.onSendAlert('all-complete', queueCompleteMessage);
-    }
-  }
-  if (options?.onSaveState) {
-    if (options?.isCurrent?.() === false) return;
-    await options.onSaveState();
+    void Promise.resolve()
+      .then(async () => {
+        if (context.completedWhileNoStreamers) {
+          if (options?.onQueueCompleteNotification) {
+            await options.onQueueCompleteNotification('Queue completed', queueCompleteNotificationMessage);
+          } else if (options?.onNotify) {
+            await options.onNotify('Queue completed', queueCompleteNotificationMessage);
+          }
+        } else if (expired > 0) {
+          await options.onQueueCompleteNotification?.('Campaigns ended', queueCompleteMessage);
+        } else if (options?.onSendAlert && acquired > 0) {
+          await options.onSendAlert('all-complete', queueCompleteMessage);
+        }
+      })
+      .catch(() => undefined);
   }
 }
 
-export function queueSkipCopy(reason: QueueSkipReason, gameName: string): QueueSkipCopy {
+export function queueSkipLogMessage(reason: QueueSkipReason): string {
   switch (reason) {
-    case 'unfarmable': {
-      const message = `The ${gameName} campaign is no longer farmable. DropHunter is moving to the next campaign.`;
-      return {
-        logMessage: 'Removing campaign after an authoritative refresh proved it unfarmable',
-        skipNotificationTitle: 'Campaign no longer farmable',
-        skipMessage: message,
-        terminalNotificationTitle: 'Campaign no longer farmable',
-        terminalMessage: message,
-        terminalNotificationMessage: message,
-        stopReason: 'queue-complete',
-      };
-    }
+    case 'unfarmable':
+      return 'Parking campaign while reward eligibility is unresolved';
     case 'no-streamers':
-      return {
-        logMessage: 'Parking campaign because no eligible Drops streamer was found',
-        skipNotificationTitle: 'Campaign queued: waiting for streamers',
-        skipMessage: `Kept ${gameName} queued for retry — no eligible streamer was found for its Drops.`,
-        terminalNotificationTitle: 'Farming stopped: no eligible streamers',
-        terminalMessage: `Farming stopped after repeated attempts because no eligible streamer was found for ${gameName}, and no other campaign can be farmed right now.`,
-        terminalNotificationMessage: `No eligible streamer was found for the Drops in ${gameName} after repeated attempts. DropHunter has stopped.`,
-        stopReason: 'queue-retries-exhausted',
-      };
+      return 'Parking campaign because no eligible Drops streamer was found';
     case 'directory-unavailable':
-      return {
-        logMessage: 'Parking campaign because Twitch streamer search is unavailable',
-        skipNotificationTitle: 'Campaign queued: Twitch search unavailable',
-        skipMessage: `Kept ${gameName} queued for retry — Twitch streamer search is temporarily unavailable.`,
-        terminalNotificationTitle: 'No active campaigns',
-        terminalMessage: 'No active campaigns remain in the queue.',
-        terminalNotificationMessage: 'No active campaigns remain in the queue.',
-        stopReason: 'no-active-campaigns',
-      };
+      return 'Parking campaign while Twitch streamer search is unavailable';
     case 'open-failed':
-      return {
-        logMessage: 'Parking campaign because eligible stream playback could not start',
-        skipNotificationTitle: 'Campaign queued: playback unavailable',
-        skipMessage: `Kept ${gameName} queued for retry — eligible stream playback could not start.`,
-        terminalNotificationTitle: 'Playback needs attention',
-        terminalMessage: `Playback could not start for ${gameName}. DropHunter will keep checking the queue.`,
-        terminalNotificationMessage: `Playback could not start for ${gameName}. DropHunter will retry.`,
-        stopReason: 'queue-retries-exhausted',
-      };
-    case 'unverifiable-twitch':
-      return {
-        logMessage: 'Finishing campaign because Twitch reward acquisition could not be verified',
-        skipNotificationTitle: 'Campaign farming finished',
-        skipMessage: `Finished farming ${gameName} — Twitch reward acquisition could not be verified.`,
-        terminalNotificationTitle: 'Farming finished',
-        terminalMessage: `Farming finished for ${gameName} — Twitch reward acquisition could not be verified and no other farmable games are queued.`,
-        terminalNotificationMessage: `Twitch reward acquisition could not be verified for ${gameName}. DropHunter has stopped.`,
-        stopReason: 'unverifiable-twitch',
-      };
+      return 'Parking campaign because eligible stream playback could not start';
     case 'stalled-progress':
-      return {
-        logMessage: 'Giving up on game after stalled drop progress',
-        skipNotificationTitle: 'Game skipped: no drop progress',
-        skipMessage: `Skipped ${gameName} — stream opened but drop progress did not resume.`,
-        terminalNotificationTitle: 'Farming stopped: no drop progress',
-        terminalMessage: `Farming stopped — ${gameName} opened a stream but drop progress did not resume and no other games are queued.`,
-        terminalNotificationMessage: `${gameName} opened a stream but drop progress did not resume. DropHunter has stopped.`,
-        stopReason: 'stall-skipped',
-      };
-    default: {
-      const exhaustiveReason: never = reason;
-      throw new TypeError(`Unhandled queue skip reason: ${exhaustiveReason}`);
-    }
+      return 'Parking campaign after its streamers did not advance reward progress';
   }
 }

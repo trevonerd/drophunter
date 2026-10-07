@@ -67,7 +67,7 @@ describe('applyExtensionUpdateStateTransition', () => {
     expect(state.appState.preferredStreamerLanguage).toBe('en');
     expect(state.appState.queue).toEqual([{ id: 'game-2', name: 'Next Game', imageUrl: '' }]);
     expect(state.appState.selectedGame).toEqual({ id: 'game-1', name: 'Game', imageUrl: '' });
-    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.isRunning).toBe(true);
     expect(state.appState.wasRunning).toBe(true);
   });
 

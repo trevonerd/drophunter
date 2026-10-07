@@ -1,9 +1,7 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics([
-  ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 1],
-]);
+verifyExpectedDiagnostics([]);
 
 import { afterEach, describe, expect, test } from 'bun:test';
 import { checkDropProgress } from '../src/background/drops-tick-monitoring.ts';
@@ -20,12 +18,19 @@ describe('fast streamer acquisition retry', () => {
     Date.now = realDateNow;
   });
 
-  test('retries an empty directory after thirty seconds', async () => {
+  test('parks an empty directory immediately rather than retrying the same candidate', async () => {
     Date.now = () => 1_000_000;
     const state = createMinimalState();
     state.appState.selectedGame = createGame();
-    await acquireStreamerForSelectedGame(state, { onOpenStreamer: async () => false });
-    expect(state.recoveryBackoffUntil).toBe(1_030_000);
+    const reasons: string[] = [];
+    await acquireStreamerForSelectedGame(state, {
+      onOpenStreamer: async () => false,
+      onSkipCurrentGame: async (reason) => {
+        reasons.push(reason ?? '');
+      },
+    });
+    expect(reasons).toEqual(['no-streamers']);
+    expect(state.recoveryBackoffUntil).toBe(0);
   });
 
   test('keeps a campaign selected without querying during a ten minute API cooldown', async () => {

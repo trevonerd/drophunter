@@ -61,6 +61,8 @@ function createState() {
   state.appState.pendingDrops = [drop];
   state.appState.allDrops = [drop];
   state.appState.isRunning = true;
+  state.appState.manualQueueAuthorized = true;
+  state.appState.farmingSessionOrigin = 'manual';
   state.cachedDropsSnapshot = [drop];
   state.twitchSessionCache = twitchSession;
   return state;
@@ -94,7 +96,6 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
     attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
     clearManagedTabOwnership: () => {},
     openMonitorDashboardWindow: async () => {},
     sendAlert: async () => {},
@@ -121,7 +122,7 @@ describe('AFK Twitch authentication recovery', () => {
     chromeMocks.teardown();
   });
 
-  test('blocks after rejected OAuth cannot be repaired from an existing Twitch tab', async () => {
+  test('retains authorization and retries when OAuth cannot be repaired from an existing Twitch tab', async () => {
     const state = createState();
     let transportStops = 0;
     const farmingSession = createFarmingSession(
@@ -150,11 +151,11 @@ describe('AFK Twitch authentication recovery', () => {
     const snapshot = await gateway.fetchDropsSnapshot();
 
     expect(snapshot).toBeNull();
-    expect(state.appState.isRunning).toBe(false);
+    expect(state.appState.isRunning).toBe(true);
     expect(state.appState.activeStreamer).toBeNull();
     expect(state.appState.recoveryReason).toBeNull();
-    expect(state.appState.lastStopReason).toBe('sign-in-required');
-    expect(state.appState.twitchSessionSyncState.status).toBe('blocked');
+    expect(state.appState.lastStopReason).toBeNull();
+    expect(state.appState.twitchSessionSyncState.status).toBe('retrying');
     expect(state.twitchSessionCache).toBeNull();
     expect(transportStops).toBe(1);
   });

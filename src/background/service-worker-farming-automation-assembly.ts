@@ -1,5 +1,5 @@
 import { gameKey } from '../shared/game-selection.ts';
-import { isExpectedStreamCategory } from '../shared/stream-category.ts';
+import { observedStreamCategoryMatch } from '../shared/stream-category.ts';
 import { recordAutomationActivity } from './automation-activity.ts';
 import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import { initializeFarmingAutomationLifecycle } from './extension-lifecycle.ts';
@@ -96,9 +96,11 @@ export async function assembleServiceWorkerFarmingAutomation(
       receiptRead satisfies never;
   }
   currentOwnership = await reconcileManagedWatchesOnStartup(state, currentOwnership);
-  if (currentOwnership) {
+  if (currentOwnership || state.appState.activeStreamer || state.appState.watchHealth) {
     const epoch = currentFarmingSessionEpoch(state);
-    const restored = await dependencies.browserEvents.watchTransport.restore(currentOwnership);
+    const restored = currentOwnership
+      ? await dependencies.browserEvents.watchTransport.restore(currentOwnership)
+      : false;
     if (
       !restored &&
       epoch === currentFarmingSessionEpoch(state) &&
@@ -109,7 +111,6 @@ export async function assembleServiceWorkerFarmingAutomation(
       state.appState.activeStreamer = null;
       state.appState.watchHealth = null;
       state.appState.tabId = null;
-      state.appState.watchFallbackReason = null;
       applyPlaybackStartRecoveryState(state, Date.now(), 0);
       await saveState(state);
       await saveTimingState(state);
@@ -143,9 +144,9 @@ export async function assembleServiceWorkerFarmingAutomation(
       probeManaged: async (ownership, target) => {
         const context = await dependencies.twitchGateway.fetchStreamContext(ownership.tabId);
         const sameChannel = context?.channelName.toLowerCase() === target.channelName.toLowerCase();
-        const sameGame = isExpectedStreamCategory(context, target);
+        const sameGame = observedStreamCategoryMatch(context, target);
         return {
-          accepted: context !== null && sameChannel && sameGame && context.isPlaybackReady === true,
+          accepted: context !== null && sameChannel && sameGame === true && context.isPlaybackReady === true,
           isLive: context?.isLive,
           sameChannel,
           sameGame,
@@ -154,11 +155,13 @@ export async function assembleServiceWorkerFarmingAutomation(
             ? 'heartbeat-failed'
             : !sameChannel
               ? 'wrong-channel'
-              : !sameGame
+              : sameGame === false
                 ? 'wrong-game'
                 : context.isPlaybackReady !== true
                   ? 'playback-inactive'
-                  : 'heartbeat',
+                  : sameGame === undefined
+                    ? 'heartbeat-failed'
+                    : 'heartbeat',
         };
       },
     },

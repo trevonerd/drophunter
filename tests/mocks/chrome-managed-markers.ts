@@ -11,7 +11,8 @@ export function createManagedMarkerScriptMock() {
       return [
         {
           frameId: 0,
-          result: JSON.stringify(markers.get(options.target.tabId)) === JSON.stringify(options.args),
+          result:
+            JSON.stringify(markers.get(options.target.tabId)) === JSON.stringify(options.args?.slice(0, 3)),
         },
       ];
     }

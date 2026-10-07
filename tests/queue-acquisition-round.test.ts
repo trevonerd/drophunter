@@ -1,9 +1,7 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics([
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 5],
-]);
+verifyExpectedDiagnostics([]);
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import {
@@ -30,19 +28,20 @@ describe('queue acquisition rounds', () => {
     const first = createGame({ id: 'shared', campaignId: 'round-a' });
     const second = createGame({ id: 'shared', campaignId: 'round-b' });
     const state = createMinimalState();
+    state.appState.queue = [first, second];
     const firstKey = gameKey(first);
     const secondKey = gameKey(second);
     state.appState.queueEntryMetadataByKey[firstKey] = {
       source: 'manual',
       addedAt: 1,
       reason: 'user-added',
-      stalledStreamerNames: ['a'],
+      attemptedStreamerNames: ['a', 'failed-a'],
     };
     state.appState.queueEntryMetadataByKey[secondKey] = {
       source: 'manual',
       addedAt: 2,
       reason: 'user-added',
-      stalledStreamerNames: ['b'],
+      attemptedStreamerNames: ['b'],
     };
     state.appState.queueAcquisitionRound = {
       attemptedCampaignKeys: [firstKey, secondKey],
@@ -50,16 +49,20 @@ describe('queue acquisition rounds', () => {
     };
 
     resetQueueAcquisitionRound(state);
-    expect(state.appState.queueEntryMetadataByKey[firstKey]?.stalledStreamerNames).toEqual(['a']);
-    expect(state.appState.queueEntryMetadataByKey[secondKey]?.stalledStreamerNames).toEqual(['b']);
+    expect(state.appState.queueEntryMetadataByKey[firstKey]?.attemptedStreamerNames).toEqual([
+      'a',
+      'failed-a',
+    ]);
+    expect(state.appState.queueEntryMetadataByKey[secondKey]?.attemptedStreamerNames).toEqual(['b']);
     state.appState.queueAcquisitionRound = {
       attemptedCampaignKeys: [firstKey, secondKey],
       nextRoundAt: 10_000,
     };
 
     expect(queueRoundCandidates(state, [first, second], 10_000)).toEqual([first, second]);
-    expect(state.appState.queueEntryMetadataByKey[firstKey]?.stalledStreamerNames).toBeUndefined();
-    expect(state.appState.queueEntryMetadataByKey[secondKey]?.stalledStreamerNames).toBeUndefined();
+    expect(state.appState.queueEntryMetadataByKey[firstKey]?.attemptedStreamerNames).toBeUndefined();
+    expect(state.appState.queueEntryMetadataByKey[firstKey]?.attemptedStreamerNames).toBeUndefined();
+    expect(state.appState.queueEntryMetadataByKey[secondKey]?.attemptedStreamerNames).toBeUndefined();
   });
 
   test.each([1, 4, 10])(

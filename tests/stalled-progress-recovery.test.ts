@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { recoverStalledProgress } from '../src/background/stalled-progress-recovery.ts';
+import { beginStreamerWatchAttempt } from '../src/background/streamer-watch-attempt.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { createInitialState } from '../src/shared/utils.ts';
@@ -59,8 +60,6 @@ describe('stalled progress recovery', () => {
           return 'refreshed';
         },
         onAdvanceQueueIfCompleted: async () => false,
-        onAttemptPlaybackSelfHeal: async () => {},
-        onRestartTablessWatcher: async () => {},
         onRotateStreamer: async () => {},
         onSkipCurrentGame: async () => {},
         onSaveState: async () => {},
@@ -90,8 +89,6 @@ describe('stalled progress recovery', () => {
           return 'refreshed';
         },
         onAdvanceQueueIfCompleted: async () => false,
-        onAttemptPlaybackSelfHeal: async () => {},
-        onRestartTablessWatcher: async () => {},
         onRotateStreamer: async () => {},
         onSkipCurrentGame: async () => {},
         onSaveState: async () => {},
@@ -107,7 +104,6 @@ describe('stalled progress recovery', () => {
   test('does not start stalled recovery when an authoritative refresh is unavailable', async () => {
     const state = createStalledState();
     let inventoryRefreshes = 0;
-    let tablessRestarts = 0;
 
     const result = await recoverStalledProgress(
       state,
@@ -120,10 +116,6 @@ describe('stalled progress recovery', () => {
           return 'refreshed';
         },
         onAdvanceQueueIfCompleted: async () => false,
-        onAttemptPlaybackSelfHeal: async () => {},
-        onRestartTablessWatcher: async () => {
-          tablessRestarts += 1;
-        },
         onRotateStreamer: async () => {},
         onSkipCurrentGame: async () => {},
         onSaveState: async () => {},
@@ -133,14 +125,12 @@ describe('stalled progress recovery', () => {
 
     expect(result).toEqual({ kind: 'refresh-unavailable' });
     expect(inventoryRefreshes).toBe(0);
-    expect(tablessRestarts).toBe(0);
     expect(state.stalledRecoveryAttempts).toBe(0);
     expect(state.appState.recoveryReason).toBeNull();
   });
 
   test('does not rotate when inventory evidence is unavailable after a campaign refresh', async () => {
     const state = createStalledState();
-    let tablessRestarts = 0;
 
     const result = await recoverStalledProgress(
       state,
@@ -150,10 +140,6 @@ describe('stalled progress recovery', () => {
         onCampaignRefresh: async () => 'refreshed',
         onInventoryRefresh: async () => 'transient-failure',
         onAdvanceQueueIfCompleted: async () => false,
-        onAttemptPlaybackSelfHeal: async () => {},
-        onRestartTablessWatcher: async () => {
-          tablessRestarts += 1;
-        },
         onRotateStreamer: async () => {},
         onSkipCurrentGame: async () => {},
         onSaveState: async () => {},
@@ -162,7 +148,6 @@ describe('stalled progress recovery', () => {
     );
 
     expect(result).toEqual({ kind: 'refresh-unavailable' });
-    expect(tablessRestarts).toBe(0);
     expect(state.stalledRecoveryAttempts).toBe(0);
   });
 
@@ -185,8 +170,6 @@ describe('stalled progress recovery', () => {
         onCampaignRefresh: async () => 'refreshed',
         onInventoryRefresh: async () => 'refreshed',
         onAdvanceQueueIfCompleted: async () => false,
-        onAttemptPlaybackSelfHeal: async () => {},
-        onRestartTablessWatcher: async () => {},
         onRotateStreamer: async () => {
           rotations += 1;
         },
@@ -225,8 +208,6 @@ describe('stalled progress recovery', () => {
         onCampaignRefresh: async () => 'refreshed',
         onInventoryRefresh: async () => 'refreshed',
         onAdvanceQueueIfCompleted: async () => false,
-        onAttemptPlaybackSelfHeal: async () => {},
-        onRestartTablessWatcher: async () => {},
         onRotateStreamer: async () => {
           state.appState.recoveryReason = 'open-failed';
           state.recoveryBackoffUntil = 1_060_000;
@@ -259,8 +240,6 @@ describe('stalled progress recovery', () => {
       onCampaignRefresh: async () => 'refreshed' as const,
       onInventoryRefresh: async () => 'refreshed' as const,
       onAdvanceQueueIfCompleted: async () => false,
-      onAttemptPlaybackSelfHeal: async () => {},
-      onRestartTablessWatcher: async () => {},
       onRotateStreamer: async () => {},
       onSkipCurrentGame: async () => {
         skipped += 1;
@@ -283,7 +262,7 @@ describe('stalled progress recovery', () => {
     const state = createStalledState();
     state.appState.activeStreamer = { id: 'A', name: ' A ', displayName: 'A', isLive: true };
     let currentTime = 1_000_000;
-    let repairs = 0;
+
     let rotations = 0;
     let skips = 0;
     const candidates = ['B', 'C', 'D'];
@@ -292,12 +271,6 @@ describe('stalled progress recovery', () => {
       onCampaignRefresh: async () => 'refreshed' as const,
       onInventoryRefresh: async () => 'refreshed' as const,
       onAdvanceQueueIfCompleted: async () => false,
-      onAttemptPlaybackSelfHeal: async () => {
-        repairs += 1;
-      },
-      onRestartTablessWatcher: async () => {
-        repairs += 1;
-      },
       onRotateStreamer: async () => {
         const name = candidates[rotations];
         if (!name) throw new Error('Missing replacement streamer fixture');
@@ -308,7 +281,7 @@ describe('stalled progress recovery', () => {
           isLive: true,
         };
         rotations += 1;
-        state.lastProgressAdvanceAt = currentTime;
+        beginStreamerWatchAttempt(state, game, name, currentTime);
         return true;
       },
       onSkipCurrentGame: async () => {
@@ -319,16 +292,15 @@ describe('stalled progress recovery', () => {
     };
 
     const first = await recoverStalledProgress(state, { kind: 'tabless' }, dependencies);
-    for (let index = 0; index < 4; index += 1) {
-      currentTime = state.lastProgressAdvanceAt + 20 * 60_000;
+    for (let index = 0; index < 3; index += 1) {
+      currentTime += 20 * 60_000;
       await recoverStalledProgress(state, { kind: 'tabless' }, dependencies);
     }
 
     expect(first).toMatchObject({ kind: 'retry-scheduled', attempt: 1, started: true });
-    expect(repairs).toBe(1);
     expect(rotations).toBe(3);
     expect(skips).toBe(1);
-    expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.stalledStreamerNames).toEqual([
+    expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames).toEqual([
       'a',
       'b',
       'c',
@@ -343,9 +315,9 @@ describe('stalled progress recovery', () => {
       source: 'manual',
       addedAt: 1,
       reason: 'user-added',
-      stalledStreamerNames: ['a'],
+      attemptedStreamerNames: ['a'],
     };
-    let repairs = 0;
+
     let rotations = 0;
 
     const result = await recoverStalledProgress(
@@ -356,12 +328,6 @@ describe('stalled progress recovery', () => {
         onCampaignRefresh: async () => 'refreshed',
         onInventoryRefresh: async () => 'refreshed',
         onAdvanceQueueIfCompleted: async () => false,
-        onAttemptPlaybackSelfHeal: async () => {
-          repairs += 1;
-        },
-        onRestartTablessWatcher: async () => {
-          repairs += 1;
-        },
         onRotateStreamer: async () => {
           rotations += 1;
           return true;
@@ -373,7 +339,6 @@ describe('stalled progress recovery', () => {
     );
 
     expect(result).toMatchObject({ kind: 'retry-scheduled', started: true });
-    expect(repairs).toBe(0);
     expect(rotations).toBe(1);
   });
 
@@ -384,23 +349,23 @@ describe('stalled progress recovery', () => {
       source: 'manual',
       addedAt: 1,
       reason: 'user-added',
-      stalledStreamerNames: [' A ', 'a', '', 'B', 4 as never, 'C', 'D', 'E'],
+      attemptedStreamerNames: [' A ', 'a', '', 'B', 4 as never, 'C', 'D', 'E'],
     };
     appState.queueEntryMetadataByKey[gameKey(sibling)] = {
       source: 'manual',
       addedAt: 1,
       reason: 'user-added',
-      stalledStreamerNames: ['sibling'],
+      attemptedStreamerNames: ['sibling'],
     };
 
     const restored = normalizeStoredAppState(JSON.parse(JSON.stringify(appState)));
 
-    expect(restored.queueEntryMetadataByKey[gameKey(game)]?.stalledStreamerNames).toEqual([
+    expect(restored.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames).toEqual([
       'a',
       'b',
       'c',
       'd',
     ]);
-    expect(restored.queueEntryMetadataByKey[gameKey(sibling)]?.stalledStreamerNames).toEqual(['sibling']);
+    expect(restored.queueEntryMetadataByKey[gameKey(sibling)]?.attemptedStreamerNames).toEqual(['sibling']);
   });
 });

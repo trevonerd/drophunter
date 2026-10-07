@@ -151,7 +151,7 @@ export const fixtureDrop = {
   status: 'pending',
   acquisitionMethod: 'watch-time',
   rewardKind: 'in-game',
-  verificationState: 'verified',
+  verificationState: 'unassessed',
 };
 
 export function runningState(autoResumeOnStartup: boolean) {

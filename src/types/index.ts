@@ -1,5 +1,6 @@
 import type { QueueAcquisitionRound, QueueEntryMetadata } from './queue.ts';
 import type { StalledCampaignBlock } from './stalled-campaign';
+import type { WatchHealthSnapshot, WatchTransportMode } from './watch.ts';
 
 export type {
   FavoriteAutoStartDisposition,
@@ -9,6 +10,12 @@ export type {
   QueueEntryMetadata,
   QueueEntrySource,
 } from './queue.ts';
+export type {
+  WatchHealthReason,
+  WatchHealthSnapshot,
+  WatchHealthStatus,
+  WatchTransportMode,
+} from './watch.ts';
 
 export type RewardAcquisitionMethod = 'watch-time' | 'subscription' | 'other-event' | 'unknown';
 export type RewardKind = 'in-game' | 'twitch-badge' | 'twitch-emote' | 'unknown';
@@ -84,49 +91,11 @@ export type CampaignPriorityMode = 'ending-soonest' | 'lowest-availability' | 'p
 export type FarmCategoryScope = 'all' | 'favorites-only';
 export type GamePreference = 'normal' | 'favorite' | 'hidden';
 export type FarmingSessionOrigin = 'manual' | 'automatic';
-export type WatchTransportMode = 'managed-tab' | 'tabless';
 export type TwitchSessionSyncState =
   | { readonly status: 'unknown'; readonly attempts: 0; readonly nextRetryAt: null }
   | { readonly status: 'ready'; readonly attempts: 0; readonly nextRetryAt: null }
   | { readonly status: 'retrying'; readonly attempts: number; readonly nextRetryAt: number }
   | { readonly status: 'blocked'; readonly attempts: number; readonly nextRetryAt: null };
-export type WatchHealthStatus =
-  | 'healthy'
-  | 'degraded'
-  | 'failed'
-  | 'stalled'
-  | 'disabled'
-  | 'stopped'
-  | 'not-started';
-export type WatchHealthReason =
-  | 'started'
-  | 'heartbeat'
-  | 'heartbeat-failed'
-  | 'stream-offline'
-  | 'wrong-channel'
-  | 'wrong-game'
-  | 'drops-inactive'
-  | 'stalled-progress'
-  | 'managed-tab-unavailable'
-  | 'playback-inactive'
-  | 'user-interaction-required'
-  | 'transport-disabled'
-  | 'not-started'
-  | 'stopped'
-  | 'error';
-
-export interface WatchHealthSnapshot {
-  readonly mode: WatchTransportMode;
-  readonly isHealthy: boolean;
-  readonly status: WatchHealthStatus;
-  readonly reason: WatchHealthReason;
-  readonly consecutiveFailures: number;
-  readonly consecutiveStalls: number;
-  readonly progress: number | null;
-  readonly shouldFallback: boolean;
-  readonly checkedAt: number;
-}
-
 export interface FavoriteGame {
   readonly gameId: string;
   readonly lastKnownName: string;
@@ -203,6 +172,7 @@ export interface AppState {
   streamerSelectionMode: StreamerSelectionMode;
   preferredStreamerLanguage: string | null;
   activeStreamer: TwitchStreamer | null;
+  pendingWatchTarget: { game: TwitchGame; channelName: string } | null;
   currentDrop: TwitchDrop | null;
   completedDrops: TwitchDrop[];
   pendingDrops: TwitchDrop[];
@@ -223,6 +193,20 @@ export interface AppState {
   farmingSessionOrigin: FarmingSessionOrigin | null;
   queueEntryMetadataByKey: Record<string, QueueEntryMetadata>;
   queueAcquisitionRound: QueueAcquisitionRound | null;
+  farmingSessionTargets: Record<string, { readonly game: TwitchGame; readonly acquired: boolean }>;
+  campaignFailureEpisodesByKey: Record<
+    string,
+    {
+      readonly id: string;
+      readonly game: TwitchGame;
+      readonly reason: string;
+      readonly startedAt: number;
+      readonly lastAttemptAt: number;
+      readonly visible: boolean;
+      readonly exhausted?: boolean;
+    }
+  >;
+  dismissedFarmingMessageIds: readonly string[];
   stalledCampaignBlocksByKey: Record<string, StalledCampaignBlock>;
   automationActivity: AutomationActivityEntry[];
   lastAutomationMessage: string | null;
@@ -232,7 +216,6 @@ export interface AppState {
   watchTransportPreference: WatchTransportMode;
   watchTransportMode: WatchTransportMode;
   watchHealth: WatchHealthSnapshot | null;
-  watchFallbackReason: string | null;
   monitorWindowId: number | null;
   tabId: number | null;
   completionNotified: boolean;
@@ -270,6 +253,7 @@ export interface StorageData {
 
 export interface PlaybackPrepResult {
   gateDismissed?: boolean;
+  playbackPending?: boolean;
   isPlaybackReady?: boolean;
   userInteractionRequired?: boolean;
 }

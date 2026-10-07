@@ -1,23 +1,29 @@
-import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
-import { haveAllDropsExpiredOrVanished } from '../shared/drops.ts';
+import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
+import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import { isExpiredGame } from '../shared/utils.ts';
+import { hasCompleteIdentifiedRewardSet } from './campaign-reward-identity.ts';
 import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
-import { logDebug, logInfo, logWarn } from './logging.ts';
+import { reconcileFarmingSessionTargets } from './farming-session-targets.ts';
+import { logDebug, logInfo } from './logging.ts';
 import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
 import { removeQueueEntriesForGame } from './queue-operations.ts';
-import { isQueueRecoveryReason, recordQueueRecoveryActivity } from './queue-recovery-activity.ts';
+import { isQueueRecoveryReason } from './queue-recovery-activity.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import {
+  hasCompletedCampaignWatchTime,
   isWaitingForScheduledRewards,
-  selectedFarmingCompleteGame,
   selectedGameMarkedCompleted,
 } from './session-lifecycle-completion.ts';
 import { parkCampaignForStreamerRetry } from './session-lifecycle-queue-parking.ts';
 import { progressFarmingQueue } from './session-lifecycle-queue-progression.ts';
 import { isAutomaticFavoriteSession, parkCampaignAtQueueTail } from './session-lifecycle-queue-selection.ts';
-import { finalizeCompletedQueue, queueSkipCopy, resetStreamTrackingState } from './session-lifecycle-stop.ts';
+import {
+  finalizeCompletedQueue,
+  queueSkipLogMessage,
+  resetStreamTrackingState,
+} from './session-lifecycle-stop.ts';
 import type { QueueSkipReason } from './session-lifecycle-types.ts';
 
 export async function advanceQueueIfCompleted(
@@ -28,6 +34,16 @@ export async function advanceQueueIfCompleted(
   if (!state.appState.isRunning || state.appState.isPaused) {
     return false;
   }
+  reconcileFarmingSessionTargets(state);
+  const selected = state.appState.selectedGame;
+  const watchComplete = selected !== null && hasCompletedCampaignWatchTime(state, selected);
+  if (
+    (state.appState.queueAcquisitionRound?.nextRoundAt ?? 0) > options.now() &&
+    !watchComplete &&
+    (!selected || (!isCampaignAcquired(selected) && !isExpiredGame(selected))) &&
+    state.appState.farmingSessionTargets[selected ? gameKey(selected) : '']?.acquired !== true
+  )
+    return true;
   if (isWaitingForScheduledRewards(state)) {
     const scheduledGame = state.appState.selectedGame;
     if (!scheduledGame) return true;
@@ -61,16 +77,16 @@ export async function advanceQueueIfCompleted(
   const hasKnownNonFarmableRemainder =
     state.appState.pendingDrops.length > 0 && !hasFarmablePending && state.appState.currentDrop === null;
   const selectedMarkedCompleted = selectedGameMarkedCompleted(state);
-  let terminalFarmingCompleteGame = selectedFarmingCompleteGame(state);
+  let terminalFarmingCompleteGame = null;
   const knownCompletedCurrent =
-    terminalFarmingCompleteGame !== null ||
-    hasKnownNonFarmableRemainder ||
-    ((state.appState.allDrops.length > 0 || selectedMarkedCompleted) &&
-      !hasFarmablePending &&
-      state.appState.currentDrop === null);
-  const campaignExpiredOrVanished =
-    Boolean(state.appState.selectedGame && isExpiredGame(state.appState.selectedGame)) ||
-    haveAllDropsExpiredOrVanished(state.appState.allDrops, state.previousAllDropsCount);
+    selectedMarkedCompleted ||
+    (state.appState.selectedGame !== null &&
+      state.appState.allDrops.length > 0 &&
+      hasCompleteIdentifiedRewardSet(state.appState.selectedGame, state.appState.allDrops, true) &&
+      state.appState.allDrops.every(isRewardAcquired));
+  const campaignExpiredOrVanished = Boolean(
+    state.appState.selectedGame && isExpiredGame(state.appState.selectedGame),
+  );
   logDebug('advanceQueueIfCompleted result', {
     knownCompletedCurrent,
     selectedMarkedCompleted,
@@ -78,13 +94,30 @@ export async function advanceQueueIfCompleted(
     shouldAdvance: knownCompletedCurrent || campaignExpiredOrVanished,
   });
   if (!knownCompletedCurrent && !campaignExpiredOrVanished) {
+    if (watchComplete) {
+      resetStreamTrackingState(state);
+      const result = await progressFarmingQueue(state, {
+        restrictUnauthorizedManualContinuation: isAutomaticFavoriteSession(state, selected),
+        terminalFarmingCompleteGame: null,
+        options,
+      });
+      return result.kind !== 'cancelled';
+    }
+    if (hasKnownNonFarmableRemainder) {
+      await skipCurrentGameAndAdvanceQueue(state, 'no-streamers', options);
+      return state.appState.isRunning;
+    }
     return true;
   }
-  if (options?.isCampaignValidationCurrent && !options.isCampaignValidationCurrent()) {
+  if (
+    !campaignExpiredOrVanished &&
+    options?.isCampaignValidationCurrent &&
+    !options.isCampaignValidationCurrent()
+  ) {
     return true;
   }
   if (campaignExpiredOrVanished && !knownCompletedCurrent) {
-    logInfo('Campaign expired or vanished mid-farming — advancing queue', {
+    logInfo('Campaign expired mid-farming — advancing queue', {
       selectedGame: state.appState.selectedGame ? getGameDisplayLabel(state.appState.selectedGame) : null,
       allDropsCount: state.appState.allDrops.length,
       previousAllDropsCount: state.previousAllDropsCount,
@@ -101,6 +134,19 @@ export async function advanceQueueIfCompleted(
     state.appState.selectedGame,
   );
   if (state.appState.selectedGame) {
+    if (knownCompletedCurrent) {
+      const key = gameKey(state.appState.selectedGame);
+      const target = state.appState.farmingSessionTargets[key];
+      if (target)
+        state.appState.farmingSessionTargets[key] = {
+          game: {
+            ...target.game,
+            allDropsCompleted: true,
+            rewardSummary: { completion: 'all-acquired', remainderReasons: [] },
+          },
+          acquired: true,
+        };
+    }
     removeQueueEntriesForGame(state, state.appState.selectedGame);
   }
 
@@ -127,23 +173,32 @@ export async function skipCurrentGameAndAdvanceQueue(
 ): Promise<void> {
   if (options?.isCurrent?.() === false) return;
   const skippedGame = state.appState.selectedGame;
+  reconcileFarmingSessionTargets(state);
   const gameName = skippedGame ? getGameDisplayLabel(skippedGame) : 'current game';
-  const copy = queueSkipCopy(reason, gameName);
   const restrictUnauthorizedManualContinuation = isAutomaticFavoriteSession(state, skippedGame);
-  logWarn(copy.logMessage, {
+  logInfo(queueSkipLogMessage(reason), {
     game: gameName,
     reason,
     stalledRecoveryAttempts: state.stalledRecoveryAttempts,
   });
   if (skippedGame) {
     if (state.appState.forcedCampaignKey === gameKey(skippedGame)) state.appState.forcedCampaignKey = null;
-    if (isQueueRecoveryReason(reason) && campaignRejectionReason(skippedGame) === null) {
-      parkCampaignForStreamerRetry(state, skippedGame, reason, false, options.now());
+    if (!isCampaignAcquired(skippedGame) && !isExpiredGame(skippedGame)) {
+      await options.onCampaignFailure?.(skippedGame, reason);
+      if (!options.isCurrent()) return;
+      parkCampaignForStreamerRetry(
+        state,
+        skippedGame,
+        isQueueRecoveryReason(reason) ? reason : 'no-streamers',
+        false,
+        options.now(),
+      );
     } else {
       removeQueueEntriesForGame(state, skippedGame);
     }
   }
   resetStreamTrackingState(state);
+  await options.onSaveState();
 
   const progression = await progressFarmingQueue(state, {
     restrictUnauthorizedManualContinuation,
@@ -155,38 +210,15 @@ export async function skipCurrentGameAndAdvanceQueue(
     return;
   }
   if (progression.kind === 'advanced') {
-    if (skippedGame && isQueueRecoveryReason(reason)) {
-      recordQueueRecoveryActivity(state, skippedGame, reason, {
-        kind: 'advanced',
-        nextGame: progression.game,
-      });
-      await options?.onSaveState?.();
-      if (options?.isCurrent?.() === false) return;
-    }
-    if (state.appState.selectedGame && gameKey(state.appState.selectedGame) === gameKey(progression.game)) {
-      await options?.onNotify?.(
-        copy.skipNotificationTitle,
-        `${copy.skipMessage} Now farming ${getGameDisplayLabel(progression.game)}.`,
-      );
-      if (options?.isCurrent?.() === false) return;
-    }
     return;
   }
-  if (reason !== 'unverifiable-twitch') {
-    state.appState.selectedGame = null;
-  }
-  state.appState.manualQueueAuthorized = false;
-  if (skippedGame && isQueueRecoveryReason(reason)) {
-    recordQueueRecoveryActivity(state, skippedGame, reason, { kind: 'stopped' });
-  }
-  if (options?.onStopFarmingSession) {
-    await options.onStopFarmingSession({
-      stopReason: copy.stopReason,
-      stopMessage: copy.terminalMessage,
-      notification: {
-        title: copy.terminalNotificationTitle,
-        message: copy.terminalNotificationMessage,
-      },
-    });
-  }
+  await finalizeCompletedQueue(
+    state,
+    {
+      completedWhileNoStreamers: false,
+      completedGameName: gameName,
+      terminalFarmingCompleteGame: null,
+    },
+    options,
+  );
 }

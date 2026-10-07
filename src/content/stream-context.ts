@@ -1,5 +1,5 @@
 import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url.ts';
-import { isVideoPlaybackAdvancing } from './playback.ts';
+import { isVideoPlaybackAdvancing, resetPlaybackObservation } from './playback.ts';
 import { extractStreamCategory } from './stream-category.ts';
 
 export function normalizeText(value: string | null | undefined): string {
@@ -20,6 +20,23 @@ export function normalizeForCompare(value: string): string {
 
 export function extractChannelNameFromPath(): string | null {
   return getFarmableTwitchChannelNameFromUrl(window.location.href);
+}
+
+export function isStreamNavigationPending(): boolean {
+  const key = '__drophunter_route_target_v1';
+  const target = globalThis.sessionStorage?.getItem(key);
+  if (!target) return false;
+  const headerHref = document.querySelector('main h1')?.closest('a')?.getAttribute('href');
+  if (
+    target !== window.location.href ||
+    (headerHref &&
+      getFarmableTwitchChannelNameFromUrl(new URL(headerHref, target).href) === extractChannelNameFromPath())
+  ) {
+    globalThis.sessionStorage.removeItem(key);
+    for (const video of document.querySelectorAll('video')) resetPlaybackObservation(video);
+    return false;
+  }
+  return true;
 }
 
 function extractStreamTitleText(): string {
@@ -69,11 +86,6 @@ function findPlayerScope(): Element | null {
 }
 
 function detectStreamLiveStatus(): boolean {
-  // Strong positive: Twitch renders a live viewer count / uptime only while the channel is live.
-  if (document.querySelector('[data-a-target="animated-channel-viewers-count"], .live-time')) {
-    return true;
-  }
-
   const playerScope = findPlayerScope();
 
   // Explicit offline content-gate overlay inside the player.
@@ -82,6 +94,11 @@ function detectStreamLiveStatus(): boolean {
   );
   if (contentGate && normalizeForCompare(contentGate.textContent ?? '').includes('offline')) {
     return false;
+  }
+
+  // The offline gate wins over a viewer count left behind during stream shutdown.
+  if (document.querySelector('[data-a-target="animated-channel-viewers-count"], .live-time')) {
+    return true;
   }
 
   // Offline text, scoped to the player only — never the whole page. A "channel is offline"
@@ -105,13 +122,16 @@ export function extractStreamContext() {
     return null;
   }
 
-  const category = extractStreamCategory(document);
+  const navigationPending = isStreamNavigationPending();
+  const category = navigationPending ? { slug: '', label: '' } : extractStreamCategory(document);
   const streamTitle = extractStreamTitleText();
   const titleContainsDrops = /\bdrops?\b/i.test(streamTitle) || /\bdrops?\b/i.test(document.title);
   const hasDropsSignal = hasDropsInStreamScope(streamTitle);
-  const isLive = detectStreamLiveStatus();
+  const isLive = navigationPending || detectStreamLiveStatus();
   const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-  const playingVideoCount = videos.filter((video) => isVideoPlaybackAdvancing(video)).length;
+  const playingVideoCount = navigationPending
+    ? 0
+    : videos.filter((video) => isVideoPlaybackAdvancing(video)).length;
 
   return {
     channelName,

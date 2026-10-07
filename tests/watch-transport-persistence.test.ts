@@ -23,7 +23,6 @@ describe('watch transport app state', () => {
         shouldFallback: false,
         checkedAt: 100,
       },
-      watchFallbackReason: null,
     });
 
     expect(state.watchTransportPreference).toBe('managed-tab');

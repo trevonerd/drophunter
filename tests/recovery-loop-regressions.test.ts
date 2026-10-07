@@ -10,6 +10,7 @@ import {
   acquireStreamerForSelectedGame,
   openBestStreamerForSelectedGame,
 } from '../src/background/streamer-acquisition.ts';
+import { beginStreamerWatchAttempt } from '../src/background/streamer-watch-attempt.ts';
 import { TwitchDirectoryUnavailableError, TwitchHttpError } from '../src/background/twitch-api/errors.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
@@ -20,8 +21,10 @@ import { setupChromeMocks } from './mocks/chrome.ts';
 import { createLifecycleApi, inactiveAutomation } from './support/extension-lifecycle-fixture.ts';
 
 const originalFetch = globalThis.fetch;
+const originalDateNow = Date.now;
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  Date.now = originalDateNow;
 });
 
 test('successful directory lookup followed by failed playback never becomes a Twitch API outage', async () => {
@@ -137,7 +140,9 @@ test.each([
 
     expect(state.appState.selectedGame).toEqual(game);
     expect(state.appState.recoveryReason).toBe(reason);
-    expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAttempts).toBeUndefined();
+    expect(
+      state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames?.length,
+    ).toBeUndefined();
     expect(state.apiBackoffUntil).toBeGreaterThan(Date.now());
     expect(saved).toBe(1);
     expect(timingSaved).toBe(1);
@@ -192,7 +197,9 @@ test('probe rate limit survives the zero-result refresh being blocked by that co
   expect(refreshed).toBe(true);
   expect(state.appState.recoveryReason).toBe('twitch-rate-limit');
   expect(state.apiBackoffUntil).toBeGreaterThan(Date.now() + 30_000);
-  expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAttempts).toBeUndefined();
+  expect(
+    state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames?.length,
+  ).toBeUndefined();
 });
 
 test('incomplete direct channel verification schedules directory recovery without spending no-streamers attempts', async () => {
@@ -207,7 +214,6 @@ test('incomplete direct channel verification schedules directory recovery withou
     source: 'manual',
     addedAt: 1,
     reason: 'user-added',
-    streamerRetryAttempts: 2,
   };
   let skipped = 0;
   let saved = 0;
@@ -249,8 +255,8 @@ test('incomplete direct channel verification schedules directory recovery withou
   });
 
   expect(state.appState.recoveryReason).toBe('directory-unavailable');
-  expect(state.appState.recoveryAttempts).toBe(2);
-  expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAttempts).toBe(2);
+  expect(state.appState.recoveryAttempts).toBe(0);
+  expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames).toBeUndefined();
   expect(state.recoveryBackoffUntil).toBeGreaterThanOrEqual(before + NO_STREAMERS_RETRY_MS);
   expect(skipped).toBe(0);
   expect(saved).toBe(1);
@@ -366,47 +372,59 @@ test('farming recovery has its own deadline alarm and does not wait for campaign
   }
 });
 
-test('failed playback tries another eligible streamer without entering Twitch backoff', async () => {
+test('failed playback waits for its deadline before trying another eligible streamer without Twitch backoff', async () => {
+  let now = 1_000_000;
+  Date.now = () => now;
   const state = createMinimalState();
   state.appState.selectedGame = createGame();
   const tried: string[] = [];
-  const started = await acquireStreamerForSelectedGame(state, {
-    onOpenStreamer: () =>
-      openBestStreamerForSelectedGame(
-        state,
-        {
-          onFetchDirectoryStreamersFromApi: async () =>
-            Object.assign([createStreamer({ name: 'first' }), createStreamer({ name: 'second' })], {
-              languageFilterApplied: false,
-            }),
-          onOpenWatchTransport: async (streamer) => {
-            tried.push(streamer.name);
-            return streamer.name === 'second';
+  const acquire = () =>
+    acquireStreamerForSelectedGame(state, {
+      onOpenStreamer: () =>
+        openBestStreamerForSelectedGame(
+          state,
+          {
+            onFetchDirectoryStreamersFromApi: async () =>
+              Object.assign([createStreamer({ name: 'first' }), createStreamer({ name: 'second' })], {
+                languageFilterApplied: false,
+              }),
+            onOpenWatchTransport: async (streamer) => {
+              tried.push(streamer.name);
+              return streamer.name === 'second';
+            },
+            onOpenForegroundChannel: async () => {},
           },
-          onOpenForegroundChannel: async () => {},
-        },
-        {
-          dropMatchesSelectedGame: () => true,
-          isRewardAcquired: () => false,
-          getGameDisplayLabel: (game) => game.name,
-          resolveCategorySlug: async () => 'test-game',
-          pickStreamerForPreferences: (streamers) => ({
-            streamer: streamers[0] ?? null,
-            activePoolSize: streamers.length,
-            preferredLanguageApplied: false,
-            preferredLanguageMatches: 0,
-          }),
-          normalizePreferredStreamerLanguage: () => null,
-        },
-      ),
-  });
-  expect(started).toBe(true);
+          {
+            dropMatchesSelectedGame: () => true,
+            isRewardAcquired: () => false,
+            getGameDisplayLabel: (game) => game.name,
+            resolveCategorySlug: async () => 'test-game',
+            pickStreamerForPreferences: (streamers) => ({
+              streamer: streamers[0] ?? null,
+              activePoolSize: streamers.length,
+              preferredLanguageApplied: false,
+              preferredLanguageMatches: 0,
+            }),
+            normalizePreferredStreamerLanguage: () => null,
+          },
+        ),
+    });
+  expect(await acquire()).toBe(false);
+  expect(tried).toEqual(['first']);
+  expect(state.recoveryBackoffUntil).toBe(now + 30_000);
+  expect(await acquire()).toBe(false);
+  expect(tried).toEqual(['first']);
+  now += 30_000;
+  expect(await acquire()).toBe(true);
   expect(tried).toEqual(['first', 'second']);
   expect(state.appState.activeStreamer?.name).toBe('second');
   expect(state.apiConsecutiveFailures).toBe(0);
+  expect(
+    state.appState.queueEntryMetadataByKey[gameKey(state.appState.selectedGame)]?.attemptedStreamerNames,
+  ).toEqual(['first', 'second']);
 });
 
-test('three failed playback cycles park the campaign without losing queue authorization', async () => {
+test('an initial failed playback plus three alternatives parks the campaign without losing queue authorization', async () => {
   const originalNow = Date.now;
   let now = 1_000_000;
   Date.now = () => now;
@@ -417,19 +435,20 @@ test('three failed playback cycles park the campaign without losing queue author
     state.appState.queue = [game];
     state.appState.manualQueueAuthorized = true;
     let skips = 0;
-    for (let cycle = 1; cycle <= 3; cycle += 1) {
+    for (let cycle = 1; cycle <= 4; cycle += 1) {
       await acquireStreamerForSelectedGame(state, {
         onOpenStreamer: async () => {
+          beginStreamerWatchAttempt(state, game, `streamer-${cycle}`, now);
           throw new (
             await import('../src/background/streamer-selection-flow.ts')
-          ).WatchPlaybackUnavailableError(null);
+          ).WatchPlaybackUnavailableError(null, `streamer-${cycle}`);
         },
         onSkipCurrentGame: async (reason) => {
           expect(reason).toBe('open-failed');
           skips += 1;
         },
       });
-      if (cycle < 3) {
+      if (cycle < 4) {
         expect(state.appState.recoveryReason).toBe('open-failed');
         now += 30_000;
       }
@@ -529,7 +548,6 @@ test('same-version load repairs corrupt queue entries and an impossible local re
         addedAt: 1,
         streamerRetryAt: Date.now() + 365 * 86_400_000,
         streamerRetryReason: 'open-failed',
-        streamerRetryAttempts: 999,
       },
     },
     recoveryReason: 'open-failed',
@@ -550,5 +568,5 @@ test('same-version load repairs corrupt queue entries and an impossible local re
   expect(state.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt).toBeLessThanOrEqual(
     Date.now() + 600_000,
   );
-  expect(state.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAttempts).toBeUndefined();
+  expect(state.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames?.length).toBeUndefined();
 });

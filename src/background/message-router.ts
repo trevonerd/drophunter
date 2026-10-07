@@ -42,6 +42,7 @@ export interface RuntimeMessageHandlers {
   pauseFarming: RuntimeMessageHandler<'PAUSE_FARMING'>;
   resumeFarming: RuntimeMessageHandler<'RESUME_FARMING'>;
   retryFarming: RuntimeMessageHandler<'RETRY_FARMING'>;
+  dismissFarmingMessage: RuntimeMessageHandler<'DISMISS_FARMING_MESSAGE'>;
   stopFarming: RuntimeMessageHandler<'STOP_FARMING'>;
   updateGames: RuntimeMessageHandler<'UPDATE_GAMES'>;
   syncTwitchSession: RuntimeMessageHandler<'SYNC_TWITCH_SESSION'>;
@@ -175,6 +176,8 @@ export function createRuntimeMessageListener(
         return respond(() => handlers.resumeFarming(message, sender));
       case 'RETRY_FARMING':
         return respond(() => handlers.retryFarming(message, sender));
+      case 'DISMISS_FARMING_MESSAGE':
+        return respond(() => handlers.dismissFarmingMessage(message, sender));
       case 'STOP_FARMING':
         return respond(() => handlers.stopFarming(message, sender));
       case 'UPDATE_GAMES':

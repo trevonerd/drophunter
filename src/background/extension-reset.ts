@@ -36,9 +36,9 @@ export function captureExtensionUpdateIntent(appState: AppState): ExtensionUpdat
         const {
           streamerRetryAt: _retryAt,
           streamerRetryReason: _retryReason,
-          streamerRetryAttempts: _retryAttempts,
-          streamerRetryCycles: _retryCycles,
           streamerWaitState: _waitState,
+          attemptedStreamerNames: _names,
+          watchAttempt: _watch,
           ...provenance
         } = metadata;
         return [key, provenance];
@@ -78,7 +78,7 @@ export function createExtensionUpdateAppState(
     forcedCampaignKey: intent.forcedCampaignKey,
     farmingSessionOrigin: intent.farmingSessionOrigin,
     isPaused: intent.isPaused,
-    isRunning: intent.isPaused,
+    isRunning: intent.isPaused || intent.wasRunning,
     lastStopReason: intent.lastStopReason,
     lastStopMessage: intent.lastStopMessage,
     recoveryReason: null,
@@ -91,6 +91,9 @@ export function createExtensionUpdateAppState(
     campaignDropsByKey: appState.campaignDropsByKey,
     campaignEvidenceUserId: appState.campaignEvidenceUserId,
     acquiredCampaignIds: appState.acquiredCampaignIds,
+    farmingSessionTargets: appState.farmingSessionTargets,
+    campaignFailureEpisodesByKey: appState.campaignFailureEpisodesByKey,
+    dismissedFarmingMessageIds: appState.dismissedFarmingMessageIds,
     allDrops: appState.allDrops,
     pendingDrops: appState.pendingDrops,
     completedDrops: appState.completedDrops,

@@ -32,6 +32,14 @@ Read the current source before changing tokens. Popup and monitor have some inte
 - Transient action feedback clears on real responses or broadcasts; fallback timers are secondary.
 - Surface failed actions in the popup instead of leaving loading indicators active.
 
+## Messages
+
+- Operational guidance is immediately visible, including login or the initial player click. It disappears when resolved.
+- Campaign warnings sit in one native expandable Messages section with a count; one row per active episode. Previous warnings never color the current campaign orange.
+- Each row has an accessible dismiss button. Dismissal persists across popup reopening and worker recycle without changing authorization, retries or external delivery receipts.
+- A new browser session hides old operational warnings; a new failure may update that episode locally without repeating a successful external delivery.
+- Automatic round waiting is neutral and offers Retry and Stop. Manual Pause remains a distinct state.
+
 ## Components
 
 - Header icon buttons have accessible names and clear pressed states where relevant.

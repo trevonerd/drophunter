@@ -42,6 +42,7 @@ export function registerQueue24Part02() {
       const opts: RotateStreamerIfInvalidOptions = {
         onFetchStreamContext: async () => offlineContext,
         onResolveCategorySlug: async () => 'test-game',
+        onForceRefreshDropsData: async () => 'refreshed',
         onRotateStreamer: async (_, reason) => {
           observed.rotateReason = reason;
           return true;
@@ -82,6 +83,7 @@ export function registerQueue24Part02() {
       const opts: RotateStreamerIfInvalidOptions = {
         onFetchStreamContext: async () => ({ ...baseContext, isLive }),
         onResolveCategorySlug: async () => 'test-game',
+        onForceRefreshDropsData: async () => 'refreshed',
         onRotateStreamer: async (_, reason) => {
           observed.rotateReason = reason;
           return true;
@@ -101,7 +103,7 @@ export function registerQueue24Part02() {
       expect(state.offlineChecks).toBe(1);
     });
 
-    test('enters recovery mode when progress is stalled', async () => {
+    test('requests a fresh stall check without an extra same-streamer self-heal', async () => {
       const state = createMinimalState();
       state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
       state.appState.tabId = 123;
@@ -123,15 +125,16 @@ export function registerQueue24Part02() {
           pageUrl: 'https://twitch.tv/streamer',
         }),
         onResolveCategorySlug: async () => 'test-game',
+        onForceRefreshDropsData: async () => 'refreshed',
         onAttemptPlaybackSelfHeal: async () => {
           attemptSelfHealCalled = true;
         },
       });
 
-      expect(attemptSelfHealCalled).toBe(true);
-      expect(state.stalledRecoveryAttempts).toBe(1);
-      expect(state.appState.recoveryReason).toBe('stalled-progress');
-      expect(state.appState.recoveryAttempts).toBe(1);
+      expect(attemptSelfHealCalled).toBe(false);
+      expect(state.stalledRecoveryAttempts).toBe(0);
+      expect(state.appState.recoveryReason).toBeNull();
+      expect(state.appState.recoveryAttempts).toBeNull();
     });
 
     test('does not enter recovery for a healthy 4-hour drop with slow progress updates', async () => {
@@ -157,6 +160,7 @@ export function registerQueue24Part02() {
           pageUrl: 'https://twitch.tv/streamer',
         }),
         onResolveCategorySlug: async () => 'test-game',
+        onForceRefreshDropsData: async () => 'refreshed',
         onAttemptPlaybackSelfHeal: async () => {
           attemptSelfHealCalled = true;
         },
@@ -200,6 +204,7 @@ export function registerQueue24Part02() {
           pageUrl: 'https://twitch.tv/streamer',
         }),
         onResolveCategorySlug: async () => 'test-game',
+        onForceRefreshDropsData: async () => 'refreshed',
         onRotateStreamer: async (_, reason) => {
           observed.rotateReason = reason;
           return true;
@@ -207,8 +212,8 @@ export function registerQueue24Part02() {
       });
 
       expect(observed.rotateReason).toBe('stalled-progress');
-      expect(state.stalledRecoveryAttempts).toBe(3);
-      expect(state.appState.recoveryAttempts).toBe(3);
+      expect(state.stalledRecoveryAttempts).toBe(2);
+      expect(state.appState.recoveryAttempts).toBeNull();
     });
 
     test('rotates on the second stall even when a rotation happened within the cooldown window', async () => {
@@ -217,7 +222,7 @@ export function registerQueue24Part02() {
       state.appState.tabId = 123;
       state.appState.currentDrop = createDrop({ requiredMinutes: 60 });
       state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
-      // Self-heal already happened once, and a recent rotation would block the generic cooldown.
+      // A confirmed stall bypasses the generic rotation cooldown.
       state.stalledRecoveryAttempts = 1;
       state.lastStreamRotationAt = Date.now();
 
@@ -237,6 +242,7 @@ export function registerQueue24Part02() {
           pageUrl: 'https://twitch.tv/streamer',
         }),
         onResolveCategorySlug: async () => 'test-game',
+        onForceRefreshDropsData: async () => 'refreshed',
         onAttemptPlaybackSelfHeal: async () => {
           selfHealCalled = true;
         },
@@ -248,7 +254,7 @@ export function registerQueue24Part02() {
 
       expect(selfHealCalled).toBe(false);
       expect(observed.rotateReason).toBe('stalled-progress');
-      expect(state.stalledRecoveryAttempts).toBe(2);
+      expect(state.stalledRecoveryAttempts).toBe(1);
     });
   });
 }

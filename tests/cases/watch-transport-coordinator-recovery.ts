@@ -50,12 +50,11 @@ export function registerWatchTransportCoordinatorFailureCases() {
       status: 'failed',
       reason: 'heartbeat-failed',
     });
-    expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 }
 
 export function registerWatchTransportCoordinatorStallCases() {
-  test('preserves a Hidden progress stall for the session recovery ladder', async () => {
+  test('leaves reward stalls to the duration-aware session monitor', async () => {
     const fixture = createWatchTransportCoordinatorFixture();
     let opens = 0;
     const coordinator = createWatchTransportCoordinator({
@@ -94,10 +93,9 @@ export function registerWatchTransportCoordinatorStallCases() {
     expect(fixture.state.appState.watchTransportMode).toBe('tabless');
     expect(fixture.state.appState.watchHealth).toMatchObject({
       mode: 'tabless',
-      status: 'stalled',
-      reason: 'stalled-progress',
-      shouldFallback: true,
+      status: 'healthy',
+      reason: 'heartbeat',
+      shouldFallback: false,
     });
-    expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 }

@@ -102,7 +102,6 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
     attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
     clearManagedTabOwnership: () => {},
     openMonitorDashboardWindow: async () => {},
     sendAlert: async () => {},
@@ -116,7 +115,7 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
 }
 
 describe('farming session watch transport integration', () => {
-  test('an authoritative Hidden refresh advances a vanished campaign in the same tick without spending an attempt', async () => {
+  test('a partial snapshot preserves a missing campaign and its authorized target', async () => {
     const realDateNow = Date.now;
     const now = 3_000_000;
     Date.now = () => now;
@@ -128,14 +127,11 @@ describe('farming session watch transport integration', () => {
     state.appState.isRunning = true;
     state.appState.activeStreamer = streamer;
     state.appState.watchTransportMode = 'tabless';
+    state.appState.watchTransportPreference = 'tabless';
     let hiddenStarts = 0;
     const stalledHealth: WatchHealth = {
       ...createHealth('tabless'),
-      isHealthy: false,
-      status: 'stalled',
-      reason: 'stalled-progress',
       consecutiveStalls: 10,
-      shouldFallback: true,
     };
 
     try {
@@ -171,9 +167,12 @@ describe('farming session watch transport integration', () => {
       await session.checkDropProgress();
 
       expect(state.stalledRecoveryAttempts).toBe(0);
-      expect(state.appState.selectedGame?.campaignId).toBe(nextGame.campaignId);
-      expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([nextGame.campaignId]);
-      expect(hiddenStarts).toBe(1);
+      expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
+      expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([
+        game.campaignId,
+        nextGame.campaignId,
+      ]);
+      expect(hiddenStarts).toBe(0);
     } finally {
       Date.now = realDateNow;
     }

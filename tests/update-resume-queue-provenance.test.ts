@@ -60,7 +60,7 @@ test('guarded update start preserves automatic queue provenance and acquisition 
   }
 });
 
-test('automatic update resume with missing reward data retains authorized queue and schedules validation retry', async () => {
+test('automatic update resume with missing reward data retains authorized queue and waits for reward data without invalidating a successful campaign sync', async () => {
   const chrome = setupChromeMocks();
   const state = createServiceWorkerState();
   const game = createGame({ campaignId: 'missing-rewards', endsAt: '2099-01-01T00:00:00Z' });
@@ -115,16 +115,19 @@ test('automatic update resume with missing reward data retains authorized queue 
   });
   try {
     const result = await coordinator.request('extension-update');
-    expect(result.kind).toBe('retry-scheduled');
-    expect(state.appState.campaignSyncState.status).toBe('retry-scheduled');
-    expect(deadlines.at(-1)).toBeGreaterThan(now);
+    expect(result.kind).toBe('synced');
+    expect(state.appState.campaignSyncState.status).toBe('idle');
+    expect(deadlines).toEqual([]);
     expect(state.appState.queue.map(gameKey)).toEqual([gameKey(game)]);
     expect(state.appState.manualQueueAuthorized).toBe(true);
-    expect(state.appState.wasRunning).toBe(true);
-    expect(state.appState.isRunning).toBe(false);
-    now = deadlines.at(-1) ?? now;
+    expect(state.appState.wasRunning).toBe(false);
+    expect(state.appState.isRunning).toBe(true);
+    now += 30_000;
+    await farming.checkDropProgress();
+    const deadline = state.appState.queueAcquisitionRound?.nextRoundAt;
+    expect(deadline).toBeGreaterThan(now);
     await coordinator.request('wake');
-    expect(deadlines.at(-1)).toBeGreaterThan(now);
+    expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(deadline);
     expect(state.appState.queue.map(gameKey)).toEqual([gameKey(game)]);
   } finally {
     farming.stopMonitoring();

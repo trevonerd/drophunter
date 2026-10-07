@@ -4,7 +4,7 @@ import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import type { WatchStartResult } from './streamer-acquisition-contracts.ts';
 import { tablessTargetKey } from './tabless-transport.ts';
 import { prepareWatchCandidate } from './watch-candidate-preparation.ts';
-import { createWatchFallbackPolicy } from './watch-fallback-policy.ts';
+import { hasVerifiedWatchPlayback } from './watch-health.ts';
 import {
   type FarmingTarget,
   type ManagedTabOpenResult,
@@ -44,7 +44,6 @@ export function createWatchTransportCoordinator(
     });
   const createManaged = (): WatchTransport => new ManagedTabTransport({ ...options.managedTab, now });
   const projection = createWatchTransportProjectionStore(options);
-  const fallbackPolicy = createWatchFallbackPolicy();
   let active: WatchTransport = createManaged();
   let target: FarmingTarget | null = null;
   let lastTickAt = 0;
@@ -64,100 +63,106 @@ export function createWatchTransportCoordinator(
     }
   };
 
-  const startManagedFallback = async (
-    fallbackHealth: WatchHealth,
-    isCurrent: () => boolean = () => true,
-  ): Promise<WatchHealth> => {
-    if (!isCurrent()) return fallbackHealth;
-    const nextTarget = target;
-    if (!nextTarget) {
-      if (!isCurrent()) return fallbackHealth;
-      await projection.apply({ kind: 'checked', health: fallbackHealth });
-      return fallbackHealth;
-    }
-    const previous = active;
-    const prepared = await prepareWatchCandidate({
-      prepare: async () => {
-        let opened: ManagedTabOpenResult = null;
-        const transport = new ManagedTabTransport({
-          ...options.managedTab,
-          open: async (candidateTarget, startOptions) => {
-            opened = await options.managedTab.open(candidateTarget, startOptions);
-            return opened;
-          },
-          now,
-        });
-        return {
-          transport,
-          health: await transport.start(nextTarget, isCurrent),
-          dispose: async () => {
-            await transport.stop();
-            if (opened?.owner === 'drophunter') await opened.dispose?.();
-          },
-        };
-      },
-      isCurrent,
-    });
-    if (prepared.kind === 'failed') {
-      if (!isCurrent()) return prepared.health ?? fallbackHealth;
-      await projection.apply({ kind: 'checked', health: fallbackHealth });
-      return fallbackHealth;
-    }
-    const { health, transport: candidate } = prepared.candidate;
-    active = candidate;
-    await previous.stop();
-    if (!isCurrent()) return health;
-    await projection.apply({
-      kind: 'fallback',
-      health,
-      reason: fallbackHealth.reason,
-    });
-    return health;
-  };
-
   const settleHealth = async (
     health: WatchHealth,
     projectionKind: Extract<WatchTransportProjection['kind'], 'started' | 'checked'>,
     isCurrent: () => boolean = () => true,
   ): Promise<WatchHealth> => {
-    if (!isCurrent()) return health;
-    if (state.appState.watchTransportPreference === 'tabless') {
-      await projection.apply({ kind: projectionKind, health });
-      return health;
-    }
-    if (projectionKind === 'started' && health.mode === 'tabless' && !health.isHealthy) {
-      return startManagedFallback(health, isCurrent);
-    }
-    const decision = fallbackPolicy.evaluate(health);
-    switch (decision.kind) {
-      case 'continue':
-        if (!isCurrent()) return health;
-        await projection.apply({ kind: projectionKind, health });
-        return health;
-      case 'fallback':
-        return startManagedFallback(health, isCurrent);
-      default:
-        decision satisfies never;
-        return health;
-    }
+    if (isCurrent()) await projection.apply({ kind: projectionKind, health });
+    return health;
   };
 
   const prepare = async (
     nextTarget: FarmingTarget,
     isCurrent: () => boolean = () => true,
+    allowInitialCreation = false,
+    mode: WatchTransportMode = state.appState.watchTransportPreference,
   ): Promise<WatchPreparation & { readonly health?: WatchHealth | null }> => {
     const generation = ++operationGeneration;
     const isCurrentPreparation = () => isCurrent() && generation === operationGeneration;
+    const incumbentStreamer = state.appState.activeStreamer;
+    const incumbentHealth = state.appState.watchHealth;
+    let pending: typeof state.appState.pendingWatchTarget = null;
+    const clearPending = () => {
+      if (pending && state.appState.pendingWatchTarget === pending) {
+        state.appState.pendingWatchTarget = null;
+        options.broadcast();
+        return true;
+      }
+      return false;
+    };
+    const settlePending = async (failedHealth: WatchHealth | null) => {
+      if (!pending || state.appState.pendingWatchTarget !== pending) return;
+      if (isCurrentPreparation() && failedHealth?.reason === 'playback-pending') {
+        state.appState.watchHealth = failedHealth;
+        await options.persist();
+        return;
+      }
+      if (isCurrentPreparation()) {
+        const ownership = active.currentOwnership();
+        const health = ownership ? await active.tick() : null;
+        if (!isCurrentPreparation()) {
+          clearPending();
+          return;
+        }
+        const selected = state.appState.selectedGame;
+        const stillSelected =
+          selected &&
+          target &&
+          (target.campaignId
+            ? target.campaignId === selected.campaignId
+            : (target.selectionId ?? target.gameId) === selected.id);
+        if (health && hasVerifiedWatchPlayback(health) && stillSelected) {
+          state.appState.activeStreamer = incumbentStreamer;
+          state.appState.watchHealth = hasVerifiedWatchPlayback(incumbentHealth) ? incumbentHealth : health;
+        } else {
+          if (ownership) await active.stop();
+          if (!isCurrentPreparation()) {
+            clearPending();
+            return;
+          }
+          state.appState.activeStreamer = ownership ? null : incumbentStreamer;
+          state.appState.watchHealth = failedHealth ?? createInactiveWatchHealth(null, 'managed-tab', now());
+        }
+        clearPending();
+        await options.persist();
+      } else if (clearPending()) await options.persist();
+    };
+    if (active.mode === 'managed-tab' && mode === 'tabless') {
+      await active.stop();
+      if (!isCurrentPreparation()) return { kind: 'failed', reason: 'candidate-unavailable' };
+    }
     const prepared = await prepareWatchCandidate({
       prepare: async () => {
         let opened: ManagedTabOpenResult = null;
         const transport =
-          state.appState.watchTransportPreference === 'tabless'
+          mode === 'tabless'
             ? createTabless()
             : new ManagedTabTransport({
                 ...options.managedTab,
                 open: async (candidateTarget, startOptions) => {
-                  opened = await options.managedTab.open(candidateTarget, startOptions);
+                  const game = [
+                    ...state.appState.availableGames,
+                    ...state.appState.queue,
+                    ...(state.appState.selectedGame ? [state.appState.selectedGame] : []),
+                  ].find((entry) =>
+                    candidateTarget.campaignId
+                      ? entry.campaignId === candidateTarget.campaignId
+                      : entry.id === (candidateTarget.selectionId ?? candidateTarget.gameId),
+                  );
+                  if (game && isCurrentPreparation()) {
+                    pending = { game, channelName: candidateTarget.channelName };
+                    state.appState.pendingWatchTarget = pending;
+                    state.appState.activeStreamer = null;
+                    state.appState.watchHealth = null;
+                    await options.persist();
+                    if (!isCurrentPreparation()) return null;
+                    options.broadcast();
+                  }
+                  opened = await options.managedTab.open(candidateTarget, {
+                    ...startOptions,
+                    allowInitialCreation,
+                  });
                   return opened;
                 },
                 now,
@@ -173,22 +178,17 @@ export function createWatchTransportCoordinator(
       },
       isCurrent: isCurrentPreparation,
       accept: (health) =>
-        health.isHealthy ||
-        (health.status === 'degraded' &&
-          health.reason === 'user-interaction-required' &&
-          (target === null ||
-            (state.appState.currentDrop === null &&
-              state.appState.allDrops.length > 0 &&
-              !state.appState.allDrops.some((drop) => isRewardFarmableNow(drop, now())) &&
-              !state.appState.pendingDrops.some((drop) => isRewardFarmableNow(drop, now()))))),
+        health.isHealthy || (health.status === 'degraded' && health.reason === 'user-interaction-required'),
     });
     if (prepared.kind === 'failed') {
+      await settlePending(prepared.health);
       return { kind: 'failed', reason: 'candidate-unavailable', health: prepared.health };
     }
     const candidate = prepared.candidate;
     const ownership = candidate.transport.currentOwnership();
     if (!ownership) {
       await candidate.dispose();
+      await settlePending(null);
       return { kind: 'failed', reason: 'candidate-unavailable', health: candidate.health };
     }
     let promotion: WatchPromotion | null = null;
@@ -198,7 +198,6 @@ export function createWatchTransportCoordinator(
       target: nextTarget,
       ownership,
       health: candidate.health,
-      fallbackReason: null,
       promote: () => {
         if (promotion) return promotion;
         if (discarded || !isCurrentPreparation()) {
@@ -209,8 +208,8 @@ export function createWatchTransportCoordinator(
         const obsolete = previous.currentOwnership();
         target = nextTarget;
         active = candidate.transport;
-        fallbackPolicy.reset();
         lastTickAt = 0;
+        if (state.appState.pendingWatchTarget === pending) state.appState.pendingWatchTarget = null;
         promotion = { kind: 'promoted', ownership, obsolete };
         void previous.stop().catch(() => undefined);
         void finalizeManagedPromotion(ownership, obsolete).catch(() => undefined);
@@ -219,7 +218,9 @@ export function createWatchTransportCoordinator(
       dispose: () => {
         if (promotion) return Promise.resolve();
         discarded = true;
-        disposal ??= Promise.resolve().then(candidate.dispose);
+        disposal ??= Promise.resolve()
+          .then(candidate.dispose)
+          .then(() => settlePending(null));
         return disposal;
       },
     };
@@ -285,10 +286,13 @@ export function createWatchTransportCoordinator(
 
   const stop = async () => {
     const generation = ++operationGeneration;
+    const tick = state.tickGeneration;
+    const isCurrent = () => generation === operationGeneration && state.tickGeneration === tick;
     await active.stop();
-    if (generation !== operationGeneration) return;
+    if (!isCurrent()) return;
+    await options.managedTab.pauseRetained?.(isCurrent);
+    if (!isCurrent()) return;
     target = null;
-    fallbackPolicy.reset();
     lastTickAt = 0;
     const health = createInactiveWatchHealth(null, active.mode, now());
     await projection.apply({ kind: 'stopped', health });
@@ -307,9 +311,14 @@ export function createWatchTransportCoordinator(
     }
     active = next;
     target = adoption.target;
-    fallbackPolicy.reset();
     lastTickAt = 0;
-    if (adoption.obsolete === null && previous.currentOwnership() !== null) {
+    const previousOwnership = previous.currentOwnership();
+    const sameManagedWatch =
+      previousOwnership?.kind === 'managed-tab' &&
+      adoption.ownership.kind === 'managed-tab' &&
+      previousOwnership.tabId === adoption.ownership.tabId &&
+      previousOwnership.ownershipToken === adoption.ownership.ownershipToken;
+    if (adoption.obsolete === null && previousOwnership !== null && !sameManagedWatch) {
       void previous.stop().catch(() => undefined);
     }
     if (
@@ -323,8 +332,7 @@ export function createWatchTransportCoordinator(
   };
 
   const restore = async (ownership: WatchOwnershipV1): Promise<boolean> => {
-    if (!state.appState.isRunning || state.appState.isPaused) {
-      if (ownership.kind !== 'managed-tab') return false;
+    if (ownership.kind === 'managed-tab') {
       operationGeneration += 1;
       const retained = createManaged();
       retained.adopt(
@@ -334,9 +342,11 @@ export function createWatchTransportCoordinator(
       );
       active = retained;
       target = null;
-      fallbackPolicy.reset();
       lastTickAt = 0;
-      return true;
+    }
+    if (!state.appState.isRunning || state.appState.isPaused) {
+      if (ownership.kind === 'managed-tab') await active.stop();
+      return ownership.kind === 'managed-tab';
     }
     const streamer = state.appState.activeStreamer;
     if (!streamer) return false;
@@ -363,7 +373,6 @@ export function createWatchTransportCoordinator(
       const candidate = createManaged();
       candidate.adopt(restoredTarget, ownership, health);
       const checked = await candidate.tick();
-      await candidate.stop();
       if (
         generation !== operationGeneration ||
         !state.appState.isRunning ||
@@ -376,7 +385,7 @@ export function createWatchTransportCoordinator(
       const waitingForInteraction =
         persistedHealth?.reason === 'user-interaction-required' &&
         (checked.reason === 'playback-inactive' || checked.reason === 'user-interaction-required');
-      if (!checked.isHealthy && !waitingForInteraction) return false;
+      if (!hasVerifiedWatchPlayback(checked) && !waitingForInteraction) return false;
       if (!waitingForInteraction) health = checked;
     }
     adopt({ target: restoredTarget, ownership, health, obsolete: null });
@@ -400,10 +409,15 @@ export function createWatchTransportCoordinator(
     adopt,
     restore,
     currentOwnership: () => active.currentOwnership(),
+    probeCurrent: async () => {
+      const generation = operationGeneration;
+      const health = await active.tick();
+      return generation === operationGeneration ? health : null;
+    },
     hasViableManagedWatch: () =>
       target !== null &&
       active.mode === 'managed-tab' &&
-      state.appState.watchHealth?.isHealthy === true &&
+      hasVerifiedWatchPlayback(state.appState.watchHealth) &&
       state.appState.currentDrop !== null &&
       isRewardFarmableNow(state.appState.currentDrop),
     currentTarget: () => target,

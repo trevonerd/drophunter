@@ -10,12 +10,12 @@ export type LifecycleRefreshOptions = {
 };
 
 export type StopFarmingSessionOptions = {
+  readonly isCurrent?: () => boolean;
   readonly skipTimingStateSave?: boolean;
   readonly notification?: { readonly title: string; readonly message: string };
   readonly stopReason?: string;
   readonly stopMessage?: string | null;
   readonly onStopMonitoring?: () => void;
-  readonly onCloseManagedTab?: (tabId: number | null) => Promise<void>;
   readonly onClearRotationMetadata?: (
     appState: ServiceWorkerState['appState'],
   ) => ServiceWorkerState['appState'];
@@ -40,18 +40,7 @@ export type QueueSkipReason =
   | 'no-streamers'
   | 'directory-unavailable'
   | 'open-failed'
-  | 'unverifiable-twitch'
   | 'unfarmable';
-
-export type QueueSkipCopy = {
-  readonly logMessage: string;
-  readonly skipNotificationTitle: string;
-  readonly skipMessage: string;
-  readonly terminalNotificationTitle: string;
-  readonly terminalMessage: string;
-  readonly terminalNotificationMessage: string;
-  readonly stopReason: string;
-};
 
 export type StopFarmingSessionRequest = {
   readonly stopReason: string;
@@ -63,6 +52,7 @@ export type StopFarmingSessionRequest = {
 export type StartFarmingPayload = { readonly game?: TwitchGame };
 
 export type StartFarmingOptions = {
+  readonly forceCampaign?: boolean;
   readonly onEnsureWorkspace?: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRefreshDropsData?: (options: LifecycleRefreshOptions) => Promise<void>;
   readonly onSaveState?: () => Promise<void>;

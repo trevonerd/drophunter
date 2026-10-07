@@ -1,13 +1,9 @@
 import { expect, test } from 'bun:test';
 import {
-  computeRecoveryBackoffMs,
   detectRecoveryProof,
   MAX_NO_PROGRESS_ROTATION_ATTEMPTS,
-  MAX_RECOVERY_BACKOFF_MS,
-  MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
   NO_STREAMERS_RETRY_MS,
   nextNoProgressRotationAttempts,
-  RECOVERY_BACKOFF_BASE_MS,
   STALLED_PROGRESS_RETRY_MS,
   shouldIncrementNoProgressRotationAttempts,
 } from '../../src/background/stream-rotation.ts';
@@ -73,13 +69,6 @@ export function registerStreamRecoveryCases() {
     expect(attempts).toBe(MAX_NO_PROGRESS_ROTATION_ATTEMPTS);
   });
 
-  test('recovery backoff grows exponentially and caps at the configured maximum', () => {
-    expect(computeRecoveryBackoffMs(1)).toBe(RECOVERY_BACKOFF_BASE_MS);
-    expect(computeRecoveryBackoffMs(2)).toBe(RECOVERY_BACKOFF_BASE_MS * 2);
-    expect(computeRecoveryBackoffMs(3)).toBe(RECOVERY_BACKOFF_BASE_MS * 4);
-    expect(computeRecoveryBackoffMs(99)).toBe(MAX_RECOVERY_BACKOFF_MS);
-  });
-
   test('offline rotations keep the current retry count unchanged', () => {
     expect(nextNoProgressRotationAttempts(2, 'offline')).toBe(2);
     expect(nextNoProgressRotationAttempts(2, 'open-failed')).toBe(2);
@@ -91,8 +80,7 @@ export function registerStreamRecoveryCases() {
     expect(NO_STREAMERS_RETRY_MS).toBe(30_000);
   });
 
-  test('stalled progress recovery is capped to three human-readable attempts', () => {
-    expect(MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS).toBe(3);
+  test('stalled progress retry spacing is one minute', () => {
     expect(STALLED_PROGRESS_RETRY_MS).toBe(60_000);
   });
 }

@@ -5,10 +5,10 @@ import { createGame, createMinimalState } from '../fixtures/queue-management.ts'
 
 export function registerQueue12Part01() {
   describe('acquireStreamerForSelectedGame', () => {
-    test('sets thirty-second no-streamers recovery on first failed acquisition', async () => {
+    test('parks an unavailable campaign immediately without repeating the empty directory', async () => {
       const state = createMinimalState({ stalledRecoveryAttempts: 2 });
       state.appState.selectedGame = createGame({ name: 'Rainbow Six Siege' });
-      const before = Date.now();
+      let skipped = false;
 
       let openCalls = 0;
       await acquireStreamerForSelectedGame(state, {
@@ -16,13 +16,13 @@ export function registerQueue12Part01() {
           openCalls += 1;
           return false;
         },
+        onSkipCurrentGame: async () => {
+          skipped = true;
+        },
       });
 
       expect(openCalls).toBe(1);
-      expect(state.appState.recoveryReason).toBe('no-streamers');
-      expect(state.appState.recoveryAttempts).toBe(1);
-      expect(state.recoveryBackoffUntil).toBeGreaterThanOrEqual(before + 30_000);
-      expect(state.recoveryBackoffUntil).toBeLessThanOrEqual(Date.now() + 30_000);
+      expect(skipped).toBe(true);
       expect(state.stalledRecoveryAttempts).toBe(2);
     });
 

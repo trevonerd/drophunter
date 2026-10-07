@@ -26,7 +26,6 @@ describe('watch transport restoration', () => {
     };
     state.appState.watchTransportPreference = 'tabless';
     state.appState.watchTransportMode = 'managed-tab';
-    state.appState.watchFallbackReason = 'heartbeat-failed';
     state.appState.tabId = 7;
     let opens = 0;
     let closes = 0;
@@ -60,7 +59,6 @@ describe('watch transport restoration', () => {
     expect(opens).toBe(0);
     expect(state.appState.tabId).toBeNull();
     expect(watchTransportMode(state)).toBe('tabless');
-    expect(state.appState.watchFallbackReason).toBeNull();
     expect(coordinator.currentOwnership()).toEqual({
       kind: 'tabless',
       targetKey: 'campaign:campaign-1',
@@ -85,7 +83,6 @@ describe('watch transport restoration', () => {
     };
     state.appState.watchTransportPreference = 'tabless';
     state.appState.watchTransportMode = 'managed-tab';
-    state.appState.watchFallbackReason = 'heartbeat-failed';
     state.appState.watchHealth = {
       mode: 'managed-tab',
       isHealthy: true,
@@ -119,7 +116,6 @@ describe('watch transport restoration', () => {
 
     expect(restored).toBe(true);
     expect(watchTransportMode(state)).toBe('tabless');
-    expect(state.appState.watchFallbackReason).toBeNull();
     expect(persists).toBe(1);
     expect(broadcasts).toBe(1);
   });

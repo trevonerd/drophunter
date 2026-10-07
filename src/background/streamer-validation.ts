@@ -15,6 +15,7 @@ import {
   shouldKeepStreamerWhileDropProgresses,
 } from './streamer-health-evaluation.ts';
 import { handleOfflineStream, handleStalledProgress } from './streamer-recovery-handlers.ts';
+import { watchObservationStartedAt } from './streamer-watch-attempt.ts';
 
 async function rotateForOpenFailed(
   state: ServiceWorkerState,
@@ -60,8 +61,21 @@ export async function rotateStreamerIfInvalid(
   const context = opts?.onFetchStreamContext ? await opts.onFetchStreamContext(tab.id) : null;
   if (!isCurrent()) return;
   const now = Date.now();
+  if (context?.isLive === false) {
+    await handleOfflineStream(state, context, opts, now);
+    return;
+  }
+  if (context?.isLive) state.offlineChecks = 0;
   if (now < state.streamValidationGraceUntil) return;
   const effectiveThreshold = computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
+  if (
+    state.appState.currentDrop &&
+    now - watchObservationStartedAt(state) >= effectiveThreshold &&
+    opts.onRecoverStalledProgress
+  ) {
+    await opts.onRecoverStalledProgress({ kind: 'managed-tab', tabId: tab.id }, isCurrent);
+    return;
+  }
   if (!context) {
     await handleMissingStreamContext(state, tab, opts, now, effectiveThreshold);
     return;

@@ -106,7 +106,7 @@ export function prepareNextEligibleQueueHead(
   const nextKey = gameKey(nextGame);
   const metadata = state.appState.queueEntryMetadataByKey[nextKey];
   if (metadata) {
-    const { streamerWaitState: _waitState, streamerRetryAttempts: _attempts, ...ready } = metadata;
+    const { streamerWaitState: _waitState, ...ready } = metadata;
     state.appState.queueEntryMetadataByKey[nextKey] = ready;
   }
   state.appState.completionNotified = false;

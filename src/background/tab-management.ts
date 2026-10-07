@@ -2,8 +2,6 @@ import { browser } from '../shared/browser-api.ts';
 import { createChromeFarmingAutomationHost } from './farming-automation-chrome-host.ts';
 import type { ServiceWorkerState } from './service-worker.ts';
 
-export { closeManagedTabIfSafe } from './managed-watch-ownership.ts';
-
 export { managedTabOwnershipKey, streamerWatchUrl } from './managed-watch-ownership-proof.ts';
 
 export function monitorDashboardUrl(): string {
@@ -12,9 +10,11 @@ export function monitorDashboardUrl(): string {
 
 export async function applyBestEffortAlwaysOnTop(windowId: number) {
   const opts = { focused: true, alwaysOnTop: true };
-  await browser.windows
-    .update(windowId, opts)
-    .catch(() => browser.windows.update(windowId, { focused: true }).catch(() => undefined));
+  try {
+    await browser.windows.update(windowId, opts);
+  } catch {
+    await browser.windows.update(windowId, { focused: true }).catch(() => undefined);
+  }
 }
 
 export async function createManagedTab(
@@ -30,16 +30,29 @@ async function openSelectionTab(
   targetUrl: string,
   active: boolean,
   allowInitialCreation: boolean,
+  isCurrent: () => boolean = () => true,
 ): Promise<Browser.tabs.Tab | null> {
+  if (!isCurrent()) return null;
   const candidate = await createChromeFarmingAutomationHost()
     .managedWatchOwnership.acquire(new URL(targetUrl).pathname.slice(1), {
       purpose: 'selection',
       knownTabId: existingTabId,
       allowInitialCreation,
+      isCurrent,
+      retainOnFailure: true,
     })
     .catch(() => null);
   if (!candidate) return null;
-  return (await browser.tabs.update(candidate.ownership.tabId, { active }).catch(() => null)) ?? null;
+  if (!isCurrent()) {
+    await candidate.discard();
+    return null;
+  }
+  const tab = await browser.tabs.update(candidate.ownership.tabId, { active }).catch(() => null);
+  if (!tab || !isCurrent()) {
+    await candidate.discard();
+    return null;
+  }
+  return tab;
 }
 
 export async function ensureManagedTab(
@@ -47,8 +60,9 @@ export async function ensureManagedTab(
   targetUrl: string,
   active = false,
   allowInitialCreation = false,
+  isCurrent: () => boolean = () => true,
 ): Promise<number | null> {
-  const tab = await openSelectionTab(existingTabId, targetUrl, active, allowInitialCreation);
+  const tab = await openSelectionTab(existingTabId, targetUrl, active, allowInitialCreation, isCurrent);
   return tab?.id ?? null;
 }
 

@@ -173,7 +173,7 @@ describe('fetchDropsSnapshotFromApi', () => {
 
     expect(result).toBeNull();
     expect(recoveryCalls).toBe(1);
-    expect(stopReason).toBeUndefined();
+    expect(stopReason).toBe('sign-in-required');
     expect(state.appState.isRunning).toBe(true);
     expect(state.appState.twitchSessionSyncState.status).toBe('retrying');
   });

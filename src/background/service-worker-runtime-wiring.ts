@@ -1,4 +1,5 @@
 import { createBackupController } from './backup-controller.ts';
+import { dismissFarmingMessage } from './dismiss-farming-message.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
 import type { createFarmingSession } from './farming-session.ts';
 import { retryFarmingNow } from './manual-farming-retry.ts';
@@ -91,12 +92,14 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
       removeFromQueue: (message) => farmingSession.handleRemoveFromQueue(message.payload),
       reorderQueue: (message) => farmingSession.handleReorderQueue(message.payload),
       clearQueue: farmingSession.handleClearQueue,
-      startFarming: (message) => farmingSession.handleStartFarming(message.payload),
-      startQueuedCampaign: (message) =>
-        dependencies.automation.startQueuedCampaign?.(message.payload.campaignKey) ?? {
-          success: false,
-          error: 'Queued campaign start is unavailable.',
-        },
+      startFarming: (message) => {
+        dependencies.automation.invalidate?.();
+        return farmingSession.handleStartFarming(message.payload);
+      },
+      startQueuedCampaign: (message) => {
+        dependencies.automation.invalidate?.();
+        return farmingSession.handleStartQueuedCampaign(message.payload.campaignKey);
+      },
       setSelectedGame: (message) => farmingSession.handleSetSelectedGame(message.payload),
       pauseFarming: userActions.pauseFarming,
       resumeFarming: userActions.resumeFarming,
@@ -106,6 +109,8 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
           acquireStreamerForSelectedGame: farmingSession.acquireStreamerForSelectedGame,
           saveState: () => saveState(dependencies.state),
         }),
+      dismissFarmingMessage: (message) =>
+        dismissFarmingMessage(dependencies.state, message.payload.id, () => saveState(dependencies.state)),
       stopFarming: userActions.stopFarming,
       updateGames: (message) => contentHandlers.handleUpdateGames(message.payload),
       syncTwitchSession: (message, sender) =>

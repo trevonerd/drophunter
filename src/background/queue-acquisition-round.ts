@@ -7,8 +7,15 @@ function resetStalledHistoriesForRound(state: ServiceWorkerState, candidates: re
   for (const game of candidates) {
     const key = gameKey(game);
     const metadata = state.appState.queueEntryMetadataByKey[key];
-    if (metadata?.stalledStreamerNames) {
-      const { stalledStreamerNames: _stalledNames, ...retained } = metadata;
+    if (metadata) {
+      const {
+        attemptedStreamerNames: _attempted,
+        watchAttempt: _watch,
+        streamerRetryAt: _retry,
+        streamerRetryReason: _reason,
+        streamerWaitState: _wait,
+        ...retained
+      } = metadata;
       state.appState.queueEntryMetadataByKey[key] = retained;
     }
     state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
@@ -22,6 +29,11 @@ export const QUEUE_ROUND_RETRY_MS = 10 * 60_000;
 
 export function resetQueueAcquisitionRound(state: ServiceWorkerState): void {
   state.appState.queueAcquisitionRound = null;
+}
+
+export function restartQueueAcquisitionRound(state: ServiceWorkerState, now = Date.now()): void {
+  resetStalledHistoriesForRound(state, state.appState.queue);
+  state.appState.queueAcquisitionRound = { attemptedCampaignKeys: [], nextRoundAt: now };
 }
 
 export function markQueueCampaignAttempted(state: ServiceWorkerState, game: TwitchGame): void {
@@ -39,23 +51,19 @@ export function queueRoundCandidates(
 ): readonly TwitchGame[] {
   const round = state.appState.queueAcquisitionRound;
   if (!round) return candidates;
-  const keys = new Set(candidates.map(gameKey));
-  const attempted = round.attemptedCampaignKeys.filter((key) => keys.has(key));
+  const attempted = round.attemptedCampaignKeys;
   const untried = candidates.filter((game) => !attempted.includes(gameKey(game)));
   if (untried.length > 0) {
     state.appState.queueAcquisitionRound = { attemptedCampaignKeys: attempted, nextRoundAt: null };
     return untried;
   }
-  if (candidates.length === 0) {
-    resetQueueAcquisitionRound(state);
-    return [];
-  }
   if (round.nextRoundAt !== null && round.nextRoundAt <= now) {
     resetQueueAcquisitionRound(state);
-    resetStalledHistoriesForRound(state, candidates);
+    resetStalledHistoriesForRound(state, state.appState.queue);
     return candidates;
   }
   const earliestRetryAt = Math.min(
+    now,
     ...candidates.map(
       (game) => state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryAt ?? now,
     ),

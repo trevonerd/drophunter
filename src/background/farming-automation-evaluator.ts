@@ -30,8 +30,10 @@ import {
   buildFarmingAutomationQueuePlan,
   collectQueueAvailabilityEvidence,
 } from './farming-automation-queue-planning.ts';
-import { transitionAutomaticFarmingSession } from './session-lifecycle-transition.ts';
-import { pickStreamerForPreferences } from './streamer-selection.ts';
+import {
+  persistFailedFarmingTransition,
+  transitionDiscoveredCampaign,
+} from './farming-automation-transition-attempt.ts';
 
 export type {
   FarmingAutomationEvaluatorDependencies,
@@ -204,31 +206,15 @@ export function createFarmingAutomationEvaluator(
       dependencies.state.appState.watchTransportPreference,
       expectedFingerprint,
     );
-    const result = await transitionAutomaticFarmingSession(dependencies.state, transitionRequest, {
-      acquireStreamer: async (campaign) => {
-        const directory = discovery.directories.get(gameKey(campaign));
-        if (!directory) return null;
-        return pickStreamerForPreferences(
-          [...directory.streamers],
-          directory.preferredLanguageFallbackApplied
-            ? { mode: 'random', preferredLanguage: null }
-            : {
-                mode: dependencies.state.appState.streamerSelectionMode,
-                preferredLanguage: dependencies.state.appState.preferredStreamerLanguage,
-              },
-          dependencies.random,
-          directory.languageFilterApplied,
-        ).streamer;
-      },
-      currentFingerprint: () =>
-        farmingAutomationFingerprint(dependencies.state, facts, dependencies.runtime.generation),
-      loadReceipt: dependencies.persistence.loadReceipt,
-      commitTransition: dependencies.persistence.commitTransition,
-      watch: dependencies.browser.watch,
-      now: dependencies.now,
-    });
+    const result = await transitionDiscoveredCampaign(dependencies, discovery, transitionRequest, () =>
+      farmingAutomationFingerprint(dependencies.state, facts, dependencies.runtime.generation),
+    );
     if (result.kind === 'unchanged') return result;
-    if (result.kind === 'failed') return retry(result.reason);
+    if (result.kind === 'failed') {
+      if (!(await persistFailedFarmingTransition(dependencies, discovery, transitionRequest, result, now)))
+        return { kind: 'failed', reason: 'persistence-failed' };
+      return retry(result.reason);
+    }
     const receipt = result.receipt;
     const completedFacts = createFarmingAutomationCompletedFacts(
       facts,

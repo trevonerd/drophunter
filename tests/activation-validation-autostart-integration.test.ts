@@ -15,6 +15,7 @@ import { currentFarmingSessionEpoch } from '../src/background/farming-session-re
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createServiceWorkerActivationSync } from '../src/background/service-worker-activation-sync.ts';
 import { createFarmingAutomationUserActionHandlers } from '../src/background/service-worker-runtime-wiring.ts';
+import { createWatchHealth } from '../src/background/watch-health.ts';
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import {
@@ -41,6 +42,12 @@ afterEach(() => {
 
 function fixture(manualAuthorized = true, availableStreamers = true) {
   const state = createServiceWorkerState();
+  state.twitchSessionCache = {
+    oauthToken: 'fixture',
+    userId: 'viewer',
+    deviceId: 'fixture',
+    uuid: 'fixture',
+  };
   state.appState.watchTransportPreference = 'managed-tab';
   const skull = createGame({
     id: 'skull',
@@ -104,17 +111,7 @@ function fixture(manualAuthorized = true, availableStreamers = true) {
         ownershipToken: 'owned',
         expectedChannel: target.channelName,
       },
-      health: {
-        mode: 'managed-tab',
-        isHealthy: true,
-        status: 'healthy',
-        reason: 'heartbeat',
-        consecutiveFailures: 0,
-        consecutiveStalls: 0,
-        progress: 0,
-        shouldFallback: false,
-        checkedAt: now,
-      },
+      health: createWatchHealth('managed-tab', 'healthy', 'heartbeat', () => now, { progress: 0 }),
       dispose: async () => {},
     }),
     prepareTabless: async () => null,
@@ -136,7 +133,12 @@ function fixture(manualAuthorized = true, availableStreamers = true) {
     now: () => now,
     random: () => 0,
     twitch: {
-      refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
+      refresh: async () => ({
+        kind: 'ready',
+        sessionUserId: 'viewer',
+        snapshot,
+        refreshPatch: deriveSafeRefreshPatch(snapshot),
+      }),
       fetchDirectory: async (game) => ({
         kind: 'ready',
         target: {

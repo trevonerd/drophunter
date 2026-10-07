@@ -29,7 +29,6 @@ function createAdapters(): FarmingSessionAdapters {
     enforcePlaybackPolicyOnStreamTab: async () => undefined,
     attemptPlaybackSelfHeal: async () => undefined,
     attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
     clearManagedTabOwnership: () => undefined,
     openMonitorDashboardWindow: async () => undefined,
     sendAlert: async () => undefined,
@@ -63,6 +62,7 @@ describe('farming session facade', () => {
       'handleResumeFarming',
       'handleSetSelectedGame',
       'handleStartFarming',
+      'handleStartQueuedCampaign',
       'handleStopFarming',
       'reconcileQueueAvailability',
       'recoverTwitchSession',
@@ -112,7 +112,7 @@ describe('farming session facade', () => {
     expect(state.appState.selectedGame?.campaignId).toBe(requested.campaignId);
   });
 
-  test('rejects a requested campaign when only a sibling campaign has a farmable reward', async () => {
+  test('keeps a requested campaign unresolved without borrowing a sibling reward', async () => {
     const state = createServiceWorkerState();
     const requested = createGame({ id: 'shared-game', campaignId: 'campaign-requested' });
     const sibling = createGame({ id: 'shared-game', campaignId: 'campaign-sibling' });
@@ -132,9 +132,10 @@ describe('farming session facade', () => {
       game: requested,
     });
 
-    expect(result).toEqual({ success: false, error: 'No farmable drops for this game.' });
-    expect(state.appState.isRunning).toBe(false);
-    expect(state.appState.selectedGame).toBeNull();
-    expect(state.appState.queue.map((entry) => entry.campaignId)).toEqual([sibling.campaignId]);
+    expect(result).toEqual({ success: true });
+    expect(state.appState.isRunning).toBe(true);
+    expect(state.appState.queue.map((entry) => entry.campaignId)).toContain(requested.campaignId);
+    expect(state.appState.farmingSessionTargets['campaign:campaign-requested']?.acquired).toBe(false);
+    expect(state.appState.completedDrops).toEqual([]);
   });
 });

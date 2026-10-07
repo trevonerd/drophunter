@@ -22,6 +22,16 @@ const managedSession: ManagedTabSession = {
 };
 
 describe('ManagedTabTransport', () => {
+  test('reports an offline stream even when its stopped player reports playback-inactive', async () => {
+    const transport = new ManagedTabTransport({
+      open: async () => managedSession,
+      probe: async () => ({ accepted: false, isLive: false, reason: 'playback-inactive' }),
+      close: async () => {},
+    });
+    await transport.start(target);
+    expect(await transport.tick()).toMatchObject({ reason: 'stream-offline' });
+  });
+
   test('keeps an explicit gesture wait without accumulating failures, then resumes on verified playback', async () => {
     let playing = false;
     const transport = new ManagedTabTransport({
@@ -256,17 +266,13 @@ describe('TablessTransport', () => {
     expect(ticked).toEqual(started);
   });
 
-  test('requests fallback only after ten failed heartbeats', async () => {
+  test('confirms a transport fault after ten failures without invoking a fallback', async () => {
     let heartbeats = 0;
-    let fallbacks = 0;
     const transport = createTablessTransport({
       enabled: true,
       heartbeat: async (): Promise<TablessHeartbeat> => {
         heartbeats += 1;
         return { accepted: false, reason: 'heartbeat-failed' };
-      },
-      onFallback: async () => {
-        fallbacks += 1;
       },
       now: () => 2_000,
     });
@@ -277,13 +283,11 @@ describe('TablessTransport', () => {
     }
 
     expect(heartbeats).toBe(9);
-    expect(fallbacks).toBe(0);
     expect(health.shouldFallback).toBe(false);
 
     health = await transport.tick();
 
     expect(heartbeats).toBe(10);
-    expect(fallbacks).toBe(1);
     expect(health).toMatchObject({
       mode: 'tabless',
       isHealthy: false,
@@ -294,21 +298,15 @@ describe('TablessTransport', () => {
     });
 
     await transport.tick();
-    expect(fallbacks).toBe(1);
   });
 
-  test('falls back when accepted heartbeats stop advancing progress', async () => {
+  test('accepted heartbeat counts do not replace the reward progress window', async () => {
     let heartbeatNumber = 0;
-    let fallbacks = 0;
     const transport = createTablessTransport({
       enabled: true,
       heartbeat: async (): Promise<TablessHeartbeat> => {
         heartbeatNumber += 1;
         return { accepted: true, progress: heartbeatNumber === 1 ? 10 : 10 };
-      },
-      stalledProgressHeartbeats: 2,
-      onFallback: () => {
-        fallbacks += 1;
       },
     });
 
@@ -323,13 +321,12 @@ describe('TablessTransport', () => {
       shouldFallback: false,
     });
     expect(secondStall).toMatchObject({
-      status: 'stalled',
-      isHealthy: false,
-      reason: 'stalled-progress',
+      status: 'healthy',
+      isHealthy: true,
+      reason: 'heartbeat',
       consecutiveStalls: 2,
-      shouldFallback: true,
+      shouldFallback: false,
     });
-    expect(fallbacks).toBe(1);
   });
 
   test('stop resets heartbeat failure state before the next run', async () => {

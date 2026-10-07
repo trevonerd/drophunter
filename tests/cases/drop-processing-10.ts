@@ -23,7 +23,7 @@ export function registerDropProcessing10(): void {
       expect(state.appState.selectedGame).toBe(game);
     });
 
-    test('sets selectedGame to null when drop vanished and no match found', () => {
+    test('retains missing campaign identity when an authoritative snapshot omits it', () => {
       const game = { id: 'g1', name: 'Destiny 2', imageUrl: '' };
       const state = subject.makeState({
         appState: {
@@ -32,7 +32,7 @@ export function registerDropProcessing10(): void {
         },
       });
       subject.normalizeGameSelection(state, [game], true);
-      expect(state.appState.selectedGame).toBeNull();
+      expect(state.appState.selectedGame?.campaignId).toBe('c1');
     });
 
     test('keeps selectedGame when drop vanished=false and no match found', () => {

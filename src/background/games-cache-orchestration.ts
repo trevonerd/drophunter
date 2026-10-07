@@ -14,6 +14,7 @@ import {
   dropStateKey,
   hasCompleteIdentifiedRewardSet,
   reconcileUnverifiableRewardMarkers,
+  retainCampaignExpiryEvidence,
 } from './drops-projection';
 import { snapshotProvenance } from './drops-snapshot-provenance.ts';
 import type { GamesCacheRefreshDeps, RefreshGamesCacheOptions } from './games-cache-contracts.ts';
@@ -80,6 +81,7 @@ export async function refreshGamesCacheFromHiddenFetch(
       ...(state.appState.selectedGame ? [state.appState.selectedGame] : []),
       ...(apiSnapshot?.games ?? []),
     ]);
+    if (apiSnapshot) retainCampaignExpiryEvidence(state, apiSnapshot.games);
     const elapsedQueueCleanup = cleanUnavailableQueueCampaigns(state);
     if (!apiSnapshot && options.requireFreshSnapshot) {
       if (elapsedQueueCleanup.selectedRemoved && state.appState.isRunning && state.appState.selectedGame) {
@@ -233,7 +235,7 @@ export async function refreshGamesCacheFromHiddenFetch(
       : undefined;
     const preserveTerminalInspection =
       refreshedSelectedGame?.rewardSummary?.completion === 'farming-complete';
-    if (!preserveTerminalInspection) {
+    if (!preserveTerminalInspection && refreshedSelectedGame) {
       deps.clearSelectedCompletedIdleCampaign(state);
     }
     if (!previousSelectedGame || !selectedGame || !isSameGameIdentity(previousSelectedGame, selectedGame)) {

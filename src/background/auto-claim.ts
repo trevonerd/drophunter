@@ -3,6 +3,7 @@ import { AppState, TwitchDrop } from '../types/index.ts';
 import { loadClaimLog, recordClaimedDrops } from './claim-log.ts';
 import { DROP_CLAIM_RETRY_COOLDOWN_MS } from './constants.ts';
 import { splitDropsForSelectedGame } from './drops-projection.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { ensureSessionIntegrity } from './session-management.ts';
@@ -105,16 +106,22 @@ export async function claimDropViaApi(
     return false;
   }
 
+  const epoch = currentFarmingSessionEpoch(state);
+  const isCurrent = () => currentFarmingSessionEpoch(state) === epoch;
   let lastError: unknown = null;
   try {
     const session = await getSession();
+    if (!isCurrent()) return false;
     if (!session) {
       logWarn('Auto-claim skipped: Twitch session unavailable', { claimId, dropName: drop.name });
     } else {
       logDebug('Auto-claim attempt', { claimId, dropName: drop.name, game: drop.gameName });
       const sessionWithIntegrity = await ensureSessionIntegrity(state, session);
+      if (!isCurrent()) return false;
       const client = new TwitchApiClient(sessionWithIntegrity);
-      if (await client.claimDropReward(claimId)) {
+      const claimed = await client.claimDropReward(claimId);
+      if (!isCurrent()) return false;
+      if (claimed) {
         state.dropClaimRetryAtById.delete(claimId);
         logInfo('Auto-claim success', { claimId, dropName: drop.name });
         return true;
@@ -125,6 +132,7 @@ export async function claimDropViaApi(
     logWarn('Drop claim attempt failed:', String(error));
   }
 
+  if (!isCurrent()) return false;
   state.dropClaimRetryAtById.set(claimId, Date.now() + DROP_CLAIM_RETRY_COOLDOWN_MS);
   logWarn('Auto-claim failed, scheduled retry', {
     claimId,
@@ -147,6 +155,9 @@ export async function autoClaimClaimableDrops(
     return false;
   }
 
+  const epoch = currentFarmingSessionEpoch(state);
+  const isCurrent = () =>
+    currentFarmingSessionEpoch(state) === epoch && shouldAttemptAutoClaimDrops(state.appState);
   const now = Date.now();
   for (const [id, retryAt] of state.dropClaimRetryAtById) {
     if (now >= retryAt) {
@@ -169,6 +180,7 @@ export async function autoClaimClaimableDrops(
       return claimId ? [claimId] : [];
     }),
   );
+  if (!isCurrent()) return false;
   const seenClaimIds = new Set<string>();
   const claimTargets = claimableTargets.filter((drop) => {
     const claimId = drop.claimId?.trim();
@@ -181,12 +193,15 @@ export async function autoClaimClaimableDrops(
     return false;
   }
 
+  if (!isCurrent() || state.dropClaimInFlight) return false;
   state.dropClaimInFlight = true;
   let claimedAny = false;
   const claimedDrops: TwitchDrop[] = [];
   try {
     for (const drop of claimTargets) {
+      if (!isCurrent()) return claimedAny;
       const claimed = await claimDropViaApi(state, drop, getSession);
+      if (!isCurrent()) return claimedAny;
       if (!claimed || !drop.claimId) {
         continue;
       }
@@ -204,6 +219,6 @@ export async function autoClaimClaimableDrops(
 
     return claimedAny;
   } finally {
-    state.dropClaimInFlight = false;
+    if (currentFarmingSessionEpoch(state) === epoch) state.dropClaimInFlight = false;
   }
 }

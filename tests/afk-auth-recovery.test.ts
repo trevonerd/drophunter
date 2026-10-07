@@ -2,7 +2,6 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  ['[DropHunter] GET_TWITCH_SESSION failed on tab', 6],
   ['[DropHunter] Inventory snapshot API skipped: Twitch session missing', 1],
   ['[DropHunter] No Twitch session recovered from storage keys', 1],
   ['[DropHunter] Twitch API auth failed after explicit session recovery: Error: 401 invalid oauth token', 1],
@@ -15,7 +14,6 @@ verifyExpectedDiagnostics([
     '[DropHunter] [TwitchApiClient] Inventory fetch failed, proceeding without inventory: Error: 401 invalid oauth token',
     1,
   ],
-  ['[DropHunter] executeScript session extraction returned empty payload', 6],
 ]);
 
 import './cases/afk-auth-recovery-01.ts';

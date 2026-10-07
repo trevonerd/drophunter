@@ -31,6 +31,8 @@ export async function prepareWatchCandidate<Candidate extends DisposableWatchCan
   if (options.isCurrent() && accepts(candidate.health)) {
     return { kind: 'prepared', candidate };
   }
+  if (options.isCurrent() && candidate.health.reason === 'playback-pending')
+    return { kind: 'failed', health: candidate.health };
   await candidate.dispose();
   return { kind: 'failed', health: candidate.health };
 }

@@ -15,6 +15,7 @@ export interface TerminalStopState {
 
 export function isStreamerAcquisitionRecovery(reason: string | null | undefined): boolean {
   return (
+    reason === 'rewards-pending' ||
     reason === 'no-streamers' ||
     reason === 'open-failed' ||
     reason === 'directory-unavailable' ||
@@ -177,6 +178,8 @@ export function formatRotationReason(reason: string | null | undefined): string 
 
 export function formatRecoveryReason(reason: string | null | undefined): string | null {
   switch (reason) {
+    case 'rewards-pending':
+      return 'Watch time complete; waiting for reward claim or account linking';
     case 'twitch-auth':
       return 'Reconnecting to Twitch';
     case 'twitch-integrity':

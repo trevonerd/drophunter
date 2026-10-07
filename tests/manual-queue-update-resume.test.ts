@@ -50,10 +50,13 @@ for (const legacyToggle of [false, true]) {
           },
         });
         const starts: string[] = [];
+        let monitorStarts = 0;
         const farming = {
           stop: async () => stopFarmingSession(state, { onSaveTimingState: async () => {} }),
           stopMonitoring: () => {},
-          startMonitoring: () => {},
+          startMonitoring: () => {
+            monitorStarts += 1;
+          },
           acquireStreamerForSelectedGame: async () => false,
           advanceQueueIfCompleted: async () => true,
           handleStartFarming: async () => {
@@ -65,6 +68,8 @@ for (const legacyToggle of [false, true]) {
         const lifecycle = createServiceWorkerStateLifecycle(state, { getFarmingSession: () => farming });
         // When: update reset completes and activation validates the campaign through either supported route.
         await lifecycle.handleExtensionUpdate();
+        expect(monitorStarts).toBe(status === 'running' ? 1 : 0);
+        expect(state.appState.isRunning).toBe(status !== 'stopped');
         const activation = createServiceWorkerActivationSync({
           state,
           farmingSession: farming,
@@ -88,11 +93,11 @@ for (const legacyToggle of [false, true]) {
         });
         await activation('extension-update', { signal: new AbortController().signal, isCurrent: () => true });
         // Then: only the queue that was actually running is resumed, independent of both settings.
-        expect(starts).toEqual(status === 'running' ? [game.campaignId ?? 'missing'] : []);
+        expect(starts).toEqual([]);
         expect(state.appState.isPaused).toBe(status === 'paused');
         expect(state.appState.manualQueueAuthorized).toBe(status !== 'stopped');
         expect(state.appState.queue.map(gameKey)).toEqual([gameKey(game)]);
-        expect(state.appState.wasRunning).toBe(false);
+        expect(state.appState.wasRunning).toBe(status === 'running');
         if (status !== 'stopped') expect(state.appState.queueAcquisitionRound).toBeNull();
         if (status === 'stopped') expect(state.appState.lastStopReason).toBe('user-stop');
       },

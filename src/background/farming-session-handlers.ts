@@ -1,3 +1,4 @@
+import { gameKey } from '../shared/game-selection.ts';
 import { PROGRESS_POLL_MS, STREAM_VALIDATION_GRACE_MS } from './constants.ts';
 import type { FarmingSessionContext } from './farming-session-context.ts';
 import {
@@ -5,7 +6,6 @@ import {
   interruptFarmingSessionMutation,
   invalidateFarmingSessionEpoch,
   isFarmingSessionEpochCurrent,
-  runFarmingSessionMutation,
   runInFarmingSessionCriticalSection,
 } from './farming-session-revision.ts';
 import {
@@ -27,7 +27,8 @@ import { stopFarmingSession } from './session-lifecycle.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StartFarmingPayload, StartFarmingResult } from './session-lifecycle-types.ts';
 import { NO_STREAMERS_RETRY_MS } from './stream-rotation.ts';
-import { markTwitchSessionBlocked, markTwitchSessionReady } from './twitch-session-sync.ts';
+import { resumeWatchObservation } from './streamer-watch-attempt.ts';
+import { markTwitchSessionReady } from './twitch-session-sync.ts';
 
 export type FarmingSessionStopOptions = {
   readonly skipTimingStateSave?: boolean;
@@ -46,12 +47,14 @@ type FarmingSessionHandlerDependencies = FarmingSessionStartDependencies;
 type SuccessResult = { readonly success: true };
 
 export type FarmingSessionHandlers = {
+  readonly handleStartQueuedCampaign: (campaignKey: string) => Promise<StartFarmingResult>;
   readonly handlePauseFarming: () => Promise<SuccessResult>;
   readonly handleResumeFarming: () => Promise<SuccessResult>;
   readonly handleStartFarming: (
     payload: StartFarmingPayload,
     isCurrent?: () => boolean,
     preserveQueueContext?: boolean,
+    forceCampaign?: boolean,
   ) => Promise<StartFarmingResult>;
   readonly handleStopFarming: () => Promise<SuccessResult>;
   readonly recoverTwitchSession: (options?: FarmingSessionAuthRecoveryOptions) => Promise<void>;
@@ -64,6 +67,7 @@ export function createFarmingSessionHandlers(
   dependencies: FarmingSessionHandlerDependencies,
 ): FarmingSessionHandlers {
   const { state, adapters } = context;
+  let queuedStart: { readonly key: string; readonly promise: Promise<StartFarmingResult> } | null = null;
 
   function scheduleTimingStateSave(): void {
     void adapters.saveTimingState(state).catch((error: unknown) => {
@@ -74,34 +78,31 @@ export function createFarmingSessionHandlers(
   }
 
   async function stop(options?: FarmingSessionStopOptions): Promise<void> {
+    const epoch = currentFarmingSessionEpoch(state);
+    const isCurrent = () => isFarmingSessionEpochCurrent(state, epoch);
     const signInRequired = options?.stopReason === 'sign-in-required';
     if (signInRequired) {
-      markTwitchSessionBlocked(state, state.apiConsecutiveFailures);
+      await recoverTwitchSession();
+      return;
     }
-    void adapters.watchTransport?.stop().catch((error: unknown) => {
+    await adapters.watchTransport?.stop().catch((error: unknown) => {
       logWarn('Stopped session transport cleanup failed', {
         error: error instanceof Error ? error.name : 'unknown',
       });
     });
+    if (!isCurrent()) return;
     context.manualWatchTransportSuspended = false;
     await stopFarmingSession(state, {
       ...options,
+      isCurrent,
       onStopMonitoring: dependencies.onStopMonitoring,
-      onCloseManagedTab: async (tabId) => {
-        void adapters.closeManagedTabIfSafe(tabId).catch((error: unknown) => {
-          logWarn('Stopped session tab cleanup failed', {
-            error: error instanceof Error ? error.name : 'unknown',
-          });
-        });
-      },
       onClearRotationMetadata: clearRotationMetadata,
       onApplyStopState: applyStopState,
-      onNotify:
-        options?.suppressNotifications || (signInRequired && adapters.automationNotify)
-          ? undefined
-          : async (title, message) => {
-              await adapters.notify(title, message);
-            },
+      onNotify: options?.suppressNotifications
+        ? undefined
+        : async (title, message) => {
+            await adapters.notify(title, message);
+          },
       onSystemAlert:
         options?.suppressNotifications || (signInRequired && adapters.automationNotify)
           ? undefined
@@ -109,46 +110,60 @@ export function createFarmingSessionHandlers(
       onSaveState: () => adapters.saveState(state),
       onSaveTimingState: options?.skipTimingStateSave ? undefined : async () => scheduleTimingStateSave(),
     });
-    if (signInRequired && adapters.automationNotify) {
-      const selectedGame = state.appState.selectedGame;
-      await adapters.automationNotify({
-        transitionId: `sign-in-required:${selectedGame?.campaignId ?? 'session'}:${state.appState.twitchSessionSyncState.attempts}`,
-        event: 'sign-in-required',
-        campaignId: selectedGame?.campaignId ?? 'session',
-        title: options?.notification?.title ?? 'Sign-in required',
-        message:
-          options?.stopMessage ??
-          options?.notification?.message ??
-          'DropHunter could not refresh your Twitch session. Please open Twitch and sign in.',
-        telegramReason: 'sign-in-required',
-      });
-    }
   }
 
   function handleStartFarming(
     payload: StartFarmingPayload,
     externalIsCurrent?: () => boolean,
     preserveQueueContext = false,
+    forceCampaign = false,
   ): Promise<StartFarmingResult> {
-    const isGuardedStart = externalIsCurrent !== undefined;
     const current = externalIsCurrent ?? (() => true);
-    const epoch = invalidateFarmingSessionEpoch(state);
+    const epoch = context.transitionCampaign
+      ? currentFarmingSessionEpoch(state) + 1
+      : invalidateFarmingSessionEpoch(state);
     const isCurrent = () => current() && isFarmingSessionEpochCurrent(state, epoch);
-    return runInFarmingSessionCriticalSection(state, () =>
-      runFarmingSessionStart(context, dependencies, payload, isCurrent, isGuardedStart, preserveQueueContext),
+    state.tickGeneration += 1;
+    state.monitorTickInFlight = false;
+    state.monitorTickDeadlineAt = 0;
+    state.streamerAcquisitionGeneration += 1;
+    state.streamerAcquisitionInFlight = null;
+    state.streamerAcquisitionDeadlineAt = 0;
+    const run = context.transitionCampaign
+      ? interruptFarmingSessionMutation
+      : runInFarmingSessionCriticalSection;
+    return run(state, () =>
+      runFarmingSessionStart(context, dependencies, payload, isCurrent, preserveQueueContext, forceCampaign),
     );
   }
 
+  function handleStartQueuedCampaign(campaignKey: string): Promise<StartFarmingResult> {
+    if (queuedStart?.key === campaignKey) return queuedStart.promise;
+    const game = state.appState.queue.find((entry) => gameKey(entry) === campaignKey);
+    if (!game) return Promise.resolve({ success: false, error: 'Campaign is no longer in the queue.' });
+    const promise = handleStartFarming({ game }, undefined, false, true).finally(() => {
+      if (queuedStart?.promise === promise) queuedStart = null;
+    });
+    queuedStart = { key: campaignKey, promise };
+    return promise;
+  }
+
   async function stopManually(): Promise<SuccessResult> {
+    const epoch = currentFarmingSessionEpoch(state);
     await adapters.trackActivity('stop-farming');
+    if (!isFarmingSessionEpochCurrent(state, epoch)) return { success: true };
     await stop({ stopReason: 'user-stop', stopMessage: 'Stopped by user.' });
+    if (!isFarmingSessionEpochCurrent(state, epoch)) return { success: true };
     state.appState.manualQueueAuthorized = false;
     state.appState.farmingSessionOrigin = null;
+    state.appState.farmingSessionTargets = {};
+    state.appState.campaignFailureEpisodesByKey = {};
     await adapters.saveState(state);
     return { success: true };
   }
 
   function handleStopFarming(): Promise<SuccessResult> {
+    queuedStart = null;
     state.appState.isRunning = false;
     state.appState.isPaused = false;
     state.appState.wasRunning = false;
@@ -164,7 +179,24 @@ export function createFarmingSessionHandlers(
   }
 
   async function recoverTwitchSession(_options?: FarmingSessionAuthRecoveryOptions): Promise<void> {
-    if (!state.appState.isRunning) return;
+    if (!state.appState.isRunning || state.appState.isPaused || state.appState.lastStopReason === 'user-stop')
+      return;
+    if (
+      state.appState.twitchSessionSyncState.status === 'retrying' &&
+      !state.appState.activeStreamer &&
+      (state.appState.twitchSessionSyncState.nextRetryAt ?? 0) > context.now()
+    )
+      return;
+    const epoch = currentFarmingSessionEpoch(state);
+    await adapters.watchTransport?.stop();
+    if (
+      epoch !== currentFarmingSessionEpoch(state) ||
+      !state.appState.isRunning ||
+      state.appState.isPaused ||
+      state.appState.lastStopReason === 'user-stop'
+    )
+      return;
+    state.appState.activeStreamer = null;
 
     state.apiConsecutiveFailures += 1;
     const retryDelayMs = Math.min(
@@ -180,8 +212,8 @@ export function createFarmingSessionHandlers(
 
   async function resumeAfterAuthRecovery(): Promise<void> {
     if (
-      state.appState.isRunning ||
       state.appState.isPaused ||
+      (!state.appState.manualQueueAuthorized && state.appState.farmingSessionOrigin !== 'automatic') ||
       (state.appState.lastStopReason && state.appState.lastStopReason !== 'sign-in-required')
     )
       return;
@@ -206,7 +238,7 @@ export function createFarmingSessionHandlers(
       !state.appState.isPaused;
     await dependencies.onEnsureWorkspace(isCurrent);
     if (!isCurrent()) return;
-    if (!state.appState.tabId) {
+    if (!state.appState.activeStreamer) {
       await dependencies.onAcquireStreamer(isCurrent);
       if (!isCurrent()) return;
     }
@@ -217,10 +249,19 @@ export function createFarmingSessionHandlers(
   }
 
   async function pause(trackActivity: boolean): Promise<SuccessResult> {
+    const epoch = currentFarmingSessionEpoch(state);
     if (trackActivity) await adapters.trackActivity('pause-farming');
+    if (!isFarmingSessionEpochCurrent(state, epoch)) return { success: true };
     state.appState.isPaused = true;
-    state.playbackAttentionWarningSent = false;
+    const game = state.appState.pendingWatchTarget?.game ?? state.appState.selectedGame;
+    const metadata = game ? state.appState.queueEntryMetadataByKey[gameKey(game)] : undefined;
+    if (game && metadata?.watchAttempt)
+      state.appState.queueEntryMetadataByKey[gameKey(game)] = {
+        ...metadata,
+        watchAttempt: { ...metadata.watchAttempt, suspendedAt: context.now() },
+      };
     await adapters.watchTransport?.stop();
+    if (!isFarmingSessionEpochCurrent(state, epoch)) return { success: true };
     context.manualWatchTransportSuspended = false;
     dependencies.onStopMonitoring();
     await adapters.saveState(state);
@@ -229,7 +270,16 @@ export function createFarmingSessionHandlers(
   }
 
   function handlePauseFarming(): Promise<SuccessResult> {
-    return runFarmingSessionMutation(state, () => pause(true));
+    queuedStart = null;
+    state.appState.isPaused = true;
+    state.tickGeneration += 1;
+    state.monitorTickInFlight = false;
+    state.monitorTickDeadlineAt = 0;
+    state.streamerAcquisitionGeneration += 1;
+    state.streamerAcquisitionInFlight = null;
+    state.streamerAcquisitionDeadlineAt = 0;
+    dependencies.onStopMonitoring();
+    return interruptFarmingSessionMutation(state, () => pause(true));
   }
 
   async function resume(epoch: number): Promise<SuccessResult> {
@@ -238,6 +288,7 @@ export function createFarmingSessionHandlers(
     await adapters.trackActivity('resume-farming');
     if (!ownsResume()) return { success: true };
     state.appState.isPaused = false;
+    resumeWatchObservation(state, context.now());
     const isCurrent = () => ownsResume() && !state.appState.isPaused;
     state.invalidStreamChecks = 0;
     state.noProgressRotationAttempts = 0;
@@ -246,7 +297,7 @@ export function createFarmingSessionHandlers(
       state.streamValidationGraceUntil = Date.now() + STREAM_VALIDATION_GRACE_MS;
     }
     let failure: 'no-streamers' | 'directory-unavailable' | 'open-failed' | null = null;
-    if (context.transitionCampaign && state.appState.selectedGame) {
+    if (context.transitionCampaign && state.appState.selectedGame && !state.appState.activeStreamer) {
       const result = await context.transitionCampaign(state.appState.selectedGame, isCurrent);
       if (!isCurrent() || result.kind === 'cancelled') return { success: true };
       if (result.kind === 'failed') failure = result.reason;
@@ -285,6 +336,7 @@ export function createFarmingSessionHandlers(
   }
 
   return {
+    handleStartQueuedCampaign,
     handlePauseFarming,
     handleResumeFarming,
     handleStartFarming,

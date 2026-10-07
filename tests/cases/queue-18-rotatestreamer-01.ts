@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS } from '../../src/background/stream-rotation.ts';
 import { rotateStreamer } from '../../src/background/streamer-acquisition.ts';
 import { createMinimalState } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
@@ -59,40 +58,10 @@ export function registerQueue18Part01() {
       expect(state.noProgressRotationAttempts).toBe(0);
     });
 
-    test('does not enter persistent recovery for stalled progress because stalled flow has its own cap', async () => {
-      const state = createMinimalState({ noProgressRotationAttempts: 3 });
-
-      let enterRecoveryCalled = false;
-      await rotateStreamer(state, 'stalled-progress', {
-        onEnterPersistentRecovery: async () => {
-          enterRecoveryCalled = true;
-        },
-      });
-
-      expect(enterRecoveryCalled).toBe(false);
-    });
-
-    test('does not forward skip callback through persistent recovery for stalled progress', async () => {
-      const state = createMinimalState({ noProgressRotationAttempts: 3 });
-      const skipCurrentGame = async () => {};
-
-      let forwardedSkip: (() => Promise<void>) | undefined;
-      await rotateStreamer(state, 'stalled-progress', {
-        onEnterPersistentRecovery: async (_state, _reason, _message, recoveryOpts) => {
-          forwardedSkip = recoveryOpts?.onSkipCurrentGame;
-        },
-        onSkipCurrentGame: skipCurrentGame,
-      });
-
-      expect(forwardedSkip).toBeUndefined();
-    });
-
     test('returns false when stalled rotation has no replacement streamer', async () => {
       const state = createMinimalState({ noProgressRotationAttempts: 3 });
 
-      const result = await rotateStreamer(state, 'stalled-progress', {
-        onEnterPersistentRecovery: async () => {},
-      });
+      const result = await rotateStreamer(state, 'stalled-progress', {});
 
       expect(result).toBe(false);
     });
@@ -127,7 +96,7 @@ export function registerQueue18Part01() {
 
       expect(state.appState.lastRotationAt).toBeGreaterThanOrEqual(before);
       expect(state.lastStreamRotationAt).toBeGreaterThanOrEqual(before);
-      expect(state.lastProgressAdvanceAt).toBeGreaterThanOrEqual(before);
+      expect(state.lastProgressAdvanceAt).toBe(0);
     });
 
     test('sets lastRotationReason on appState', async () => {
@@ -194,36 +163,6 @@ export function registerQueue18Part01() {
       expect(state.noProgressRotationAttempts).toBe(0);
     });
 
-    test('does not enter persistent recovery when a non-stall replacement fails to open', async () => {
-      const state = createMinimalState({ noProgressRotationAttempts: 3 });
-
-      let enterRecoveryCalled = false;
-      await rotateStreamer(state, 'offline', {
-        onOpenStreamer: async () => false,
-        onEnterPersistentRecovery: async () => {
-          enterRecoveryCalled = true;
-        },
-      });
-
-      expect(enterRecoveryCalled).toBe(false);
-    });
-
-    test('does not forward skip callback through persistent recovery for non-stall open failures', async () => {
-      const state = createMinimalState({ noProgressRotationAttempts: 3 });
-      const skipCurrentGame = async () => {};
-
-      let forwardedSkip: (() => Promise<void>) | undefined;
-      await rotateStreamer(state, 'offline', {
-        onOpenStreamer: async () => false,
-        onEnterPersistentRecovery: async (_state, _reason, _message, recoveryOpts) => {
-          forwardedSkip = recoveryOpts?.onSkipCurrentGame;
-        },
-        onSkipCurrentGame: skipCurrentGame,
-      });
-
-      expect(forwardedSkip).toBeUndefined();
-    });
-
     test('calls onSaveState', async () => {
       const state = createMinimalState();
 
@@ -258,29 +197,12 @@ export function registerQueue18Part01() {
       let saveTimingCalled = false;
       await rotateStreamer(state, 'stalled-progress', {
         onOpenStreamer: async () => false,
-        onEnterPersistentRecovery: async () => {},
         onSaveTimingState: async () => {
           saveTimingCalled = true;
         },
       });
 
       expect(saveTimingCalled).toBe(false);
-    });
-
-    test('caps stalled progress retry attempts without entering persistent recovery', async () => {
-      const state = createMinimalState({
-        noProgressRotationAttempts: MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-      });
-
-      let enterRecoveryCalled = false;
-      await rotateStreamer(state, 'stalled-progress', {
-        onEnterPersistentRecovery: async () => {
-          enterRecoveryCalled = true;
-        },
-      });
-
-      expect(state.noProgressRotationAttempts).toBe(MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS);
-      expect(enterRecoveryCalled).toBe(false);
     });
   });
 }

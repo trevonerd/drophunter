@@ -12,6 +12,7 @@ export type SnapshotDropSpec = {
   currentMinutes?: number;
   requiredMinutes?: number;
   endsAt?: string;
+  claimed?: boolean;
 };
 
 type SnapshotScenario = {
@@ -21,6 +22,7 @@ type SnapshotScenario = {
 const snapshotQueue: SnapshotScenario[] = [];
 const directoryQueue: Array<string | null> = [];
 let activeSnapshotScenario: SnapshotScenario | null = null;
+let stableSnapshotScenario: SnapshotScenario | null = null;
 
 function futureIso(hours = 24) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
@@ -63,7 +65,7 @@ function createInventoryCampaign(spec: SnapshotDropSpec) {
         endAt: spec.endsAt ?? futureIso(),
         self: {
           currentMinutesWatched: spec.currentMinutes ?? 0,
-          isClaimed: false,
+          isClaimed: spec.claimed === true,
           isClaimable: false,
         },
       },
@@ -75,6 +77,12 @@ export function enqueueDropsSnapshot(dropSpecs: SnapshotDropSpec[]) {
   snapshotQueue.push({ drops: dropSpecs });
 }
 
+export function setStableDropsSnapshot(dropSpecs: SnapshotDropSpec[]) {
+  snapshotQueue.length = 0;
+  activeSnapshotScenario = null;
+  stableSnapshotScenario = { drops: dropSpecs };
+}
+
 export function enqueueDirectoryResult(streamerName: string | null) {
   directoryQueue.push(streamerName);
 }
@@ -83,6 +91,7 @@ export function resetFetchScenarios() {
   snapshotQueue.length = 0;
   directoryQueue.length = 0;
   activeSnapshotScenario = null;
+  stableSnapshotScenario = null;
 }
 
 export function installFetchMock() {
@@ -106,7 +115,7 @@ export function installFetchMock() {
 
     switch (body?.operationName) {
       case 'ViewerDropsDashboard': {
-        const scenario = snapshotQueue.shift();
+        const scenario = snapshotQueue.shift() ?? stableSnapshotScenario;
         if (!scenario) throw new Error('Unexpected drops dashboard fetch in service-worker test');
         activeSnapshotScenario = scenario;
         return jsonResponse({
@@ -115,7 +124,9 @@ export function installFetchMock() {
       }
       case 'Inventory': {
         // Periodic inventory checks can legitimately occur without a staged campaign refresh.
-        const scenario = activeSnapshotScenario ?? snapshotQueue.shift() ?? { drops: [] };
+        const scenario = activeSnapshotScenario ??
+          snapshotQueue.shift() ??
+          stableSnapshotScenario ?? { drops: [] };
         if (activeSnapshotScenario && scenario.drops.length === 0) activeSnapshotScenario = null;
         return jsonResponse({
           data: {

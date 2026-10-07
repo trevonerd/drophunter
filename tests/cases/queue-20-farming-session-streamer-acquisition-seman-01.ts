@@ -14,7 +14,7 @@ export function registerQueue20Part01() {
     async function runFarmingSessionStreamerAcquisition(rewardOverrides: Partial<TwitchDrop>) {
       const state = createMinimalState();
       state.appState.isRunning = true;
-      const game = createGame({ campaignId: 'native-campaign', categorySlug: 'native-game' });
+      const game = createGame({ campaignId: 'native-campaign', categorySlug: 'native-game', dropCount: 1 });
       const reward = createDrop({
         campaignId: game.campaignId,
         categorySlug: game.categorySlug,
@@ -83,8 +83,8 @@ export function registerQueue20Part01() {
       expect(result).toEqual({ opened: false, fetchCalls: 0, openedStreamers: [] });
     });
 
-    test('preserves streamer suppression for an ordinary completed reward', async () => {
-      // Given: an ordinary in-game reward is complete under the existing progress rule.
+    test('suppresses streamer acquisition for an ordinary claimed reward', async () => {
+      // Positive claim evidence is required even at full watch progress.
       const reward = {
         progress: 100,
         currentMinutes: 60,
@@ -92,6 +92,7 @@ export function registerQueue20Part01() {
         remainingMinutes: 0,
         claimable: false,
         rewardKind: 'in-game',
+        claimed: true,
         verificationState: 'unassessed',
       } satisfies Partial<TwitchDrop>;
 

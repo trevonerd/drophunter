@@ -2,11 +2,7 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 import { preparedWatch } from './support/prepared-watch.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics([
-  ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 1],
-  ['[DropHunter] No streamer found for selected game', 2],
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 1],
-]);
+verifyExpectedDiagnostics([]);
 
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createFarmingSession } from '../src/background/farming-session.ts';
@@ -69,7 +65,7 @@ describe('streamer acquisition recovery budget', () => {
     chrome?.teardown();
   });
 
-  test('advances after Twitch API backoff interrupts the no-streamers retry', async () => {
+  test('waits for the global cooldown, then advances immediately when the first directory is empty', async () => {
     chrome = setupChromeMocks();
     let now = 4_000_000;
     Date.now = () => now;
@@ -131,7 +127,6 @@ describe('streamer acquisition recovery budget', () => {
       }),
     );
 
-    await session.acquireStreamerForSelectedGame();
     fixture.state.apiConsecutiveFailures = 1;
     fixture.state.apiBackoffUntil = now + NO_STREAMERS_RETRY_MS;
     await session.checkDropProgress();

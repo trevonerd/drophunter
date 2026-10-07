@@ -74,14 +74,18 @@ export async function persistFarmingAutomationPlan(
   if (result.kind === 'written') {
     for (const addition of queuePlan?.added ?? []) {
       const addedAt = queuePlan?.queueEntryMetadataByKey[gameKey(addition.game)]?.addedAt ?? now;
-      await input.automationNotify?.notify({
-        event: 'discovery',
-        transitionId: queueActivityId(addition.game, addedAt),
-        campaignId: addition.game.campaignId ?? gameKey(addition.game),
-        telegramReason: 'favorite-discovered',
-        title: 'Favorite campaign available',
-        message: `${addition.game.name} was added because a favorite campaign is available.`,
-      });
+      void Promise.resolve()
+        .then(() =>
+          input.automationNotify?.notify({
+            event: 'discovery',
+            transitionId: queueActivityId(addition.game, addedAt),
+            campaignId: addition.game.campaignId ?? gameKey(addition.game),
+            telegramReason: 'favorite-discovered',
+            title: 'Favorite campaign available',
+            message: `${addition.game.name} was added because a favorite campaign is available.`,
+          }),
+        )
+        .catch(() => undefined);
     }
     return true;
   }
@@ -215,15 +219,19 @@ export async function runFarmingAutomationStartedEffects(input: StartedEffectsIn
 
   if (activityAdded) {
     const automationMessage = input.state.appState.lastAutomationMessage ?? 'Farming started automatically.';
-    await input.automationNotify?.notify({
-      event: input.receipt.transition === 'preemption' ? 'preemption' : 'start',
-      transitionId: transitionActivityId(input.receipt),
-      campaignId: input.state.appState.selectedGame?.campaignId ?? input.receipt.toCampaignKey,
-      telegramReason: input.receipt.transition === 'preemption' ? 'preempted' : 'auto-started',
-      title: input.receipt.transition === 'preemption' ? 'Campaign priority changed' : 'Farming started',
-      message: automationMessage,
-      priority: 2,
-    });
+    void Promise.resolve()
+      .then(() =>
+        input.automationNotify?.notify({
+          event: input.receipt.transition === 'preemption' ? 'preemption' : 'start',
+          transitionId: transitionActivityId(input.receipt),
+          campaignId: input.state.appState.selectedGame?.campaignId ?? input.receipt.toCampaignKey,
+          telegramReason: input.receipt.transition === 'preemption' ? 'preempted' : 'auto-started',
+          title: input.receipt.transition === 'preemption' ? 'Campaign priority changed' : 'Farming started',
+          message: automationMessage,
+          priority: 2,
+        }),
+      )
+      .catch(() => undefined);
   }
 
   if (input.obsolete !== null && input.receipt.cleanup.kind === 'pending') {

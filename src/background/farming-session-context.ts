@@ -56,7 +56,6 @@ export interface FarmingSessionAdapters {
   readonly enforcePlaybackPolicyOnStreamTab: () => Promise<void>;
   readonly attemptPlaybackSelfHeal: (tabId: number, isCurrent?: () => boolean) => Promise<void>;
   readonly attemptAutoClaimChannelPointsBonus: () => Promise<boolean>;
-  readonly closeManagedTabIfSafe: (tabId: number | null) => Promise<boolean>;
   readonly clearManagedTabOwnership: () => void;
   readonly openMonitorDashboardWindow: (options: { readonly toggle: boolean }) => Promise<unknown>;
   readonly sendAlert: (kind: 'drop-complete' | 'all-complete', message: string) => Promise<void>;

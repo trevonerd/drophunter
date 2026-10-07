@@ -104,7 +104,6 @@ function createAdapters(overrides: Partial<FarmingSessionAdapters> = {}): Farmin
     enforcePlaybackPolicyOnStreamTab: async () => {},
     attemptPlaybackSelfHeal: async () => {},
     attemptAutoClaimChannelPointsBonus: async () => false,
-    closeManagedTabIfSafe: async () => true,
     clearManagedTabOwnership: () => {},
     openMonitorDashboardWindow: async () => {},
     sendAlert: async () => {},
@@ -129,6 +128,8 @@ describe('farming session watch transport integration', () => {
     state.appState.isRunning = true;
     state.appState.activeStreamer = streamer;
     state.appState.watchTransportMode = 'tabless';
+    state.appState.watchTransportPreference = 'tabless';
+    state.lastProgressAdvanceAt = now - 600_000;
     state.appState.recoveryReason = 'stalled-progress';
     state.appState.recoveryAttempts = 3;
     state.stalledRecoveryAttempts = 3;
@@ -136,7 +137,8 @@ describe('farming session watch transport integration', () => {
       source: 'manual',
       addedAt: 1,
       reason: 'user-added',
-      stalledStreamerNames: ['channel-1'],
+      attemptedStreamerNames: ['channel-1', 'channel-2', 'channel-3', 'channel-4'],
+      watchAttempt: { channelName: 'channel-1', observedAt: now - 600_000 },
     };
     state.recoveryBackoffUntil = now;
 

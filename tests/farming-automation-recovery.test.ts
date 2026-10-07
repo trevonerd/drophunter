@@ -201,6 +201,7 @@ describe('Farming automation receipt recovery', () => {
         },
         {
           acquireStreamer: async () => streamerC,
+          persistAttempt: async () => true,
           currentFingerprint: () => 'fingerprint',
           loadReceipt: () => fixture.persistence.loadReceipt(),
           commitTransition: (commit) => fixture.persistence.commitTransition(commit),

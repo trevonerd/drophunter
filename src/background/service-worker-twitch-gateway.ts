@@ -17,6 +17,7 @@ import type { StreamContext } from './farming-session.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logDebug, logInfo, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
 import {
   clearTwitchSessionCache,
   currentTwitchSessionRevision,
@@ -93,7 +94,10 @@ export function createServiceWorkerTwitchGateway(
     sanitizeTwitchSession,
     sessionDebugSummary,
     readTwitchSessionViaExecuteScript,
-    persistTwitchSession,
+    persistTwitchSession: async (session) => {
+      await bindCampaignEvidenceAccount(state, session.userId);
+      await persistTwitchSession(session);
+    },
     discardPersistedTwitchSessionIfMatches,
     validateRecoveredTwitchSession: async (session) => {
       try {
@@ -116,7 +120,9 @@ export function createServiceWorkerTwitchGateway(
 
   function authResumeGuard(): () => boolean {
     const epoch = currentFarmingSessionEpoch(state);
-    const shouldResume = state.appState.lastStopReason === 'sign-in-required';
+    const shouldResume =
+      state.appState.lastStopReason === 'sign-in-required' ||
+      (state.appState.isRunning && state.appState.twitchSessionSyncState.status === 'retrying');
     return () =>
       shouldResume &&
       currentFarmingSessionEpoch(state) === epoch &&

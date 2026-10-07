@@ -1,10 +1,7 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics([
-  ['[DropHunter] No eligible streamer found for current Drops; scheduling one retry', 2],
-  ['[DropHunter] No streamer found for selected game', 2],
-]);
+verifyExpectedDiagnostics([]);
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createFarmingSession } from '../src/background/farming-session.ts';
@@ -98,12 +95,34 @@ describe('farming monitoring recovery', () => {
     expect(state.appState.selectedGame?.campaignId).toBe('campaign');
   });
 
-  test('an explicit video gesture wait keeps ticking without rotating, acquiring, or declaring drop progress', async () => {
+  test('an explicit video gesture wait continues reward checks without declaring drop progress', async () => {
     const state = runningState();
     state.appState.activeStreamer = createStreamer();
     state.appState.tabId = 123;
+    chrome.chrome.tabs.get = async () => ({
+      id: 123,
+      url: 'https://www.twitch.tv/teststreamer',
+      windowId: 1,
+      index: 0,
+      pinned: false,
+      highlighted: false,
+      incognito: false,
+      selected: false,
+      active: false,
+      discarded: false,
+      autoDiscardable: true,
+      frozen: false,
+      groupId: -1,
+    });
     const waiting = createWatchHealth('managed-tab', 'degraded', 'user-interaction-required', Date.now);
     state.appState.watchHealth = waiting;
+    state.appState.queueEntryMetadataByKey['campaign:campaign'] = {
+      source: 'manual',
+      addedAt: Date.now(),
+      reason: 'user-added',
+      attemptedStreamerNames: [state.appState.activeStreamer.name],
+      watchAttempt: { channelName: state.appState.activeStreamer.name, observedAt: Date.now() - 600_000 },
+    };
     state.lastProgressAdvanceAt = Date.now() - 600_000;
     const progressProof = state.lastProgressAdvanceAt;
     let playing = false;
@@ -152,7 +171,7 @@ describe('farming monitoring recovery', () => {
     await monitoring.checkDropProgress();
     await monitoring.checkDropProgress();
     expect(ticks).toBe(2);
-    expect(work).toEqual([]);
+    expect(work).toEqual(['advance', 'stall', 'advance', 'advance', 'stall', 'advance']);
     expect(state.lastProgressAdvanceAt).toBe(progressProof);
     expect(state.appState.tabId).toBe(123);
     expect(state.appState.selectedGame?.campaignId).toBe('campaign');
@@ -304,13 +323,13 @@ describe('farming monitoring recovery', () => {
       },
     );
     await monitoring.checkDropProgress();
-    expect(rotations).toBe(1);
-    expect(acquisitions).toBe(0);
+    expect(rotations).toBe(0);
+    expect(acquisitions).toBe(1);
     expect(state.appState.selectedGame?.campaignId).toBe('campaign');
     expect(state.appState.queue).toHaveLength(1);
   });
 
-  test('replaces rather than reopens the failed managed streamer', async () => {
+  test('rotates a managed streamer after confirmed playback failure despite healthy channel metadata', async () => {
     const state = runningState();
     const currentStreamer = {
       id: 'streamer-a',
@@ -380,7 +399,7 @@ describe('farming monitoring recovery', () => {
     'heartbeat-failed',
     'error',
   ] as const) {
-    test(`replaces the Hidden streamer after a confirmed ${reason} heartbeat`, async () => {
+    test(`${reason === 'error' || reason === 'heartbeat-failed' ? 'waits for the shared service' : 'replaces the Hidden streamer'} after a confirmed ${reason} heartbeat`, async () => {
       const state = runningState();
       const currentStreamer = {
         id: 'streamer-a',
@@ -421,6 +440,16 @@ describe('farming monitoring recovery', () => {
 
       await session.checkDropProgress();
 
+      if (reason === 'stream-offline') {
+        expect(starts).toEqual([]);
+        await session.checkDropProgress();
+      }
+      if (reason === 'error' || reason === 'heartbeat-failed') {
+        expect(starts).toEqual([]);
+        expect(state.appState.activeStreamer?.name).toBe(currentStreamer.name);
+        expect(state.appState.lastRotationReason).toBeNull();
+        return;
+      }
       expect(starts).toEqual(['streamer-b']);
       expect(state.appState.activeStreamer?.name).toBe('streamer-b');
       expect(state.appState.lastRotationReason).toBe(

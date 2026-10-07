@@ -1,9 +1,7 @@
 import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
-verifyExpectedDiagnostics([
-  ['[DropHunter] Parking campaign because no eligible Drops streamer was found', 2],
-]);
+verifyExpectedDiagnostics([]);
 
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { cheapFarmingAutomationGate } from '../src/background/farming-automation-gates.ts';
@@ -67,25 +65,24 @@ describe('continuous availability recovery queue', () => {
       source: 'manual',
       reason: 'user-added',
       addedAt: now,
-      streamerRetryCycles: 2,
     };
     state.appState.queueEntryMetadataByKey[gameKey(scheduled)] = {
       source: 'manual',
       reason: 'user-added',
       addedAt: now,
     };
-    const waitingTransitions: number[] = [];
+    const waitingTransitions: string[] = [];
     await createQueueProgressionFixture(state, {
       transitionCampaign: async () => ({ kind: 'waiting' }),
       automationNotify: async (notification) => {
-        waitingTransitions.push(Number(notification.transitionId.split(':')[1]));
+        waitingTransitions.push(notification.transitionId);
       },
     }).skipCurrent('no-streamers');
     expect(state.appState.isRunning).toBe(true);
     expect(state.appState.isPaused).toBe(false);
     expect(state.appState.queueResumeOnAvailability).toBe(false);
     expect(state.appState.queue).toHaveLength(2);
-    expect(waitingTransitions).toEqual([now]);
+    expect(waitingTransitions).toHaveLength(0);
   });
 
   test('an explicit Stop cancels the durable resume intent', async () => {
@@ -115,7 +112,7 @@ describe('continuous availability recovery queue', () => {
     });
   });
 
-  test('three unavailable campaigns wait without acquisition, then resume after a worker restart', async () => {
+  test('worker recycle preserves the ten-minute wait even when fresh candidates become available', async () => {
     spyOn(Date, 'now').mockReturnValue(now);
     const games = ['first', 'second', 'third'].map(campaign);
     const drops = games.map(drop);
@@ -177,13 +174,13 @@ describe('continuous availability recovery queue', () => {
       ]),
     );
     let stoppedMonitoring = 0;
-    const waitingTransitions: number[] = [];
+    const waitingTransitions: string[] = [];
     await createQueueProgressionFixture(state, {
       stopMonitoring: () => {
         stoppedMonitoring += 1;
       },
       automationNotify: async (notification) => {
-        waitingTransitions.push(Number(notification.transitionId.split(':')[1]));
+        waitingTransitions.push(notification.transitionId);
       },
       transitionCampaign: async () => {
         throw new Error('No acquisition should run while waiting');
@@ -194,7 +191,7 @@ describe('continuous availability recovery queue', () => {
     const deadline = state.appState.queueAcquisitionRound?.nextRoundAt;
     expect(deadline).toBe(now + 600_000);
     expect(state.appState.queue).toHaveLength(3);
-    expect(waitingTransitions).toEqual([now]);
+    expect(waitingTransitions).toHaveLength(0);
     expect(stoppedMonitoring).toBe(0);
     expect(
       games.every(
@@ -202,6 +199,7 @@ describe('continuous availability recovery queue', () => {
       ),
     ).toBe(true);
 
+    const waitingCampaign = state.appState.selectedGame?.campaignId;
     const restarted = fixture('priority-list-only', { twitch, favorite: false, now: () => now });
     restarted.state.appState = normalizeStoredAppState(structuredClone(state.appState));
     directoryFails = true;
@@ -221,10 +219,10 @@ describe('continuous availability recovery queue', () => {
     availableCampaign = 'second';
     const outcome = await restarted.automation.request('campaign-refresh');
     expect(outcome.kind).toBe('unchanged');
-    expect(restarted.state.appState.selectedGame?.campaignId).toBe('second');
+    expect(restarted.state.appState.selectedGame?.campaignId).toBe(waitingCampaign);
     expect(restarted.state.appState.queueResumeOnAvailability).toBe(false);
-    expect(restarted.state.appState.recoveryBackoffUntil).toBe(now);
-    expect(restarted.state.appState.queueAcquisitionRound?.attemptedCampaignKeys).not.toContain(
+    expect(restarted.state.appState.recoveryBackoffUntil).toBe(deadline);
+    expect(restarted.state.appState.queueAcquisitionRound?.attemptedCampaignKeys).toContain(
       gameKey(games[1]),
     );
     expect(

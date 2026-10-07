@@ -79,9 +79,9 @@ export function CampaignDetail(props: CampaignDetailProps) {
             <span className="min-w-0 truncate text-[11px] font-semibold leading-snug text-[color:var(--dh-text)]">
               {props.game.campaignName?.trim() || 'Campaign rewards'}
             </span>
-            {completed && (
+            {(completed || watchTimeComplete) && (
               <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-green-500/15 px-1 py-px text-[9px] font-semibold text-green-300">
-                <CheckIcon /> Completed · 100%
+                <CheckIcon /> {completed ? 'Completed' : 'Watch time complete'} · 100%
               </span>
             )}
             {props.running && <span className="dh-running-badge">Running</span>}

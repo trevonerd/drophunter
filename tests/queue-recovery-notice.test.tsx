@@ -16,6 +16,9 @@ test('popup owns unresolved campaign details and controls while monitor shows cu
     recoveryReason: 'no-streamers', recoveryBackoffUntil: now + 600_000,
     automationActivity: Array.from({ length: 20 }, (_, index) => ({ id: String(index), at: now,
       kind: 'favorite-added' as const, message: 'Unrelated event' })),
+    campaignFailureEpisodesByKey: Object.fromEntries(games.map((campaign, index) => [gameKey(campaign), {
+      id: `failure:${index}`, game: campaign, reason: 'stalled-progress', startedAt: now, lastAttemptAt: now, visible: true,
+    }])),
     queueEntryMetadataByKey: {
       [gameKey(games[0])]: { source: 'manual' as const, reason: 'user-added' as const, addedAt: now,
         streamerRetryReason: 'open-failed' as const, streamerRetryAt: now + 60_000 },
@@ -27,11 +30,11 @@ test('popup owns unresolved campaign details and controls while monitor shows cu
   expect(entries.every((entry) => entry.nextRetryAt === now + 600_000)).toBe(true);
   const popup = renderMainView(state, games, { runtimeMode: 'recovering', recoveryNow: now });
   const monitor = renderToStaticMarkup(<MonitorView state={state} lastUpdatedAt={now} recoveryNow={now} contextNow={now} />);
-  expect(popup).toContain('Campaigns awaiting recovery (2)');
+  expect(popup).toContain('Campaign warnings (2)');
   expect(popup).toContain(games[0].campaignName ?? 'Missing name');
   expect(popup).toContain('Second Campaign');
-  expect(popup).toContain('Eligible stream playback could not start');
-  expect(popup).toContain('Twitch progress is not advancing');
+  expect(popup).toContain('farming could not advance with the available streamers');
+  expect(popup).toContain('Dismiss farming message');
   expect(popup).toContain('Pause');
   expect(popup).toContain('Stop');
   expect(popup).not.toContain('>Start</button>');

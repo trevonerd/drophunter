@@ -1,6 +1,19 @@
 import { browser } from '../shared/browser-api.ts';
 import { TWITCH_SESSION_STORAGE_KEY } from './constants.ts';
+import type { ServiceWorkerState } from './runtime-state.ts';
 import { sanitizeTwitchSession, type TwitchSession } from './twitch-api/types.ts';
+
+const sessionRevisions = new WeakMap<ServiceWorkerState, number>();
+
+export function currentTwitchSessionRevision(state: ServiceWorkerState): number {
+  return sessionRevisions.get(state) ?? 0;
+}
+
+export function invalidateTwitchSessionRevision(state: ServiceWorkerState): number {
+  const nextRevision = currentTwitchSessionRevision(state) + 1;
+  sessionRevisions.set(state, nextRevision);
+  return nextRevision;
+}
 
 export async function persistTwitchSession(session: TwitchSession | null) {
   if (session) {

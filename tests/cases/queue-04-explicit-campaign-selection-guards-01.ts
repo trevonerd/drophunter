@@ -99,13 +99,15 @@ export function registerQueue04Part01() {
         source: 'manual',
         addedAt: 1,
         reason: 'user-added',
-        stalledStreamerNames: ['old'],
+        attemptedStreamerNames: ['old'],
       };
 
       const result = await handleStartFarming(state, { game: selected });
 
       expect(result.success).toBe(true);
-      expect(state.appState.queueEntryMetadataByKey[gameKey(selected)]?.stalledStreamerNames).toBeUndefined();
+      expect(
+        state.appState.queueEntryMetadataByKey[gameKey(selected)]?.attemptedStreamerNames,
+      ).toBeUndefined();
     });
 
     test('rejects SET_SELECTED_GAME for an unavailable campaign without changing selection or queue', async () => {

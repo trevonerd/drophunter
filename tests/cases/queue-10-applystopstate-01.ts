@@ -22,7 +22,6 @@ export function registerQueue10Part01() {
       const state = createMinimalState({
         stalledRecoveryAttempts: 3,
         recoveryBackoffUntil: Date.now(),
-        recoveryNotificationSent: true,
       });
       state.appState.recoveryReason = 'previous-recovery';
 
@@ -30,7 +29,6 @@ export function registerQueue10Part01() {
 
       expect(state.stalledRecoveryAttempts).toBe(0);
       expect(state.recoveryBackoffUntil).toBe(0);
-      expect(state.recoveryNotificationSent).toBe(false);
       expect(state.appState.recoveryReason).toBeNull();
     });
   });

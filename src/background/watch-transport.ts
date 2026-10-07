@@ -9,6 +9,9 @@ import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 export function parsePlaybackPrepResult(value: unknown): PlaybackPrepResult {
   if (typeof value !== 'object' || value === null) return {};
   const result: PlaybackPrepResult = {};
+  if ('playbackPending' in value && typeof value.playbackPending === 'boolean') {
+    result.playbackPending = value.playbackPending;
+  }
   if ('gateDismissed' in value && typeof value.gateDismissed === 'boolean') {
     result.gateDismissed = value.gateDismissed;
   }
@@ -74,12 +77,15 @@ export interface UnmanagedTabSession {
 export type ManagedTabOpenResult = ManagedTabSession | UnmanagedTabSession | null;
 
 export interface ManagedTabStartOptions {
+  readonly allowInitialCreation?: boolean;
   readonly active: false;
   readonly focus: false;
   readonly isCurrent?: () => boolean;
 }
 
 export interface ManagedTabOperations {
+  readonly pause?: (session: ManagedTabSession) => Promise<void>;
+  readonly pauseRetained?: (isCurrent: () => boolean) => Promise<void>;
   readonly finalizeOwnership?: (ownership: WatchOwnershipV1) => Promise<void>;
   open(target: FarmingTarget, options: ManagedTabStartOptions): Promise<ManagedTabOpenResult>;
   probe(session: ManagedTabSession, target: FarmingTarget): Promise<WatchProbeResult>;
@@ -104,10 +110,8 @@ export interface TablessTransportOptions {
   /** Set false for store builds until the no-tab compliance gate is approved. */
   readonly enabled: boolean;
   readonly heartbeat: (target: FarmingTarget) => Promise<TablessHeartbeat>;
-  readonly onFallback?: () => Promise<void> | void;
   readonly now?: () => number;
   readonly failedHeartbeatLimit?: number;
-  readonly stalledProgressHeartbeats?: number;
 }
 
 export { ManagedTabTransport } from './managed-tab-transport.ts';

@@ -81,7 +81,6 @@ export function buildFarmingAutomationQueuePlan(
           ? metadata.streamerRetryAt
           : availabilityRetryAt,
       streamerRetryReason: 'no-streamers',
-      streamerRetryAttempts: (metadata.streamerRetryAttempts ?? 0) + 1,
     };
   }
   if (

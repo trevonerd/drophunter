@@ -74,6 +74,12 @@ test('does not suspend hidden farming for a retained managed Twitch tab', async 
     const state = createMinimalState();
     state.appState.isRunning = true;
     state.appState.selectedGame = { id: 'game-b', name: 'Game B', imageUrl: '', campaignId: 'campaign-b' };
+    state.appState.activeStreamer = {
+      id: 'channel-b',
+      name: 'channel-b',
+      displayName: 'Channel B',
+      isLive: true,
+    };
     state.apiBackoffUntil = Date.now() + 60_000;
     const health = createWatchHealth('tabless', 'healthy', 'heartbeat', Date.now);
     let ticks = 0;

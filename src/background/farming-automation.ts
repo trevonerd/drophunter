@@ -11,7 +11,6 @@ import {
   type FarmingAutomationManualWatchController,
 } from './farming-automation-manual-watch.ts';
 import { createFarmingAutomationNotificationBatch } from './farming-automation-notifications.ts';
-import { startQueuedCampaign } from './farming-automation-queued-start.ts';
 import {
   createFarmingAutomationScheduler,
   type FarmingAutomationEvaluateBatch,
@@ -89,24 +88,8 @@ export function createFarmingAutomation(dependencies: FarmingAutomationDependenc
     }
   };
   const scheduler = createFarmingAutomationScheduler(evaluateBatch);
-  let queuedStartInFlight: {
-    readonly campaignKey: string;
-    readonly promise: Promise<{ readonly success: boolean; readonly error?: string }>;
-  } | null = null;
   return {
     request: scheduler.request,
-    async startQueuedCampaign(campaignKey) {
-      if (queuedStartInFlight?.campaignKey === campaignKey) return queuedStartInFlight.promise;
-      runtime.generation += 1;
-      scheduler.invalidate();
-      const promise = startQueuedCampaign(dependencies, runtime, campaignKey);
-      queuedStartInFlight = { campaignKey, promise };
-      try {
-        return await promise;
-      } finally {
-        if (queuedStartInFlight?.promise === promise) queuedStartInFlight = null;
-      }
-    },
     invalidate: () => {
       runtime.generation += 1;
       scheduler.invalidate();

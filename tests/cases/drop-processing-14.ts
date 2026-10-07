@@ -119,41 +119,41 @@ export function registerDropProcessing14(): void {
       expect(state.appState.currentDrop?.verificationState).toBe('unassessed');
     });
 
-    test.each([
-      'inventory-partial',
-      'cached',
-    ] as const)('preserves an authoritative campaign summary through a %s projection', (provenance) => {
-      // Given
-      const summary = {
-        completion: 'farming-complete' as const,
-        remainderReasons: ['unverifiable-twitch' as const],
-      };
-      const previousGame = {
-        id: 'game-1',
-        name: 'Game',
-        imageUrl: '',
-        campaignId: 'campaign-1',
-        dropCount: 1,
-        rewardSummary: summary,
-        allDropsCompleted: false,
-      } satisfies subject.TwitchGame;
-      const rawGame = {
-        id: 'game-1',
-        name: 'Game',
-        imageUrl: '',
-        campaignId: 'campaign-1',
-        dropCount: 1,
-      } satisfies subject.TwitchGame;
-      const state = subject.makeState({
-        appState: { ...subject.createInitialState(), availableGames: [previousGame] },
-      });
+    test.each(['inventory-partial', 'cached'] as const)(
+      'preserves an authoritative campaign summary through a %s projection',
+      (provenance) => {
+        // Given
+        const summary = {
+          completion: 'farming-complete' as const,
+          remainderReasons: ['unverifiable-twitch' as const],
+        };
+        const previousGame = {
+          id: 'game-1',
+          name: 'Game',
+          imageUrl: '',
+          campaignId: 'campaign-1',
+          dropCount: 1,
+          rewardSummary: summary,
+          allDropsCompleted: false,
+        } satisfies subject.TwitchGame;
+        const rawGame = {
+          id: 'game-1',
+          name: 'Game',
+          imageUrl: '',
+          campaignId: 'campaign-1',
+          dropCount: 1,
+        } satisfies subject.TwitchGame;
+        const state = subject.makeState({
+          appState: { ...subject.createInitialState(), availableGames: [previousGame] },
+        });
 
-      // When
-      subject.projectDropsSnapshot(state, { games: [rawGame], drops: [], updatedAt: 11 }, provenance);
+        // When
+        subject.projectDropsSnapshot(state, { games: [rawGame], drops: [], updatedAt: 11 }, provenance);
 
-      // Then
-      expect(state.appState.availableGames[0]?.rewardSummary).toEqual(summary);
-      expect(state.appState.availableGames[0]?.allDropsCompleted).toBe(false);
-    });
+        // Then
+        expect(state.appState.availableGames[0]?.rewardSummary).toEqual(summary);
+        expect(state.appState.availableGames[0]?.allDropsCompleted).toBe(false);
+      },
+    );
   });
 }

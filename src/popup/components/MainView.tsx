@@ -4,11 +4,11 @@ import { AutomationSummary } from './AutomationSummary';
 import { CampaignList, type CampaignListHandle } from './CampaignList';
 import { CampaignQueueControls } from './CampaignQueueControls';
 import { CampaignSyncPanel } from './CampaignSyncPanel';
+import { FarmingMessages } from './FarmingMessages';
 import { CheckIcon } from './icons';
 import { createMainViewModel } from './main-view-model.ts';
 import type { MainViewProps } from './main-view-types';
 import { PopupHeader } from './PopupHeader';
-import { QueueCleanupNotice } from './QueueCleanupNotice';
 import { SessionSummary } from './SessionSummary';
 import { TwitchSessionGate } from './TwitchSessionGate';
 
@@ -17,6 +17,7 @@ export type { MainViewProps } from './main-view-types';
 export function MainView({
   state,
   actionLoading,
+  farmingStartPending,
   dropsRefreshLoading,
   campaignSyncStatus,
   activeSyncError,
@@ -30,7 +31,6 @@ export function MainView({
   firstSyncConfirmation,
   firstSyncCampaignCount,
   queueMessage,
-  dismissedQueueCleanupActivityId,
   notificationPermissionDenied,
   onAutoStartFavoriteGamesToggle,
   onMuteToggle,
@@ -40,7 +40,7 @@ export function MainView({
   onPause,
   onResume,
   onStop,
-  onDismissQueueCleanup,
+  onDismissFarmingMessage,
   onAddToQueue,
   onAddAllToQueue,
   onLinkAccount,
@@ -60,34 +60,14 @@ export function MainView({
     queueGames,
     pendingDrops,
     completedDrops,
-    dismissedQueueCleanupActivityId,
   });
-  const queueCleanupActivity = model.queueCleanupActivity;
   const startupPresentation = classifyStartupPresentation({
     blocksStartup: model.startup.isBlocking,
     automaticStartPending: model.startup.automaticStartPending,
     campaignSyncState: state.campaignSyncState,
   });
   const showStartupSyncPanel = startupPresentation === 'blocked';
-  const queueCampaignRemovalNotice =
-    model.queueRecoveryEntries.length > 0 ? (
-      <QueueCleanupNotice
-        summary={`Campaigns awaiting recovery (${model.queueRecoveryEntries.length})`}
-        entries={model.queueRecoveryEntries}
-      />
-    ) : queueCleanupActivity ? (
-      <QueueCleanupNotice
-        summary={
-          queueCleanupActivity.kind === 'queue-retries-exhausted'
-            ? 'Farming stopped'
-            : queueCleanupActivity.kind === 'queue-campaign-skipped'
-              ? 'Campaign skipped'
-              : 'Queue updated'
-        }
-        message={queueCleanupActivity.message}
-        onDismiss={() => onDismissQueueCleanup(queueCleanupActivity.id)}
-      />
-    ) : null;
+  const queueCampaignRemovalNotice = <FarmingMessages state={state} onDismiss={onDismissFarmingMessage} />;
   const syncPanel = (
     <CampaignSyncPanel
       status={campaignSyncStatus}
@@ -136,6 +116,7 @@ export function MainView({
               currentAutomatableDrop={model.currentAutomatableDrop}
               recoveryNow={recoveryNow}
               actionLoading={actionLoading}
+              farmingStartPending={farmingStartPending}
               startDisabled={model.startDisabled}
               automaticStartPending={model.startup.automaticStartPending}
               showSelectedCampaignStatus={model.showSelectedCampaignStatus}

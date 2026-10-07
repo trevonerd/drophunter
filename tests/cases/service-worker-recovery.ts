@@ -1,7 +1,11 @@
 import { expect, test } from 'bun:test';
 import { gameKey } from '../../src/shared/game-selection.ts';
 import { demoGame, nextGame, thirdGame } from '../fixtures/service-worker-games.ts';
-import { enqueueDirectoryResult, enqueueDropsSnapshot } from '../helpers/service-worker-fetch.ts';
+import {
+  enqueueDirectoryResult,
+  enqueueDropsSnapshot,
+  setStableDropsSnapshot,
+} from '../helpers/service-worker-fetch.ts';
 import {
   addGameToQueue,
   chromeMocks,
@@ -21,43 +25,56 @@ async function useManagedWatch() {
   });
 }
 
+async function startCurrentCampaign() {
+  const startResponse = await dispatchMessage({
+    type: 'START_FARMING',
+    payload: { game: demoGame },
+  });
+  expect(startResponse).toEqual({ success: true });
+  await triggerMonitorAlarm();
+  await waitForAppState(
+    (state) =>
+      state.isRunning &&
+      state.selectedGame?.campaignId === demoGame.campaignId &&
+      state.activeStreamer !== null,
+    'start farming did not stabilize on the current game',
+  );
+}
+
 export function registerRecoveryCases() {
   test('advances queued game when the current campaign becomes terminal mid-farming', async () => {
     await useManagedWatch();
-    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
-    enqueueDirectoryResult('streamer-current');
-    enqueueDropsSnapshot([
-      {
-        game: demoGame,
-        dropId: 'drop-current',
-        currentMinutes: 60,
-        requiredMinutes: 60,
-        endsAt: new Date(Date.now() - 60_000).toISOString(),
-      },
+    setStableDropsSnapshot([
+      { game: demoGame, dropId: 'drop-current', currentMinutes: 10 },
+      { game: nextGame, dropId: 'drop-next', currentMinutes: 5 },
     ]);
-    enqueueDropsSnapshot([{ game: nextGame, dropId: 'drop-next', currentMinutes: 5 }]);
-    enqueueDirectoryResult('streamer-next');
+    enqueueDirectoryResult('streamer-current');
 
     await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame] });
     await syncTestSessionWithoutCampaignRefresh();
     await addGameToQueue(nextGame);
 
-    const startResponse = await dispatchMessage({
-      type: 'START_FARMING',
-      payload: { game: demoGame },
+    await startCurrentCampaign();
+
+    setStableDropsSnapshot([
+      {
+        game: demoGame,
+        dropId: 'drop-current',
+        currentMinutes: 10,
+        endsAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+      { game: nextGame, dropId: 'drop-next', currentMinutes: 5 },
+    ]);
+    enqueueDirectoryResult('streamer-next');
+    await dispatchMessage({
+      type: 'UPDATE_GAMES',
+      payload: [{ ...demoGame, endsAt: new Date(Date.now() - 60_000).toISOString() }, nextGame],
     });
-
-    expect(startResponse).toEqual({ success: true });
-    await waitForAppState(
-      (state) => state.isRunning && state.selectedGame?.campaignId === demoGame.campaignId,
-      'start farming did not stabilize on the current game',
-    );
-
     await triggerInventoryRefreshAlarm();
 
     const advanced = await waitForAppState(
       (state) => state.selectedGame?.campaignId === nextGame.campaignId,
-      'queue did not advance to the next game after campaign vanished',
+      'queue did not advance after a verified campaign expiry',
     );
 
     expect(advanced.queue.map((game) => game.name)).toEqual([nextGame.name]);
@@ -65,34 +82,22 @@ export function registerRecoveryCases() {
 
   test('advances queued game when the current campaign completes mid-farming', async () => {
     await useManagedWatch();
-    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
-    enqueueDirectoryResult('streamer-current');
-    enqueueDropsSnapshot([
-      {
-        game: demoGame,
-        dropId: 'drop-current',
-        currentMinutes: 60,
-        requiredMinutes: 60,
-      },
+    setStableDropsSnapshot([
+      { game: demoGame, dropId: 'drop-current', currentMinutes: 10 },
+      { game: nextGame, dropId: 'drop-next', currentMinutes: 5 },
     ]);
-    enqueueDropsSnapshot([{ game: nextGame, dropId: 'drop-next', currentMinutes: 5 }]);
-    enqueueDirectoryResult('streamer-next');
+    enqueueDirectoryResult('streamer-current');
 
     await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame] });
     await syncTestSession();
     await addGameToQueue(nextGame);
 
-    const startResponse = await dispatchMessage({
-      type: 'START_FARMING',
-      payload: { game: demoGame },
-    });
-
-    expect(startResponse).toEqual({ success: true });
-    await waitForAppState(
-      (state) => state.isRunning && state.selectedGame?.campaignId === demoGame.campaignId,
-      'start farming did not stabilize on the current game',
-    );
-
+    await startCurrentCampaign();
+    setStableDropsSnapshot([
+      { game: demoGame, dropId: 'drop-current', currentMinutes: 60, requiredMinutes: 60, claimed: true },
+      { game: nextGame, dropId: 'drop-next', currentMinutes: 5 },
+    ]);
+    enqueueDirectoryResult('streamer-next');
     await triggerInventoryRefreshAlarm();
 
     const advanced = await waitForAppState(
@@ -118,16 +123,7 @@ export function registerRecoveryCases() {
     await syncTestSession();
     await addGameToQueue(nextGame);
 
-    const startResponse = await dispatchMessage({
-      type: 'START_FARMING',
-      payload: { game: demoGame },
-    });
-
-    expect(startResponse).toEqual({ success: true });
-    await waitForAppState(
-      (state) => state.isRunning && state.selectedGame?.campaignId === demoGame.campaignId,
-      'start farming did not stabilize on the current game',
-    );
+    await startCurrentCampaign();
 
     await triggerInventoryRefreshAlarm();
 
@@ -139,43 +135,27 @@ export function registerRecoveryCases() {
     expect(state.queue.map((game) => game.name)).toEqual([demoGame.name, nextGame.name]);
   });
 
-  test('keeps the actual watch while an unavailable successor remains queued', async () => {
+  test('suspends completed playback while unavailable successors remain authorized', async () => {
     await useManagedWatch();
-    enqueueDropsSnapshot([{ game: demoGame, dropId: 'drop-current', currentMinutes: 10 }]);
+    setStableDropsSnapshot([
+      { game: demoGame, dropId: 'drop-current', currentMinutes: 10 },
+      { game: nextGame, dropId: 'drop-next', currentMinutes: 5 },
+      { game: thirdGame, dropId: 'drop-third', currentMinutes: 5 },
+    ]);
     enqueueDirectoryResult('streamer-current');
-    enqueueDropsSnapshot([
-      {
-        game: demoGame,
-        dropId: 'drop-current',
-        currentMinutes: 10,
-        endsAt: new Date(Date.now() - 60_000).toISOString(),
-      },
-    ]);
-    enqueueDropsSnapshot([
-      {
-        game: nextGame,
-        dropId: 'drop-next',
-        currentMinutes: 5,
-      },
-    ]);
-    enqueueDirectoryResult(null);
 
     await dispatchMessage({ type: 'UPDATE_GAMES', payload: [demoGame, nextGame, thirdGame] });
     await syncTestSession();
     await addGameToQueue(nextGame);
     await addGameToQueue(thirdGame);
 
-    const startResponse = await dispatchMessage({
-      type: 'START_FARMING',
-      payload: { game: demoGame },
-    });
-
-    expect(startResponse).toEqual({ success: true });
-    await waitForAppState(
-      (state) => state.isRunning && state.selectedGame?.campaignId === demoGame.campaignId,
-      'start farming did not stabilize on the current game',
-    );
-
+    await startCurrentCampaign();
+    setStableDropsSnapshot([
+      { game: demoGame, dropId: 'drop-current', currentMinutes: 60, requiredMinutes: 60, claimed: true },
+      { game: nextGame, dropId: 'drop-next', currentMinutes: 5 },
+      { game: thirdGame, dropId: 'drop-third', currentMinutes: 5 },
+    ]);
+    enqueueDirectoryResult(null);
     await triggerInventoryRefreshAlarm();
 
     const state = await waitForAppState(
@@ -183,8 +163,8 @@ export function registerRecoveryCases() {
       'successor verification did not schedule recovery',
     );
 
-    expect(state.selectedGame?.campaignId).toBe(demoGame.campaignId);
-    expect(state.activeStreamer?.name).toBe('streamer-current');
+    expect(state.isRunning).toBe(true);
+    expect(state.activeStreamer).toBeNull();
     expect(state.queue.map((game) => game.name)).toEqual([nextGame.name, thirdGame.name]);
   });
 
@@ -229,6 +209,7 @@ export function registerRecoveryCases() {
       });
 
       expect(startResponse).toEqual({ success: true });
+      await triggerMonitorAlarm();
       await waitForAppState(
         (state) =>
           state.isRunning &&

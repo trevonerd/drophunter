@@ -12,6 +12,37 @@ import { installManagedWatchPages } from './support/managed-watch-pages.ts';
 const target = { gameId: 'game', categorySlug: 'game', channelName: 'owned_channel' };
 const url = 'https://www.twitch.tv/owned_channel';
 
+test('Stop during native navigation finishes ownership proof and pauses the loaded player', async () => {
+  const mocks = setupChromeMocks();
+  const tabs = installManagedWatchPages(mocks);
+  let current = true;
+  const native = mocks.chrome.tabs.update;
+  mocks.chrome.tabs.update = async (id, properties) => {
+    const result = await native(id, properties);
+    if (properties?.url === url) {
+      current = false;
+      const page = tabs.pages.get(id);
+      if (page) page.playing = true;
+    }
+    return result;
+  };
+  try {
+    expect(
+      await createChromeFarmingAutomationHost().tabs.create(
+        { url, muted: true, active: false },
+        () => current,
+        true,
+      ),
+    ).toBeNull();
+    expect(tabs.pages.get(20)?.url).toBe(url);
+    expect(tabs.pages.get(20)?.playing).toBe(false);
+    expect(tabs.pages.get(20)?.storage.size).toBe(1);
+    expect(tabs.created).toHaveLength(1);
+  } finally {
+    mocks.teardown();
+  }
+});
+
 test.each(['complete', 'timeout', 'stop', 'user-navigation'] as const)(
   'regular managed watch handles delayed navigation: %s',
   async (stage) => {
@@ -114,7 +145,7 @@ test('native Stop after update response retains pending navigation in the sole a
   }
 });
 
-test('ordinary unready playback retains proven tab and requests user attention', async () => {
+test('ordinary unready playback retains a proven tab and exposes attention for the farming flow', async () => {
   const mocks = setupChromeMocks();
   const tabs = installManagedWatchPages(mocks);
   try {
@@ -151,7 +182,8 @@ test('ordinary unready playback retains proven tab and requests user attention',
     expect(tabs.pages.size).toBe(1);
     expect(tabs.removed).toEqual([]);
     expect(events.watchTransport.currentOwnership()?.kind).toBe('managed-tab');
-    expect(notifications).toEqual(['DropHunter needs your attention']);
+    expect(notifications).toEqual([]);
+    expect(state.appState.watchHealth?.reason).toBe('user-interaction-required');
   } finally {
     mocks.teardown();
   }

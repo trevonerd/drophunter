@@ -101,10 +101,14 @@ test('automatic queue defers native creation on transient old-tab proof failure 
       mocks.alarms._created.some((alarm) => alarm.info.when === state.appState.nextAutomationCheckAt),
     ).toBe(true);
     mocks.chrome.scripting.executeScript = execute;
+    expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames).toBeUndefined();
     expect(await automation.request('periodic')).toMatchObject({ kind: 'started' });
+    expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames).toEqual([
+      createStreamer().name,
+    ]);
     expect(tabs.removed).toEqual([]);
     expect(tabs.created).toEqual([]);
-    expect(state.appState.tabId).toBe(old.id);
+    expect(adapter.watch.currentOwnership()).toMatchObject({ tabId: old.id });
     expect(tabs.pages.size).toBe(2);
   } finally {
     mocks.teardown();

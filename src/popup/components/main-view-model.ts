@@ -4,7 +4,6 @@ import {
   gameKey,
   hiddenGameIdentityKeys,
 } from '../../shared/game-selection.ts';
-import { queueRecoveryNotice } from '../../shared/queue-recovery-notice.ts';
 import { isRewardWatchable } from '../../shared/reward-semantics.ts';
 import type { AppState, TwitchDrop, TwitchGame } from '../../types/index.ts';
 import type { CampaignSyncStatus } from '../constants.ts';
@@ -20,7 +19,6 @@ export interface MainViewModelInput {
   readonly queueGames: readonly TwitchGame[];
   readonly pendingDrops: readonly TwitchDrop[];
   readonly completedDrops: readonly TwitchDrop[];
-  readonly dismissedQueueCleanupActivityId: string | null;
   readonly now?: number;
 }
 
@@ -31,7 +29,6 @@ export function createMainViewModel({
   queueGames,
   pendingDrops,
   completedDrops,
-  dismissedQueueCleanupActivityId,
   now = Date.now(),
 }: MainViewModelInput) {
   const campaignCatalogDrops = Object.values(state.campaignDropsByKey ?? {}).flat();
@@ -63,13 +60,6 @@ export function createMainViewModel({
 
   const startup = startupRecovery(state, campaignSyncStatus);
   const automationActivity = state.automationActivity ?? [];
-  const latestQueueCleanupActivity = automationActivity.find(
-    (entry) => entry.kind === 'queue-campaigns-removed',
-  );
-  const queueCleanupActivity =
-    latestQueueCleanupActivity?.id === dismissedQueueCleanupActivityId
-      ? undefined
-      : latestQueueCleanupActivity;
   const recentFavoriteAddition = automationActivity.find(
     (entry) => entry.kind === 'favorite-added' && now - entry.at < 5_000,
   );
@@ -97,8 +87,6 @@ export function createMainViewModel({
     campaignPriorityMode: state.campaignPriorityMode ?? 'priority-list-only',
     favoriteIds: favoriteGameIdentityKeys(state.favoriteGames ?? []),
     hiddenIds: hiddenGameIdentityKeys(state.hiddenGames ?? []),
-    queueCleanupActivity,
-    queueRecoveryEntries: queueRecoveryNotice(state, now),
     highlightedCampaignKey: highlightedGame ? gameKey(highlightedGame) : null,
     hasVisibleQueue: queueGames.some(
       (game) => !state.isRunning || !state.selectedGame || !isSameQueuedGame(game, state.selectedGame),

@@ -66,6 +66,7 @@ export function normalizeWatchHealth(value: unknown): AppState['watchHealth'] {
       'stalled-progress',
       'managed-tab-unavailable',
       'playback-inactive',
+      'playback-pending',
       'user-interaction-required',
       'transport-disabled',
       'not-started',

@@ -128,7 +128,6 @@ farmingSession = createFarmingSession(state, {
   enforcePlaybackPolicyOnStreamTab: browserEvents.enforcePlaybackPolicyOnStreamTab,
   attemptPlaybackSelfHeal: browserEvents.attemptPlaybackSelfHeal,
   attemptAutoClaimChannelPointsBonus: () => contentHandlers.attemptAutoClaimChannelPointsBonus(),
-  closeManagedTabIfSafe: browserEvents.closeManagedTabIfSafe,
   clearManagedTabOwnership: browserEvents.clearManagedTabOwnership,
   openMonitorDashboardWindow: browserEvents.openMonitorDashboardWindow,
   sendAlert: browserEvents.sendAlert,
@@ -228,7 +227,14 @@ export function setLastInventoryRefreshAtForTests(value: number): void {
   state.lastInventoryRefreshAt = value;
 }
 
+export function isMonitorTickInFlightForTests(): boolean {
+  return state.monitorTickInFlight;
+}
+
 export function resetCampaignEvidenceForTests(): void {
+  state.hasCurrentGenerationCampaignValidation = false;
+  state.lastInventoryRefreshAt = 0;
+  state.lastFullRefreshAt = 0;
   state.appState.acquiredCampaignIds = [];
   state.appState.campaignDropsByKey = {};
   state.appState.currentDrop = null;

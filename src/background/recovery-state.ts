@@ -2,9 +2,9 @@
 // recovery-state.ts — Recovery & stop-state mutators for ServiceWorkerState.
 //
 // Owns the SME for resetting/applying recovery-backoff state (stalled-recovery
-// counter, retry deadline, last-attempt timestamp, recovery notification flag)
+// counter, retry deadline and last-attempt timestamp)
 // and terminal stop-state transitions. Stops are terminal when farming ends
-// (manual stop, queue complete, no active campaigns, sign-in required);
+// (manual stop, all authorized targets acquired or expired);
 // recovery is self-heal/backoff/rotation before any terminal stop.
 //
 // Callers (service-worker wrappers / farming-session) own
@@ -24,14 +24,8 @@ import {
   clearTerminalStopStatus,
   isStreamerAcquisitionRecovery,
 } from '../shared/runtime-status';
-import { logWarn } from './logging';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import {
-  computeRecoveryBackoffMs,
-  MAX_PERSISTENT_RECOVERY_CYCLES,
-  NO_STREAMERS_RETRY_MS,
-  StreamRotationReason,
-} from './stream-rotation';
+import { NO_STREAMERS_RETRY_MS, StreamRotationReason } from './stream-rotation';
 import type { TwitchApiFailureKind } from './twitch-api/errors.ts';
 import { markTwitchSessionRetrying } from './twitch-session-sync.ts';
 
@@ -39,7 +33,6 @@ export function clearRecoveryState(state: ServiceWorkerState) {
   state.recoveryBackoffUntil = 0;
   state.lastRecoveryAttemptAt = 0;
   state.stalledRecoveryAttempts = 0;
-  state.recoveryNotificationSent = false;
   state.appState = clearRecoveryStatus(state.appState);
 }
 
@@ -143,40 +136,4 @@ export function applyTwitchSessionRetryState(state: ServiceWorkerState, retryAt:
 export function applyStopState(state: ServiceWorkerState, reason: string, message: string | null) {
   clearRecoveryState(state);
   state.appState = applyTerminalStopStatus(state.appState, { reason, message });
-}
-
-export async function enterPersistentRecovery(
-  state: ServiceWorkerState,
-  reason: StreamRotationReason,
-  message: string,
-  opts?: {
-    onSkipCurrentGame?: () => Promise<void>;
-    onNotify?: (title: string, message: string, priority?: number) => Promise<void>;
-    onSystemAlert?: (reason: string, message: string) => Promise<void>;
-  },
-) {
-  state.stalledRecoveryAttempts += 1;
-
-  if (state.stalledRecoveryAttempts > MAX_PERSISTENT_RECOVERY_CYCLES) {
-    if (opts?.onSkipCurrentGame) {
-      await opts.onSkipCurrentGame();
-    }
-    return;
-  }
-
-  const backoffMs = computeRecoveryBackoffMs(state.stalledRecoveryAttempts);
-  state.recoveryBackoffUntil = Date.now() + backoffMs;
-  state.lastRecoveryAttemptAt = Date.now();
-  applyRecoveryState(state, reason, state.recoveryBackoffUntil);
-  logWarn('Entering persistent recovery mode', {
-    reason,
-    stalledRecoveryAttempts: state.stalledRecoveryAttempts,
-    backoffMs,
-    retryAt: state.recoveryBackoffUntil,
-  });
-  if (!state.recoveryNotificationSent) {
-    state.recoveryNotificationSent = true;
-    await opts?.onNotify?.('DropHunter is still recovering', message, 1);
-    await opts?.onSystemAlert?.('persistent-recovery', message);
-  }
 }

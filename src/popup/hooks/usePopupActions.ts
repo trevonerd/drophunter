@@ -13,7 +13,6 @@ import {
 import { getGameToStartFromQueue } from '../queue-start';
 import { type FarmingControlType, runFarmingControlRequest } from './farming-control-action.ts';
 import { reorderQueueAction, startQueuedCampaignAction } from './queue-command-actions.ts';
-import { useQueueCleanupDismissal } from './useQueueCleanupDismissal';
 
 interface UsePopupActionsArgs {
   readonly state: AppState;
@@ -35,8 +34,16 @@ export function usePopupActions({
   setOnboardingStep,
 }: UsePopupActionsArgs) {
   const [actionLoading, setActionLoading] = useState(false);
-  const { dismissedQueueCleanupActivityId, handleDismissQueueCleanup } = useQueueCleanupDismissal();
+  const [farmingStartPending, setFarmingStartPending] = useState(false);
   const [queueFeedback, setQueueMessage] = useReducer(publishQueueFeedback, INITIAL_QUEUE_FEEDBACK_STATE);
+  const handleDismissFarmingMessage = useCallback(async (id: string) => {
+    try {
+      const response = await sendRuntimeMessage({ type: 'DISMISS_FARMING_MESSAGE', payload: { id } });
+      if (!response?.success) setQueueMessage(response?.error ?? 'Unable to dismiss message.');
+    } catch {
+      setQueueMessage('Unable to dismiss message.');
+    }
+  }, []);
   const queueMessage = queueFeedback.message;
   const queueMessageOccurrence = queueFeedback.occurrence;
 
@@ -208,11 +215,19 @@ export function usePopupActions({
 
   const handleStartQueuedCampaign = (game: TwitchGame) => {
     if (actionLoading) return;
-    return startQueuedCampaignAction(game, setQueueMessage, setActionLoading);
+    return startQueuedCampaignAction(game, setQueueMessage, (loading) => {
+      setActionLoading(loading);
+      setFarmingStartPending(loading);
+    });
   };
 
   const runFarmingControl = useCallback(
     async (type: FarmingControlType) => {
+      if (type === 'PAUSE_FARMING' || type === 'STOP_FARMING') {
+        const error = await runFarmingControlRequest(type, sendRuntimeMessage);
+        if (error) setQueueMessage(error);
+        return;
+      }
       if (actionLoading) return;
       setActionLoading(true);
       try {
@@ -228,6 +243,7 @@ export function usePopupActions({
   const handleStart = async () => {
     if (actionLoading) return;
     setActionLoading(true);
+    setFarmingStartPending(true);
     try {
       const gameToStart = getGameToStartFromQueue(state.selectedGame, queueGames, state);
       if (!gameToStart) {
@@ -245,19 +261,20 @@ export function usePopupActions({
         await browser.storage.local.set({ onboardingCompleted: true }).catch(() => {});
       }
     } finally {
+      setFarmingStartPending(false);
       setTimeout(() => setActionLoading(false), 250);
     }
   };
 
   return {
     actionLoading,
+    farmingStartPending,
     queueMessage,
-    dismissedQueueCleanupActivityId,
     setQueueMessage,
     handleAddToQueue,
     handleAddAllToQueue,
     handleLinkAccount,
-    handleDismissQueueCleanup,
+    handleDismissFarmingMessage,
     handleSetGamePreference,
     handleRemoveFromQueue,
     handleClearQueue,

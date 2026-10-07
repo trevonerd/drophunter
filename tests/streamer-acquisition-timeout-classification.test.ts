@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { runStreamerAcquisitionAttempt } from '../src/background/streamer-acquisition-attempt.ts';
+import { beginStreamerWatchAttempt } from '../src/background/streamer-watch-attempt.ts';
 
 const originalSetTimeout = globalThis.setTimeout;
 afterEach(() => {
@@ -17,6 +18,8 @@ test.each(['directory', 'playback'] as const)('%s timeout retains its failure do
     state,
     async () => {
       state.streamerAcquisitionPhase = phase;
+      if (phase === 'playback' && state.appState.selectedGame)
+        beginStreamerWatchAttempt(state, state.appState.selectedGame, 'channel');
       return new Promise<boolean>(() => undefined);
     },
     {},
@@ -26,7 +29,9 @@ test.each(['directory', 'playback'] as const)('%s timeout retains its failure do
   if (phase === 'playback') {
     expect(state.appState.recoveryReason).toBe('open-failed');
     expect(state.apiConsecutiveFailures).toBe(0);
-    expect(state.appState.queueEntryMetadataByKey['campaign:campaign']?.streamerRetryAttempts).toBe(1);
+    expect(state.appState.queueEntryMetadataByKey['campaign:campaign']?.attemptedStreamerNames?.length).toBe(
+      1,
+    );
   } else {
     expect(state.appState.recoveryReason).toBe('twitch-network');
     expect(state.apiConsecutiveFailures).toBeGreaterThan(0);

@@ -1,631 +1,502 @@
-import { describe, expect, test } from 'bun:test';
-import {
-  deriveSafeRefreshPatch,
-  FarmingAutomationRefreshBackoffError,
-  type FarmingAutomationTwitchSnapshot,
-} from '../src/background/farming-automation-twitch.ts';
-import { TwitchDirectoryUnavailableError, TwitchHttpError } from '../src/background/twitch-api/errors.ts';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { createFarmingSession } from '../src/background/farming-session.ts';
+import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { createWatchHealth } from '../src/background/watch-health.ts';
+import { createWatchTransportCoordinator } from '../src/background/watch-transport-coordinator.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
-import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
+import type { TwitchDrop, TwitchStreamer } from '../src/types/index.ts';
+import {
+  createDrop,
+  createFarmingSessionAdapters,
+  createGame,
+  createStreamer,
+} from './fixtures/queue-management.ts';
+import { setupChromeMocks } from './mocks/chrome.ts';
 import { createDeferred } from './support/farming-automation-fixtures.ts';
-import { campaign, fixture } from './support/farming-automation-queue-fixture.ts';
 
-function snapshotFor(games: readonly TwitchGame[]): FarmingAutomationTwitchSnapshot {
-  const drops: TwitchDrop[] = games.map((game) => ({
-    id: `drop-${game.campaignId}`,
-    name: 'Reward',
-    gameId: game.id,
-    gameName: game.name,
-    imageUrl: '',
-    progress: 0,
-    currentMinutes: 0,
-    claimed: false,
-    campaignId: game.campaignId,
-    acquisitionMethod: 'watch-time',
-    rewardKind: 'in-game',
-    verificationState: 'unassessed',
-  }));
-  return {
+let mocks: ReturnType<typeof setupChromeMocks>;
+const originalNow = Date.now;
+let now: number;
+beforeEach(() => {
+  mocks = setupChromeMocks();
+  now = originalNow();
+  Date.now = () => now;
+});
+afterEach(() => {
+  Date.now = originalNow;
+  mocks.teardown();
+});
+
+function fixture(
+  options: {
+    running?: boolean;
+    streamers?: TwitchStreamer[];
+    drops?: (drops: TwitchDrop[]) => TwitchDrop[];
+    beforeOpen?: () => Promise<void>;
+    failPlayback?: boolean;
+    failPersistence?: boolean;
+    beforeSave?: () => Promise<void>;
+    incumbentFails?: boolean;
+    incumbentDropsMissing?: boolean;
+    beforeProbe?: () => Promise<void>;
+  } = {},
+) {
+  const games = ['first', 'second'].map((id) =>
+    createGame({
+      id,
+      name: id,
+      categorySlug: id,
+      campaignId: `${id}-campaign`,
+      rewardSummary: { completion: 'farmable', remainderReasons: [] },
+    }),
+  );
+  const [first, requested] = games;
+  if (!first || !requested) throw new Error('Two campaigns required');
+  const drops = games.map((game) =>
+    createDrop({ id: `${game.id}-drop`, gameId: game.id, campaignId: game.campaignId, requiredMinutes: 60 }),
+  );
+  const state = createServiceWorkerState();
+  Object.assign(state.appState, {
+    isRunning: options.running ?? false,
+    selectedGame: options.running ? first : null,
+    manualQueueAuthorized: options.running ?? false,
+    farmingSessionOrigin: options.running ? 'manual' : null,
+    queue: games,
+    availableGames: games,
+    watchTransportPreference: 'managed-tab',
+  });
+  state.cachedDropsSnapshot = drops;
+  const opened: string[] = [];
+  const persisted: string[] = [];
+  const published: Array<{ campaign: string | undefined; dropCampaign: string | undefined }> = [];
+  let directoryReads = 0;
+  let refreshReads = 0;
+  const effects: string[] = [];
+  const coordinator = createWatchTransportCoordinator({
+    state,
+    heartbeat: async () => ({ accepted: true }),
+    persist: async () => {
+      published.push({
+        campaign: state.appState.selectedGame?.campaignId,
+        dropCampaign: state.appState.currentDrop?.campaignId,
+      });
+    },
+    broadcast: () => {},
+    managedTab: {
+      open: async (target) => {
+        opened.push(target.channelName);
+        await options.beforeOpen?.();
+        const failPlayback =
+          options.failPlayback && (target.campaignId === requested.campaignId || options.incumbentFails);
+        mocks.tabs.setTabsGetResult({ id: 19, url: `https://www.twitch.tv/${target.channelName}` });
+        return {
+          owner: 'drophunter',
+          tabId: 19,
+          ownership: {
+            kind: 'managed-tab',
+            tabId: 19,
+            ownershipToken: `${target.channelName}-owned`,
+            expectedChannel: target.channelName,
+          },
+          health: failPlayback
+            ? createWatchHealth('managed-tab', 'failed', 'playback-inactive', Date.now)
+            : undefined,
+        };
+      },
+      probe: async () => {
+        await options.beforeProbe?.();
+        return {
+          accepted: !options.incumbentFails,
+          isLive: true,
+          sameChannel: true,
+          sameGame: true,
+          hasDropsSignal: !options.incumbentDropsMissing,
+          reason: 'heartbeat',
+        };
+      },
+      close: async () => {},
+    },
+  });
+  const snapshot = () => ({
     games,
-    drops,
-    campaignDropsByKey: Object.fromEntries(
-      games.map((game, index) => [gameKey(game), [drops[index] as TwitchDrop]]),
-    ),
-    campaignChannelsMap: {},
-    updatedAt: 1_000,
+    drops: options.drops?.(drops) ?? drops,
+    campaignsVerified: true,
+    inventoryVerified: true,
+    updatedAt: Date.now(),
+  });
+  const session = createFarmingSession(
+    state,
+    createFarmingSessionAdapters({
+      watchTransport: coordinator,
+      trackActivity: async () => {
+        effects.push('activity');
+      },
+      openMonitorDashboardWindow: async () => {
+        effects.push('monitor-window');
+      },
+      fetchDropsSnapshotFromApi: async () => {
+        refreshReads++;
+        return snapshot();
+      },
+      fetchInventorySnapshotFromApi: async () => snapshot(),
+      fetchDirectoryStreamersFromApi: async (game) => {
+        directoryReads++;
+        return Object.assign(
+          (game.campaignId === requested.campaignId || options.incumbentFails
+            ? options.streamers
+            : undefined) ?? [createStreamer({ name: `${game.id}_streamer` })],
+          {
+            languageFilterApplied: false,
+          },
+        );
+      },
+      saveState: async (next) => {
+        await options.beforeSave?.();
+        if (options.failPersistence) throw new Error('Disk unavailable');
+        persisted.push(next.appState.selectedGame?.campaignId ?? 'none');
+      },
+    }),
+  );
+  return {
+    state,
+    session,
+    first,
+    requested,
+    games,
+    opened,
+    persisted,
+    published,
+    coordinator,
+    effects,
+    reads: () => ({ directory: directoryReads, refresh: refreshReads }),
   };
 }
 
-describe('start a specific queued campaign', () => {
-  test('treats an already-running queued campaign as a successful idempotent start', async () => {
-    const requested = campaign('manual', '2030-08-04T12:00:00.000Z');
-    let refreshCalls = 0;
-    const subject = fixture('ending-soonest', {
-      running: requested,
-      queue: [requested],
-      twitch: {
-        refresh: async () => {
-          refreshCalls += 1;
-          throw new Error('Twitch refresh should not gate an already-satisfied start');
-        },
-        fetchDirectory: async () => ({ kind: 'session-missing' }),
-      },
+describe('queued Play through the shared farming session', () => {
+  test('Play persists the requested running campaign without checking Twitch until the main tick', async () => {
+    const subject = fixture();
+    expect(await subject.session.handleStartQueuedCampaign(gameKey(subject.requested))).toEqual({
+      success: true,
     });
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(subject.manual));
-
-    expect(result).toEqual({ success: true });
-    expect(refreshCalls).toBe(0);
-    expect(subject.state.appState.isRunning).toBe(true);
-    expect(subject.state.appState.selectedGame?.campaignId).toBe(subject.manual.campaignId);
+    expect(subject.reads()).toEqual({ directory: 0, refresh: 0 });
+    expect(subject.opened).toEqual([]);
+    expect(subject.state.appState).toMatchObject({
+      isRunning: true,
+      activeStreamer: null,
+      watchHealth: null,
+    });
+    expect(subject.state.appState.selectedGame?.campaignId).toBe(subject.requested.campaignId);
+    await subject.session.checkDropProgress();
+    expect(subject.opened).toEqual(['second_streamer']);
   });
-
-  test('does not report a superseded error when the requested campaign starts concurrently', async () => {
-    let subject: ReturnType<typeof fixture> | null = null;
-    subject = fixture('ending-soonest', {
-      twitch: {
-        refresh: async () => {
-          const current = subject;
-          if (!current) throw new Error('Fixture is not initialized');
-          current.state.appState.isRunning = true;
-          current.state.appState.selectedGame = current.manual;
-          return { kind: 'session-missing' };
-        },
-        fetchDirectory: async () => ({ kind: 'session-missing' }),
-      },
+  test('starts only the requested campaign and durably protects manual intent', async () => {
+    const subject = fixture();
+    expect(await subject.session.handleStartQueuedCampaign(gameKey(subject.requested))).toEqual({
+      success: true,
     });
-    if (!subject) throw new Error('Fixture is not initialized');
-    const current = subject;
-
-    const result = await current.automation.startQueuedCampaign?.(gameKey(current.manual));
-
-    expect(result).toEqual({ success: true });
-    expect(current.state.appState.isRunning).toBe(true);
-    expect(current.state.appState.selectedGame?.campaignId).toBe(current.manual.campaignId);
-  });
-
-  test('still reports a real Twitch refresh failure before any campaign starts', async () => {
-    const subject = fixture('ending-soonest', {
-      twitch: {
-        refresh: async () => {
-          throw new Error('Twitch unavailable');
-        },
-        fetchDirectory: async () => ({ kind: 'session-missing' }),
-      },
-    });
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(subject.manual));
-
-    expect(result).toEqual({
-      success: false,
-      error: 'Unable to refresh Twitch campaigns right now.',
-    });
-    expect(subject.state.appState.isRunning).toBe(false);
-  });
-
-  test('a late fresh snapshot is discarded after Stop invalidates the queued start', async () => {
-    const entered = createDeferred<void>();
-    const resume = createDeferred<void>();
-    const subject = fixture('ending-soonest', {
-      twitch: {
-        refresh: async () => {
-          entered.resolve(undefined);
-          await resume.promise;
-          return { kind: 'session-missing' };
-        },
-        fetchDirectory: async () => ({ kind: 'session-missing' }),
-      },
-    });
-
-    const starting = subject.automation.startQueuedCampaign?.(gameKey(subject.manual));
-    await entered.promise;
-    subject.automation.invalidate?.();
-    resume.resolve(undefined);
-
-    expect(await starting).toEqual({
-      success: false,
-      error: 'Campaign start was superseded by another action.',
-    });
-    expect(subject.state.appState.selectedGame).toBeNull();
-    expect(subject.state.appState.queue).toEqual([subject.manual]);
-  });
-
-  test('does not let an unrelated campaign directory failure block the requested campaign', async () => {
-    const requested = campaign('manual', '2030-08-04T12:00:00.000Z');
-    const unrelated = campaign('unrelated', '2030-08-03T12:00:00.000Z');
-    const snapshot = snapshotFor([requested, unrelated]);
-    const streamer: TwitchStreamer = {
-      id: 'streamer',
-      name: 'channel',
-      displayName: 'Channel',
-      isLive: true,
-      viewerCount: 1,
-    };
-    const subject = fixture('ending-soonest', {
-      favorite: false,
-      queue: [requested],
-      twitch: {
-        refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-        fetchDirectory: async (game) =>
-          gameKey(game) === gameKey(requested)
-            ? {
-                kind: 'ready',
-                target: {
-                  campaignKey: gameKey(game),
-                  campaignId: game.campaignId ?? null,
-                  gameId: game.id,
-                  gameName: game.name,
-                  categoryId: game.categoryId ?? null,
-                  categorySlug: game.categorySlug ?? game.name,
-                },
-                streamers: [streamer],
-                languageFilterApplied: false,
-              }
-            : { kind: 'session-missing' },
-      },
-    });
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(requested));
-
-    expect(result).toEqual({ success: true });
-    expect(subject.state.appState.selectedGame?.campaignId).toBe(requested.campaignId);
-  });
-
-  test('a successful start moves the chosen campaign to the head and protects it from favorite preemption', async () => {
-    const subject = fixture('priority-list-only', {
-      favoriteEndsAt: '2030-08-02T12:00:00.000Z',
-      queue: [campaign('manual', '2030-08-04T12:00:00.000Z')],
-    });
-    const started = await subject.automation.startQueuedCampaign?.(gameKey(subject.manual));
-    const automatic = await subject.automation.request('campaign-refresh');
-    expect(started).toEqual({ success: true });
-    expect(subject.state.appState.selectedGame?.campaignId).toBe(subject.manual.campaignId);
-    expect(subject.state.appState.queue[0]?.campaignId).toBe(subject.manual.campaignId);
-    expect(subject.state.appState.forcedCampaignKey).toBe(gameKey(subject.manual));
-    expect(subject.state.appState.farmingSessionOrigin).toBe('manual');
-    expect(automatic).toEqual({ kind: 'unchanged', reason: 'already-farming-best-campaign' });
-    expect(normalizeStoredAppState(structuredClone(subject.state.appState)).forcedCampaignKey).toBe(
-      gameKey(subject.manual),
-    );
-  });
-
-  test('rejects a campaign that is not in the queue, including a different campaign of the same game', async () => {
-    const subject = fixture('ending-soonest', { favorite: false });
-    const other = { ...subject.manual, campaignId: 'campaign-other' };
-    expect(await subject.automation.startQueuedCampaign?.(gameKey(other))).toEqual({
-      success: false,
-      error: 'Campaign is no longer in the queue.',
-    });
-    expect(subject.state.appState.selectedGame).toBeNull();
-  });
-
-  test('keeps the incumbent when the requested campaign has no eligible streamer', async () => {
-    const incumbent = campaign('favorite', '2030-08-02T12:00:00.000Z');
-    const subject = fixture('ending-soonest', {
-      running: incumbent,
-      queue: [incumbent, campaign('manual', '2030-08-04T12:00:00.000Z')],
-      eligibleStreamers: [],
-    });
-    const before = structuredClone(subject.state.appState);
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(subject.manual));
-    expect(result).toEqual({
-      success: false,
-      error: 'No eligible streamer is available for this campaign.',
-    });
-    expect(subject.state.appState).toEqual(before);
-  });
-
-  test('queued Play finds a restricted live channel outside both directory result sets', async () => {
-    const requested = { ...campaign('manual', '2030-08-04T12:00:00.000Z'), allowedChannels: ['allowed'] };
-    const snapshot = snapshotFor([requested]);
-    const languages: string[] = [];
-    const directoryModes: string[] = [];
-    const subject = fixture('ending-soonest', {
-      favorite: false,
-      queue: [requested],
-      twitch: {
-        refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-        fetchDirectory: async (game, language, options) => {
-          languages.push(language ?? '');
-          directoryModes.push(`${options?.sessionRecoveryMode}:${options?.preserveSessionOnAuthFailure}`);
-          return {
-            kind: 'ready',
-            target: {
-              campaignKey: gameKey(game),
-              campaignId: game.campaignId ?? null,
-              gameId: game.id,
-              gameName: game.name,
-              categoryId: game.categoryId ?? null,
-              categorySlug: game.categorySlug ?? game.name,
-            },
-            streamers: language
-              ? [{ id: 'unrelated', name: 'unrelated', displayName: 'Unrelated', isLive: true }]
-              : [],
-            languageFilterApplied: Boolean(language),
-          };
-        },
-        probeStreamInfo: async (channel) => ({
-          kind: 'live',
-          streamer: { id: '42', name: channel, displayName: channel, isLive: true },
-          categoryLabel: 'manual',
-        }),
-      },
-    });
-    subject.state.appState.preferredStreamerLanguage = 'it';
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(requested));
-
-    expect(result).toEqual({ success: true });
-    expect(languages).toEqual(['it', '']);
-    expect(directoryModes).toEqual(['passive:true', 'passive:true']);
-    expect(subject.state.appState.selectedGame?.campaignId).toBe(requested.campaignId);
-  });
-
-  test('queued Play leaves retry and availability state unchanged when channel verification is incomplete', async () => {
-    const requested = { ...campaign('manual', '2030-08-04T12:00:00.000Z'), allowedChannels: ['allowed'] };
-    const snapshot = snapshotFor([requested]);
-    const subject = fixture('ending-soonest', {
-      favorite: false,
-      queue: [requested],
-      twitch: {
-        refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-        fetchDirectory: async (game) => ({
-          kind: 'ready',
-          target: {
-            campaignKey: gameKey(game),
-            campaignId: game.campaignId ?? null,
-            gameId: game.id,
-            gameName: game.name,
-            categoryId: game.categoryId ?? null,
-            categorySlug: game.categorySlug ?? game.name,
-          },
-          streamers: [],
-          languageFilterApplied: false,
-        }),
-        probeStreamInfo: async () => ({ kind: 'unavailable' }),
-      },
-    });
-    const before = structuredClone(subject.state.appState);
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(requested));
-
-    expect(result).toEqual({
-      success: false,
-      error: 'Unable to check streamers for this campaign right now.',
-    });
-    expect(subject.state.appState).toEqual(before);
-  });
-
-  test('queued Play preserves scheduled retry copy after direct StreamInfo is rate limited', async () => {
-    const requested = { ...campaign('manual', '2030-08-04T12:00:00.000Z'), allowedChannels: ['allowed'] };
-    const snapshot = snapshotFor([requested]);
-    const subject = fixture('ending-soonest', {
-      favorite: false,
-      queue: [requested],
-      twitch: {
-        refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-        fetchDirectory: async (game) => ({
-          kind: 'ready',
-          target: {
-            campaignKey: gameKey(game),
-            campaignId: game.campaignId ?? null,
-            gameId: game.id,
-            gameName: game.name,
-            categoryId: game.categoryId ?? null,
-            categorySlug: game.categorySlug ?? game.name,
-          },
-          streamers: [],
-          languageFilterApplied: false,
-        }),
-        probeStreamInfo: async () => {
-          subject.state.apiBackoffUntil = Date.now() + 60_000;
-          return {
-            kind: 'unavailable',
-            cause: new TwitchDirectoryUnavailableError(new TwitchHttpError('gql', 429, 60_000)),
-          };
-        },
-      },
-    });
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(requested));
-
-    expect(result).toEqual({ success: false, error: 'Twitch is waiting for its scheduled retry.' });
-    expect(subject.state.appState.isRunning).toBe(false);
-  });
-
-  test('queued Play reports session auth failure without replacing the incumbent', async () => {
-    const incumbent = campaign('favorite', '2030-08-02T12:00:00.000Z');
-    const requested = campaign('manual', '2030-08-04T12:00:00.000Z');
-    const snapshot = snapshotFor([requested, incumbent]);
-    const subject = fixture('ending-soonest', {
-      running: incumbent,
-      queue: [incumbent, requested],
-      twitch: {
-        refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-        fetchDirectory: async () => {
-          throw new TwitchDirectoryUnavailableError(new TwitchHttpError('gql', 401));
-        },
-      },
-    });
-    const before = structuredClone(subject.state.appState);
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(requested));
-
-    expect(result).toEqual({
-      success: false,
-      error: 'Unable to refresh your Twitch session. Open Twitch and sign in.',
-    });
-    expect(subject.state.appState).toEqual(before);
-  });
-
-  test('queued Play rejects a fresh campaign with unknown completion classification', async () => {
-    const requested = { ...campaign('manual', '2030-08-04T12:00:00.000Z'), rewardSummary: undefined };
-    const snapshot = { ...snapshotFor([requested]), drops: [], campaignDropsByKey: {} };
-    const subject = fixture('ending-soonest', {
-      favorite: false,
-      queue: [requested],
-      eligibleStreamers: [{ id: 'streamer', name: 'channel', displayName: 'Channel', isLive: true }],
-      twitch: {
-        refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-        fetchDirectory: async (game) => ({
-          kind: 'ready',
-          target: {
-            campaignKey: gameKey(game),
-            campaignId: game.campaignId ?? null,
-            gameId: game.id,
-            gameName: game.name,
-            categoryId: game.categoryId ?? null,
-            categorySlug: game.categorySlug ?? game.name,
-          },
-          streamers: [{ id: 'streamer', name: 'channel', displayName: 'Channel', isLive: true }],
-          languageFilterApplied: false,
-        }),
-      },
-    });
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(requested));
-
-    expect(result).toEqual({ success: false, error: 'Campaign is no longer available.' });
-    expect(subject.state.appState.isRunning).toBe(false);
-    expect(subject.state.appState.selectedGame).toBeNull();
-  });
-
-  test('queued Play rejects a zero-result refresh with unknown completion classification', async () => {
-    const requested = campaign('manual', '2030-08-04T12:00:00.000Z');
-    const initialSnapshot = snapshotFor([requested]);
-    const unclassified = { ...requested, rewardSummary: undefined };
-    const refreshedSnapshot = { ...snapshotFor([unclassified]), drops: [], campaignDropsByKey: {} };
-    let refreshCalls = 0;
-    const subject = fixture('ending-soonest', {
-      favorite: false,
-      queue: [requested],
-      twitch: {
-        refresh: async () => {
-          refreshCalls += 1;
-          const snapshot = refreshCalls === 1 ? initialSnapshot : refreshedSnapshot;
-          return { kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) };
-        },
-        fetchDirectory: async (game) => ({
-          kind: 'ready',
-          target: {
-            campaignKey: gameKey(game),
-            campaignId: game.campaignId ?? null,
-            gameId: game.id,
-            gameName: game.name,
-            categoryId: game.categoryId ?? null,
-            categorySlug: game.categorySlug ?? game.name,
-          },
-          streamers:
-            refreshCalls === 1
-              ? []
-              : [{ id: 'streamer', name: 'channel', displayName: 'Channel', isLive: true }],
-          languageFilterApplied: false,
-        }),
-      },
-    });
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(requested));
-
-    expect(result).toEqual({
-      success: false,
-      error: 'Unable to check streamers for this campaign right now.',
-    });
-    expect(refreshCalls).toBe(2);
-    expect(subject.state.appState.isRunning).toBe(false);
-    expect(subject.state.appState.selectedGame).toBeNull();
-  });
-
-  test('queued Play cancels after Stop or Pause during direct channel verification', async () => {
-    for (const action of ['Stop', 'Pause'] as const) {
-      const probeEntered = createDeferred<void>();
-      const finishProbe = createDeferred<void>();
-      const requested = { ...campaign('manual', '2030-08-04T12:00:00.000Z'), allowedChannels: ['allowed'] };
-      const snapshot = snapshotFor([requested]);
-      const subject = fixture('ending-soonest', {
-        favorite: false,
-        queue: [requested],
-        twitch: {
-          refresh: async () => ({ kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) }),
-          fetchDirectory: async (game) => ({
-            kind: 'ready',
-            target: {
-              campaignKey: gameKey(game),
-              campaignId: game.campaignId ?? null,
-              gameId: game.id,
-              gameName: game.name,
-              categoryId: game.categoryId ?? null,
-              categorySlug: game.categorySlug ?? game.name,
-            },
-            streamers: [],
-            languageFilterApplied: false,
-          }),
-          probeStreamInfo: async (channel) => {
-            probeEntered.resolve(undefined);
-            await finishProbe.promise;
-            return {
-              kind: 'live',
-              streamer: { id: 'streamer', name: channel, displayName: channel, isLive: true },
-              categoryLabel: 'manual',
-            };
-          },
-        },
-      });
-
-      const starting = subject.automation.startQueuedCampaign?.(gameKey(requested));
-      await probeEntered.promise;
-      if (action === 'Stop') {
-        subject.state.appState.isRunning = false;
-        subject.state.appState.isPaused = false;
-        subject.state.appState.selectedGame = null;
-        subject.state.appState.lastStopReason = 'user-stop';
-      } else {
-        subject.state.appState.isRunning = false;
-        subject.state.appState.isPaused = true;
-        subject.state.appState.selectedGame = null;
-      }
-      subject.automation.invalidate?.();
-      const afterAction = structuredClone(subject.state.appState);
-      finishProbe.resolve(undefined);
-
-      expect(await starting).toEqual({
-        success: false,
-        error: 'Campaign start was superseded by another action.',
-      });
-      expect(subject.state.appState).toEqual(afterAction);
-    }
-  });
-
-  test('queued Play cancels after Stop or Pause during the zero-result refresh', async () => {
-    for (const action of ['Stop', 'Pause'] as const) {
-      const refreshEntered = createDeferred<void>();
-      const finishRefresh = createDeferred<void>();
-      const requested = campaign('manual', '2030-08-04T12:00:00.000Z');
-      const snapshot = snapshotFor([requested]);
-      let refreshCalls = 0;
-      const subject = fixture('ending-soonest', {
-        favorite: false,
-        queue: [requested],
-        twitch: {
-          refresh: async () => {
-            refreshCalls += 1;
-            if (refreshCalls === 2) {
-              refreshEntered.resolve(undefined);
-              await finishRefresh.promise;
-            }
-            return { kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) };
-          },
-          fetchDirectory: async (game) => ({
-            kind: 'ready',
-            target: {
-              campaignKey: gameKey(game),
-              campaignId: game.campaignId ?? null,
-              gameId: game.id,
-              gameName: game.name,
-              categoryId: game.categoryId ?? null,
-              categorySlug: game.categorySlug ?? game.name,
-            },
-            streamers: [],
-            languageFilterApplied: false,
-          }),
-        },
-      });
-
-      const starting = subject.automation.startQueuedCampaign?.(gameKey(requested));
-      await refreshEntered.promise;
-      if (action === 'Stop') {
-        subject.state.appState.isRunning = false;
-        subject.state.appState.isPaused = false;
-        subject.state.appState.selectedGame = null;
-        subject.state.appState.lastStopReason = 'user-stop';
-      } else {
-        subject.state.appState.isRunning = false;
-        subject.state.appState.isPaused = true;
-        subject.state.appState.selectedGame = null;
-      }
-      subject.automation.invalidate?.();
-      const afterAction = structuredClone(subject.state.appState);
-      finishRefresh.resolve(undefined);
-
-      expect(await starting).toEqual({
-        success: false,
-        error: 'Campaign start was superseded by another action.',
-      });
-      expect(subject.state.appState).toEqual(afterAction);
-    }
-  });
-
-  test('preserves scheduled retry copy and disables a second session recovery after zero candidates', async () => {
-    const requested = campaign('manual', '2030-08-04T12:00:00.000Z');
-    const snapshot = snapshotFor([requested]);
-    let refreshCalls = 0;
-    let secondRefreshOptions: unknown;
-    const subject = fixture('ending-soonest', {
-      favorite: false,
-      queue: [requested],
-      twitch: {
-        refresh: async (_force, options) => {
-          refreshCalls += 1;
-          if (refreshCalls === 2) {
-            secondRefreshOptions = options;
-            throw new FarmingAutomationRefreshBackoffError(5_000);
-          }
-          return { kind: 'ready', snapshot, refreshPatch: deriveSafeRefreshPatch(snapshot) };
-        },
-        fetchDirectory: async (game) => ({
-          kind: 'ready',
-          target: {
-            campaignKey: gameKey(game),
-            campaignId: game.campaignId ?? null,
-            gameId: game.id,
-            gameName: game.name,
-            categoryId: game.categoryId ?? null,
-            categorySlug: game.categorySlug ?? game.name,
-          },
-          streamers: [],
-          languageFilterApplied: false,
-        }),
-      },
-    });
-
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(requested));
-
-    expect(result).toEqual({ success: false, error: 'Twitch is waiting for its scheduled retry.' });
-    expect(secondRefreshOptions).toEqual({
-      requireFreshCompleteSnapshot: true,
-      allowSessionRecovery: false,
-    });
-  });
-
-  test('a failed preparation leaves the previous selection and queue untouched', async () => {
-    const incumbent = campaign('favorite', '2030-08-02T12:00:00.000Z');
-    const subject = fixture('ending-soonest', {
-      running: incumbent,
-      queue: [incumbent, campaign('manual', '2030-08-04T12:00:00.000Z')],
-      onPrepare: () => {
-        throw new Error('Playback unavailable');
-      },
-    });
-    const before = structuredClone(subject.state.appState);
-    const result = await subject.automation.startQueuedCampaign?.(gameKey(subject.manual));
-    expect(result?.success).toBe(false);
-    expect(subject.state.appState).toEqual(before);
-  });
-
-  test('concurrent duplicate commands both report success while only one start commits', async () => {
-    let prepares = 0;
-    const subject = fixture('ending-soonest', {
-      onPrepare: () => {
-        prepares += 1;
-      },
-    });
-    const key = gameKey(subject.manual);
-    const results = await Promise.all([
-      subject.automation.startQueuedCampaign?.(key),
-      subject.automation.startQueuedCampaign?.(key),
+    await subject.session.checkDropProgress();
+    expect(subject.opened).toEqual(['second_streamer']);
+    expect(subject.state.appState.queue.map(gameKey)).toEqual([
+      gameKey(subject.requested),
+      gameKey(subject.first),
     ]);
-    expect(results).toEqual([{ success: true }, { success: true }]);
-    expect(prepares).toBe(1);
-    expect(subject.state.appState.selectedGame?.campaignId).toBe(subject.manual.campaignId);
+    expect(subject.state.appState).toMatchObject({
+      isRunning: true,
+      isPaused: false,
+      manualQueueAuthorized: true,
+      farmingSessionOrigin: 'manual',
+      forcedCampaignKey: gameKey(subject.requested),
+    });
+    expect(normalizeStoredAppState(structuredClone(subject.state.appState)).forcedCampaignKey).toBe(
+      gameKey(subject.requested),
+    );
+    expect(subject.reads()).toEqual({ directory: 1, refresh: 0 });
+  });
+
+  test('is idempotent once the requested watch is running', async () => {
+    const subject = fixture();
+    await subject.session.handleStartQueuedCampaign(gameKey(subject.requested));
+    await subject.session.checkDropProgress();
+    expect(await subject.session.handleStartQueuedCampaign(gameKey(subject.requested))).toEqual({
+      success: true,
+    });
+    expect(subject.reads()).toEqual({ directory: 1, refresh: 0 });
+    expect(subject.opened).toHaveLength(1);
+  });
+
+  test('concurrent duplicate commands share one start', async () => {
+    const subject = fixture();
+    const key = gameKey(subject.requested);
+    expect(
+      await Promise.all([
+        subject.session.handleStartQueuedCampaign(key),
+        subject.session.handleStartQueuedCampaign(key),
+      ]),
+    ).toEqual([{ success: true }, { success: true }]);
+    await subject.session.checkDropProgress();
+    expect(subject.opened).toHaveLength(1);
+  });
+
+  test('rejects another campaign of the same game that is not queued', async () => {
+    const subject = fixture();
+    expect(
+      await subject.session.handleStartQueuedCampaign(gameKey({ ...subject.requested, campaignId: 'other' })),
+    ).toEqual({ success: false, error: 'Campaign is no longer in the queue.' });
+    expect(subject.reads()).toEqual({ directory: 0, refresh: 0 });
+  });
+
+  test.each(['no-streamers', 'playback'] as const)(
+    'accepted replacement with %s failure follows normal queue order and parks the request',
+    async (failure) => {
+      const subject = fixture({
+        running: true,
+        streamers: failure === 'playback' ? ['a', 'b', 'c', 'd'].map((name) => createStreamer({ name })) : [],
+        failPlayback: failure === 'playback',
+      });
+      subject.state.appState.activeStreamer = createStreamer({ name: 'first_streamer' });
+      subject.coordinator.adopt({
+        target: {
+          gameId: subject.first.id,
+          campaignId: subject.first.campaignId,
+          channelName: 'first_streamer',
+        },
+        ownership: {
+          kind: 'managed-tab',
+          tabId: 19,
+          ownershipToken: 'incumbent',
+          expectedChannel: 'first_streamer',
+        },
+        health: createWatchHealth('managed-tab', 'healthy', 'started', Date.now),
+        obsolete: null,
+      });
+      expect((await subject.session.handleStartQueuedCampaign(gameKey(subject.requested))).success).toBe(
+        true,
+      );
+      for (let attempt = 0; attempt < (failure === 'playback' ? 5 : 1); attempt++) {
+        await subject.session.checkDropProgress();
+        now += 31_000;
+      }
+      expect(subject.state.appState.selectedGame?.campaignId).toBe(subject.first.campaignId);
+      expect(subject.state.appState.activeStreamer?.name).toBe('first_streamer');
+      expect(subject.state.appState.tabId).toBe(19);
+      expect(
+        subject.state.appState.queueEntryMetadataByKey[gameKey(subject.requested)]?.streamerRetryAt,
+      ).toBeGreaterThan(Date.now());
+      expect(subject.state.appState.manualQueueAuthorized).toBe(true);
+    },
+  );
+
+  test('failed intent storage preserves the incumbent selection', async () => {
+    const subject = fixture({ running: true, failPersistence: true });
+    subject.state.appState.activeStreamer = createStreamer({ name: 'first_streamer' });
+    expect((await subject.session.handleStartQueuedCampaign(gameKey(subject.requested))).success).toBe(false);
+    expect(subject.state.appState.selectedGame?.campaignId).toBe(subject.first.campaignId);
+    expect(subject.state.appState.activeStreamer?.name).toBe('first_streamer');
+    expect(subject.reads()).toEqual({ directory: 0, refresh: 0 });
+  });
+
+  test('a new Start supersedes pending preparation from the monitoring alarm', async () => {
+    const entered = createDeferred<void>();
+    const release = createDeferred<void>();
+    const subject = fixture({
+      running: true,
+      beforeOpen: async () => {
+        entered.resolve();
+        await release.promise;
+      },
+    });
+    await subject.session.handleStartQueuedCampaign(gameKey(subject.requested));
+    const recovery = subject.session.checkDropProgress();
+    await entered.promise;
+    const newest = createGame({ id: 'third', campaignId: 'third-campaign' });
+    expect(await subject.session.handleStartFarming({ game: newest })).toEqual({ success: true });
+    release.resolve();
+    await recovery;
+    expect(subject.state.appState.selectedGame?.campaignId).toBe(newest.campaignId);
+    expect(subject.state.appState.activeStreamer).toBeNull();
+    expect(subject.coordinator.currentTarget()).toBeNull();
+  });
+
+  test('exhausted playback parks the requested campaign when the incumbent cannot be restored', async () => {
+    const subject = fixture({
+      running: true,
+      failPlayback: true,
+      incumbentFails: true,
+      streamers: ['a', 'b', 'c', 'd'].map((name) => createStreamer({ name })),
+    });
+    subject.coordinator.adopt({
+      target: {
+        gameId: subject.first.id,
+        campaignId: subject.first.campaignId,
+        channelName: 'first_streamer',
+      },
+      ownership: {
+        kind: 'managed-tab',
+        tabId: 19,
+        ownershipToken: 'incumbent',
+        expectedChannel: 'first_streamer',
+      },
+      health: createWatchHealth('managed-tab', 'healthy', 'started', Date.now),
+      obsolete: null,
+    });
+    await subject.session.handleStartQueuedCampaign(gameKey(subject.requested));
+    const key = gameKey(subject.requested);
+    subject.state.appState.queueEntryMetadataByKey[key] = {
+      ...subject.state.appState.queueEntryMetadataByKey[key],
+    };
+    await subject.session.checkDropProgress();
+    now += 31_000;
+    for (let attempt = 0; attempt < 9; attempt++) {
+      await subject.session.checkDropProgress();
+      now += 31_000;
+    }
+    expect(subject.state.appState.queueEntryMetadataByKey[key]?.streamerRetryAt).toBeGreaterThan(0);
+    expect(
+      subject.state.appState.queueEntryMetadataByKey[key]?.attemptedStreamerNames?.length ?? 0,
+    ).toBeLessThanOrEqual(4);
+    expect(subject.state.appState.activeStreamer).toBeNull();
+    expect(subject.state.appState.queueAcquisitionRound).not.toBeNull();
+    expect(subject.state.appState.forcedCampaignKey).toBeNull();
+    const attempts = subject.opened.length;
+    for (let tick = 0; tick < 5; tick += 1) await subject.session.checkDropProgress();
+    expect(subject.opened).toHaveLength(attempts);
+    expect(
+      subject.state.appState.queueEntryMetadataByKey[key]?.attemptedStreamerNames?.length ?? 0,
+    ).toBeLessThanOrEqual(4);
+  });
+
+  test('a failed incumbent proof never publishes the previous campaign or mismatched reward projection', async () => {
+    const subject = fixture({ running: true, streamers: [], incumbentFails: true });
+    subject.coordinator.adopt({
+      target: {
+        gameId: subject.first.id,
+        campaignId: subject.first.campaignId,
+        channelName: 'first_streamer',
+      },
+      ownership: {
+        kind: 'managed-tab',
+        tabId: 19,
+        ownershipToken: 'incumbent',
+        expectedChannel: 'first_streamer',
+      },
+      health: createWatchHealth('managed-tab', 'healthy', 'started', Date.now),
+      obsolete: null,
+    });
+    await subject.session.handleStartQueuedCampaign(gameKey(subject.requested));
+    await subject.session.checkDropProgress();
+    expect(
+      subject.published.every(({ campaign, dropCampaign }) => !dropCampaign || campaign === dropCampaign),
+    ).toBe(true);
+    expect(subject.state.appState.activeStreamer).toBeNull();
+  });
+
+  test.each(['Stop', 'Pause'] as const)(
+    '%s interrupts a pending queued start before playback settles',
+    async (action) => {
+      const entered = createDeferred<void>();
+      const release = createDeferred<void>();
+      const subject = fixture({
+        running: true,
+        beforeOpen: async () => {
+          entered.resolve();
+          await release.promise;
+        },
+      });
+      expect(await subject.session.handleStartQueuedCampaign(gameKey(subject.requested))).toEqual({
+        success: true,
+      });
+      const starting = subject.session.checkDropProgress();
+      await entered.promise;
+      await (action === 'Stop' ? subject.session.handleStopFarming() : subject.session.handlePauseFarming());
+      expect(subject.state.appState.isPaused).toBe(action === 'Pause');
+      release.resolve();
+      await starting;
+      expect(subject.state.appState.selectedGame?.campaignId).toBe(subject.requested.campaignId);
+      expect(subject.coordinator.currentTarget()).toBeNull();
+    },
+  );
+
+  test('initial no-streamer start authorizes waiting for automatic recovery', async () => {
+    const subject = fixture({ streamers: [], incumbentFails: true });
+    expect(await subject.session.handleStartQueuedCampaign(gameKey(subject.requested))).toEqual({
+      success: true,
+    });
+    await subject.session.checkDropProgress();
+    expect(subject.state.appState).toMatchObject({
+      isRunning: true,
+      manualQueueAuthorized: true,
+      forcedCampaignKey: null,
+      recoveryReason: 'no-streamers',
+    });
+    expect(subject.state.recoveryBackoffUntil).toBeGreaterThan(Date.now());
+    expect(subject.state.appState.queue).toHaveLength(2);
+  });
+
+  test('future rewards remain selected and authorized until normal monitoring advances', async () => {
+    const subject = fixture({
+      drops: (drops) =>
+        drops.map((drop) => ({ ...drop, startsAt: new Date(Date.now() + 60_000).toISOString() })),
+    });
+    expect(await subject.session.handleStartQueuedCampaign(gameKey(subject.requested))).toEqual({
+      success: true,
+    });
+    await subject.session.checkDropProgress();
+    expect(subject.state.appState).toMatchObject({
+      isRunning: true,
+      manualQueueAuthorized: true,
+      currentDrop: null,
+    });
+    expect(subject.state.appState.selectedGame?.campaignId).toBe(subject.requested.campaignId);
+    expect(subject.opened).toEqual([]);
+  });
+
+  test('explicit Play retries streamers previously excluded for a stall', async () => {
+    const subject = fixture();
+    const key = gameKey(subject.requested);
+    subject.state.appState.queueEntryMetadataByKey[key] = {
+      source: 'favorite-auto',
+      reason: 'favorite-discovered',
+      addedAt: 1,
+      attemptedStreamerNames: ['second_streamer'],
+      streamerRetryAt: Date.now() + 60_000,
+    };
+    expect(await subject.session.handleStartQueuedCampaign(key)).toEqual({ success: true });
+    await subject.session.checkDropProgress();
+    expect(subject.opened).toEqual(['second_streamer']);
+    expect(subject.state.appState.queueEntryMetadataByKey[key]?.source).toBe('manual');
+    expect(subject.state.appState.queueEntryMetadataByKey[key]?.attemptedStreamerNames).toEqual([
+      'second_streamer',
+    ]);
+  });
+
+  test('initial Start keeps activity tracking and the configured monitor window', async () => {
+    const subject = fixture();
+    subject.state.appState.monitorAutoOpen = true;
+    expect(await subject.session.handleStartFarming({ game: subject.requested })).toEqual({ success: true });
+    expect(subject.effects).toEqual(['activity', 'monitor-window']);
+  });
+
+  test('Stop during waiting-state persistence cannot authorize farming late', async () => {
+    const entered = createDeferred<void>();
+    const release = createDeferred<void>();
+    let firstSave = true;
+    const subject = fixture({
+      streamers: [],
+      beforeSave: async () => {
+        if (!firstSave) return;
+        firstSave = false;
+        entered.resolve();
+        await release.promise;
+      },
+    });
+    const starting = subject.session.handleStartQueuedCampaign(gameKey(subject.requested));
+    await entered.promise;
+    await subject.session.handleStopFarming();
+    release.resolve();
+    expect((await starting).success).toBe(false);
+    expect(subject.state.appState.isRunning).toBe(false);
+    expect(subject.state.appState.manualQueueAuthorized).toBe(false);
+    expect(subject.state.appState.lastStopReason).toBe('user-stop');
   });
 });

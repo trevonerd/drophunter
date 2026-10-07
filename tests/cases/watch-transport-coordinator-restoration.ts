@@ -56,7 +56,6 @@ export function registerWatchTransportCoordinatorRestorationCases() {
       isLive: true,
     };
     fixture.state.appState.watchTransportMode = 'managed-tab';
-    fixture.state.appState.watchFallbackReason = 'heartbeat-failed';
     fixture.state.appState.tabId = 7;
     let opens = 0;
     const coordinator = createWatchTransportCoordinator({
@@ -81,6 +80,5 @@ export function registerWatchTransportCoordinatorRestorationCases() {
     expect(opens).toBe(0);
     expect(fixture.state.appState.tabId).toBeNull();
     expect(watchTransportMode(fixture.state)).toBe('tabless');
-    expect(fixture.state.appState.watchFallbackReason).toBeNull();
   });
 }

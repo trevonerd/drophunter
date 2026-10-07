@@ -35,7 +35,7 @@ function healthyManagedWatch(): WatchHealth {
 
 describe('watch transport transition', () => {
   test.each([false, true])(
-    'retains an initial gesture candidate only without incumbent: %s',
+    'retains a gesture candidate with or without incumbent: %s',
     async (hasIncumbent) => {
       let disposed = 0;
       const candidate: ProvisionalWatchCandidate = {
@@ -63,8 +63,8 @@ describe('watch transport transition', () => {
         release: async () => ({ kind: 'not-required' }),
       });
       const result = await transition.prepare(target, 'managed-tab');
-      expect(result.kind).toBe(hasIncumbent ? 'failed' : 'prepared');
-      expect(disposed).toBe(hasIncumbent ? 1 : 0);
+      expect(result.kind).toBe('prepared');
+      expect(disposed).toBe(0);
       expect(transition.currentOwnership()).toEqual(hasIncumbent ? incumbent : null);
       if (result.kind === 'prepared') {
         expect(result.watch.promote().kind).toBe('promoted');
@@ -156,7 +156,7 @@ describe('watch transport transition', () => {
     const preparation = await transition.prepare(target, 'tabless');
 
     // Then: the rejected tabless candidate is disposed and no user-visible tab is prepared.
-    expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
+    expect(preparation).toMatchObject({ kind: 'failed', reason: 'candidate-unavailable' });
     expect(disposals).toEqual(['tabless']);
     expect(managedPreparations).toBe(0);
     expect(transition.currentOwnership()).toEqual(incumbent);
@@ -186,7 +186,7 @@ describe('watch transport transition', () => {
 
     const preparation = await transition.prepare(target, 'tabless');
 
-    expect(preparation).toEqual({ kind: 'failed', reason: 'candidate-unavailable' });
+    expect(preparation).toMatchObject({ kind: 'failed', reason: 'candidate-unavailable' });
     expect(managedPreparations).toBe(0);
   });
 

@@ -14,11 +14,9 @@ export function registerQueue09Part01() {
         lastTrackedDropKey: 'drop-123',
         lastProgressAdvanceAt: Date.now(),
         noProgressRotationAttempts: 3,
-        playbackAttentionWarningSent: true,
         stalledRecoveryAttempts: 2,
         recoveryBackoffUntil: Date.now() + 10000,
         lastRecoveryAttemptAt: Date.now(),
-        recoveryNotificationSent: true,
       });
       state.appState.recoveryReason = 'test-reason';
       state.appState.recoveryBackoffUntil = Date.now();
@@ -34,11 +32,9 @@ export function registerQueue09Part01() {
       expect(state.lastTrackedDropKey).toBeNull();
       expect(state.lastProgressAdvanceAt).toBe(0);
       expect(state.noProgressRotationAttempts).toBe(0);
-      expect(state.playbackAttentionWarningSent).toBe(false);
       expect(state.stalledRecoveryAttempts).toBe(0);
       expect(state.recoveryBackoffUntil).toBe(0);
       expect(state.lastRecoveryAttemptAt).toBe(0);
-      expect(state.recoveryNotificationSent).toBe(false);
     });
 
     test('clears recovery status from appState', () => {

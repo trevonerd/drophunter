@@ -23,7 +23,7 @@ export function registerQueue17Part01() {
       expect(result.error).toBe('No game selected.');
     });
 
-    test('rejects a farming-complete campaign before mutating the farming session', async () => {
+    test('authorizes an unresolved non-automatable campaign without claiming completion', async () => {
       const state = createMinimalState();
       const terminalGame = createGame({
         id: 'terminal-game',
@@ -52,14 +52,11 @@ export function registerQueue17Part01() {
         },
       );
 
-      expect(result).toEqual({
-        success: false,
-        error: 'Farming finished · Twitch reward acquisition could not be verified',
-      });
-      expect(refreshCalls).toBe(0);
-      expect(state.appState.isRunning).toBe(false);
-      expect(state.appState.selectedGame).toBeNull();
-      expect(state.appState.queue).toEqual([queuedGame]);
+      expect(result).toEqual({ success: true });
+      expect(refreshCalls).toBe(1);
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.selectedGame).toEqual(terminalGame);
+      expect(state.appState.queue).toEqual([terminalGame, queuedGame]);
     });
 
     test('tracks activity on start', async () => {
@@ -140,21 +137,20 @@ export function registerQueue17Part01() {
       expect(state.noProgressRotationAttempts).toBe(0);
     });
 
-    test('returns error when no farmable drops available', async () => {
+    test('keeps manual authorization while drop data is missing', async () => {
       const state = createMinimalState();
       state.appState.pendingDrops = [];
       state.appState.currentDrop = null;
 
       const result = await handleStartFarming(state, { game: createGame() });
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('No farmable drops for this game.');
-      expect(state.appState.isRunning).toBe(false);
-      expect(state.appState.manualQueueAuthorized).toBe(false);
-      expect(state.appState.farmingSessionOrigin).toBeNull();
+      expect(result).toEqual({ success: true });
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.manualQueueAuthorized).toBe(true);
+      expect(state.appState.farmingSessionOrigin).toBe('manual');
     });
 
-    test('rejects Start when refresh makes the selected campaign farming-complete', async () => {
+    test('keeps Start authorized when refreshed rewards cannot be automated', async () => {
       const state = createMinimalState();
       const game = createGame({ id: 'game-1', campaignId: 'campaign-1' });
       state.appState.availableGames = [game];
@@ -182,15 +178,12 @@ export function registerQueue17Part01() {
         },
       );
 
-      expect(result).toEqual({
-        success: false,
-        error: 'Farming finished · Twitch reward acquisition could not be verified',
-      });
-      expect(state.appState.isRunning).toBe(false);
-      expect(state.appState.selectedGame).toBeNull();
+      expect(result).toEqual({ success: true });
+      expect(state.appState.isRunning).toBe(true);
+      expect(state.appState.selectedGame?.campaignId).toBe(game.campaignId);
     });
 
-    test('removes game from queue when no farmable drops', async () => {
+    test('preserves an unresolved authorized game when no farmable drops are reported', async () => {
       const state = createMinimalState();
       const game = createGame({ id: 'game-1' });
       state.appState.queue = [game];
@@ -199,7 +192,7 @@ export function registerQueue17Part01() {
 
       await handleStartFarming(state, { game });
 
-      expect(state.appState.queue.some((g) => g.id === 'game-1')).toBe(false);
+      expect(state.appState.queue.some((g) => g.id === 'game-1')).toBe(true);
     });
 
     test('calls onEnsureWorkspace', async () => {

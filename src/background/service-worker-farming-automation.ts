@@ -29,18 +29,10 @@ export function createServiceWorkerFarmingAutomationRuntime(
     settleInitialization = resolve;
   });
   let initialization: Promise<void> | null = null;
+  let initializedAutomation: FarmingAutomation | null = null;
 
   const publicAutomation: FarmingAutomation = {
-    async startQueuedCampaign(campaignKey) {
-      const result = await ready;
-      if (result.kind === 'failed') throw result.error;
-      return (
-        result.automation.startQueuedCampaign?.(campaignKey) ?? {
-          success: false,
-          error: 'Queued campaign start is unavailable.',
-        }
-      );
-    },
+    invalidate: () => initializedAutomation?.invalidate?.(),
     async request(trigger) {
       const result = await ready;
       if (result.kind === 'failed') throw result.error;
@@ -68,6 +60,7 @@ export function createServiceWorkerFarmingAutomationRuntime(
   const initializeOnce = async (): Promise<void> => {
     try {
       const assembled = await assembleServiceWorkerFarmingAutomation(state, dependencies);
+      initializedAutomation = assembled.automation;
       settleInitialization?.({ kind: 'ready', ...assembled });
     } catch (error) {
       const failure =

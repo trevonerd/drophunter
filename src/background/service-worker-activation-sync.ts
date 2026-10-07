@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import type { ActivationTrigger } from '../types/index.ts';
 import { hasInterruptedQueue, resumeInterruptedQueue } from './activation-queue-resume.ts';
 import type { ActivationSyncAttempt, ActivationSyncExecution } from './activation-sync-coordinator.ts';
@@ -67,6 +68,7 @@ async function verifyBrowserIntegrity(
       dependencies.dropsPageRefresher
         .openDropsPageAndRefresh({
           active: false,
+          closeAfterRefresh: true,
           openIfMissing: true,
           isCurrent: () => current && Date.now() < deadline && execution.isCurrent(),
         })
@@ -108,14 +110,17 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
       const deferValidationUntilResume = hasInterruptedQueue(dependencies.state);
       const foreground = trigger === 'manual';
       const retry = trigger === 'manual-retry';
-      const canRecoverSessionAfterOnboarding =
-        trigger === 'popup-open' ||
-        trigger === 'browser-start' ||
-        trigger === 'wake' ||
-        trigger === 'extension-update' ||
-        trigger === 'favorite-change';
       let needsBrowserIntegrityVerification = false;
       let canOpenMissingSessionTab = false;
+      if (trigger === 'worker-start' && !dependencies.state.twitchSessionCache) {
+        const bootstrap = await browser.storage.local.get('initialDropsBootstrapAttempted');
+        if (!execution.isCurrent()) return transientError('Campaign sync was superseded.', 'network');
+        if (bootstrap.initialDropsBootstrapAttempted !== true) {
+          await browser.storage.local.set({ initialDropsBootstrapAttempted: true });
+          if (!execution.isCurrent()) return transientError('Campaign sync was superseded.', 'network');
+          canOpenMissingSessionTab = true;
+        }
+      }
       if (!foreground) {
         const directRefresh = await dependencies.refreshGamesCache({
           requireFreshSnapshot: true,
@@ -174,13 +179,6 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
           return transientError('Empty Twitch campaign data is awaiting confirmation.', 'invalid-response');
         }
         if (directRefresh.kind === 'unavailable' && directRefresh.failure) {
-          if (
-            !dependencies.state.twitchSessionCache &&
-            canRecoverSessionAfterOnboarding &&
-            (await dependencies.hasCompletedOnboarding?.()) === true
-          ) {
-            canOpenMissingSessionTab = true;
-          }
           if (directRefresh.failure.kind === 'auth' && !retry) {
             if (!canOpenMissingSessionTab) return { kind: 'needs-session', errorKind: 'auth' };
           }
@@ -208,14 +206,6 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
             };
           }
         }
-        if (
-          directRefresh.kind === 'unavailable' &&
-          !directRefresh.failure &&
-          !dependencies.state.twitchSessionCache &&
-          canRecoverSessionAfterOnboarding
-        ) {
-          canOpenMissingSessionTab = (await dependencies.hasCompletedOnboarding?.()) === true;
-        }
       }
       const waitForRestoredTab = trigger === 'browser-start' || trigger === 'wake';
       if (retry) canOpenMissingSessionTab = true;
@@ -223,6 +213,7 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
         ? await verifyBrowserIntegrity(dependencies, execution)
         : await dependencies.dropsPageRefresher.openDropsPageAndRefresh({
             active: foreground,
+            closeAfterRefresh: !foreground,
             isCurrent: execution.isCurrent,
             openIfMissing: foreground || (!dependencies.state.twitchSessionCache && canOpenMissingSessionTab),
             waitForExistingTabMs: waitForRestoredTab ? 10_000 : 0,

@@ -2,6 +2,7 @@ import {
   readManagedWatchMarkerInPage,
   writeManagedWatchMarkerInPage,
 } from '../../src/background/managed-watch-marker.ts';
+import { navigateTwitchChannelInPage } from '../../src/background/managed-watch-navigation.ts';
 import {
   clearPendingTimingStateSaveForTests,
   setTimingSaveDebounceMsForTests,
@@ -41,7 +42,11 @@ export function installActiveTabMocks() {
     return { id: tabId, windowId: 1, url: 'https://www.twitch.tv/test-streamer', status: 'complete' };
   };
   chromeMocks.chrome.scripting.executeScript = async (options) => {
-    if (options.func === writeManagedWatchMarkerInPage || options.func === readManagedWatchMarkerInPage)
+    if (
+      options.func === writeManagedWatchMarkerInPage ||
+      options.func === readManagedWatchMarkerInPage ||
+      options.func === navigateTwitchChannelInPage
+    )
       return executePageScript(options);
     return defaultExecuteScript(options);
   };
@@ -94,7 +99,10 @@ export async function waitForAppState(
     if (check(state)) return state;
     await sleepTick();
   }
-  throw new Error(message);
+  const state = getAppStateFromStorage();
+  throw new Error(
+    `${message}: ${JSON.stringify({ selected: state.selectedGame?.campaignId, streamer: state.activeStreamer?.name, recovery: state.recoveryReason, currentDrop: state.currentDrop?.currentMinutes, queue: state.queue.map((game) => game.campaignId) })}`,
+  );
 }
 
 export async function dispatchMessage<T extends RuntimeRequest>(
@@ -200,6 +208,10 @@ export async function addGameToQueue(game: TwitchGame) {
 export async function triggerMonitorAlarm() {
   chromeMocks.alarms.onAlarm.trigger({ name: 'dropCheck', scheduledTime: Date.now() });
   await sleepTick();
+  for (let attempt = 0; attempt < 50 && serviceWorkerModule.isMonitorTickInFlightForTests(); attempt++) {
+    await sleepTick();
+  }
+  if (serviceWorkerModule.isMonitorTickInFlightForTests()) throw new Error('Monitoring alarm did not finish');
 }
 
 export async function triggerInventoryRefreshAlarm() {

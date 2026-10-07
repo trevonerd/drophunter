@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { createChromeFarmingAutomationHost } from '../src/background/farming-automation-browser.ts';
 import { rememberManagedWatch } from '../src/background/managed-watch-registry.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
-import { createAdapter, target } from './support/farming-automation-browser-fixture.ts';
+import { createAdapter, incumbent, target } from './support/farming-automation-browser-fixture.ts';
 
 test('production Chrome host prepares a muted candidate using valid create and update API properties', async () => {
   const mocks = setupChromeMocks();
@@ -65,10 +65,12 @@ test.each([
   };
   try {
     const adapter = createAdapter(createChromeFarmingAutomationHost(), []);
-    expect(await adapter.watch.prepare(target, 'managed-tab')).toEqual({
+    expect(await adapter.watch.prepare(target, 'managed-tab')).toMatchObject({
       kind: 'failed',
       reason: 'candidate-unavailable',
+      health: { mode: 'managed-tab', status: 'failed', reason: 'managed-tab-unavailable', isHealthy: false },
     });
+    expect(adapter.watch.currentOwnership()).toEqual(incumbent);
     expect(removed).toEqual(Array.from(expectedRemoved));
   } finally {
     mocks.teardown();

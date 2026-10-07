@@ -7,6 +7,7 @@ import { createFarmingSessionContext } from './farming-session-context.ts';
 import { createFarmingSessionHandlers, type FarmingSessionStopOptions } from './farming-session-handlers.ts';
 import { createFarmingSessionMonitoring } from './farming-session-monitoring.ts';
 import { createFarmingSessionQueue } from './farming-session-queue.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { createFarmingSessionStreaming } from './farming-session-streaming.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
@@ -48,6 +49,11 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onRefreshDropsData: refreshDropsData,
     queueProgression: progression,
     onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
+    onWakeMonitoring: (isCurrent) => {
+      if (!isCurrent()) return;
+      if (state.monitorTickInFlight) state.cancelledAcquisitionMonitoringWake = isCurrent;
+      else startMonitoring(true);
+    },
   });
   const {
     acquireStreamerForSelectedGame,
@@ -64,7 +70,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onAdvanceQueueIfCompleted: advanceQueueIfCompleted,
     onRecoverStalledProgress: recoverStalledProgress,
   });
-  const { checkDropProgress, startMonitoring, stopMonitoring } = monitoring;
+  const { startMonitoring, stopMonitoring } = monitoring;
   const queue = createFarmingSessionQueue(context, {
     onEnsureWorkspace: ensureWorkspaceForSelectedGame,
     onRefreshDropsData: refreshDropsData,
@@ -72,7 +78,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   });
   const {
     handleAddToQueue,
-    handleClearQueue,
+    handleClearQueue: clearQueue,
     handleRemoveFromQueue,
     handleReorderQueue,
     handleSetSelectedGame,
@@ -86,6 +92,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onStopMonitoring: stopMonitoring,
   });
   const {
+    handleStartQueuedCampaign,
     handlePauseFarming,
     handleResumeFarming,
     handleStartFarming,
@@ -98,6 +105,25 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     return monitoring.refreshDropsData(options);
   }
 
+  function checkDropProgress(): Promise<void> {
+    return monitoring.checkDropProgress().finally(() => {
+      if (state.monitorTickInFlight) return;
+      const wake = state.cancelledAcquisitionMonitoringWake;
+      state.cancelledAcquisitionMonitoringWake = null;
+      if (wake?.()) startMonitoring(true);
+    });
+  }
+
+  async function handleClearQueue() {
+    if (state.appState.isRunning || state.appState.isPaused || state.appState.manualQueueAuthorized) {
+      const epoch = currentFarmingSessionEpoch(state) + 1;
+      await handleStopFarming();
+      if (currentFarmingSessionEpoch(state) !== epoch)
+        return { success: true as const, queueLength: state.appState.queue.length };
+    }
+    return clearQueue();
+  }
+
   function stop(options?: FarmingSessionStopOptions): Promise<void> {
     return handlers.stop(options);
   }
@@ -107,6 +133,7 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   }
 
   return {
+    handleStartQueuedCampaign,
     acquireStreamerForSelectedGame,
     advanceQueueIfCompleted,
     checkDropProgress,

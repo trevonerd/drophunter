@@ -120,7 +120,7 @@ export function createSessionOrchestrator(
     }
 
     if (!response?.success) {
-      options.logWarn('GET_TWITCH_SESSION failed on tab', { tabId });
+      options.logDebug('GET_TWITCH_SESSION found no session on tab', { tabId });
       return options.readTwitchSessionViaExecuteScript(tabId);
     }
 

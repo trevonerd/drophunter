@@ -161,20 +161,18 @@ describe('staged watch transport preparation', () => {
     expect(subject.counts().disposals).toBe(0);
   });
 
-  test('cannot replace an incumbent with a candidate that needs player interaction', async () => {
+  test('promotes a candidate awaiting player interaction and observes its progress normally', async () => {
     const subject = fixture();
     await subject.coordinator.start(streamer);
-    const incumbentHealth = subject.state.appState.watchHealth;
-    const incumbentOwnership = subject.coordinator.currentOwnership();
     subject.waitForInteraction();
     expect(await subject.coordinator.start({ ...streamer, name: 'r6-streamer' })).toMatchObject({
-      kind: 'failed',
+      kind: 'started',
       health: { reason: 'user-interaction-required' },
     });
-    expect(subject.state.appState.watchHealth).toBe(incumbentHealth);
-    expect(subject.coordinator.currentOwnership()).toEqual(incumbentOwnership);
-    expect(subject.state.appState.activeStreamer?.name).toBe(streamer.name);
-    expect(subject.counts().disposals).toBe(1);
+    expect(subject.state.appState.watchHealth?.reason).toBe('user-interaction-required');
+    expect(subject.coordinator.currentOwnership()).toMatchObject({ expectedChannel: 'r6-streamer' });
+    expect(subject.state.appState.activeStreamer?.name).toBe('r6-streamer');
+    expect(subject.counts().disposals).toBe(0);
   });
 
   test('worker recycle retains an initial watch still waiting for player interaction', async () => {
@@ -194,7 +192,7 @@ describe('staged watch transport preparation', () => {
   });
 
   test.each(['completed', 'progressing', 'stalled'] as const)(
-    'gesture-blocked successor only replaces an incumbent with exhausted watch rewards: %s',
+    'gesture-blocked successor remains observable for every incumbent reward state: %s',
     async (status) => {
       const subject = fixture();
       await subject.coordinator.start(streamer);
@@ -214,7 +212,7 @@ describe('staged watch transport preparation', () => {
       const incumbent = subject.coordinator.currentOwnership();
       subject.waitForInteraction();
       const preparation = await subject.coordinator.prepare(candidateTarget);
-      expect(preparation.kind).toBe(status === 'completed' ? 'prepared' : 'failed');
+      expect(preparation.kind).toBe('prepared');
       expect(subject.coordinator.currentOwnership()).toEqual(incumbent);
       if (preparation.kind === 'prepared') {
         expect(preparation.watch.health.reason).toBe('user-interaction-required');
@@ -227,7 +225,7 @@ describe('staged watch transport preparation', () => {
     },
   );
 
-  test('rejects restoration of a retained tab when no campaign watch is active', async () => {
+  test('retains dormant ownership without restoring an absent active campaign watch', async () => {
     const subject = fixture();
     expect(
       await subject.coordinator.restore({
@@ -237,11 +235,12 @@ describe('staged watch transport preparation', () => {
         expectedChannel: 'smite-streamer',
       }),
     ).toBe(false);
-    expect(subject.coordinator.currentOwnership()).toBeNull();
+    expect(subject.coordinator.currentOwnership()).toMatchObject({ tabId: 17, ownershipToken: 'old-watch' });
+    expect(subject.coordinator.currentTarget()).toBeNull();
     expect(subject.counts().persists).toBe(0);
   });
 
-  test('rejects restoration when persisted streamer disagrees with managed ownership', async () => {
+  test('retains dormant ownership without restoring a mismatched persisted streamer', async () => {
     const subject = fixture();
     subject.state.appState.activeStreamer = { ...streamer, name: 'r6-streamer' };
     expect(
@@ -252,7 +251,8 @@ describe('staged watch transport preparation', () => {
         expectedChannel: 'smite-streamer',
       }),
     ).toBe(false);
-    expect(subject.coordinator.currentOwnership()).toBeNull();
+    expect(subject.coordinator.currentOwnership()).toMatchObject({ tabId: 17, ownershipToken: 'old-watch' });
+    expect(subject.coordinator.currentTarget()).toBeNull();
   });
 
   test('rejects tabless ownership belonging to another persisted campaign', async () => {
@@ -286,7 +286,7 @@ describe('staged watch transport preparation', () => {
         expectedChannel: streamer.name,
       }),
     ).toBe(false);
-    expect(coordinator.currentOwnership()).toBeNull();
+    expect(coordinator.currentOwnership()).toMatchObject({ tabId: 17, ownershipToken: 'old-watch' });
     expect(coordinator.currentTarget()).toBeNull();
   });
 

@@ -24,7 +24,7 @@ export const FARMING_AUTOMATION_PERIODIC_ALARM = 'favoriteCampaignCheck';
 export type FarmingAutomationTab = ManualPlaybackTab & {
   readonly status?: string;
   readonly pendingUrl?: string;
-  readonly restorePrevious?: () => Promise<void>;
+  readonly reused?: boolean;
 };
 
 export interface FarmingAutomationChromeHost {
@@ -40,7 +40,6 @@ export interface FarmingAutomationChromeHost {
       },
       isCurrent?: () => boolean,
       allowInitialCreation?: boolean,
-      preserveExistingWatch?: boolean,
     ): Promise<FarmingAutomationTab | null>;
     get(tabId: number): Promise<FarmingAutomationTab | null>;
     query(query: {
@@ -50,8 +49,9 @@ export interface FarmingAutomationChromeHost {
     update(
       tabId: number,
       properties: { readonly url?: string; readonly active?: boolean; readonly muted?: boolean },
+      isCurrent?: () => boolean | Promise<boolean>,
     ): Promise<void>;
-    remove(tabId: number): Promise<void>;
+    remove(tabId: number, isCurrent?: () => boolean | Promise<boolean>): Promise<void>;
   };
   readonly sessionStorage: {
     get(key: string): Promise<Readonly<Record<string, unknown>>>;
@@ -153,7 +153,6 @@ export function createFarmingAutomationBrowser(
       ownership: ownedTabs,
       isCurrent,
       allowInitialCreation,
-      preserveExistingWatch: options.watchRuntime?.hasViableManagedWatch?.() ?? false,
       preparePlayback: options.watch.preparePlayback,
       probe: options.watch.probeManaged,
       now,

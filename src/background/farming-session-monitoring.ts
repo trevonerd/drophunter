@@ -1,7 +1,9 @@
 import { browser } from '../shared/browser-api.ts';
 import { gameKey, getGameDisplayLabel, replaceAvailableGames } from '../shared/game-selection.ts';
+import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
 import { autoClaimClaimableDrops } from './auto-claim.ts';
+import { hasCompleteIdentifiedRewardSet } from './campaign-reward-identity.ts';
 import { ALARM_NAME, PROGRESS_POLL_MS } from './constants.ts';
 import { completedDropKeys, dropStateKey, projectDropsSnapshot } from './drops-projection.ts';
 import {
@@ -17,6 +19,9 @@ import { applyApiBackoffRecoveryState } from './recovery-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 import type { StreamRotationReason } from './stream-rotation.ts';
 import { computeEffectiveStallThreshold } from './stream-rotation.ts';
+import { shouldKeepStreamerWhileDropProgresses } from './streamer-health-evaluation.ts';
+import { resumeWatchObservation, watchObservationStartedAt } from './streamer-watch-attempt.ts';
+import { hasVerifiedWatchPlayback, isTablessServiceFailure } from './watch-health.ts';
 
 type FarmingSessionMonitoringDependencies = {
   readonly onRotateStreamerIfInvalid: (isCurrent?: () => boolean) => Promise<void>;
@@ -56,7 +61,7 @@ function transportRotationReason(
 export type FarmingSessionMonitoring = {
   readonly checkDropProgress: () => Promise<void>;
   readonly refreshDropsData: (options?: RefreshDropsOptions) => Promise<RefreshDropsOutcome>;
-  readonly startMonitoring: () => void;
+  readonly startMonitoring: (immediate?: boolean) => void;
   readonly stopMonitoring: () => void;
 };
 
@@ -86,6 +91,15 @@ export function createFarmingSessionMonitoring(
     switch (directive.kind) {
       case 'suspend':
         context.manualWatchTransportSuspended = true;
+        if (state.appState.selectedGame) {
+          const key = gameKey(state.appState.selectedGame);
+          const metadata = state.appState.queueEntryMetadataByKey[key];
+          if (metadata?.watchAttempt && metadata.watchAttempt.suspendedAt === undefined)
+            state.appState.queueEntryMetadataByKey[key] = {
+              ...metadata,
+              watchAttempt: { ...metadata.watchAttempt, suspendedAt: context.now() },
+            };
+        }
         try {
           await adapters.watchTransport?.stop();
         } catch (error) {
@@ -93,16 +107,21 @@ export function createFarmingSessionMonitoring(
           logWarn('Manual watch transport suspension failed:', String(error));
         }
         if (!isCurrent()) return false;
-        await adapters.automationNotify?.({
-          transitionId: directive.transitionId,
-          event: 'manual-suspended',
-          campaignId: state.appState.selectedGame?.campaignId ?? 'manual-watch',
-          title: 'Manual viewing detected',
-          message: 'DropHunter paused automatic farming while you watch Twitch.',
-          telegramReason: 'manual-suspended',
-        });
+        void Promise.resolve()
+          .then(() =>
+            adapters.automationNotify?.({
+              transitionId: directive.transitionId,
+              event: 'manual-suspended',
+              campaignId: state.appState.selectedGame?.campaignId ?? 'manual-watch',
+              title: 'Manual viewing detected',
+              message: 'DropHunter paused automatic farming while you watch Twitch.',
+              telegramReason: 'manual-suspended',
+            }),
+          )
+          .catch(() => undefined);
         return false;
       case 'resume': {
+        resumeWatchObservation(state, context.now());
         const activeStreamer = state.appState.activeStreamer;
         if (activeStreamer && state.appState.isRunning && !state.appState.isPaused) {
           try {
@@ -115,14 +134,18 @@ export function createFarmingSessionMonitoring(
         }
         if (!isCurrent()) return false;
         context.manualWatchTransportSuspended = false;
-        await adapters.automationNotify?.({
-          transitionId: directive.transitionId,
-          event: 'manual-resumed',
-          campaignId: state.appState.selectedGame?.campaignId ?? 'manual-watch',
-          title: 'Automatic farming resumed',
-          message: 'DropHunter resumed automatic farming after your Twitch viewing ended.',
-          telegramReason: 'manual-resumed',
-        });
+        void Promise.resolve()
+          .then(() =>
+            adapters.automationNotify?.({
+              transitionId: directive.transitionId,
+              event: 'manual-resumed',
+              campaignId: state.appState.selectedGame?.campaignId ?? 'manual-watch',
+              title: 'Automatic farming resumed',
+              message: 'DropHunter resumed automatic farming after your Twitch viewing ended.',
+              telegramReason: 'manual-resumed',
+            }),
+          )
+          .catch(() => undefined);
         return false;
       }
       case 'unchanged':
@@ -136,91 +159,76 @@ export function createFarmingSessionMonitoring(
       }
     }
 
+    if (!state.appState.activeStreamer && state.appState.selectedGame) {
+      if (state.apiBackoffUntil > context.now()) {
+        applyApiBackoffRecoveryState(state);
+        await adapters.saveState(state);
+      }
+      return false;
+    }
     const wasWaitingForPlayback = state.appState.watchHealth?.reason === 'user-interaction-required';
     const health = await adapters.watchTransport?.tick(isCurrent);
     if (!isCurrent()) return false;
-    if (health?.reason === 'user-interaction-required') {
-      // The normal tick remains the retry mechanism. A browser gesture is neither
-      // an unavailable streamer nor a stalled campaign, so preserve this watch.
-      return true;
+    if (health) state.appState.watchHealth = health;
+    if (health?.reason === 'user-interaction-required') return false;
+    const key = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+    const metadata = key ? state.appState.queueEntryMetadataByKey[key] : undefined;
+    if (
+      key &&
+      metadata?.watchAttempt &&
+      isTablessServiceFailure(health) &&
+      metadata.watchAttempt.suspendedAt === undefined
+    ) {
+      state.appState.queueEntryMetadataByKey[key] = {
+        ...metadata,
+        watchAttempt: { ...metadata.watchAttempt, suspendedAt: context.now() },
+      };
+      await adapters.saveState(state);
+    } else if (
+      health?.mode === 'tabless' &&
+      !isTablessServiceFailure(health) &&
+      ['healthy', 'degraded', 'failed'].includes(health.status) &&
+      metadata?.watchAttempt?.suspendedAt !== undefined
+    ) {
+      resumeWatchObservation(state, context.now());
+      await adapters.saveState(state);
     }
-    if (wasWaitingForPlayback && health?.isHealthy) {
+    if (!isCurrent()) return false;
+    if (
+      wasWaitingForPlayback &&
+      hasVerifiedWatchPlayback(health) &&
+      metadata?.watchAttempt &&
+      metadata.watchAttempt.firstPlaybackAt === undefined &&
+      key
+    ) {
+      state.appState.queueEntryMetadataByKey[key] = {
+        ...metadata,
+        watchAttempt: { ...metadata.watchAttempt, firstPlaybackAt: context.now() },
+      };
       state.invalidStreamChecks = 0;
       state.streamValidationGraceUntil =
         context.now() + computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
     }
-    const stalledRecoveryDue =
-      state.appState.recoveryReason === 'stalled-progress' && context.now() >= state.recoveryBackoffUntil;
-    const tablessStallDetected =
-      health?.mode === 'tabless' && health.reason === 'stalled-progress' && health.shouldFallback;
-    const failedTransportRotationReason =
-      health?.shouldFallback === true ? transportRotationReason(health.reason) : null;
-    const tablessRecoveryDue =
-      stalledRecoveryDue &&
-      state.appState.tabId === null &&
-      (health?.mode === 'tabless' || state.appState.watchTransportMode === 'tabless');
-    if (failedTransportRotationReason) {
-      const previousCampaignKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
-      await dependencies.onRotateStreamerForTransportFailure(failedTransportRotationReason, isCurrent);
-      return (
-        previousCampaignKey !== (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null)
-      );
-    }
-    if (tablessStallDetected || tablessRecoveryDue) {
-      const result = await dependencies.onRecoverStalledProgress({ kind: 'tabless' }, isCurrent);
-      return result.kind === 'selection-changed';
-    }
-    if (stalledRecoveryDue && state.appState.tabId) {
-      const result = await dependencies.onRecoverStalledProgress(
-        {
-          kind: 'managed-tab',
-          tabId: state.appState.tabId,
-        },
-        isCurrent,
-      );
-      return result.kind === 'selection-changed';
-    }
-    const transportMissing =
-      health?.status === 'not-started' &&
-      state.appState.selectedGame !== null &&
-      state.appState.tabId === null;
-    if (!transportMissing && (health?.mode !== 'managed-tab' || !health.shouldFallback)) {
-      return false;
-    }
-    if (health?.reason === 'stalled-progress' && state.appState.tabId) {
-      const result = await dependencies.onRecoverStalledProgress(
-        {
-          kind: 'managed-tab',
-          tabId: state.appState.tabId,
-        },
-        isCurrent,
-      );
-      return result.kind === 'selection-changed';
-    }
-    const previousCampaignKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
-    if (state.apiBackoffUntil > context.now()) {
-      applyApiBackoffRecoveryState(state);
-      await adapters.saveState(state);
-    } else if (context.now() >= state.recoveryBackoffUntil) {
-      await dependencies.onAcquireStreamerForSelectedGame(isCurrent);
-    }
-    return (
-      previousCampaignKey !== (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null)
-    );
+    return false;
   }
 
   async function evaluateDropTransitions(previousCompletedKeys: Set<string>): Promise<void> {
     const nowCompletedKeys = completedDropKeys(state.appState.completedDrops);
     const newlyCompleted = state.appState.completedDrops.filter(
-      (drop) => !previousCompletedKeys.has(dropStateKey(drop)),
+      (drop) => isRewardAcquired(drop) && !previousCompletedKeys.has(dropStateKey(drop)),
     );
     for (const drop of newlyCompleted) {
-      await adapters.sendAlert('drop-complete', `Reward unlocked: ${drop.name}`);
+      void Promise.resolve()
+        .then(() => adapters.sendAlert('drop-complete', `Reward unlocked: ${drop.name}`))
+        .catch(() => undefined);
     }
 
     const hasDrops = state.appState.allDrops.length > 0;
     const allCompleted =
-      hasDrops && state.appState.pendingDrops.length === 0 && state.appState.currentDrop === null;
+      hasDrops &&
+      state.appState.selectedGame !== null &&
+      hasCompleteIdentifiedRewardSet(state.appState.selectedGame, state.appState.allDrops, true) &&
+      state.appState.allDrops.every(isRewardAcquired);
     if (allCompleted && !state.appState.completionNotified) {
       const selectedGame = state.appState.selectedGame;
       const campaign = selectedGame ? getGameDisplayLabel(selectedGame) : 'this campaign';
@@ -230,20 +238,26 @@ export function createFarmingSessionMonitoring(
         // Persist the state transition before delivery. A restarted MV3 worker can
         // then retry only a channel whose delivery did not succeed.
         await adapters.saveState(state);
-        await adapters.automationNotify({
-          transitionId: `campaign-complete:${selectedGame?.campaignId ?? 'current-campaign'}:${[
-            ...nowCompletedKeys,
-          ]
-            .sort()
-            .join(',')}`,
-          event: 'completion',
-          campaignId: selectedGame?.campaignId ?? 'current-campaign',
-          title: 'Campaign complete',
-          message,
-          telegramReason: 'campaign-complete',
-        });
+        void Promise.resolve()
+          .then(() =>
+            adapters.automationNotify?.({
+              transitionId: `campaign-complete:${selectedGame?.campaignId ?? 'current-campaign'}:${[
+                ...nowCompletedKeys,
+              ]
+                .sort()
+                .join(',')}`,
+              event: 'completion',
+              campaignId: selectedGame?.campaignId ?? 'current-campaign',
+              title: 'Campaign complete',
+              message,
+              telegramReason: 'campaign-complete',
+            }),
+          )
+          .catch(() => undefined);
       } else {
-        await adapters.sendAlert('all-complete', message);
+        void Promise.resolve()
+          .then(() => adapters.sendAlert('all-complete', message))
+          .catch(() => undefined);
       }
     }
     if (nowCompletedKeys.size < previousCompletedKeys.size) {
@@ -266,14 +280,18 @@ export function createFarmingSessionMonitoring(
         onSaveState: adapters.saveState,
         onQueueCampaignsRemoved: async (result) => {
           const notification = queueCleanupNotification(result);
-          await adapters.automationNotify?.({
-            transitionId: notification.transitionId,
-            event: 'queue-cleanup',
-            campaignId: 'queue',
-            telegramReason: 'queue-cleanup',
-            title: 'Queue updated',
-            message: notification.message,
-          });
+          void Promise.resolve()
+            .then(() =>
+              adapters.automationNotify?.({
+                transitionId: notification.transitionId,
+                event: 'queue-cleanup',
+                campaignId: 'queue',
+                telegramReason: 'queue-cleanup',
+                title: 'Queue updated',
+                message: notification.message,
+              }),
+            )
+            .catch(() => undefined);
         },
       },
       {
@@ -292,7 +310,55 @@ export function createFarmingSessionMonitoring(
     }
     await checkDropProgressCore(state, {
       onEnforcePlaybackPolicy: adapters.enforcePlaybackPolicyOnStreamTab,
-      onRotateStreamerIfInvalid: dependencies.onRotateStreamerIfInvalid,
+      onRotateStreamerIfInvalid: async (isCurrent) => {
+        if (context.manualWatchTransportSuspended) return;
+        const health = state.appState.watchHealth;
+        if (isTablessServiceFailure(health)) return;
+        if (health?.reason === 'stream-offline') {
+          await dependencies.onRotateStreamerForTransportFailure('offline', isCurrent);
+          return;
+        }
+        if (health && hasVerifiedWatchPlayback(health)) state.offlineChecks = 0;
+        if (health?.shouldFallback) {
+          const reason = transportRotationReason(health.reason);
+          const protectedManagedWatch =
+            health.mode === 'managed-tab' &&
+            (context.now() < state.streamValidationGraceUntil ||
+              shouldKeepStreamerWhileDropProgresses({
+                currentDrop: state.appState.currentDrop,
+                lastProgressAdvanceAt: state.lastProgressAdvanceAt,
+                now: context.now(),
+                effectiveThresholdMs: computeEffectiveStallThreshold(
+                  state.appState.currentDrop?.requiredMinutes,
+                ),
+                reason,
+              }));
+          if (reason && !protectedManagedWatch) {
+            await dependencies.onRotateStreamerForTransportFailure(reason, isCurrent);
+            return;
+          }
+        }
+        if (health?.status === 'not-started' && !state.appState.tabId && state.appState.selectedGame) {
+          await dependencies.onAcquireStreamerForSelectedGame(isCurrent);
+          return;
+        }
+        const observedAt = watchObservationStartedAt(state);
+        if (
+          state.appState.activeStreamer &&
+          observedAt > 0 &&
+          context.now() - observedAt >=
+            computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes)
+        ) {
+          await dependencies.onRecoverStalledProgress(
+            state.appState.watchTransportPreference === 'tabless'
+              ? { kind: 'tabless' }
+              : { kind: 'managed-tab', tabId: state.appState.tabId ?? 0 },
+            isCurrent,
+          );
+          return;
+        }
+        await dependencies.onRotateStreamerIfInvalid(isCurrent);
+      },
       onAcquireStreamerForSelectedGame: dependencies.onAcquireStreamerForSelectedGame,
       onAttemptAutoClaimChannelPointsBonus: adapters.attemptAutoClaimChannelPointsBonus,
       onRefreshDropsData: refreshDropsData,
@@ -303,8 +369,10 @@ export function createFarmingSessionMonitoring(
     });
   }
 
-  function startMonitoring(): void {
-    browser.alarms.create(ALARM_NAME, { periodInMinutes: Math.max(0.5, PROGRESS_POLL_MS / 60_000) });
+  function startMonitoring(immediate = false): void {
+    const periodInMinutes = Math.max(0.5, PROGRESS_POLL_MS / 60_000);
+    if (immediate) browser.alarms.create(ALARM_NAME, { when: Date.now() + 1, periodInMinutes });
+    else browser.alarms.create(ALARM_NAME, { periodInMinutes });
   }
 
   function stopMonitoring(): void {

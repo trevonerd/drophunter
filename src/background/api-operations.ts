@@ -67,34 +67,44 @@ export function clearSignInRequiredStop(state: ServiceWorkerState) {
 async function fetchSnapshotWithIntegrityRetry(
   state: ServiceWorkerState,
   session: TwitchSession,
-  fetchSnapshot: (client: TwitchApiClient) => Promise<DropsSnapshot>,
+  fetchSnapshot: (client: TwitchApiClient, isCurrentAccount: () => boolean) => Promise<DropsSnapshot>,
   operation: 'campaign' | 'inventory',
 ): Promise<DropsSnapshot | null> {
   clearLastTwitchApiFailure(state);
+  const isCurrentAccount = () =>
+    (!state.appState.campaignEvidenceUserId || state.appState.campaignEvidenceUserId === session.userId) &&
+    (!state.twitchSessionCache?.userId || state.twitchSessionCache.userId === session.userId);
+  if (!isCurrentAccount()) return null;
   const sessionWithIntegrity =
     state.integrityFallbackActive && Date.now() < state.integrityFallbackActiveUntil
       ? { ...session, clientIntegrity: undefined }
       : await ensureSessionIntegrityExt(state, session);
+  if (!isCurrentAccount()) return null;
   try {
-    const snapshot = await fetchSnapshot(new TwitchApiClient(sessionWithIntegrity));
+    const snapshot = await fetchSnapshot(new TwitchApiClient(sessionWithIntegrity), isCurrentAccount);
+    if (!isCurrentAccount()) return null;
     state.apiConsecutiveFailures = 0;
     state.apiBackoffUntil = 0;
     clearLastTwitchApiFailure(state);
     clearSignInRequiredStop(state);
     return snapshot;
   } catch (error) {
+    if (!isCurrentAccount()) return null;
     const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
     if (message.includes('integrity')) {
       const refreshed = await ensureSessionIntegrityExt(state, session, true);
+      if (!isCurrentAccount()) return null;
       if (refreshed.clientIntegrity && refreshed.clientIntegrity !== sessionWithIntegrity.clientIntegrity) {
         try {
-          const snapshot = await fetchSnapshot(new TwitchApiClient(refreshed));
+          const snapshot = await fetchSnapshot(new TwitchApiClient(refreshed), isCurrentAccount);
+          if (!isCurrentAccount()) return null;
           state.apiConsecutiveFailures = 0;
           state.apiBackoffUntil = 0;
           clearLastTwitchApiFailure(state);
           clearSignInRequiredStop(state);
           return snapshot;
         } catch (retryError) {
+          if (!isCurrentAccount()) return null;
           logDebug('Integrity-refreshed retry still failed, falling back to no-integrity mode', {
             error: String(retryError),
           });
@@ -102,7 +112,8 @@ async function fetchSnapshotWithIntegrityRetry(
       }
       try {
         const withoutIntegrity: TwitchSession = { ...session, clientIntegrity: undefined };
-        const snapshot = await fetchSnapshot(new TwitchApiClient(withoutIntegrity));
+        const snapshot = await fetchSnapshot(new TwitchApiClient(withoutIntegrity), isCurrentAccount);
+        if (!isCurrentAccount()) return null;
         state.integrityFallbackActive = true;
         state.integrityFallbackActiveUntil = Date.now() + INTEGRITY_FALLBACK_TTL_MS;
         state.apiConsecutiveFailures = 0;
@@ -111,9 +122,11 @@ async function fetchSnapshotWithIntegrityRetry(
         clearSignInRequiredStop(state);
         return snapshot;
       } catch (fallbackError) {
+        if (!isCurrentAccount()) return null;
         logDebug('No-integrity fallback fetch also failed', { error: String(fallbackError) });
       }
     }
+    if (!isCurrentAccount()) return null;
     const failure = recordTwitchApiFailure(state, error, operation);
     if (failure.kind === 'auth') throw error;
     applyApiBackoff(state, failure.retryAfterMs);
@@ -129,7 +142,17 @@ export async function fetchDropsSnapshotFromApi(
   return fetchSnapshotWithIntegrityRetry(
     state,
     session,
-    (client) => client.fetchDropsSnapshot(options),
+    (client, isCurrentAccount) =>
+      client.fetchDropsSnapshot(
+        options.onProgress
+          ? {
+              ...options,
+              onProgress: async (snapshot) => {
+                if (isCurrentAccount()) await options.onProgress?.(snapshot);
+              },
+            }
+          : options,
+      ),
     'campaign',
   );
 }

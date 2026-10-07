@@ -5,6 +5,7 @@ import type { CampaignSyncStatus } from '../constants';
 export interface MainViewProps {
   state: AppState;
   actionLoading: boolean;
+  farmingStartPending?: boolean;
   dropsRefreshLoading: boolean;
   campaignSyncStatus: CampaignSyncStatus;
   activeSyncError: string | null;
@@ -18,7 +19,6 @@ export interface MainViewProps {
   firstSyncConfirmation: boolean;
   firstSyncCampaignCount: number | null;
   queueMessage: string | null;
-  dismissedQueueCleanupActivityId: string | null;
   notificationPermissionDenied: boolean;
   onAutoStartFavoriteGamesToggle: () => void;
   onMuteToggle: () => void;
@@ -28,7 +28,7 @@ export interface MainViewProps {
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
-  onDismissQueueCleanup: (activityId: string) => void;
+  onDismissFarmingMessage: (id: string) => void;
   onAddToQueue: (game?: TwitchGame) => void;
   onAddAllToQueue: (games: readonly TwitchGame[]) => void;
   onLinkAccount: (game: TwitchGame) => void;

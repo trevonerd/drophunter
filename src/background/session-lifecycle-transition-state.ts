@@ -19,6 +19,8 @@ import type {
   AutomaticFarmingSessionTransitionRequest,
   AutomaticFarmingSessionTransitionResult,
 } from './session-lifecycle-transition.ts';
+import { suspendWatchObservation } from './streamer-watch-attempt.ts';
+import type { PreparedWatch } from './watch-transport-transition.ts';
 
 export class FarmingSessionTransitionInvariantError extends Error {
   readonly name = 'FarmingSessionTransitionInvariantError';
@@ -28,6 +30,14 @@ export class FarmingSessionTransitionInvariantError extends Error {
     readonly violation: 'attempt-pair-reused' | 'promotion-discarded',
   ) {
     super(`Farming session transition invariant violated: ${violation}`);
+  }
+}
+
+export async function persistAutomaticTransitionAttempt(persist: () => Promise<boolean>): Promise<boolean> {
+  try {
+    return await persist();
+  } catch {
+    return false;
   }
 }
 
@@ -58,7 +68,6 @@ function cloneTransitionState(state: ServiceWorkerState): ServiceWorkerState {
     cachedDropsSnapshot: structuredClone(state.cachedDropsSnapshot),
     cachedCampaignChannelsMap: structuredClone(state.cachedCampaignChannelsMap),
     dropClaimRetryAtById: new Map(state.dropClaimRetryAtById),
-    queueMissingStreak: new Map(state.queueMissingStreak),
     unverifiableRewardsByKey: structuredClone(state.unverifiableRewardsByKey),
   };
 }
@@ -77,6 +86,7 @@ export function candidateWorkingState(
   const candidate = games.find((game) => gameKey(game) === candidateKey);
   if (!candidate) return null;
   const working = cloneTransitionState(state);
+  if (incumbent && gameKey(incumbent) !== candidateKey) suspendWatchObservation(working, now);
   working.appState.selectedGame = candidate;
   const campaignChannelsMap = Object.fromEntries(
     Object.entries(request.snapshot.campaignChannelsMap).map(([key, channels]) => [
@@ -154,11 +164,7 @@ export function candidateWorkingState(
   }
   const selectedMetadata = working.appState.queueEntryMetadataByKey[candidateKey];
   if (selectedMetadata) {
-    const {
-      streamerRetryAttempts: _attempts,
-      streamerWaitState: _waitState,
-      ...readyMetadata
-    } = selectedMetadata;
+    const { streamerWaitState: _waitState, ...readyMetadata } = selectedMetadata;
     working.appState.queueEntryMetadataByKey[candidateKey] = readyMetadata;
   }
   if (request.manualOverride) working.appState.manualQueueAuthorized = true;
@@ -212,4 +218,27 @@ export function existingReceiptResult(
     return { kind: 'replayed', receipt };
   }
   return receipt.cleanup.kind === 'pending' ? { kind: 'failed', reason: 'transition-commit-failed' } : null;
+}
+
+export function createAutomaticTransitionReceipt(
+  request: AutomaticFarmingSessionTransitionRequest,
+  watch: PreparedWatch,
+  fromWatch: WatchOwnershipV1 | null,
+  now: number,
+  epoch: number,
+): FarmingSessionTransitionReceiptV1 {
+  return {
+    version: 1,
+    attemptId: request.attemptId,
+    transition: request.transition,
+    fromCampaignKey: request.fromCampaignKey,
+    toCampaignKey: gameKey(request.candidate),
+    toStreamerName: watch.target.channelName,
+    committedAt: now,
+    sessionRevision: String(epoch),
+    fromWatch,
+    toWatch: watch.ownership,
+    cleanup:
+      fromWatch?.kind === 'managed-tab' ? { kind: 'pending', obsolete: fromWatch } : { kind: 'not-required' },
+  };
 }

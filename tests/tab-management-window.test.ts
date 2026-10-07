@@ -30,4 +30,15 @@ describe('applyBestEffortAlwaysOnTop', () => {
     await applyBestEffortAlwaysOnTop(1);
     expect(callCount).toBe(2);
   });
+
+  test('Chrome synchronous rejection of alwaysOnTop still opens the monitor', async () => {
+    const calls: unknown[] = [];
+    mock.windows.update = (windowId, details) => {
+      calls.push(details);
+      if ('alwaysOnTop' in details) throw new TypeError('Unexpected property: alwaysOnTop');
+      return Promise.resolve({ id: windowId, focused: details.focused });
+    };
+    await applyBestEffortAlwaysOnTop(1);
+    expect(calls).toEqual([{ focused: true, alwaysOnTop: true }, { focused: true }]);
+  });
 });

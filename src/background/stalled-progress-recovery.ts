@@ -3,11 +3,8 @@ import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { applyRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import {
-  computeEffectiveStallThreshold,
-  MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS,
-  STALLED_PROGRESS_RETRY_MS,
-} from './stream-rotation.ts';
+import { computeEffectiveStallThreshold, STALLED_PROGRESS_RETRY_MS } from './stream-rotation.ts';
+import { MAX_STREAMER_ATTEMPTS, watchObservationStartedAt } from './streamer-watch-attempt.ts';
 
 export type StalledProgressSource =
   | { readonly kind: 'managed-tab'; readonly tabId: number }
@@ -31,8 +28,6 @@ export interface StalledProgressRecoveryDependencies {
   readonly onCampaignRefresh: (isCurrent?: () => boolean) => Promise<RefreshDropsOutcome>;
   readonly onInventoryRefresh: (isCurrent?: () => boolean) => Promise<RefreshDropsOutcome>;
   readonly onAdvanceQueueIfCompleted: () => Promise<boolean>;
-  readonly onAttemptPlaybackSelfHeal: (tabId: number, isCurrent?: () => boolean) => Promise<void>;
-  readonly onRestartTablessWatcher: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRotateStreamer: (isCurrent?: () => boolean) => Promise<boolean> | Promise<void>;
   readonly onSkipCurrentGame: (
     verifiedAlternativesExhausted?: boolean,
@@ -48,7 +43,7 @@ function selectedCampaignKey(state: ServiceWorkerState): string | null {
 
 export async function recoverStalledProgress(
   state: ServiceWorkerState,
-  source: StalledProgressSource,
+  _source: StalledProgressSource,
   dependencies: StalledProgressRecoveryDependencies,
 ): Promise<StalledProgressRecoveryResult> {
   const now = dependencies.now();
@@ -75,8 +70,9 @@ export async function recoverStalledProgress(
   }
 
   const stallWindow = computeEffectiveStallThreshold(state.appState.currentDrop?.requiredMinutes);
-  if (state.lastProgressAdvanceAt > 0 && now - state.lastProgressAdvanceAt < stallWindow) {
-    const retryAt = state.lastProgressAdvanceAt + stallWindow;
+  const observedAt = watchObservationStartedAt(state);
+  if (observedAt > 0 && now - observedAt < stallWindow) {
+    const retryAt = observedAt + stallWindow;
     if (
       recoveryAlreadyActive &&
       (state.recoveryBackoffUntil !== retryAt || state.appState.recoveryBackoffUntil !== retryAt)
@@ -106,6 +102,12 @@ export async function recoverStalledProgress(
   if (!isCurrent()) {
     return { kind: 'selection-changed' };
   }
+  // No observable watch-time reward remains. Keep its authorized target unresolved,
+  // but let the rest of the queue proceed instead of watching forever.
+  if (state.appState.currentDrop === null) {
+    await dependencies.onSkipCurrentGame(false, isCurrent);
+    return { kind: 'selection-changed' };
+  }
   const inventoryRefresh = await dependencies.onInventoryRefresh(isCurrent);
   if (!isCurrent()) return { kind: 'selection-changed' };
   if (inventoryRefresh === 'auth-required') return { kind: 'auth-required' };
@@ -119,11 +121,12 @@ export async function recoverStalledProgress(
   const progressResumed =
     previousDrop !== null &&
     currentDrop !== null &&
-    (currentDrop.id !== previousDrop.id ||
-      currentDrop.progress > previousDrop.progress ||
+    currentDrop.id === previousDrop.id &&
+    currentDrop.campaignId === previousDrop.campaignId &&
+    (currentDrop.progress > previousDrop.progress ||
       (currentDrop.currentMinutes ?? -1) > (previousDrop.currentMinutes ?? -1));
   const recoveryCleared = recoveryAlreadyActive && state.appState.recoveryReason !== 'stalled-progress';
-  if (progressResumed || recoveryCleared || currentDrop === null) {
+  if (progressResumed || recoveryCleared) {
     return { kind: 'recovered' };
   }
 
@@ -139,24 +142,23 @@ export async function recoverStalledProgress(
         ? ('favorite-discovered' as const)
         : ('user-added' as const),
   };
-  const hadConfirmedStreamerHistory = (metadata.stalledStreamerNames?.length ?? 0) > 0;
-  const stalledStreamerNames = [
+  const attemptedStreamerNames = [
     ...new Set(
-      (metadata.stalledStreamerNames ?? []).map((name) => name.trim().toLowerCase()).filter(Boolean),
+      (metadata.attemptedStreamerNames ?? []).map((name) => name.trim().toLowerCase()).filter(Boolean),
     ),
   ];
   const activeName = state.appState.activeStreamer?.name.trim().toLowerCase();
-  if (activeName && !stalledStreamerNames.includes(activeName)) stalledStreamerNames.push(activeName);
+  if (activeName && !attemptedStreamerNames.includes(activeName)) attemptedStreamerNames.push(activeName);
   state.appState.queueEntryMetadataByKey[selectedKey] = {
     ...metadata,
-    stalledStreamerNames: stalledStreamerNames.slice(0, 4),
+    attemptedStreamerNames: attemptedStreamerNames.slice(0, MAX_STREAMER_ATTEMPTS),
   };
-  if (stalledStreamerNames.length >= MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS + 1) {
+  if (attemptedStreamerNames.length >= MAX_STREAMER_ATTEMPTS) {
     await dependencies.onSkipCurrentGame(false, isCurrent);
     return { kind: 'selection-changed' };
   }
 
-  const attempt = Math.min(MAX_STALLED_PROGRESS_RECOVERY_ATTEMPTS, state.stalledRecoveryAttempts + 1);
+  const attempt = attemptedStreamerNames.length;
   let retryAt = now + STALLED_PROGRESS_RETRY_MS;
   state.stalledRecoveryAttempts = attempt;
   state.lastRecoveryAttemptAt = now;
@@ -164,13 +166,8 @@ export async function recoverStalledProgress(
   state.invalidStreamChecks = 0;
   applyRecoveryState(state, 'stalled-progress', retryAt);
 
-  if (!hadConfirmedStreamerHistory && state.stalledRecoveryAttempts === 1) {
-    if (source.kind === 'tabless') {
-      await dependencies.onRestartTablessWatcher(isCurrent);
-    } else {
-      await dependencies.onAttemptPlaybackSelfHeal(source.tabId, isCurrent);
-    }
-  } else {
+  {
+    state.recoveryBackoffUntil = 0;
     const opened = await dependencies.onRotateStreamer(isCurrent);
     if (!isCurrent()) return { kind: 'selection-changed' };
     if (opened === false && state.appState.recoveryReason !== 'stalled-progress') {
@@ -178,8 +175,8 @@ export async function recoverStalledProgress(
         state.appState.recoveryBackoffUntil || state.recoveryBackoffUntil || now + STALLED_PROGRESS_RETRY_MS;
       return { kind: 'retry-scheduled', attempt, retryAt, started: false };
     }
-    if (opened !== false && state.lastProgressAdvanceAt > 0) {
-      retryAt = state.lastProgressAdvanceAt + stallWindow;
+    if (opened !== false && watchObservationStartedAt(state) > 0) {
+      retryAt = watchObservationStartedAt(state) + stallWindow;
     }
   }
 

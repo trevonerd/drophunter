@@ -1,4 +1,4 @@
-import type { AppState, TwitchGame } from '../types/index.ts';
+import type { AppState } from '../types/index.ts';
 import {
   normalizeAutomationActivity,
   normalizeCampaignAvailability,
@@ -10,6 +10,14 @@ import {
   normalizeStoredDrops,
 } from './app-state-collection-normalizers.ts';
 import {
+  isRecord,
+  normalizeCampaignFailureEpisodes,
+  normalizeStoredGame,
+  normalizeStoredGames,
+  RECOVERY_REASONS,
+  STOP_REASONS,
+} from './app-state-normalization-values.ts';
+import {
   normalizeCampaignSyncState,
   normalizeStoredStreamer,
   normalizeTwitchSessionSyncState,
@@ -17,59 +25,11 @@ import {
   restoreAuthorizedQueueRetry,
 } from './app-state-runtime-normalizers.ts';
 import { browser } from './browser-api.ts';
-import { isTwitchGameLike } from './message-validation.ts';
+import { isCampaignAcquired } from './campaign-eligibility.ts';
+import { gameKey } from './game-selection.ts';
 import { isRuntimeRequest } from './messages.ts';
 import { normalizeQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { createInitialState } from './utils.ts';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function normalizeStoredGame(value: unknown): TwitchGame | null {
-  if (!isRecord(value)) return null;
-  // Older snapshots can carry a stale boolean alongside an authoritative reward summary.
-  // Repair the redundant boolean instead of deleting the campaign and its queue position.
-  const completion = isRecord(value.rewardSummary) ? value.rewardSummary.completion : undefined;
-  const candidate =
-    completion === 'all-acquired' || completion === 'farmable' || completion === 'farming-complete'
-      ? { ...value, allDropsCompleted: completion === 'all-acquired' }
-      : value;
-  return isTwitchGameLike(candidate) ? candidate : null;
-}
-
-function normalizeStoredGames(value: unknown): TwitchGame[] {
-  return Array.isArray(value)
-    ? value.map(normalizeStoredGame).filter((game): game is TwitchGame => game !== null)
-    : [];
-}
-
-const RECOVERY_REASONS = new Set([
-  'twitch-auth',
-  'twitch-integrity',
-  'twitch-network',
-  'twitch-rate-limit',
-  'twitch-invalid-response',
-  'twitch-data-unavailable',
-  'stalled-progress',
-  'open-failed',
-  'directory-unavailable',
-  'no-streamers',
-  'drops-inactive',
-  'wrong-game',
-  'wrong-channel',
-  'offline',
-]);
-const STOP_REASONS = new Set([
-  'user-stop',
-  'queue-complete',
-  'farming-complete',
-  'sign-in-required',
-  'stall-skipped',
-  'queue-retries-exhausted',
-  'no-active-campaigns',
-  'unverifiable-twitch',
-]);
 
 export function normalizeStoredAppState(value: unknown): AppState {
   if (!isRecord(value)) {
@@ -92,6 +52,9 @@ export function normalizeStoredAppState(value: unknown): AppState {
     hiddenGames.flatMap((entry) => [entry.gameId, ...(entry.identityKeys ?? [])]),
   );
   const { autoResumeOnStartup: _legacyAutoResumeOnStartup, ...persistedValue } = value;
+  const pendingGame = isRecord(value.pendingWatchTarget)
+    ? normalizeStoredGame(value.pendingWatchTarget.game)
+    : null;
   const storedState: AppState = {
     ...createInitialState(),
     ...persistedValue,
@@ -105,13 +68,20 @@ export function normalizeStoredAppState(value: unknown): AppState {
     isRunning:
       (value.isRunning === true || (value.isPaused === true && value.manualQueueAuthorized === true)) &&
       lastStopReason !== 'user-stop',
-    isPaused: value.isPaused === true,
+    isPaused: value.isPaused === true && lastStopReason !== 'user-stop',
     wasRunning: value.wasRunning === true,
     tabId:
       typeof value.tabId === 'number' && Number.isInteger(value.tabId) && value.tabId > 0
         ? value.tabId
         : null,
     activeStreamer: normalizeStoredStreamer(value.activeStreamer),
+    pendingWatchTarget:
+      pendingGame &&
+      isRecord(value.pendingWatchTarget) &&
+      typeof value.pendingWatchTarget.channelName === 'string' &&
+      /^[a-zA-Z0-9_]{1,25}$/.test(value.pendingWatchTarget.channelName)
+        ? { game: pendingGame, channelName: value.pendingWatchTarget.channelName }
+        : null,
     lastStopReason,
     lastStopMessage:
       lastStopReason && typeof value.lastStopMessage === 'string'
@@ -147,6 +117,19 @@ export function normalizeStoredAppState(value: unknown): AppState {
           : null,
     queueEntryMetadataByKey: normalizeQueueMetadata(value.queueEntryMetadataByKey),
     queueAcquisitionRound: normalizeQueueAcquisitionRound(value.queueAcquisitionRound),
+    farmingSessionTargets: isRecord(value.farmingSessionTargets)
+      ? Object.fromEntries(
+          Object.values(value.farmingSessionTargets).flatMap((target) => {
+            if (!isRecord(target)) return [];
+            const game = normalizeStoredGame(target.game);
+            return game ? [[gameKey(game), { game, acquired: isCampaignAcquired(game) }]] : [];
+          }),
+        )
+      : {},
+    campaignFailureEpisodesByKey: normalizeCampaignFailureEpisodes(value.campaignFailureEpisodesByKey),
+    dismissedFarmingMessageIds: Array.isArray(value.dismissedFarmingMessageIds)
+      ? [...new Set(value.dismissedFarmingMessageIds.filter((id): id is string => typeof id === 'string'))]
+      : [],
     stalledCampaignBlocksByKey: normalizeStalledCampaignBlocks(value.stalledCampaignBlocksByKey),
     automationActivity: normalizeAutomationActivity(value.automationActivity),
     lastAutomationMessage:
@@ -183,7 +166,6 @@ export function normalizeStoredAppState(value: unknown): AppState {
         ? value.watchTransportMode
         : defaults.watchTransportMode,
     watchHealth: normalizeWatchHealth(value.watchHealth),
-    watchFallbackReason: typeof value.watchFallbackReason === 'string' ? value.watchFallbackReason : null,
     campaignSyncState: normalizeCampaignSyncState(value),
     twitchSessionSyncState: normalizeTwitchSessionSyncState(value),
     recoveryReason,

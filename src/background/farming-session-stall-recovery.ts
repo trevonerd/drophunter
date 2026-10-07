@@ -8,7 +8,6 @@ import {
   type StalledProgressSource,
 } from './stalled-progress-recovery.ts';
 import { rotateStreamer } from './streamer-acquisition.ts';
-import type { EnterPersistentRecoveryFn } from './streamer-acquisition-contracts.ts';
 
 interface FarmingSessionStallRecoveryDependencies {
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<RefreshDropsOutcome>;
@@ -18,7 +17,6 @@ interface FarmingSessionStallRecoveryDependencies {
     verifiedAlternativesExhausted?: boolean,
     isCurrent?: () => boolean,
   ) => Promise<void>;
-  readonly onEnterPersistentRecovery: EnterPersistentRecoveryFn;
 }
 
 export function createFarmingSessionStallRecovery(
@@ -62,22 +60,12 @@ export function createFarmingSessionStallRecovery(
           isCurrent: current,
         }),
       onAdvanceQueueIfCompleted: dependencies.onAdvanceQueueIfCompleted,
-      onAttemptPlaybackSelfHeal: adapters.attemptPlaybackSelfHeal,
-      onRestartTablessWatcher: async (current = isCurrent) => {
-        const activeStreamer = state.appState.activeStreamer;
-        if (activeStreamer && adapters.watchTransport) {
-          await adapters.watchTransport.start(activeStreamer, current);
-          return;
-        }
-        await dependencies.onAcquireStreamer(current);
-      },
       onRotateStreamer: async (current = isCurrent) => {
         return rotateStreamer(state, 'stalled-progress', {
           isCurrent: current,
           onOpenStreamer: dependencies.onAcquireStreamer,
           onSaveState: () => adapters.saveState(state),
           onSaveTimingState: adapters.saveTimingState,
-          onEnterPersistentRecovery: dependencies.onEnterPersistentRecovery,
         });
       },
       onSkipCurrentGame: (verifiedAlternativesExhausted = false, current = isCurrent) =>

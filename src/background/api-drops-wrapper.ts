@@ -1,10 +1,12 @@
 import type { DropsSnapshot } from '../types';
 import { applyApiBackoff, clearSignInRequiredStop, fetchDropsSnapshotFromApi } from './api-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
+import { currentTwitchSessionRevision } from './session-management.ts';
 import type { SessionRecoveryMode, TwitchApiRequestOptions } from './session-orchestrator.ts';
 import type { FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
-import { markTwitchSessionBlocked, markTwitchSessionRetrying } from './twitch-session-sync.ts';
+import { markTwitchSessionRetrying } from './twitch-session-sync.ts';
 
 export interface FetchDropsSnapshotFromApiCallbacks {
   onEnsureTwitchSession: () => Promise<TwitchSession | null>;
@@ -31,13 +33,31 @@ export async function stopForSignInRequiredIfRunning(
   state: ServiceWorkerState,
   callback?: FetchDropsSnapshotFromApiCallbacks['onStopFarmingSession'],
 ) {
-  markTwitchSessionBlocked(state, state.apiConsecutiveFailures);
-  if (!state.appState.isRunning || !callback) return;
+  if (!state.appState.isRunning || state.appState.isPaused || state.appState.lastStopReason === 'user-stop')
+    return;
+  if (
+    state.appState.twitchSessionSyncState.status === 'retrying' &&
+    !state.appState.activeStreamer &&
+    (state.appState.twitchSessionSyncState.nextRetryAt ?? 0) > Date.now()
+  )
+    return;
+  if (!callback) {
+    applyApiBackoff(state);
+    markTwitchSessionRetrying(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
+    return;
+  }
   await callback({
-    notification: { title: 'Sign-in required', message: SIGN_IN_REQUIRED_MESSAGE },
     stopReason: 'sign-in-required',
     stopMessage: SIGN_IN_REQUIRED_MESSAGE,
   });
+  if (
+    state.appState.isRunning &&
+    !state.appState.isPaused &&
+    state.appState.twitchSessionSyncState.status !== 'retrying'
+  ) {
+    applyApiBackoff(state);
+    markTwitchSessionRetrying(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
+  }
 }
 
 export async function fetchDropsSnapshotFromApiWrapper(
@@ -75,26 +95,35 @@ export async function fetchDropsSnapshotFromApiWrapper(
       }
     }
     if (state.appState.isRunning) {
-      applyApiBackoff(state);
-      markTwitchSessionRetrying(state, state.apiBackoffUntil, state.apiConsecutiveFailures);
+      await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
     }
     return null;
   }
   if (!session.userId) {
     deps.logWarn('Twitch session has no userId — attempting auto-detect', deps.sessionDebugSummary(session));
+    const detectionSession = session;
+    const detectionRevision = currentTwitchSessionRevision(state);
+    const detectionIsCurrent = () =>
+      currentTwitchSessionRevision(state) === detectionRevision &&
+      (!state.twitchSessionCache || state.twitchSessionCache.oauthToken === detectionSession.oauthToken);
     let transientFailure = false;
     let explicitAuthFailure = false;
     try {
       const sessionForDetect = await callbacks.onEnsureSessionIntegrity(state, session);
+      if (!detectionIsCurrent()) return null;
       const detectedId = await new deps.TwitchApiClient(sessionForDetect).fetchCurrentUserId();
+      if (!detectionIsCurrent()) return null;
       if (detectedId) {
         deps.logInfo('Auto-detected Twitch userId', { userId: detectedId });
         session = { ...session, userId: detectedId, clientIntegrity: sessionForDetect.clientIntegrity };
+        await bindCampaignEvidenceAccount(state, detectedId);
+        if (!detectionIsCurrent()) return null;
         state.twitchSessionCache = session;
         await callbacks.onPersistTwitchSession(session);
         clearSignInRequiredStop(state);
       } else deps.logWarn('Could not auto-detect userId — user may not be logged in');
     } catch (error) {
+      if (!detectionIsCurrent()) return null;
       if (callbacks.onIsLikelyAuthError(error)) {
         explicitAuthFailure = true;
         deps.logWarn('Failed to auto-detect userId: auth error', String(error));
@@ -121,14 +150,10 @@ export async function fetchDropsSnapshotFromApiWrapper(
     if (!session.userId && transientFailure) return null;
     if (!session.userId) {
       if (state.appState.isRunning && explicitAuthFailure) {
-        await (requestOptions.preserveSessionOnAuthFailure ? undefined : callbacks.onStopFarmingSession)?.({
-          notification: {
-            title: 'Sign-in required',
-            message: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
-          },
-          stopReason: 'sign-in-required',
-          stopMessage: 'DropHunter could not detect your Twitch account. Please open Twitch and sign in.',
-        });
+        await stopForSignInRequiredIfRunning(
+          state,
+          requestOptions.preserveSessionOnAuthFailure ? undefined : callbacks.onStopFarmingSession,
+        );
       } else {
         applyApiBackoff(state);
         if (state.appState.isRunning) {

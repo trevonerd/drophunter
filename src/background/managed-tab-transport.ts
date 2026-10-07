@@ -2,6 +2,7 @@ import type { PlaybackPrepResult } from '../types/index.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
 import type { ManagedWatchOwnership } from './managed-watch-ownership.ts';
 import {
+  createManagedWatchPreparationHealth,
   createWatchHealth,
   isHealthyWatchProbe,
   normalizeWatchProgress,
@@ -20,6 +21,7 @@ import type {
 import type { ProvisionalWatchCandidate } from './watch-transport-transition.ts';
 
 export type ManagedPlaybackPreparation = {
+  readonly isCurrent?: () => boolean;
   readonly activateTab: false;
   readonly unmuteTab: false;
   readonly muteAfterPrep: true;
@@ -31,7 +33,6 @@ export interface ManagedProvisionalWatchOperations {
   readonly isCurrent?: () => boolean;
   readonly ownership: Pick<ManagedWatchOwnership, 'acquire'>;
   readonly allowInitialCreation?: boolean;
-  readonly preserveExistingWatch?: boolean;
   readonly preparePlayback: (
     tabId: number,
     options: ManagedPlaybackPreparation,
@@ -49,7 +50,6 @@ export async function prepareManagedProvisionalWatch(
   const candidate = await operations.ownership.acquire(target.channelName, {
     isCurrent,
     allowInitialCreation: operations.allowInitialCreation,
-    preserveExistingWatch: operations.preserveExistingWatch,
   });
   if (!candidate) return null;
   const ownership = candidate.ownership;
@@ -63,7 +63,7 @@ export async function prepareManagedProvisionalWatch(
       return {
         target,
         ownership,
-        health: createWatchHealth('managed-tab', 'failed', 'error', operations.now),
+        health: createWatchHealth('managed-tab', 'failed', 'managed-tab-unavailable', operations.now),
         dispose,
       };
     }
@@ -72,45 +72,17 @@ export async function prepareManagedProvisionalWatch(
         activateTab: false,
         unmuteTab: false,
         muteAfterPrep: true,
+        isCurrent,
       });
     if (isCurrent()) probe = await operations.probe(ownership, target);
     prepared = isCurrent();
   } catch (error) {
     if (!(error instanceof Error)) throw error;
   }
-  const hasDropsEligibilityProof =
-    probe.isLive === true && probe.sameChannel === true && probe.sameGame === true;
-  const dropsSignalIsAcceptable = probe.hasDropsSignal !== false || hasDropsEligibilityProof;
-  const healthy =
-    prepared && preparation.isPlaybackReady === true && dropsSignalIsAcceptable && isHealthyWatchProbe(probe);
-  const awaitingInteraction =
-    prepared &&
-    preparation.isPlaybackReady !== true &&
-    preparation.userInteractionRequired === true &&
-    probe.isLive !== false &&
-    probe.sameChannel !== false &&
-    probe.sameGame !== false;
-  const status = healthy
-    ? probe.hasDropsSignal === false
-      ? 'degraded'
-      : 'healthy'
-    : awaitingInteraction
-      ? 'degraded'
-      : 'failed';
-  const reason = healthy
-    ? probe.hasDropsSignal === false
-      ? 'drops-inactive'
-      : reasonForWatchProbe(probe)
-    : awaitingInteraction
-      ? 'user-interaction-required'
-      : preparation.isPlaybackReady !== true
-        ? 'playback-inactive'
-        : reasonForWatchProbe(probe);
-  const health = createWatchHealth('managed-tab', status, reason, operations.now);
   return {
     target,
     ownership,
-    health,
+    health: createManagedWatchPreparationHealth(preparation, probe, prepared, operations.now),
     dispose,
   };
 }
@@ -130,6 +102,7 @@ export class ManagedTabTransport implements WatchTransport {
   private consecutiveFailures = 0;
   private progress: number | null = null;
   private awaitingInteraction = false;
+  private generation = 0;
 
   constructor(options: ManagedTabTransportOptions) {
     this.operations = options;
@@ -139,6 +112,7 @@ export class ManagedTabTransport implements WatchTransport {
 
   adopt(target: FarmingTarget, ownership: WatchOwnershipV1, health: WatchHealth): boolean {
     if (ownership.kind !== 'managed-tab') return false;
+    this.generation++;
     this.target = target;
     this.session = { owner: 'drophunter', tabId: ownership.tabId, ownership };
     this.consecutiveFailures = health.consecutiveFailures;
@@ -152,9 +126,15 @@ export class ManagedTabTransport implements WatchTransport {
   }
 
   async start(target: FarmingTarget, isCurrent: () => boolean = () => true): Promise<WatchHealth> {
+    const generation = ++this.generation;
+    const ownsStart = () => isCurrent() && generation === this.generation;
     const previousSession = this.session;
     const previousTarget = this.target;
-    const session = await this.operations.open(target, { active: false, focus: false, isCurrent });
+    const session = await this.operations.open(target, { active: false, focus: false, isCurrent: ownsStart });
+    if (!ownsStart()) {
+      if (isManagedSession(session)) await this.operations.pause?.(session);
+      return createWatchHealth(this.mode, 'stopped', 'stopped', this.now);
+    }
     if (!isManagedSession(session)) {
       if (!previousSession) this.target = target;
       else this.target = previousTarget;
@@ -169,16 +149,19 @@ export class ManagedTabTransport implements WatchTransport {
       try {
         probe = await this.operations.probe(session, target);
       } catch {
+        await this.operations.pause?.(session);
         return createWatchHealth(this.mode, 'failed', 'error', this.now);
       }
       const awaitingInteraction = health.reason === 'user-interaction-required';
+      const awaitingPlayback = health.reason === 'playback-pending';
       if (
-        !isCurrent() ||
+        !ownsStart() ||
         probe.isLive === false ||
         probe.sameChannel === false ||
         probe.sameGame === false ||
-        (!awaitingInteraction && !isHealthyWatchProbe(probe))
+        (!awaitingInteraction && !awaitingPlayback && !isHealthyWatchProbe(probe))
       ) {
+        await this.operations.pause?.(session);
         return createWatchHealth(this.mode, 'failed', reasonForWatchProbe(probe), this.now);
       }
       if (awaitingInteraction && isHealthyWatchProbe(probe)) {
@@ -194,6 +177,7 @@ export class ManagedTabTransport implements WatchTransport {
   }
 
   async tick(): Promise<WatchHealth> {
+    const generation = this.generation;
     if (!this.session && this.target) {
       return createWatchHealth(this.mode, 'failed', 'managed-tab-unavailable', this.now, {
         shouldFallback: true,
@@ -206,6 +190,7 @@ export class ManagedTabTransport implements WatchTransport {
     try {
       probe = await this.operations.probe(this.session, this.target);
     } catch {
+      if (generation !== this.generation) return createWatchHealth(this.mode, 'stopped', 'stopped', this.now);
       this.consecutiveFailures += 1;
       return createWatchHealth(this.mode, 'failed', 'error', this.now, {
         consecutiveFailures: this.consecutiveFailures,
@@ -213,6 +198,7 @@ export class ManagedTabTransport implements WatchTransport {
         shouldFallback: this.consecutiveFailures >= this.failedProbeLimit,
       });
     }
+    if (generation !== this.generation) return createWatchHealth(this.mode, 'stopped', 'stopped', this.now);
     const nextProgress = normalizeWatchProgress(probe.progress);
     if (
       this.awaitingInteraction &&
@@ -239,9 +225,12 @@ export class ManagedTabTransport implements WatchTransport {
   }
 
   async stop(): Promise<void> {
+    this.generation++;
+    const session = this.session;
     this.target = null;
     this.consecutiveFailures = 0;
     this.progress = null;
     this.awaitingInteraction = false;
+    if (session) await this.operations.pause?.(session);
   }
 }

@@ -16,6 +16,7 @@ function game(id: string): TwitchGame {
     name: `Game ${id}`,
     imageUrl: `https://example.com/${id}.png`,
     campaignId: `campaign-${id}`,
+    dropCount: 1,
   };
 }
 
@@ -95,9 +96,6 @@ describe('session lifecycle facade', () => {
       notification: { title: 'Stopped', message: 'Stopped by test.' },
       stopReason: 'test-stop',
       onStopMonitoring: () => events.push('monitor'),
-      onCloseManagedTab: async () => {
-        events.push('tab');
-      },
       onApplyStopState: () => events.push('stop-state'),
       onNotify: async () => {
         events.push('notification');
@@ -111,7 +109,7 @@ describe('session lifecycle facade', () => {
     });
 
     // Then
-    expect(events).toEqual(['monitor', 'tab', 'stop-state', 'notification', 'state', 'timing']);
+    expect(events).toEqual(['monitor', 'stop-state', 'notification', 'state', 'timing']);
     expect(state.appState.isRunning).toBe(false);
     expect(state.appState.isPaused).toBe(false);
     expect(state.appState.tabId).toBeNull();
@@ -178,7 +176,7 @@ describe('session lifecycle facade', () => {
     // Then
     expect(running).toBe(false);
     expect(systemAlerts).toEqual([
-      { reason: 'queue-complete', message: 'Queue completed. No pending rewards left.' },
+      { reason: 'queue-complete', message: 'All authorized campaign rewards were acquired.' },
     ]);
   });
 });

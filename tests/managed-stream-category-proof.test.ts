@@ -88,28 +88,27 @@ test.each([
   { slug: 'overwatch-2', label: 'Overwatch', reason: null },
   { slug: 'just-chatting', label: 'Just Chatting', reason: 'wrong-game' },
   { slug: '', label: '', reason: null },
-])('stream rotation evaluates observed category $slug without treating missing context as a proven mismatch', async ({
-  slug,
-  label,
-  reason,
-}) => {
-  const state = createServiceWorkerState();
-  state.appState.selectedGame = createGame({ name: 'Overwatch', categorySlug: 'overwatch-2' });
-  const result = await evaluateStreamHealth(
-    state,
-    {
-      channelName: 'ml7support',
-      categorySlug: slug,
-      categoryLabel: label,
-      streamTitle: 'Live',
-      titleContainsDrops: false,
-      hasDropsSignal: false,
-      isLive: true,
-      pageUrl: 'https://www.twitch.tv/ml7support',
-    },
-    60_000,
-    Date.now(),
-    { onResolveCategorySlug: async () => 'overwatch-2' },
-  );
-  expect(result.health.reason).toBe(reason);
-});
+])(
+  'stream rotation evaluates observed category $slug without treating missing context as a proven mismatch',
+  async ({ slug, label, reason }) => {
+    const state = createServiceWorkerState();
+    state.appState.selectedGame = createGame({ name: 'Overwatch', categorySlug: 'overwatch-2' });
+    const result = await evaluateStreamHealth(
+      state,
+      {
+        channelName: 'ml7support',
+        categorySlug: slug,
+        categoryLabel: label,
+        streamTitle: 'Live',
+        titleContainsDrops: false,
+        hasDropsSignal: false,
+        isLive: true,
+        pageUrl: 'https://www.twitch.tv/ml7support',
+      },
+      60_000,
+      Date.now(),
+      { onResolveCategorySlug: async () => 'overwatch-2' },
+    );
+    expect(result.health.reason).toBe(reason);
+  },
+);
