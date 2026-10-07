@@ -101,6 +101,22 @@ export function createUserStatusModel({
     };
   }
 
+  // A reserved channel still loading retries on a short timer; it is not a failure.
+  const preparingAttempt = state.selectedGame
+    ? state.queueEntryMetadataByKey?.[gameKey(state.selectedGame)]?.watchAttempt
+    : undefined;
+  if (state.isRunning && !state.isPaused && !state.activeStreamer && preparingAttempt?.preparing) {
+    return {
+      mode: 'pending-validation',
+      progressState: 'waiting',
+      label: 'Switching to',
+      badge: 'SWITCHING',
+      subject,
+      detail: `Preparing ${preparingAttempt.channelName}.`,
+      tone: 'neutral',
+    };
+  }
+
   if (manualWatchState !== 'inactive' && runtimeMode === 'idle') {
     return {
       mode: 'ready',

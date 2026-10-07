@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createWatchHealth } from '../src/background/watch-health.ts';
 import { normalizeWatchHealth } from '../src/shared/app-state-runtime-normalizers.ts';
+import { gameKey } from '../src/shared/game-selection.ts';
 import { createUserStatusModel } from '../src/shared/user-status.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 
@@ -53,6 +54,44 @@ test('reduces recovery status to the reason and next retry', () => {
     badge: 'RECOVERING',
     detail: 'Twitch request failed; checking connection · retry in 30s',
   });
+});
+
+test('a reserved channel still loading after queue Play shows switching, not recovery', () => {
+  // Given
+  const state = createInitialState();
+  const game = { id: 'hs', name: 'Hearthstone', imageUrl: '', campaignId: 'hs-1', campaignName: 'Season' };
+  state.isRunning = true;
+  state.selectedGame = game;
+  state.recoveryReason = 'open-failed';
+  state.recoveryBackoffUntil = 30_000;
+  const status = (preparing: boolean) => {
+    state.queueEntryMetadataByKey = {
+      [gameKey(game)]: {
+        source: 'manual',
+        addedAt: 0,
+        reason: 'user-added',
+        watchAttempt: { channelName: 'loader', observedAt: 0, ...(preparing ? { preparing } : {}) },
+      },
+    };
+    return createUserStatusModel({
+      state,
+      runtimeMode: 'recovering',
+      currentAutomatableDrop: null,
+      recoveryNow: 0,
+    });
+  };
+
+  // When
+  const preparing = status(true);
+  const failed = status(false);
+
+  // Then
+  expect(preparing).toMatchObject({
+    mode: 'pending-validation',
+    label: 'Switching to',
+    detail: 'Preparing loader.',
+  });
+  expect(failed.mode).toBe('recovering');
 });
 
 test('explains when the alarm failed and periodic checks remain available', () => {
