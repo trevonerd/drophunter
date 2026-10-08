@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'wxt';
 import packageJson from './package.json' with { type: 'json' };
@@ -29,7 +30,7 @@ export default defineConfig({
     define: {
       __DROPHUNTER_DEBUG_LOGS__: JSON.stringify(configEnv.mode !== 'production'),
     },
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
   }),
   zip: {
     artifactTemplate: 'drophunter-{{packageVersion}}-{{browser}}.zip',

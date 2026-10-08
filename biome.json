@@ -28,9 +28,10 @@
         "useExhaustiveDependencies": "warn"
       },
       "style": {
-        "noNonNullAssertion": "off",
+        "noNonNullAssertion": "error",
         "useImportType": "off",
-        "useNodejsImportProtocol": "off"
+        "useNodejsImportProtocol": "off",
+        "noEnum": "error"
       },
       "a11y": {
         "noLabelWithoutControl": "off",
@@ -38,8 +39,9 @@
       },
       "suspicious": {
         "noUnknownAtRules": "off",
-        "noExplicitAny": "warn",
-        "useIterableCallbackReturn": "off"
+        "noExplicitAny": "error",
+        "useIterableCallbackReturn": "off",
+        "noTsIgnore": "error"
       }
     }
   },

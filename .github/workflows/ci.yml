@@ -22,8 +22,11 @@ jobs:
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
 
-      - name: Check (typecheck + lint + unit + E2E + build)
+      - name: Check (typecheck + lint + unit + build)
         run: bun run check
+
+      - name: Extension E2E
+        run: bun run test:e2e
 
       - name: Audit dependencies
         run: bun run deps:audit

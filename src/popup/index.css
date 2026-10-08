@@ -1,5 +1,13 @@
 @import "tailwindcss";
-@config "../../tailwind.config.js";
+
+@theme {
+  --color-twitch-purple: oklch(0.66 0.24 302);
+  --color-twitch-purple-dark: oklch(0.56 0.25 302);
+  --color-twitch-purple-darker: oklch(0.45 0.24 302);
+  --color-twitch-dark: oklch(0.18 0.014 292);
+  --color-twitch-dark-light: oklch(0.22 0.018 292);
+  --color-twitch-dark-lighter: oklch(0.27 0.022 292);
+}
 
 /* Tailwind v4 preflight resets buttons to the default cursor. */
 @layer base {

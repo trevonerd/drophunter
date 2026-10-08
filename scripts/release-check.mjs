@@ -1,9 +1,7 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EXTENSION_MANIFEST, TWITCH_MATCHES } from '../src/shared/extension-manifest.ts';
 import { resolveReleaseVersion } from '../src/shared/release-version.ts';
-import { withReleaseArchiveRecovery } from './release-archives.mjs';
-import { runSteps } from './release-check-ui.mjs';
 
 const RELEASE_ARCHIVE_PATTERN = /^drophunter-.*-(chrome|edge)\.zip$/;
 
@@ -137,29 +135,35 @@ async function checkReleaseArchives() {
   return { stdout: `Chrome and Edge archives are present for ${packageVersion}\n` };
 }
 
-const { packageVersion } = await readPackageRelease();
-const result = await withReleaseArchiveRecovery(
-  {
-    outputDir: '.output',
-    archivePattern: RELEASE_ARCHIVE_PATTERN,
-    expectedArchiveNames: [
-      `drophunter-${packageVersion}-chrome.zip`,
-      `drophunter-${packageVersion}-edge.zip`,
-    ],
-  },
-  () =>
-    runSteps([
-      { name: 'TypeScript scope', command: ['bun', 'run', 'check:typescript-scope'] },
-      { name: 'Test TypeScript', command: ['bun', 'run', 'test:types'] },
-      { name: 'TypeScript', command: ['bun', 'run', 'test:ts'] },
-      { name: 'Biome', command: ['bun', 'run', 'lint'] },
-      { name: 'Tests', command: ['bun', 'run', 'test'] },
-      { name: 'Extension E2E', command: ['bun', 'run', 'test:e2e'] },
-      { name: 'Dependency audit', command: ['bun', 'audit'] },
-      { name: 'Build + package Chrome + Edge', command: ['bun', 'run', 'zip:all'] },
-      { name: 'Release manifests', run: checkReleaseManifests },
-      { name: 'Release archives', run: checkReleaseArchives },
-    ]),
-);
+const steps = [
+  { name: 'Test TypeScript', command: ['bun', 'run', 'test:types'] },
+  { name: 'TypeScript', command: ['bun', 'run', 'test:ts'] },
+  { name: 'Biome', command: ['bun', 'run', 'lint'] },
+  { name: 'Tests', command: ['bun', 'run', 'test'] },
+  { name: 'Extension E2E', command: ['bun', 'run', 'test:e2e'] },
+  { name: 'Dependency audit', command: ['bun', 'audit'] },
+  { name: 'Build + package Chrome + Edge', command: ['bun', 'run', 'zip:all'] },
+  { name: 'Release manifests', run: checkReleaseManifests },
+  { name: 'Release archives', run: checkReleaseArchives },
+];
 
-process.exit(result.exitCode);
+// Stale archives must not satisfy the final archive check.
+for (const name of await readdir('.output').catch(() => [])) {
+  if (RELEASE_ARCHIVE_PATTERN.test(name)) await rm(join('.output', name));
+}
+
+for (const step of steps) {
+  console.log(`\n▶ ${step.name}`);
+  try {
+    if (step.run) {
+      process.stdout.write((await step.run()).stdout);
+    } else if (Bun.spawnSync({ cmd: step.command, stdio: ['ignore', 'inherit', 'inherit'] }).exitCode !== 0) {
+      throw new Error(`${step.command.join(' ')} failed`);
+    }
+  } catch (error) {
+    console.error(`\n✕ Release check failed at ${step.name}: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+console.log('\n✓ All release checks passed.');
