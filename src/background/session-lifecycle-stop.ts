@@ -1,5 +1,6 @@
 import { unresolvedFarmingTargets } from './farming-session-targets.ts';
 import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
+import { setManualPriorityCampaign } from './queue-operations.ts';
 import { clearRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type {
@@ -39,6 +40,7 @@ export async function stopFarmingSession(
     state.appState.manualQueueAuthorized = false;
     state.appState.queueResumeOnAvailability = false;
     state.appState.forcedCampaignKey = null;
+    setManualPriorityCampaign(state, null);
     state.appState.queueEntryMetadataByKey = Object.fromEntries(
       Object.entries(state.appState.queueEntryMetadataByKey).map(([key, metadata]) => {
         if (metadata.streamerWaitState !== 'availability') return [key, metadata];

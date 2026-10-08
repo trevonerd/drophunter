@@ -191,7 +191,12 @@ export async function transitionAutomaticFarmingSession(
     dependencies.now?.() ?? Date.now(),
   );
   expectedFingerprint = dependencies.currentFingerprint();
-  workingCandidate.state.appState.queueEntryMetadataByKey[key] = state.appState.queueEntryMetadataByKey[key];
+  const committedMetadata = state.appState.queueEntryMetadataByKey[key];
+  if (committedMetadata) {
+    // Starting the campaign fulfils a pending explicit Play; keeping it would let it preempt back forever.
+    const { manualPriorityAt: _manualPriority, ...started } = committedMetadata;
+    workingCandidate.state.appState.queueEntryMetadataByKey[key] = started;
+  }
   return runInFarmingSessionCriticalSection(state, async () => {
     if (
       !isCurrent() ||

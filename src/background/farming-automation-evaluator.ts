@@ -1,4 +1,4 @@
-import { gameKey } from '../shared/game-selection.ts';
+import { favoriteGameIdentityKeys, gameKey, isFavoriteGame } from '../shared/game-selection.ts';
 import type { CampaignAvailability } from '../types/index.ts';
 import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import { rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
@@ -246,6 +246,12 @@ export function createFarmingAutomationEvaluator(
     const decision = decideFarmingAutomationTransition({
       isRunning: dependencies.state.appState.isRunning && !dependencies.state.appState.isPaused,
       selectedGame: dependencies.state.appState.selectedGame,
+      incumbentIsFavorite:
+        dependencies.state.appState.selectedGame !== null &&
+        isFavoriteGame(
+          dependencies.state.appState.selectedGame,
+          favoriteGameIdentityKeys(dependencies.state.appState.favoriteGames),
+        ),
       lastPreemption: facts.lastPreemption,
       rankedCandidates: plan.rankedCandidates,
     });

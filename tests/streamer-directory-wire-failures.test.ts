@@ -36,6 +36,8 @@ test.each([
   [() => new Response('', { status: 503 }), 'network'],
   [() => Response.json({ errors: [{ message: 'failed integrity check' }] }), 'integrity'],
   [() => Response.json({ data: { game: null } }), 'invalid-response'],
+  [() => Response.json({ data: { game: {} } }), 'invalid-response'],
+  [() => Response.json({ data: { game: { streams: {} } } }), 'invalid-response'],
 ] as const)('preserves actual HTTP/GQL failure through the directory wrapper: %s', async (response, kind) => {
   const state = createMinimalState();
   const startedAt = Date.now();
@@ -62,3 +64,17 @@ test.each([
     expect(state.apiBackoffUntil).toBeGreaterThanOrEqual(startedAt + 120_000);
   }
 });
+
+test.each([[{ game: { streams: null } }], [{ game: { streams: { edges: null } } }]] as const)(
+  'treats null streams/edges on a known category as no streamers: %j',
+  async (data) => {
+    const state = createMinimalState();
+    globalThis.fetch = async () => Response.json({ data });
+    const result = await fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', {
+      onEnsureTwitchSession: async () => createSession(),
+      onIsLikelyAuthError: () => false,
+      onClearTwitchSessionCache: () => undefined,
+    });
+    expect(result.length).toBe(0);
+  },
+);

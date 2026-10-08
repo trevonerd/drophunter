@@ -171,39 +171,24 @@ describe('Farming automation queue policy', () => {
   });
 
   test.each([
-    ['between', '2030-08-02T12:00:00.000Z', false],
-    ['at equal expiry', '2030-08-03T12:00:00.000Z', true],
-  ] as const)(
-    'inserts a favorite %s without duplicates while farming',
-    async (_label, firstEndsAt, favoriteFirst) => {
-      const running = campaign('running', '2030-08-01T12:00:00.000Z');
-      const first = campaign('first', firstEndsAt);
-      const last = campaign('last', '2030-08-04T12:00:00.000Z');
-      const subject = fixture('priority-list-only', { queue: [first, last], running });
+    ['ending later', '2030-08-02T12:00:00.000Z'],
+    ['at equal expiry', '2030-08-03T12:00:00.000Z'],
+  ] as const)('a favorite always preempts a non-favorite incumbent (%s)', async (_label, firstEndsAt) => {
+    const running = campaign('running', '2030-08-01T12:00:00.000Z');
+    const first = campaign('first', firstEndsAt);
+    const last = campaign('last', '2030-08-04T12:00:00.000Z');
+    const subject = fixture('priority-list-only', { queue: [first, last], running });
 
-      const outcomes = [
-        await subject.automation.request('campaign-refresh'),
-        await subject.automation.request('periodic'),
-      ];
+    const outcome = await subject.automation.request('campaign-refresh');
 
-      expect({
-        outcomes,
-        queue: subject.state.appState.queue.map(gameKey),
-        selected: subject.state.appState.selectedGame,
-      }).toEqual({
-        outcomes: [
-          { kind: 'unchanged', reason: 'already-farming-best-campaign' },
-          { kind: 'unchanged', reason: 'already-farming-best-campaign' },
-        ],
-        queue: [
-          gameKey(running),
-          ...(favoriteFirst
-            ? [gameKey(subject.favorite), gameKey(first)]
-            : [gameKey(first), gameKey(subject.favorite)]),
-          gameKey(last),
-        ],
-        selected: running,
-      });
-    },
-  );
+    expect({
+      outcome,
+      queue: subject.state.appState.queue.map(gameKey),
+      selected: subject.state.appState.selectedGame ? gameKey(subject.state.appState.selectedGame) : null,
+    }).toEqual({
+      outcome: { kind: 'started', campaignKey: gameKey(subject.favorite), transition: 'preemption' },
+      queue: [gameKey(subject.favorite), gameKey(running), gameKey(first), gameKey(last)],
+      selected: gameKey(subject.favorite),
+    });
+  });
 });

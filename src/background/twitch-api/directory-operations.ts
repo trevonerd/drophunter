@@ -139,10 +139,13 @@ async function fetchDirectoryEdges(
   transport: DirectoryTransport,
   request: DirectoryPayloadRequest,
 ): Promise<DirectoryEdge[]> {
-  const data = await transport.post<{ game?: { streams?: { edges?: DirectoryEdge[] } } }>(
-    buildDirectoryPayload(request),
-  );
-  const edges = data?.game?.streams?.edges;
+  const data = await transport.post<{
+    game?: { streams?: { edges?: DirectoryEdge[] | null } | null } | null;
+  }>(buildDirectoryPayload(request));
+  const game = data?.game;
+  // Known category with no drops-tagged live streams: Twitch returns null streams/edges. Missing keys stay invalid.
+  if (game && typeof game === 'object' && (game.streams === null || game.streams?.edges === null)) return [];
+  const edges = game?.streams?.edges;
   if (!Array.isArray(edges)) {
     throw new TwitchInvalidResponseError('Twitch directory response is missing stream edges');
   }

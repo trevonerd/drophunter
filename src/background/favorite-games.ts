@@ -1,5 +1,10 @@
 import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
-import { gameCategoryIdentityKeys, gameCategoryKey, gameKey } from '../shared/game-selection.ts';
+import {
+  favoriteGameIdentityKeys,
+  gameCategoryIdentityKeys,
+  gameCategoryKey,
+  gameKey,
+} from '../shared/game-selection.ts';
 import { isRewardFarmableNow, isRewardScheduledForFuture } from '../shared/reward-scheduling.ts';
 import type {
   AppState,
@@ -70,6 +75,7 @@ export function planFavoriteCampaignQueue(
         (originalMetadata[gameKey(game)]?.source !== 'favorite-auto' ||
           gameCategoryIdentityKeys(game).some((key) => hiddenIds.has(key))),
     );
+  const favoriteIds = favoriteGameIdentityKeys(input.favoriteGames);
   const selectedKey = input.isRunning && input.selectedGame ? gameKey(input.selectedGame) : null;
   const attemptedKeys = new Set(input.queueAcquisitionRound?.attemptedCampaignKeys ?? []);
   const active = selectedKey ? retainedQueue.find((game) => gameKey(game) === selectedKey) : undefined;
@@ -85,7 +91,7 @@ export function planFavoriteCampaignQueue(
             return leftAttempted === rightAttempted
               ? leftAttempted
                 ? 0
-                : compareCampaignDeadlines(left, right)
+                : compareCampaignDeadlines(left, right, favoriteIds)
               : Number(leftAttempted) - Number(rightAttempted);
           }),
         ];
@@ -133,7 +139,7 @@ export function planFavoriteCampaignQueue(
             (entry, index) => index >= (active ? 1 : 0) && attemptedKeys.has(gameKey(entry)),
           );
     const eligibleQueue = parkedStart < 0 ? plannedQueue : plannedQueue.slice(0, parkedStart);
-    const insertion = insertCampaignByDeadline(eligibleQueue, game, active ? 1 : 0);
+    const insertion = insertCampaignByDeadline(eligibleQueue, game, active ? 1 : 0, favoriteIds);
     plannedQueue = [...insertion.queue, ...(parkedStart < 0 ? [] : plannedQueue.slice(parkedStart))];
     const key = gameKey(game);
     queueEntryMetadataByKey[key] = originalMetadata[key] ?? automaticFavoriteQueueMetadata(now);

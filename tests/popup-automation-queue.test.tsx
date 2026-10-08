@@ -102,6 +102,8 @@ test('queued campaign shows bounded retry and availability wait with an accessib
     />,
   );
   expect(markup).toContain('Retry in 1m');
+  expect(markup).toContain('role="status"');
+  expect(markup).toMatch(/Added manually · (Ends|No|Expired|Active|Available)[^<]*</);
   expect(markup).toContain('Waiting for eligible streamer');
   expect(markup).toContain('Start Cyberpunk 2077 · Cooling now');
   expect(markup).toContain('Start Cyberpunk 2077 · Waiting now');

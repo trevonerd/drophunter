@@ -12,7 +12,7 @@ import {
 import { reconcileFarmingSessionTargets } from './farming-session-targets.ts';
 import { logWarn } from './logging.ts';
 import { queueCleanupNotification } from './queue-availability-cleanup-activity.ts';
-import { markQueueEntryManual } from './queue-operations.ts';
+import { markQueueEntryManual, setManualPriorityCampaign } from './queue-operations.ts';
 import {
   applyDirectoryUnavailableRecoveryState,
   applyNoStreamersRecoveryState,
@@ -413,6 +413,7 @@ export async function runFarmingSessionStart(
       next.appState.queueResumeOnAvailability = false;
       next.appState.queueAcquisitionRound = null;
       markQueueEntryManual(next, game);
+      setManualPriorityCampaign(next, forceCampaign ? key : null);
       reconcileFarmingSessionTargets(next);
       clearRecoveryState(next);
     }

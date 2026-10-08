@@ -244,3 +244,84 @@ describe('farming automation candidate policy', () => {
     });
   });
 });
+
+describe('Preemption deadline ties and explicit Play priority', () => {
+  const candidate = (
+    entry: TwitchGame,
+    flags: Partial<
+      Pick<FarmingAutomationCandidate, 'isFavorite' | 'isManualPriority' | 'eligibleStreamerCount'>
+    > = {},
+  ): FarmingAutomationCandidate => ({
+    game: entry,
+    eligibleStreamerCount: 1,
+    hasStartedReward: false,
+    hasFarmableReward: true,
+    isActive: true,
+    isFavorite: false,
+    ...flags,
+  });
+  const incumbent = game('incumbent', '2030-08-03T12:00:00.000Z');
+  const decide = (ranked: FarmingAutomationCandidate[], incumbentIsFavorite: boolean) =>
+    decideFarmingAutomationTransition({
+      isRunning: true,
+      selectedGame: incumbent,
+      incumbentIsFavorite,
+      rankedCandidates: ranked,
+      lastPreemption: null,
+    });
+
+  test('favorite beats a non-favorite incumbent ending later the same day', () => {
+    const favorite = game('favorite', '2030-08-03T20:00:00.000Z');
+    expect(decide([candidate(favorite, { isFavorite: true })], false)).toEqual({
+      kind: 'preemption',
+      campaign: favorite,
+      fromCampaignKey: gameKey(incumbent),
+    });
+  });
+
+  test('favorite does not preempt a favorite incumbent ending the same day but later', () => {
+    const favorite = game('favorite', '2030-08-03T20:00:00.000Z');
+    expect(decide([candidate(favorite, { isFavorite: true })], true).kind).toBe('unchanged');
+  });
+
+  test('favorite preempts a non-favorite incumbent even when it ends later', () => {
+    const favorite = game('favorite', '2030-08-10T12:00:00.000Z');
+    expect(decide([candidate(favorite, { isFavorite: true })], false).kind).toBe('preemption');
+  });
+
+  test('explicit Play of a non-favorite never displaces a favorite incumbent', () => {
+    const played = game('played', '2030-08-03T10:00:00.000Z');
+    expect(decide([candidate(played, { isManualPriority: true })], true).kind).toBe('unchanged');
+  });
+
+  test('explicit queued Play resumes once streamers return, even against a favorite incumbent', () => {
+    const played = game('played', '2030-08-03T20:00:00.000Z');
+    expect(decide([candidate(played, { isFavorite: true, isManualPriority: true })], true)).toEqual({
+      kind: 'preemption',
+      campaign: played,
+      fromCampaignKey: gameKey(incumbent),
+    });
+  });
+
+  test('explicit queued Play waits while it still has no eligible streamer', () => {
+    const played = game('played', '2030-08-03T20:00:00.000Z');
+    expect(decide([candidate(played, { isManualPriority: true, eligibleStreamerCount: 0 })], true).kind).toBe(
+      'unchanged',
+    );
+  });
+
+  test('candidates derive explicit Play priority from queue metadata', () => {
+    const played = game('played', '2030-08-03T20:00:00.000Z');
+    const metadata: QueueEntryMetadata = {
+      source: 'manual',
+      addedAt: 1,
+      reason: 'user-added',
+      manualPriorityAt: 1,
+    };
+    const [derived] = deriveFarmingAutomationCandidates(
+      favoriteSnapshot([played], { queueEntryMetadataByKey: { [gameKey(played)]: metadata } }),
+      Date.parse('2030-08-01T00:00:00.000Z'),
+    );
+    expect(derived?.isManualPriority).toBe(true);
+  });
+});

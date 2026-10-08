@@ -221,7 +221,7 @@ describe('favorite games', () => {
     });
   });
 
-  test('inserts a new favorite by expiry before campaigns already tried in this round', () => {
+  test('inserts a new favorite ahead of non-favorites but before campaigns already tried in this round', () => {
     const state = createInitialState();
     const active = game('active', 'active', '2030-08-01T14:00:00.000Z');
     const untried = game('untried', 'untried', '2030-08-10T14:00:00.000Z');
@@ -239,8 +239,8 @@ describe('favorite games', () => {
 
     expect(state.queue.map((entry) => entry.campaignId)).toEqual([
       'active',
-      'untried',
       'new-favorite',
+      'untried',
       'failed',
     ]);
   });

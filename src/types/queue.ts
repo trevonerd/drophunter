@@ -23,6 +23,8 @@ export interface QueueEntryMetadata {
     | 'open-failed'
     | 'stalled-progress';
   readonly streamerWaitState?: 'availability';
+  /** Explicit queued Play that could not start yet; resumes ahead of the incumbent once streamers appear. */
+  readonly manualPriorityAt?: number;
   readonly attemptedStreamerNames?: readonly string[];
   /** Eligible live streamers already known while a stalled-progress park waits; a new one ends the wait. */
   readonly parkedStreamerNames?: readonly string[];

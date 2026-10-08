@@ -278,3 +278,40 @@ describe('Farming automation running-session preservation', () => {
     });
   });
 });
+
+describe('Resumed explicit Play stability', () => {
+  test('a resumed explicit Play is pinned and never ping-pongs with a sooner favorite', async () => {
+    // Given: favorite A is farming; favorite B was explicitly Played, ends later the same day, and gets streamers.
+    const subject = fixture('2030-08-03T20:00:00.000Z', false, true);
+    subject.state.appState.favoriteGames = [
+      { gameId: subject.incumbent.id, lastKnownName: 'a', addedAt: 1 },
+      { gameId: subject.candidate.id, lastKnownName: 'b', addedAt: 1 },
+    ];
+    subject.state.appState.queue = [subject.incumbent, subject.candidate];
+    subject.state.appState.queueEntryMetadataByKey[gameKey(subject.candidate)] = {
+      source: 'manual',
+      addedAt: 1,
+      reason: 'user-added',
+      manualPriorityAt: 1,
+    };
+
+    // When: automation evaluates repeatedly.
+    const selected: (string | undefined)[] = [];
+    for (let tick = 0; tick < 4; tick += 1) {
+      subject.setNow(2_000 + tick * 200_000);
+      await subject.automation.request('periodic');
+      selected.push(subject.state.appState.selectedGame?.campaignId);
+    }
+
+    // Then: B starts once, stays pinned, and its pending Play marker is consumed.
+    expect({
+      selected,
+      forced: subject.state.appState.forcedCampaignKey,
+      marker: subject.state.appState.queueEntryMetadataByKey[gameKey(subject.candidate)]?.manualPriorityAt,
+    }).toEqual({
+      selected: ['campaign-b', 'campaign-b', 'campaign-b', 'campaign-b'],
+      forced: gameKey(subject.candidate),
+      marker: undefined,
+    });
+  });
+});

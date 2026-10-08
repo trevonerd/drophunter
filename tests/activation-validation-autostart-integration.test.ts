@@ -218,9 +218,8 @@ test.each([true, false])(
     expect(result.kind).toBe('synced');
     expect(run.outcomes.at(-1)).toMatchObject({ kind: 'started' });
     expect(run.state.appState.isRunning).toBe(true);
-    expect(run.state.appState.selectedGame?.campaignId).toBe(
-      (manualAuthorized ? run.skull : run.marvel).campaignId,
-    );
+    // Favorites always take priority, even over a manually authorized non-favorite queue head.
+    expect(run.state.appState.selectedGame?.campaignId).toBe(run.marvel.campaignId);
   },
 );
 

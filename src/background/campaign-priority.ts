@@ -18,6 +18,9 @@ export interface CampaignPriorityOptions {
   readonly priorityList: readonly TwitchGame[];
 }
 
+/** Explicit queued Play may not starve a campaign ending more than this much sooner. */
+export const EQUAL_DEADLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export function expiryTime(game: TwitchGame): number {
   if (!game.endsAt) {
     return Number.POSITIVE_INFINITY;
@@ -93,14 +96,23 @@ export function orderCampaignCandidates(
     .map((candidate) => ({ ...candidate, positionReason: reasonFor(candidate, options.mode) }));
 }
 
-export function compareCampaignDeadlines(left: TwitchGame, right: TwitchGame): number {
-  return expiryTime(left) - expiryTime(right) || gameKey(left).localeCompare(gameKey(right));
+/** Favorites always come first; then soonest deadline. */
+export function compareCampaignDeadlines(
+  left: TwitchGame,
+  right: TwitchGame,
+  favoriteGameIds?: ReadonlySet<string>,
+): number {
+  const favoriteOrder = favoriteGameIds
+    ? Number(isFavoriteGame(right, favoriteGameIds)) - Number(isFavoriteGame(left, favoriteGameIds))
+    : 0;
+  return favoriteOrder || expiryTime(left) - expiryTime(right) || gameKey(left).localeCompare(gameKey(right));
 }
 
 export function insertCampaignByDeadline(
   queue: readonly TwitchGame[],
   campaign: TwitchGame,
   minimumIndex = 0,
+  favoriteGameIds?: ReadonlySet<string>,
 ): { readonly queue: TwitchGame[]; readonly position: number } {
   const existingIndex = queue.findIndex((entry) => gameKey(entry) === gameKey(campaign));
   if (existingIndex >= 0) {
@@ -115,7 +127,7 @@ export function insertCampaignByDeadline(
     for (let existingIndex = start; existingIndex < queue.length; existingIndex += 1) {
       const existing = queue[existingIndex];
       if (!existing) continue;
-      const order = compareCampaignDeadlines(existing, campaign);
+      const order = compareCampaignDeadlines(existing, campaign, favoriteGameIds);
       if ((existingIndex < candidateIndex && order > 0) || (existingIndex >= candidateIndex && order < 0)) {
         inversions += 1;
       }

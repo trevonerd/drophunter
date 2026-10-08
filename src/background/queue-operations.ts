@@ -1,5 +1,6 @@
 import {
   compareGamesForDisplayOrder,
+  favoriteGameIdentityKeys,
   findMatchingGame,
   gameKey,
   isSameGameIdentity,
@@ -32,6 +33,20 @@ export function markQueueEntryManual(
     addedAt,
     reason: 'user-added',
   };
+}
+
+/** Keeps at most one explicit queued Play pending; `null` clears it. */
+export function setManualPriorityCampaign(
+  state: ServiceWorkerState,
+  key: string | null,
+  at = Date.now(),
+): void {
+  const metadataByKey = state.appState.queueEntryMetadataByKey;
+  for (const [entryKey, metadata] of Object.entries(metadataByKey)) {
+    if (metadata.manualPriorityAt === undefined && entryKey !== key) continue;
+    const { manualPriorityAt: _previous, ...rest } = metadata;
+    metadataByKey[entryKey] = entryKey === key ? { ...rest, manualPriorityAt: at } : rest;
+  }
 }
 
 function deleteQueueEntryMetadata(state: ServiceWorkerState, games: readonly TwitchGame[]): void {
@@ -223,15 +238,18 @@ export function pushGameToQueue(state: ServiceWorkerState, game: TwitchGame) {
       state.appState.selectedGame !== null &&
       isSameQueueIdentity(entry, state.appState.selectedGame),
   );
+  const favoriteIds = favoriteGameIdentityKeys(state.appState.favoriteGames);
   const queue = [
     ...(active ? [active] : []),
-    ...state.appState.queue.filter((entry) => entry !== active).sort(compareCampaignDeadlines),
+    ...state.appState.queue
+      .filter((entry) => entry !== active)
+      .sort((left, right) => compareCampaignDeadlines(left, right, favoriteIds)),
   ];
   const existingQueue =
     state.appState.campaignPriorityMode === 'priority-list-only'
       ? [...(active ? [active] : []), ...state.appState.queue.filter((entry) => entry !== active)]
       : queue;
-  state.appState.queue = insertCampaignByDeadline(existingQueue, game, active ? 1 : 0).queue;
+  state.appState.queue = insertCampaignByDeadline(existingQueue, game, active ? 1 : 0, favoriteIds).queue;
   markQueueEntryManual(state, game);
 }
 

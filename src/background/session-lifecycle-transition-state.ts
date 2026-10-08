@@ -164,8 +164,13 @@ export function candidateWorkingState(
   }
   const selectedMetadata = working.appState.queueEntryMetadataByKey[candidateKey];
   if (selectedMetadata) {
-    const { streamerWaitState: _waitState, ...readyMetadata } = selectedMetadata;
+    const { streamerWaitState: _waitState, manualPriorityAt, ...readyMetadata } = selectedMetadata;
     working.appState.queueEntryMetadataByKey[candidateKey] = readyMetadata;
+    // A resumed explicit Play keeps the user's choice pinned, exactly like an immediate Play.
+    if (manualPriorityAt !== undefined) {
+      working.appState.forcedCampaignKey = candidateKey;
+      working.appState.farmingSessionOrigin = 'manual';
+    }
   }
   if (request.manualOverride) working.appState.manualQueueAuthorized = true;
   working.tickGeneration += 1;

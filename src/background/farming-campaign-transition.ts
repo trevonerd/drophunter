@@ -461,6 +461,7 @@ export function createFarmingCampaignTransition(
         streamerRetryAt: _retry,
         streamerRetryReason: _reason,
         streamerWaitState: _wait,
+        manualPriorityAt: _manualPriority,
         ...retained
       } = metadata;
       next.appState.queueEntryMetadataByKey[key] = retained;

@@ -187,8 +187,18 @@ export function QueueChips({
                     {label}
                   </span>
                   <span className="block truncate text-[10px] leading-snug text-[color:var(--dh-muted)]">
-                    {provenanceLabel(game)} · {availabilityLabel(game) ?? formatEndsIn(game)}
+                    {provenanceLabel(game)} · {formatEndsIn(game)}
                   </span>
+                  {availabilityLabel(game) && (
+                    <span
+                      role="status"
+                      aria-live="polite"
+                      className="mt-0.5 inline-flex max-w-full items-center gap-1 rounded bg-[color:var(--dh-surface-3)] px-1.5 py-px text-[10px] font-medium leading-snug text-[color:var(--dh-warning)]"
+                    >
+                      <span aria-hidden="true">⚠</span>
+                      <span className="truncate">{availabilityLabel(game)}</span>
+                    </span>
+                  )}
                 </span>
                 <span className="flex min-w-0 items-center justify-end gap-1 overflow-hidden">
                   {isFavoriteGame(game, favorites) && (
