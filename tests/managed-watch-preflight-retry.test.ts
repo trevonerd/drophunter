@@ -1,10 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createFarmingAutomation } from '../src/background/farming-automation.ts';
 import { createFarmingAutomationBrowser } from '../src/background/farming-automation-browser.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { deriveSafeRefreshPatch } from '../src/background/farming-automation-twitch.ts';
 import { managedWatchMarker } from '../src/background/managed-watch-marker.ts';
 import { reconcileManagedWatchesOnStartup } from '../src/background/managed-watch-startup.ts';
@@ -12,6 +9,7 @@ import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { createDrop, createGame, createStreamer } from './fixtures/queue-management.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 import { installManagedWatchPages } from './support/managed-watch-pages.ts';
 import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 

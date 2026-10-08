@@ -31,7 +31,6 @@ export function TelegramSettingsSection({
   const [tokenConfigured, setTokenConfigured] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [guideOpen, setGuideOpen] = useState(false);
 
   useEffect(() => {
     void onLoadSettings()
@@ -179,15 +178,10 @@ export function TelegramSettingsSection({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setGuideOpen((open) => !open)}
-            className="dh-focus mt-3 text-[11px] font-semibold text-purple-300/90"
-            aria-expanded={guideOpen}
-          >
-            {guideOpen ? 'Hide setup guide' : 'Show setup guide'}
-          </button>
-          {guideOpen ? (
+          <details className="mt-3">
+            <summary className="dh-focus cursor-pointer text-[11px] font-semibold text-purple-300/90">
+              Setup guide
+            </summary>
             <ol className="dh-copy mt-2 list-decimal space-y-1 pl-4 text-[11px] leading-snug">
               <li>
                 Open{' '}
@@ -206,7 +200,7 @@ export function TelegramSettingsSection({
               <li>Get your chat ID (for example via @userinfobot) and paste it above.</li>
               <li>Save credentials, then send a test message.</li>
             </ol>
-          ) : null}
+          </details>
         </>
       )}
 

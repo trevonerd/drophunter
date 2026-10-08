@@ -3,19 +3,17 @@ import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { gameKey, resolveCategorySlug as resolveCategorySlugExt } from '../shared/game-selection.ts';
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
+import { fetchDropsSnapshotFromApiWrapper } from './api-drops-wrapper.ts';
+import { applyApiBackoff, clearLastTwitchApiFailure, getLastTwitchApiFailure } from './api-operations.ts';
 import {
-  applyApiBackoff,
-  clearLastTwitchApiFailure,
   fetchDirectoryStreamersFromApiWrapper,
-  fetchDropsSnapshotFromApiWrapper,
   fetchInventorySnapshotFromApiWrapper,
-  getLastTwitchApiFailure,
-} from './api-operations.ts';
-import { PROGRESS_POLL_MS } from './constants.ts';
+} from './api-secondary-wrappers.ts';
+import { PROGRESS_POLL_MS, STREAM_CONTEXT_TIMEOUT_MS } from './constants.ts';
 import { normalizeFarmingAutomationSnapshot } from './farming-automation-normalization.ts';
 import type { StreamContext } from './farming-session.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
-import { logDebug, logInfo, logWarn } from './logging.ts';
+import { logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
 import {
@@ -92,7 +90,6 @@ export function createServiceWorkerTwitchGateway(
   const sessionOrchestrator = createSessionOrchestrator(state, {
     authRecoveryTimeoutMs: 50_000,
     sanitizeTwitchSession,
-    sessionDebugSummary,
     readTwitchSessionViaExecuteScript,
     persistTwitchSession: async (session) => {
       await bindCampaignEvidenceAccount(state, session.userId);
@@ -111,8 +108,6 @@ export function createServiceWorkerTwitchGateway(
     },
     getSessionRevision: () => currentTwitchSessionRevision(state),
     waitForTabComplete,
-    logDebug,
-    logWarn,
   });
   const twitchSpadeHeartbeat = createTwitchSpadeHeartbeat({ clientId: DEFAULT_TWITCH_CLIENT_ID });
   let latestProgressSnapshot: DropsSnapshot | null = null;
@@ -165,7 +160,7 @@ export function createServiceWorkerTwitchGateway(
         onIsLikelyAuthError: isLikelyAuthError,
         onClearTwitchSessionCache: clearTwitchSessionCache,
       },
-      { TwitchApiClient, sessionDebugSummary, PROGRESS_POLL_MS, logDebug, logWarn, logInfo },
+      { TwitchApiClient, PROGRESS_POLL_MS },
     );
     latestTwitchApiFailure = getLastTwitchApiFailure(state);
     if (snapshot && shouldResume()) await dependencies.resumeAfterAuthRecovery?.();
@@ -191,7 +186,7 @@ export function createServiceWorkerTwitchGateway(
         onIsLikelyAuthError: isLikelyAuthError,
         onClearTwitchSessionCache: clearTwitchSessionCache,
       },
-      { TwitchApiClient, sessionDebugSummary, PROGRESS_POLL_MS, logDebug, logWarn, logInfo },
+      { TwitchApiClient, PROGRESS_POLL_MS },
       {
         ...options,
         onProgress: async (snapshot) => {
@@ -210,19 +205,13 @@ export function createServiceWorkerTwitchGateway(
     baseDrops: TwitchDrop[],
     requestOptions: TwitchApiRequestOptions = {},
   ): Promise<DropsSnapshot | null> {
-    return fetchInventorySnapshotFromApiWrapper(
-      state,
-      baseDrops,
-      requestOptions,
-      {
-        onEnsureTwitchSession: ensureTwitchSession,
-        onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
-        onIsLikelyAuthError: isLikelyAuthError,
-        onClearTwitchSessionCache: clearTwitchSessionCache,
-        onStopFarmingSession: dependencies.recoverTwitchSession,
-      },
-      { logWarn },
-    );
+    return fetchInventorySnapshotFromApiWrapper(state, baseDrops, requestOptions, {
+      onEnsureTwitchSession: ensureTwitchSession,
+      onRecoverTwitchSessionAfterAuthError: sessionOrchestrator.recoverTwitchSessionAfterAuthError,
+      onIsLikelyAuthError: isLikelyAuthError,
+      onClearTwitchSessionCache: clearTwitchSessionCache,
+      onStopFarmingSession: dependencies.recoverTwitchSession,
+    });
   }
 
   async function fetchDirectoryStreamers(
@@ -248,7 +237,6 @@ export function createServiceWorkerTwitchGateway(
         onClearTwitchSessionCache: clearTwitchSessionCache,
         isCurrent,
       },
-      { logWarn },
       requestOptions,
     );
   }
@@ -258,7 +246,10 @@ export function createServiceWorkerTwitchGateway(
     const send = (): Promise<StreamContextResponse> =>
       browser.tabs.sendMessage(tabId, { type: 'GET_STREAM_CONTEXT' });
     const withTimeout = <T>(promise: Promise<T>): Promise<T | null> =>
-      Promise.race([promise, new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000))]);
+      Promise.race([
+        promise,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), STREAM_CONTEXT_TIMEOUT_MS)),
+      ]);
     let response: StreamContextResponse | null = null;
     try {
       response = await withTimeout(send());

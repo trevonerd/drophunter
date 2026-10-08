@@ -47,15 +47,12 @@ describe('session orchestrator', () => {
         },
       },
       sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
-      sessionDebugSummary: () => ({}),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
       validateRecoveredTwitchSession: async () => true,
       getSessionRevision: () => 0,
       discardPersistedTwitchSessionIfMatches: async () => {},
       sessionReadAttempts: 1,
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBe(validSession);
@@ -83,7 +80,6 @@ describe('session orchestrator', () => {
         },
       },
       sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
-      sessionDebugSummary: () => ({}),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {
         persisted = true;
@@ -94,8 +90,6 @@ describe('session orchestrator', () => {
       },
       getSessionRevision: () => revision,
       discardPersistedTwitchSessionIfMatches: async () => {},
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     const recovery = orchestrator.recoverTwitchSessionAfterAuthError('background-tab');
@@ -125,7 +119,6 @@ describe('session orchestrator', () => {
         },
       },
       sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
-      sessionDebugSummary: () => ({ available: true }),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {
         events.push('persist');
@@ -133,8 +126,6 @@ describe('session orchestrator', () => {
       validateRecoveredTwitchSession: async () => true,
       getSessionRevision: () => 0,
       discardPersistedTwitchSessionIfMatches: async () => {},
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     const session = await orchestrator.recoverTwitchSessionAfterAuthError('background-tab');
@@ -166,7 +157,6 @@ describe('session orchestrator', () => {
         },
       },
       sanitizeTwitchSession: () => null,
-      sessionDebugSummary: () => ({ available: false }),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
       validateRecoveredTwitchSession: async () => true,
@@ -175,8 +165,6 @@ describe('session orchestrator', () => {
       waitForTabComplete: async () => {},
       sessionReadAttempts: 1,
       now: () => currentTime,
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     expect(await orchestrator.recoverTwitchSessionAfterAuthError('background-tab')).toBeNull();
@@ -221,15 +209,12 @@ describe('session orchestrator', () => {
         },
       },
       sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
-      sessionDebugSummary: () => ({ available: true }),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
       validateRecoveredTwitchSession: async () => true,
       getSessionRevision: () => 0,
       discardPersistedTwitchSessionIfMatches: async () => {},
       waitForTabComplete: async () => {},
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     const first = orchestrator.recoverTwitchSessionAfterAuthError('background-tab');

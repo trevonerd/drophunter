@@ -105,13 +105,17 @@ test.each([true, false])(
         effects += 1;
       },
     });
-    const evidence = collectQueueAvailabilityEvidence(state, {
-      kind: 'ready',
-      snapshot: normalizeFarmingAutomationSnapshot({ games: [next], drops: [], updatedAt: NOW }),
-      directories: new Map(),
-      availability: { [key]: { eligibleStreamerCount: 1, updatedAt: NOW } },
-      directoryFailures: new Set(failed ? [key] : []),
-    });
+    const evidence = collectQueueAvailabilityEvidence(
+      state,
+      {
+        kind: 'ready',
+        snapshot: normalizeFarmingAutomationSnapshot({ games: [next], drops: [], updatedAt: NOW }),
+        directories: new Map(),
+        availability: { [key]: { eligibleStreamerCount: 1, updatedAt: NOW } },
+        directoryFailures: new Set(failed ? [key] : []),
+      },
+      NOW,
+    );
     progression.reconcileAvailability(evidence, NOW);
     expect(effects).toBe(0);
     expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(NOW + 600_000);
@@ -143,6 +147,7 @@ test('positive availability preserves an incumbent watch and its campaign projec
     {
       eligibleCampaignKeys: new Set([key]),
       rehabilitatedCampaignKeys: new Set(),
+      stallBaselines: new Map(),
     },
     NOW,
   );
@@ -179,6 +184,7 @@ test('availability with no current selection keeps unauthorized manual entries b
     {
       eligibleCampaignKeys: new Set([gameKey(manual), gameKey(favorite)]),
       rehabilitatedCampaignKeys: new Set(),
+      stallBaselines: new Map(),
     },
     NOW,
   );

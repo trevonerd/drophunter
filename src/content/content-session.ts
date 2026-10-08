@@ -1,5 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
-import { logContentInfo, logContentWarn } from './logging.ts';
+import { logContentDebug, logContentWarn } from './logging.ts';
 import { extractTwitchSessionFrom, parseCookieValue } from './session-extraction.ts';
 import { normalizeText } from './stream-context.ts';
 
@@ -27,7 +27,7 @@ export function extractTwitchSession() {
     return null;
   }
 
-  logContentInfo('Content session extracted', {
+  logContentDebug('Content session extracted', {
     hasUserId: Boolean(session.userId),
     hasOAuthToken: Boolean(session.oauthToken),
     hasClientIntegrity: Boolean(session.clientIntegrity),
@@ -65,7 +65,7 @@ export function syncIntegrityToBackground(source: string) {
     }
     const detail = JSON.parse(raw) as { token?: string; expiration?: number; request_id?: string };
     if (detail && typeof detail.token === 'string' && detail.token.length > 0) {
-      logContentInfo(`Integrity token from page (${source})`, {
+      logContentDebug(`Integrity token from page (${source})`, {
         hasToken: true,
         expiration: detail.expiration,
       });
@@ -88,7 +88,7 @@ export function handleIntegrityEvent(event: Event): void {
     const detail =
       typeof customEvent.detail === 'string' ? JSON.parse(customEvent.detail) : customEvent.detail;
     if (detail && typeof detail.token === 'string' && detail.token.length > 0) {
-      logContentInfo('Intercepted Twitch integrity token (live)', {
+      logContentDebug('Intercepted Twitch integrity token (live)', {
         hasToken: true,
         expiration: detail.expiration,
       });

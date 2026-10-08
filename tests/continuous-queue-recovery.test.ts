@@ -36,14 +36,6 @@ test.each(['no-streamers', 'open-failed', 'stalled-progress'] as const)(
         const selected = state.appState.selectedGame;
         if (!selected) throw new Error('Lost selected campaign');
         visited.push(gameKey(selected));
-        if (reason === 'stalled-progress') {
-          state.appState.stalledCampaignBlocksByKey[gameKey(selected)] = {
-            blockedAt: now,
-            rotationAttempts: 3,
-            eligibleStreamerNames: ['known'],
-            rewardProgressByKey: {},
-          };
-        }
         await createQueueProgressionFixture(state, {
           stopSession: async () => {
             stops += 1;
@@ -80,16 +72,18 @@ test('opening playback preserves the round and stalled warning until authoritati
   state.appState.selectedGame = game;
   state.appState.queue = [game];
   state.appState.queueAcquisitionRound = { attemptedCampaignKeys: ['campaign:previous'], nextRoundAt: null };
-  state.appState.stalledCampaignBlocksByKey[gameKey(game)] = {
-    blockedAt: Date.now(),
-    rotationAttempts: 3,
-    eligibleStreamerNames: ['known'],
-    rewardProgressByKey: { [`${drop.id}::${game.campaignId}`]: { progress: 10, currentMinutes: 6 } },
+  state.appState.queueEntryMetadataByKey[gameKey(game)] = {
+    source: 'manual',
+    reason: 'user-added',
+    addedAt: Date.now(),
+    streamerRetryReason: 'stalled-progress',
+    streamerRetryAt: Date.now() + 60_000,
+    parkedStreamerNames: ['known'],
   };
   expect(await acquireStreamerForSelectedGame(state, { onOpenStreamer: async () => true })).toBe(true);
   expect(state.appState.queueAcquisitionRound).not.toBeNull();
   projectDropsSnapshot(state, { games: [game], drops: [drop], updatedAt: Date.now() }, 'inventory-partial');
-  expect(state.appState.stalledCampaignBlocksByKey[gameKey(game)]).toBeDefined();
+  expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryReason).toBe('stalled-progress');
   projectDropsSnapshot(
     state,
     {
@@ -100,7 +94,8 @@ test('opening playback preserves the round and stalled warning until authoritati
     'inventory-partial',
   );
   expect(state.appState.queueAcquisitionRound).toBeNull();
-  expect(state.appState.stalledCampaignBlocksByKey[gameKey(game)]).toBeUndefined();
+  expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryReason).toBeUndefined();
+  expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.parkedStreamerNames).toBeUndefined();
 });
 
 test('a refreshed eligible streamer preserves the round deadline until Retry or expiry', () => {
@@ -124,28 +119,27 @@ test('a refreshed eligible streamer preserves the round deadline until Retry or 
     addedAt: now,
     streamerRetryReason: 'stalled-progress',
     streamerRetryAt: now + 60_000,
-  };
-  state.appState.stalledCampaignBlocksByKey[key] = {
-    blockedAt: now,
-    rotationAttempts: 3,
-    eligibleStreamerNames: ['known'],
-    rewardProgressByKey: {},
+    parkedStreamerNames: ['known'],
   };
   const snapshot = normalizeFarmingAutomationSnapshot({ games: [game], drops: [], updatedAt: now });
   for (const name of ['known', 'new-streamer']) {
-    const evidence = collectQueueAvailabilityEvidence(state, {
-      kind: 'ready',
-      snapshot,
-      directories: new Map([
-        [
-          key,
-          { streamers: [{ id: name, name, displayName: name, isLive: true }], languageFilterApplied: true },
-        ],
-      ]),
-      availability: { [key]: { eligibleStreamerCount: 1, updatedAt: now } },
-      directoryFailures: new Set(),
-    });
-    expect(state.appState.stalledCampaignBlocksByKey[key]).toBeDefined();
+    const evidence = collectQueueAvailabilityEvidence(
+      state,
+      {
+        kind: 'ready',
+        snapshot,
+        directories: new Map([
+          [
+            key,
+            { streamers: [{ id: name, name, displayName: name, isLive: true }], languageFilterApplied: true },
+          ],
+        ]),
+        availability: { [key]: { eligibleStreamerCount: 1, updatedAt: now } },
+        directoryFailures: new Set(),
+      },
+      now,
+    );
+    expect(evidence.rehabilitatedCampaignKeys.has(key)).toBe(name === 'new-streamer');
     createQueueProgressionFixture(state).reconcileAvailability(evidence, now);
     if (name === 'known') expect(state.appState.queueAcquisitionRound?.nextRoundAt).toBe(now + 600_000);
   }
@@ -153,6 +147,118 @@ test('a refreshed eligible streamer preserves the round deadline until Retry or 
   expect(state.appState.queueAcquisitionRound?.attemptedCampaignKeys).toContain(key);
   expect(state.appState.recoveryBackoffUntil).toBeNull();
   expect(state.appState.queueEntryMetadataByKey[key]?.streamerRetryReason).toBe('stalled-progress');
-  expect(state.appState.stalledCampaignBlocksByKey[key]).toBeUndefined();
+  expect(state.appState.queueEntryMetadataByKey[key]?.streamerRetryAt).toBe(now);
+  expect(state.appState.queueEntryMetadataByKey[key]?.parkedStreamerNames).toBeUndefined();
   expect(state.appState.tabId).toBe(42);
+});
+
+test('a stalled park first records live streamers, then only a later new streamer ends the wait', () => {
+  const now = Date.now();
+  const game = createGame({ campaignId: 'stalled' });
+  const key = gameKey(game);
+  const state = createMinimalState();
+  Object.assign(state.appState, { isRunning: true, manualQueueAuthorized: true, queue: [game] });
+  state.appState.queueEntryMetadataByKey[key] = {
+    source: 'manual',
+    reason: 'user-added',
+    addedAt: now,
+    streamerRetryReason: 'stalled-progress',
+    streamerRetryAt: now + 600_000,
+    attemptedStreamerNames: ['tried'],
+  };
+  const snapshot = normalizeFarmingAutomationSnapshot({ games: [game], drops: [], updatedAt: now });
+  const evaluate = (names: readonly string[]) => {
+    const evidence = collectQueueAvailabilityEvidence(
+      state,
+      {
+        kind: 'ready',
+        snapshot,
+        directories: new Map([
+          [
+            key,
+            {
+              streamers: names.map((name) => ({ id: name, name, displayName: name, isLive: true })),
+              languageFilterApplied: true,
+            },
+          ],
+        ]),
+        availability: { [key]: { eligibleStreamerCount: names.length, updatedAt: now } },
+        directoryFailures: new Set(),
+      },
+      now,
+    );
+    createQueueProgressionFixture(state).reconcileAvailability(evidence, now);
+    return evidence.rehabilitatedCampaignKeys.has(key);
+  };
+
+  // Streamers already live when the park began are its baseline, not new evidence.
+  expect(evaluate(['Tried', 'Untried'])).toBe(false);
+  expect(state.appState.queueEntryMetadataByKey[key]?.parkedStreamerNames).toEqual(['tried', 'untried']);
+  expect(state.appState.queueEntryMetadataByKey[key]?.streamerRetryAt).toBe(now + 600_000);
+  expect(evaluate(['untried'])).toBe(false);
+
+  expect(evaluate(['untried', 'newcomer'])).toBe(true);
+  expect(state.appState.queueEntryMetadataByKey[key]?.streamerRetryAt).toBe(now);
+  expect(state.appState.queueEntryMetadataByKey[key]?.parkedStreamerNames).toBeUndefined();
+});
+
+test('a legacy stall block loads as a stalled park that keeps its known-streamer baseline', () => {
+  const now = Date.parse('2030-01-01T00:00:00Z');
+  spyOn(Date, 'now').mockImplementation(() => now);
+  const [blocked, untouched] = ['blocked', 'untouched'].map((id) => createGame({ campaignId: id }));
+  const restored = normalizeStoredAppState({
+    queue: [blocked, untouched],
+    queueEntryMetadataByKey: {
+      [gameKey(untouched)]: {
+        source: 'manual',
+        reason: 'user-added',
+        addedAt: 1,
+        streamerRetryReason: 'open-failed',
+        streamerRetryAt: now + 30_000,
+      },
+    },
+    farmingSessionOrigin: 'manual',
+    stalledCampaignBlocksByKey: {
+      [gameKey(blocked)]: { blockedAt: 1, rotationAttempts: 3, eligibleStreamerNames: [' Known ', 'known'] },
+      [gameKey(untouched)]: { blockedAt: 1, rotationAttempts: 3, eligibleStreamerNames: ['other'] },
+      'campaign:not-queued': { blockedAt: 1, rotationAttempts: 3, eligibleStreamerNames: ['x'] },
+    },
+  });
+
+  expect(restored).not.toHaveProperty('stalledCampaignBlocksByKey');
+  expect(restored.queueEntryMetadataByKey[gameKey(blocked)]).toEqual({
+    source: 'manual',
+    reason: 'user-added',
+    addedAt: now,
+    streamerRetryReason: 'stalled-progress',
+    streamerRetryAt: now + 60_000,
+    parkedStreamerNames: ['known'],
+  });
+  // An existing park keeps its own reason; blocks never create metadata for unqueued campaigns.
+  expect(restored.queueEntryMetadataByKey[gameKey(untouched)]?.streamerRetryReason).toBe('open-failed');
+  expect(restored.queueEntryMetadataByKey['campaign:not-queued']).toBeUndefined();
+});
+
+test('every new stalled park discards the previous known-streamer baseline', async () => {
+  const game = createGame({ campaignId: 'stalled' });
+  const key = gameKey(game);
+  const state = createMinimalState();
+  Object.assign(state.appState, {
+    isRunning: true,
+    manualQueueAuthorized: true,
+    queue: [game],
+    availableGames: [game],
+    selectedGame: game,
+  });
+  state.appState.queueEntryMetadataByKey[key] = {
+    source: 'manual',
+    reason: 'user-added',
+    addedAt: 1,
+    parkedStreamerNames: ['stale'],
+  };
+
+  await createQueueProgressionFixture(state).skipCurrent('stalled-progress');
+
+  expect(state.appState.queueEntryMetadataByKey[key]?.streamerRetryReason).toBe('stalled-progress');
+  expect(state.appState.queueEntryMetadataByKey[key]?.parkedStreamerNames).toBeUndefined();
 });

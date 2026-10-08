@@ -1,26 +1,32 @@
 import { describe, expect, test } from 'bun:test';
+import { parseCampaignDrops } from '../src/background/twitch-api/campaign-drop-parsing.ts';
 import type { ClaimedRewardAwardedAt } from '../src/background/twitch-api/claimed-rewards.ts';
 import {
   buildClaimedRewardLookup,
   buildGlobalClaimedIdCounts,
   buildGlobalClaimedRewardEntry,
-  buildInventoryDropMaps,
   type ClaimedRewardEntry,
+  matchClaimedReward,
+} from '../src/background/twitch-api/claimed-rewards.ts';
+import {
+  extractBroadcasterLanguage,
+  normalizeLanguageForApi,
+  normalizeStreamerLanguage,
+} from '../src/background/twitch-api/directory-operations.ts';
+import {
+  buildInventoryDropMaps,
+  findInventoryStateForDrop,
+} from '../src/background/twitch-api/inventory-drops.ts';
+import {
   computeExpiry,
   extractBenefitDistributionTypes,
   extractBenefitIds,
   extractBenefitNames,
-  extractBroadcasterLanguage,
-  findInventoryStateForDrop,
-  matchClaimedReward,
   normalizeImageUrl,
-  normalizeLanguageForApi,
-  normalizeStreamerLanguage,
   normalizeText,
-  parseCampaignDrops,
   toIsoDate,
   toNumber,
-} from '../src/background/twitch-api/client.ts';
+} from '../src/background/twitch-api/parsing.ts';
 import type { TwitchGame } from '../src/types/index.ts';
 
 // ---------------------------------------------------------------------------

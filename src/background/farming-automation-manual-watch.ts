@@ -5,9 +5,14 @@ import type {
   FarmingAutomationManualWatchV1,
   FarmingAutomationPersistence,
 } from './farming-automation-contracts.ts';
-import type { FarmingAutomationWake } from './farming-automation-wake.ts';
 import { detectManualViewing } from './manual-watch-detector.ts';
 import { MANUAL_WATCH_TTL_MS } from './manual-watch-policy.ts';
+
+export type FarmingAutomationWakeResult = 'scheduled' | 'cleared' | 'failed';
+
+export interface FarmingAutomationWake {
+  readonly replaceDeadline: (at: number | null) => Promise<FarmingAutomationWakeResult>;
+}
 
 export type ManualWatchTransportDirective =
   | { readonly kind: 'suspend'; readonly transitionId: string }

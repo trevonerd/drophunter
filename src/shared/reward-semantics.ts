@@ -6,10 +6,7 @@ import type {
   TwitchDrop,
 } from '../types/index.ts';
 import { isDropCompleted } from './drops.ts';
-
-function assertNever(value: never): never {
-  throw new TypeError(`Unhandled reward semantic: ${String(value)}`);
-}
+import { assertNever } from './messages.ts';
 
 export function isTwitchNativeReward(drop: TwitchDrop): boolean {
   const rewardKind: RewardKind = drop.rewardKind;

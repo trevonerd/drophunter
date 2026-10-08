@@ -4,14 +4,11 @@ import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
 import { isExpectedStreamCategory } from '../shared/stream-category.ts';
 import type { TwitchDrop } from '../types';
 import { INVALID_STREAM_THRESHOLD, STREAM_ROTATE_COOLDOWN_MS } from './constants.ts';
+import type { StreamContext } from './farming-session-context.ts';
 import { logDebug, logInfo } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { classifyStreamHealth, type StreamRotationReason } from './stream-rotation.ts';
-import {
-  type RotateStreamerIfInvalidOptions,
-  rotateStreamerOptsFrom,
-  type StreamContext,
-} from './streamer-acquisition-contracts.ts';
+import type { RotateStreamerIfInvalidOptions } from './streamer-acquisition-contracts.ts';
 
 export function shouldKeepStreamerWhileDropProgresses(input: {
   currentDrop: TwitchDrop | null;
@@ -37,7 +34,7 @@ export function shouldKeepStreamerWhileDropProgresses(input: {
 export async function handleMissingStreamContext(
   state: ServiceWorkerState,
   tab: { url?: string },
-  opts: RotateStreamerIfInvalidOptions | undefined,
+  opts: RotateStreamerIfInvalidOptions,
   now: number,
   effectiveThreshold: number,
 ): Promise<void> {
@@ -69,11 +66,7 @@ export async function handleMissingStreamContext(
   )
     return;
   state.invalidStreamChecks = 0;
-  await opts?.onRotateStreamer?.(
-    state,
-    isStillOnTwitch ? 'missing-context' : 'navigated-away',
-    rotateStreamerOptsFrom(opts),
-  );
+  await opts.onRotateStreamer(state, isStillOnTwitch ? 'missing-context' : 'navigated-away', opts);
 }
 
 export async function evaluateStreamHealth(
@@ -81,16 +74,15 @@ export async function evaluateStreamHealth(
   context: StreamContext,
   effectiveThreshold: number,
   now: number,
-  opts: RotateStreamerIfInvalidOptions | undefined,
+  opts: Pick<RotateStreamerIfInvalidOptions, 'onResolveCategorySlug'>,
 ) {
   const sameChannel =
     !state.appState.activeStreamer || context.channelName === state.appState.activeStreamer.name;
   const hasDropsSignal = context.titleContainsDrops || context.hasDropsSignal;
   const selectedGame = state.appState.selectedGame;
-  const selectedCategorySlug =
-    selectedGame && opts?.onResolveCategorySlug
-      ? normalizeToken(await opts.onResolveCategorySlug(selectedGame))
-      : '';
+  const selectedCategorySlug = selectedGame
+    ? normalizeToken(await opts.onResolveCategorySlug(selectedGame))
+    : '';
   const contextCategorySlug = normalizeToken(context.categorySlug);
   const sameGame =
     selectedCategorySlug.length === 0 ||
@@ -124,13 +116,13 @@ export async function evaluateStreamHealth(
     progressStalled,
     expectsDropsSignal,
   });
-  return { health, stallThreshold: effectiveThreshold };
+  return health;
 }
 
 export async function handleGenericInvalidStream(
   state: ServiceWorkerState,
   health: ReturnType<typeof classifyStreamHealth>,
-  opts: RotateStreamerIfInvalidOptions | undefined,
+  opts: RotateStreamerIfInvalidOptions,
   now: number,
 ): Promise<void> {
   state.invalidStreamChecks += health.invalidIncrement;
@@ -140,7 +132,5 @@ export async function handleGenericInvalidStream(
   )
     return;
   state.invalidStreamChecks = 0;
-  if (opts?.onRotateStreamer && health.reason) {
-    await opts.onRotateStreamer(state, health.reason, rotateStreamerOptsFrom(opts));
-  }
+  if (health.reason) await opts.onRotateStreamer(state, health.reason, opts);
 }

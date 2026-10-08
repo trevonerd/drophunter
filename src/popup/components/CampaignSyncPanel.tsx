@@ -1,5 +1,3 @@
-// Extracted from src/popup/App.tsx (CampaignSyncPanel component).
-
 import { classifyStartupPresentation, isRoutineStartupSync } from '../../shared/startup-presentation.ts';
 import type { CampaignSyncState } from '../../types';
 import type { CampaignSyncStatus } from '../constants';

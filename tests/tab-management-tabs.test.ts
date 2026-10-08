@@ -7,7 +7,7 @@ import { rememberManagedWatch } from '../src/background/managed-watch-registry.t
 import { createPlaybackOrchestrator } from '../src/background/playback-orchestrator.ts';
 import { createPlaybackTransport } from '../src/background/playback-transport.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
-import { createManagedTab, ensureManagedTab } from '../src/background/tab-management.ts';
+import { ensureManagedTab } from '../src/background/tab-management.ts';
 import { createFarmingSessionAdapters, createStreamer } from './fixtures/queue-management.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
 import { createDeferred } from './support/farming-automation-fixtures.ts';
@@ -23,9 +23,10 @@ beforeEach(() => {
 afterEach(() => mocks.teardown());
 
 test('only an explicit initial start can create the first managed tab', async () => {
-  expect(await createManagedTab(url, false)).toBeNull();
+  expect(await ensureManagedTab(null, url, false)).toBeNull();
   expect(tabs.created).toEqual([]);
-  expect((await createManagedTab(url, false, true))?.url).toBe(url);
+  const tabId = await ensureManagedTab(null, url, false, true);
+  expect(tabId === null ? undefined : tabs.pages.get(tabId)?.url).toBe(url);
   expect(tabs.created).toHaveLength(1);
 });
 

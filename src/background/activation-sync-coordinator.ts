@@ -4,14 +4,6 @@ import type {
   ActivationTrigger,
   CampaignSyncState,
 } from '../types/activation-sync.ts';
-import { runActivationSyncAttempt } from './activation-sync-attempt-runner.ts';
-import { reconcileActivationSyncState } from './activation-sync-initialization.ts';
-import { applyActivationSyncOutcome } from './activation-sync-outcome.ts';
-import {
-  ACTIVATION_SYNC_ATTEMPT_TIMEOUT_MS,
-  isCampaignSyncFresh,
-  shouldRespectActivationSyncRetry,
-} from './activation-sync-retry-policy.ts';
 
 export type {
   ActivationSyncErrorKind,
@@ -19,8 +11,6 @@ export type {
   ActivationTrigger,
   CampaignSyncState,
 } from '../types/activation-sync.ts';
-
-export { CAMPAIGN_SYNC_INTERVAL_MS } from './activation-sync-retry-policy.ts';
 
 export type ActivationSyncExecution = {
   readonly signal: AbortSignal;
@@ -51,6 +41,222 @@ interface ActivationSyncCoordinatorDependencies {
   readonly shouldRunPeriodicSync?: () => boolean;
   readonly scheduleRetry?: (retryAt: number) => Promise<void> | void;
   readonly clearRetry?: () => Promise<void> | void;
+}
+
+export const CAMPAIGN_SYNC_INTERVAL_MS = 30 * 60_000;
+const ACTIVATION_SYNC_ATTEMPT_TIMEOUT_MS = 90_000;
+
+const RETRY_DELAYS_MS = [60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000] as const;
+const RETRY_SCHEDULE_RESPECTING_TRIGGERS = new Set<ActivationTrigger>([
+  'popup-open',
+  'worker-start',
+  'browser-start',
+  'wake',
+  'extension-update',
+  'periodic-campaign',
+]);
+
+function nextActivationSyncRetryDelay(retryAttemptCount: number, retryAfterMs: number | undefined): number {
+  if (retryAfterMs !== undefined && Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    return Math.floor(retryAfterMs);
+  }
+  const retryIndex = Math.min(Math.max(0, retryAttemptCount - 1), RETRY_DELAYS_MS.length - 1);
+  return RETRY_DELAYS_MS[retryIndex] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1] ?? 10 * 60_000;
+}
+
+function isCampaignSyncFresh(syncState: CampaignSyncState, at: number): boolean {
+  return (
+    syncState.status === 'idle' &&
+    syncState.lastSuccessAt !== null &&
+    at - syncState.lastSuccessAt < CAMPAIGN_SYNC_INTERVAL_MS
+  );
+}
+
+function shouldRespectActivationSyncRetry(trigger: ActivationTrigger): boolean {
+  return RETRY_SCHEDULE_RESPECTING_TRIGGERS.has(trigger);
+}
+
+type CampaignSyncPublicationResult = {
+  readonly alarmUpdated: boolean;
+  readonly statePublished: boolean;
+};
+
+async function publishCampaignSyncState(
+  dependencies: Pick<ActivationSyncCoordinatorDependencies, 'setCampaignSyncState'>,
+  state: CampaignSyncState,
+  updateAlarm: () => Promise<void> | void,
+): Promise<CampaignSyncPublicationResult> {
+  const results = await Promise.allSettled([
+    Promise.resolve(dependencies.setCampaignSyncState(state)),
+    Promise.resolve(updateAlarm()),
+  ]);
+  return {
+    statePublished: results[0]?.status === 'fulfilled',
+    alarmUpdated: results[1]?.status === 'fulfilled',
+  };
+}
+
+function caughtAttempt(error: unknown): ActivationSyncAttempt {
+  return {
+    kind: 'transient-error',
+    error: error instanceof Error ? error.message : String(error),
+    errorKind: 'network',
+  };
+}
+
+function runActivationSyncAttempt(
+  operation: Promise<ActivationSyncAttempt>,
+  controller: AbortController,
+  timeoutMs: number,
+): Promise<ActivationSyncAttempt | null> {
+  return new Promise((resolve) => {
+    let timedOut = false;
+    const settle = (result: ActivationSyncAttempt | null) => {
+      globalThis.clearTimeout(timer);
+      controller.signal.removeEventListener('abort', onAbort);
+      resolve(result);
+    };
+    const onAbort = () =>
+      settle(
+        timedOut
+          ? { kind: 'transient-error', error: 'Campaign sync timed out.', errorKind: 'network' }
+          : null,
+      );
+    const timer = globalThis.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    controller.signal.addEventListener('abort', onAbort, { once: true });
+    void operation.then(
+      (attempt) => settle(attempt),
+      (error: unknown) => settle(caughtAttempt(error)),
+    );
+  });
+}
+
+async function reconcileActivationSyncState(
+  dependencies: ActivationSyncCoordinatorDependencies,
+  now: () => number,
+): Promise<void> {
+  const current = dependencies.getCampaignSyncState();
+  if (current.status === 'retry-scheduled') {
+    await dependencies.scheduleRetry?.(Math.max(now(), current.nextRetryAt));
+    return;
+  }
+  if (current.status !== 'syncing') {
+    await dependencies.clearRetry?.();
+    return;
+  }
+  const retryAttemptCount = current.retryAttemptCount + 1;
+  const retryAt = Math.max(
+    now(),
+    Math.min(current.attemptDeadlineAt, now() + nextActivationSyncRetryDelay(retryAttemptCount, undefined)),
+  );
+  await publishCampaignSyncState(
+    dependencies,
+    {
+      status: 'retry-scheduled',
+      lastAttemptAt: current.lastAttemptAt,
+      lastSuccessAt: current.lastSuccessAt,
+      campaignCount: current.campaignCount,
+      retryAttemptCount,
+      lastErrorKind: current.lastErrorKind ?? 'network',
+      nextRetryAt: retryAt,
+      attemptDeadlineAt: null,
+      error: 'Campaign sync was interrupted before completion.',
+    },
+    () => dependencies.scheduleRetry?.(retryAt),
+  );
+}
+
+type ActivationSyncOutcomeInput = {
+  readonly attempt: ActivationSyncAttempt;
+  readonly now: () => number;
+  readonly previous: CampaignSyncState;
+  readonly startedAt: number;
+};
+
+function errorKind(attempt: ActivationSyncAttempt): ActivationSyncErrorKind {
+  return attempt.kind === 'transient-error' ? (attempt.errorKind ?? 'network') : 'session';
+}
+
+async function applyActivationSyncOutcome(
+  dependencies: ActivationSyncCoordinatorDependencies,
+  input: ActivationSyncOutcomeInput,
+): Promise<ActivationSyncResult> {
+  const { attempt, now, previous, startedAt } = input;
+  switch (attempt.kind) {
+    case 'synced': {
+      const publication = await publishCampaignSyncState(
+        dependencies,
+        {
+          status: 'idle',
+          lastAttemptAt: startedAt,
+          lastSuccessAt: now(),
+          campaignCount: attempt.campaignCount,
+          retryAttemptCount: 0,
+          lastErrorKind: null,
+          nextRetryAt: null,
+          attemptDeadlineAt: null,
+        },
+        () => dependencies.clearRetry?.(),
+      );
+      if (!publication.statePublished) throw new TypeError('Campaign validation could not be saved.');
+      return attempt;
+    }
+    case 'needs-session':
+      await publishCampaignSyncState(
+        dependencies,
+        {
+          status: 'needs-session',
+          ...(previous.browserVerificationAttempted ? { browserVerificationAttempted: true } : {}),
+          lastAttemptAt: startedAt,
+          lastSuccessAt: previous.lastSuccessAt,
+          campaignCount: previous.campaignCount,
+          retryAttemptCount: previous.retryAttemptCount,
+          lastErrorKind: attempt.errorKind ?? 'session',
+          nextRetryAt: null,
+          attemptDeadlineAt: null,
+        },
+        () => dependencies.clearRetry?.(),
+      );
+      return attempt;
+    case 'transient-error': {
+      const retryAttemptCount = previous.retryAttemptCount + 1;
+      const retryAt = now() + nextActivationSyncRetryDelay(retryAttemptCount, attempt.retryAfterMs);
+      const publication = await publishCampaignSyncState(
+        dependencies,
+        {
+          status: 'retry-scheduled',
+          lastAttemptAt: startedAt,
+          lastSuccessAt: previous.lastSuccessAt,
+          campaignCount: previous.campaignCount,
+          retryAttemptCount,
+          lastErrorKind: errorKind(attempt),
+          nextRetryAt: retryAt,
+          attemptDeadlineAt: null,
+          error: attempt.error,
+        },
+        () => dependencies.scheduleRetry?.(retryAt),
+      );
+      if (publication.alarmUpdated) return { kind: 'retry-scheduled', retryAt, error: attempt.error };
+      const error = `${attempt.error} Retry scheduling failed; retry manually.`;
+      await dependencies.setCampaignSyncState({
+        status: 'retry-failed',
+        lastAttemptAt: startedAt,
+        lastSuccessAt: previous.lastSuccessAt,
+        campaignCount: previous.campaignCount,
+        retryAttemptCount,
+        lastErrorKind: errorKind(attempt),
+        nextRetryAt: null,
+        attemptDeadlineAt: null,
+        error,
+      });
+      return { kind: 'retry-failed', error };
+    }
+    default:
+      return attempt satisfies never;
+  }
 }
 
 export interface ActivationSyncCoordinator {

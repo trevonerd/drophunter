@@ -5,14 +5,13 @@ import {
   markDropUnverifiable,
 } from '../src/background/drops-projection-semantics';
 import { createServiceWorkerState } from '../src/background/runtime-state';
+import { parseCampaignDrops } from '../src/background/twitch-api/campaign-drop-parsing.ts';
 import {
   buildClaimedRewardLookup,
   buildGlobalClaimedRewardEntry,
-  buildInventoryDropMaps,
-  parseCampaignDrops,
-} from '../src/background/twitch-api/client';
+} from '../src/background/twitch-api/claimed-rewards.ts';
+import { buildInventoryDropMaps } from '../src/background/twitch-api/inventory-drops.ts';
 import { CompactDropCard } from '../src/popup/components/DropCard';
-import { RewardList } from '../src/popup/components/RewardList';
 import { drop, game } from './fixtures/popup-reward';
 
 test('subscription reward card uses the exact redemption copy', () => {
@@ -169,25 +168,3 @@ test('reward progress exposes native progressbar semantics', () => {
   expect(markup).toContain('aria-valuemax="100"');
   expect(markup).toContain('aria-valuenow="42"');
 });
-
-test('completed rewards use an accessible structured disclosure', () => {
-  const markup = renderToStaticMarkup(
-    <RewardList
-      pendingDrops={[]}
-      completedDrops={[
-        drop({ id: 'one', name: 'First Reward', claimed: true, progress: 100 }),
-        drop({ id: 'two', name: 'Second Reward', claimed: true, progress: 100 }),
-      ]}
-      rewardsLoading={false}
-      syncLoading={false}
-      claimableCount={0}
-    />,
-  );
-
-  expect(markup).toContain('<details');
-  expect(markup).toContain('<summary');
-  expect(markup).toContain('data-completed-reward-count="2"');
-  expect(markup).toContain('<ul');
-  expect(markup).toContain('<li');
-});
-

@@ -193,18 +193,11 @@ describe('fetchDirectoryStreamersFromApi', () => {
     ]);
 
     await expect(
-      fetchDirectoryStreamersFromApiWrapper(
-        state,
-        game,
-        false,
-        '',
-        {
-          onEnsureTwitchSession: async () => session,
-          onIsLikelyAuthError: () => false,
-          onClearTwitchSessionCache: async () => undefined,
-        },
-        { logWarn: () => undefined },
-      ),
+      fetchDirectoryStreamersFromApiWrapper(state, game, false, '', {
+        onEnsureTwitchSession: async () => session,
+        onIsLikelyAuthError: () => false,
+        onClearTwitchSessionCache: async () => undefined,
+      }),
     ).rejects.toThrow('directory unavailable');
   });
 });

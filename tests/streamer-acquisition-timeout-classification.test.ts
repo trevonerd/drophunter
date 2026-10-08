@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
-import { runStreamerAcquisitionAttempt } from '../src/background/streamer-acquisition-attempt.ts';
+import { runStreamerAcquisitionAttempt } from '../src/background/streamer-acquisition.ts';
 import { beginStreamerWatchAttempt } from '../src/background/streamer-watch-attempt.ts';
 
 const originalSetTimeout = globalThis.setTimeout;

@@ -1,4 +1,3 @@
-// Extracted from src/popup/App.tsx (top-level constants and CampaignSyncStatus type).
 import type { CampaignSyncState, StreamerSelectionMode, TwitchSessionSyncState } from '../types';
 
 export const STREAMER_SELECTION_OPTIONS: Array<{ value: StreamerSelectionMode; label: string }> = [

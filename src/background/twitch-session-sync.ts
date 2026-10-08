@@ -24,16 +24,6 @@ export function markTwitchSessionRetrying(
   };
 }
 
-export function markTwitchSessionBlocked(state: ServiceWorkerState, attempts: number): void {
-  const safeAttempts = Math.max(0, Math.floor(attempts));
-  clearLegacyAuthRecovery(state);
-  state.appState.twitchSessionSyncState = {
-    status: 'blocked',
-    attempts: safeAttempts,
-    nextRetryAt: null,
-  };
-}
-
 export function markTwitchSessionReady(state: ServiceWorkerState): void {
   state.apiConsecutiveFailures = 0;
   state.apiBackoffUntil = 0;

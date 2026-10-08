@@ -1,3 +1,4 @@
+import { isRecord } from '../shared/app-state-normalization-values.ts';
 import type {
   FarmingAutomationFactsV1,
   FarmingAutomationLastPreemptionV1,
@@ -6,10 +7,6 @@ import type {
 } from './farming-automation-contracts.ts';
 
 export { normalizeFarmingSessionTransitionReceipt } from './farming-automation-receipt-facts.ts';
-
-function isRecord(input: unknown): input is Record<string, unknown> {
-  return typeof input === 'object' && input !== null && !Array.isArray(input);
-}
 
 function isNonEmptyString(input: unknown): input is string {
   return typeof input === 'string' && input.length > 0;

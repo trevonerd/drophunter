@@ -1,11 +1,9 @@
 import { expect, test } from 'bun:test';
 import { FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY } from '../src/background/farming-automation-contracts.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 
 function fixture() {
   const state = createServiceWorkerState();

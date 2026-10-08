@@ -7,8 +7,7 @@ import type { TwitchDrop, TwitchGame } from '../types/index.ts';
 import { completedDropKeys, dropStateKey, isDropCampaignExpired } from './drops-projection-semantics.ts';
 import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import { clearCampaignStallBlock } from './stalled-campaign-block.ts';
-import { detectRecoveryProof, didDropMinutesAdvance } from './stream-rotation.ts';
+import { detectRecoveryProof } from './stream-rotation.ts';
 
 export function dropRemainingMinutes(drop: TwitchDrop): number {
   if (typeof drop.remainingMinutes === 'number' && Number.isFinite(drop.remainingMinutes)) {
@@ -98,10 +97,6 @@ function clearRecoveredStall(state: ServiceWorkerState, selected: TwitchGame): v
   state.recoveryBackoffUntil = 0;
   state.lastRecoveryAttemptAt = 0;
   state.stalledRecoveryAttempts = 0;
-  state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
-    state.appState.stalledCampaignBlocksByKey,
-    selected,
-  );
   state.appState = clearRecoveryStatus(state.appState);
 }
 
@@ -162,10 +157,7 @@ export function splitDropsForSelectedGame(
     nextCompletedKeys: completedDropKeys(completed),
   });
   const minuteAdvance =
-    !recoveryProof &&
-    nextKey !== null &&
-    nextKey === previousKey &&
-    didDropMinutesAdvance(previousMinutes, nextMinutes);
+    !recoveryProof && nextKey !== null && nextKey === previousKey && nextMinutes > previousMinutes;
   const acquiredTrackedReward =
     previousKey !== null &&
     !previousCompletedKeys.has(previousKey) &&

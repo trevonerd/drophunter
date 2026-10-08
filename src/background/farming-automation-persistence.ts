@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import { DROPS_SNAPSHOT_CACHE_KEY } from './constants.ts';
 import type {
   FarmingAutomationFactsV1,
@@ -19,12 +20,13 @@ import {
   normalizeFarmingSessionTransitionReceipt,
 } from './farming-automation-facts.ts';
 
-import { chromeStorageArea, type InMemoryFarmingAutomationStorage } from './farming-automation-storage.ts';
-
-export {
-  createInMemoryFarmingAutomationStorage,
-  InMemoryFarmingAutomationStorage,
-} from './farming-automation-storage.ts';
+function chromeStorageArea(scope: 'local' | 'session'): FarmingAutomationStorageArea {
+  return {
+    get: (keys) => browser.storage[scope].get([...keys]),
+    set: (values) => browser.storage[scope].set(values),
+    remove: (keys) => browser.storage[scope].remove([...keys]),
+  };
+}
 
 async function tryStorageWrite(operation: () => Promise<void>): Promise<boolean> {
   try {
@@ -219,7 +221,7 @@ function createPersistence(
 
 export function createInMemoryFarmingAutomationPersistence(
   context: FarmingAutomationPersistenceContext & {
-    readonly storage: InMemoryFarmingAutomationStorage;
+    readonly storage: { readonly local: FarmingAutomationStorageArea };
   },
 ): FarmingAutomationPersistence {
   return createPersistence(context, context.storage.local);

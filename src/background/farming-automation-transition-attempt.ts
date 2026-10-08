@@ -1,7 +1,7 @@
 import { gameKey } from '../shared/game-selection.ts';
 import { recordCampaignFailure } from './campaign-failure-episodes.ts';
 import type { FarmingAutomationDiscoveryResult } from './farming-automation-discovery.ts';
-import type { FarmingAutomationEvaluatorDependencies } from './farming-automation-evaluator-types.ts';
+import type { FarmingAutomationEvaluatorDependencies } from './farming-automation-evaluator.ts';
 import { reconcileFarmingSessionTargets } from './farming-session-targets.ts';
 import { parkCampaignForStreamerRetry } from './session-lifecycle-queue-parking.ts';
 import {

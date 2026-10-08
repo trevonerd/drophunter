@@ -11,17 +11,6 @@ import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/er
 import type { TwitchSession } from './twitch-api/types.ts';
 import { markTwitchSessionReady } from './twitch-session-sync.ts';
 
-export type { FetchDropsSnapshotFromApiCallbacks } from './api-drops-wrapper.ts';
-export { fetchDropsSnapshotFromApiWrapper } from './api-drops-wrapper.ts';
-export type {
-  FetchDirectoryStreamersFromApiCallbacks,
-  FetchInventorySnapshotFromApiCallbacks,
-} from './api-secondary-wrappers.ts';
-export {
-  fetchDirectoryStreamersFromApiWrapper,
-  fetchInventorySnapshotFromApiWrapper,
-} from './api-secondary-wrappers.ts';
-
 const latestTwitchApiFailureByState = new WeakMap<ServiceWorkerState, TwitchApiFailure>();
 
 export function getLastTwitchApiFailure(state: ServiceWorkerState): TwitchApiFailure | null {

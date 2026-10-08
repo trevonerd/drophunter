@@ -1,19 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createTelegramNotifier } from '../../src/background/telegram-notifications.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
-import type { ClaimLogEntry } from '../../src/types/index.ts';
-
-const _sampleEntry: ClaimLogEntry = {
-  id: 'drop-1',
-  dropId: 'drop-1',
-  dropName: 'Exclusive Skin',
-  benefitName: 'Winter Bundle',
-  gameId: 'game-1',
-  gameName: 'Marvel Rivals',
-  campaignLabel: 'Marvel Rivals · Winter Campaign',
-  claimedAt: Date.parse('2026-06-30T14:32:00Z'),
-  imageUrl: 'https://static-cdn.jtvnw.net/image.png',
-};
 
 describe('telegram notifier setTelegramCredentials', () => {
   function createCredentialHarness(overrides: {

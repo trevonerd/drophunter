@@ -1,3 +1,5 @@
+import { isRecord } from '../shared/app-state-normalization-values.ts';
+import { assertNever } from '../shared/messages.ts';
 import type {
   FarmingSessionTransitionReceiptV1,
   StoredRecordNormalization,
@@ -5,20 +7,12 @@ import type {
   WatchOwnershipV1,
 } from './farming-automation-contracts.ts';
 
-function isRecord(input: unknown): input is Record<string, unknown> {
-  return typeof input === 'object' && input !== null && !Array.isArray(input);
-}
-
 function isNonEmptyString(input: unknown): input is string {
   return typeof input === 'string' && input.length > 0;
 }
 
 function isFiniteNumber(input: unknown): input is number {
   return typeof input === 'number' && Number.isFinite(input);
-}
-
-function assertNever(input: never): never {
-  throw new DOMException(`Unexpected variant: ${String(input)}`, 'InvariantError');
 }
 
 function hasOnlyKeys(input: object, keys: readonly string[]): boolean {

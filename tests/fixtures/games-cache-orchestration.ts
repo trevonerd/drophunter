@@ -1,14 +1,6 @@
-import {
-  annotateGameCompletion,
-  clearSelectedCompletedIdleCampaignExt,
-  normalizeGameSelection,
-  resetStateForAuthoritativeEmptyCampaignExt,
-  splitDropsForSelectedGame,
-} from '../../src/background/drops-projection.ts';
+import { clearSelectedCompletedIdleCampaignExt } from '../../src/background/drops-projection.ts';
 import type { GamesCacheRefreshDeps } from '../../src/background/games-cache-orchestration.ts';
 import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
-import { replaceAvailableGames } from '../../src/shared/game-selection.ts';
-import { clearRecoveryStatus, clearTerminalStopStatus } from '../../src/shared/runtime-status.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame } from '../../src/types/index.ts';
 
 export const selectedCampaign: TwitchGame = {
@@ -65,23 +57,16 @@ export function makeGamesCacheDeps(
 ): GamesCacheRefreshDeps {
   return {
     fetchDropsSnapshot: async () => snapshot,
-    replaceAvailableGames,
-    annotateGameCompletion,
-    normalizeGameSelection,
     normalizeQueueSelection: (state, games) => {
       state.appState.queue = state.appState.queue
         .map((queuedGame) => games.find((game) => game.campaignId === queuedGame.campaignId))
         .filter((game): game is TwitchGame => game !== undefined);
     },
-    splitDropsForSelectedGame,
-    resetStateForAuthoritativeEmptyCampaign: resetStateForAuthoritativeEmptyCampaignExt,
     clearSelectedCompletedIdleCampaign: (state: ReturnType<typeof createServiceWorkerState>) => {
       clearCalls.count += 1;
       clearSelectedCompletedIdleCampaignExt(state);
     },
     resetStreamTrackingState: () => undefined,
-    clearRecoveryStatus,
-    clearTerminalStopStatus,
     stopFarmingSession: async () => undefined,
     saveState: async () => undefined,
   };

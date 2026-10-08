@@ -7,7 +7,6 @@ import type {
 import type { FarmingAutomationFactsV1, FarmingAutomationOutcome } from './farming-automation-contracts.ts';
 import { farmingAutomationCompletionFingerprint } from './farming-automation-reconciliation.ts';
 import type {
-  FarmingAutomationDirectoryResult,
   FarmingAutomationNormalizedDrop,
   FarmingAutomationNormalizedGame,
   FarmingAutomationTwitchSnapshot,
@@ -45,18 +44,6 @@ function cloneDrop(drop: FarmingAutomationNormalizedDrop): TwitchDrop {
 
 export function cloneFarmingAutomationGame(game: FarmingAutomationNormalizedGame): TwitchGame {
   return cloneGame(game);
-}
-
-export function eligibleFarmingAutomationStreamers(
-  game: TwitchGame,
-  directory: Extract<FarmingAutomationDirectoryResult, { readonly kind: 'ready' }>,
-): readonly TwitchStreamer[] {
-  const allowed = game.allowedChannels?.map((channel) => channel.toLowerCase()) ?? null;
-  return directory.streamers.filter(
-    (streamer) =>
-      streamer.isLive &&
-      (allowed === null || allowed.length === 0 || allowed.includes(streamer.name.toLowerCase())),
-  );
 }
 
 export function farmingAutomationAttemptId(
@@ -130,7 +117,6 @@ export function createFarmingAutomationPolicySnapshot(
     selectedGame: state.appState.selectedGame ? cloneGame(state.appState.selectedGame) : null,
     manualQueueAuthorized: state.appState.manualQueueAuthorized,
     queueAcquisitionRound: structuredClone(state.appState.queueAcquisitionRound),
-    stalledCampaignBlocksByKey: structuredClone(state.appState.stalledCampaignBlocksByKey),
     campaignPriorityMode: state.appState.campaignPriorityMode,
     farmCategoryScope: state.appState.farmCategoryScope,
     campaignAvailabilityByKey: availability,
@@ -167,13 +153,6 @@ export function farmingAutomationStateFingerprint(
     paused: app.isPaused,
     selected: app.selectedGame ? gameKey(app.selectedGame) : null,
     queue: app.queue.map((game) => [gameKey(game), app.queueEntryMetadataByKey[gameKey(game)] ?? null]),
-    ...(includeAccountOwnedEvidence
-      ? {
-          stalledCampaignBlocks: Object.entries(app.stalledCampaignBlocksByKey).sort(([left], [right]) =>
-            left.localeCompare(right),
-          ),
-        }
-      : {}),
     favorites: [...favoriteGameIdentityKeys(app.favoriteGames)].sort(),
     hiddenGames: [...hiddenGameIdentityKeys(app.hiddenGames)].sort(),
     priorityMode: app.campaignPriorityMode,

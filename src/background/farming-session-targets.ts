@@ -69,7 +69,6 @@ export function reconcileFarmingSessionTargets(state: ServiceWorkerState): void 
         } = metadata;
         app.queueEntryMetadataByKey[key] = retained;
       }
-      delete app.stalledCampaignBlocksByKey[key];
     }
     if (acquired || watchComplete || isExpiredGame(app.farmingSessionTargets[key].game))
       delete app.campaignFailureEpisodesByKey[key];

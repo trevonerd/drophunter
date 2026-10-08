@@ -1,14 +1,12 @@
 import { expect, test } from 'bun:test';
 import { persistFarmingAutomationPlan } from '../src/background/farming-automation-effects.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { currentFarmingSessionEpoch } from '../src/background/farming-session-revision.ts';
 import { planFavoriteCampaignQueue } from '../src/background/favorite-games.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { CampaignCompletion, TwitchGame } from '../src/types/index.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 
 interface CampaignInput {
   readonly campaignId: string;

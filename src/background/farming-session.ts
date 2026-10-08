@@ -76,13 +76,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onRefreshDropsData: refreshDropsData,
     onAcquireStreamer: acquireStreamerForSelectedGame,
   });
-  const {
-    handleAddToQueue,
-    handleClearQueue: clearQueue,
-    handleRemoveFromQueue,
-    handleReorderQueue,
-    handleSetSelectedGame,
-  } = queue;
   const handlers = createFarmingSessionHandlers(context, {
     onEnsureWorkspace: ensureWorkspaceForSelectedGame,
     onRefreshDropsData: refreshDropsData,
@@ -91,15 +84,6 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
     onStartMonitoring: startMonitoring,
     onStopMonitoring: stopMonitoring,
   });
-  const {
-    handleStartQueuedCampaign,
-    handlePauseFarming,
-    handleResumeFarming,
-    handleStartFarming,
-    handleStopFarming,
-    recoverTwitchSession,
-    resumeAfterAuthRecovery,
-  } = handlers;
 
   function refreshDropsData(options: RefreshDropsOptions = {}): Promise<RefreshDropsOutcome> {
     return monitoring.refreshDropsData(options);
@@ -117,11 +101,11 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   async function handleClearQueue() {
     if (state.appState.isRunning || state.appState.isPaused || state.appState.manualQueueAuthorized) {
       const epoch = currentFarmingSessionEpoch(state) + 1;
-      await handleStopFarming();
+      await handlers.handleStopFarming();
       if (currentFarmingSessionEpoch(state) !== epoch)
         return { success: true as const, queueLength: state.appState.queue.length };
     }
-    return clearQueue();
+    return queue.handleClearQueue();
   }
 
   function stop(options?: FarmingSessionStopOptions): Promise<void> {
@@ -133,24 +117,15 @@ export function createFarmingSession(state: ServiceWorkerState, adapters: Farmin
   }
 
   return {
-    handleStartQueuedCampaign,
+    ...handlers,
+    ...queue,
     acquireStreamerForSelectedGame,
     advanceQueueIfCompleted,
     checkDropProgress,
     handleAuthoritativeCampaignUnavailable,
-    handleAddToQueue,
     handleClearQueue,
-    handlePauseFarming,
-    handleRemoveFromQueue,
-    handleReorderQueue,
-    handleResumeFarming,
-    handleSetSelectedGame,
-    handleStartFarming,
-    handleStopFarming,
-    recoverTwitchSession,
     refreshDropsData,
     reconcileQueueAvailability: progression.reconcileAvailability,
-    resumeAfterAuthRecovery,
     startMonitoring,
     stop,
     stopMonitoring,

@@ -6,6 +6,8 @@ import {
   callTelegramApi,
   formatClaimNotificationMessage,
   formatSystemEventMessage,
+  isValidBotToken,
+  isValidChatId,
   normalizeTelegramCredentials,
   TELEGRAM_HOST_PERMISSION,
   TELEGRAM_TEST_MESSAGE,
@@ -14,7 +16,6 @@ import {
   type TelegramNotifierState,
   type TelegramNotifyContext,
 } from './telegram-notification-core.ts';
-import { createTelegramNotifierSettings } from './telegram-notifier-settings.ts';
 
 export type {
   TelegramCredentials,
@@ -142,10 +143,67 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
       return { success: false, error: String(error) };
     }
   };
-  const settings = createTelegramNotifierSettings(state, options, {
-    hasPermission: hasTelegramHostPermission,
-    validateSetup,
-  });
+  const setTelegramAlertsEnabled = async (enabled: boolean, isCurrent: () => boolean = () => true) => {
+    if (!enabled) {
+      state.appState.telegramAlertsEnabled = false;
+      await options.saveState();
+      return { success: true, telegramAlertsEnabled: false };
+    }
+    const granted = await hasTelegramHostPermission();
+    if (!isCurrent())
+      return {
+        success: false,
+        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
+        error: 'Setting changed while permission was pending',
+      };
+    if (!granted) {
+      state.appState.telegramAlertsEnabled = false;
+      await options.saveState();
+      return {
+        success: false,
+        telegramAlertsEnabled: false,
+        error: 'Telegram host permission was not granted',
+      };
+    }
+    state.appState.telegramAlertsEnabled = true;
+    await options.saveState();
+    return { success: true, telegramAlertsEnabled: true };
+  };
+
+  const setTelegramCredentials = async (input: {
+    botToken?: string;
+    chatId?: string;
+    clearToken?: boolean;
+  }): Promise<{ success: boolean; configured?: boolean; chatId?: string | null; error?: string }> => {
+    const existing = await options.loadCredentials();
+    const nextToken = input.clearToken
+      ? ''
+      : typeof input.botToken === 'string' && input.botToken.trim()
+        ? input.botToken.trim()
+        : (existing?.botToken ?? '');
+    const nextChatId =
+      typeof input.chatId === 'string' && input.chatId.trim()
+        ? input.chatId.trim()
+        : (existing?.chatId ?? '');
+    if (!nextToken || !nextChatId) {
+      if (!nextToken && !nextChatId && !existing) return { success: true, configured: false, chatId: null };
+      return { success: false, error: 'Telegram bot token and chat ID are required' };
+    }
+    if (!isValidBotToken(nextToken)) return { success: false, error: 'Telegram bot token format is invalid' };
+    if (!isValidChatId(nextChatId)) return { success: false, error: 'Telegram chat ID format is invalid' };
+    const credentials = normalizeTelegramCredentials({ botToken: nextToken, chatId: nextChatId });
+    if (!credentials) return { success: false, error: 'Telegram credentials are invalid' };
+    if (!(await hasTelegramHostPermission())) {
+      return { success: false, error: 'Telegram host permission was not granted' };
+    }
+    const validation = await validateSetup(credentials);
+    if (!validation.success) {
+      return { success: false, error: validation.error ?? 'Telegram bot validation failed' };
+    }
+    await options.saveCredentials(credentials);
+    return { success: true, configured: true, chatId: credentials.chatId };
+  };
+
   return {
     hasTelegramHostPermission,
     syncPermissionState,
@@ -153,7 +211,8 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
     notifySystemEvent,
     validateSetup,
     sendTestAlert,
-    ...settings,
+    setTelegramAlertsEnabled,
+    setTelegramCredentials,
   };
 }
 

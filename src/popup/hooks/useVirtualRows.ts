@@ -27,9 +27,9 @@ export function useVirtualRows<T>(options: {
   const rowOffsets = useMemo(() => {
     const offsets = new Array<number>(rows.length + 1);
     offsets[0] = 0;
-    for (let i = 0; i < rows.length; i++) {
-      offsets[i + 1] = (offsets[i] ?? 0) + getRowHeight(rows[i]!);
-    }
+    rows.forEach((row, i) => {
+      offsets[i + 1] = (offsets[i] ?? 0) + getRowHeight(row);
+    });
     return offsets;
   }, [rows, getRowHeight]);
 

@@ -15,23 +15,23 @@ import { createInitialState } from '../src/shared/utils.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 
 describe('recovery after prolonged browser inactivity', () => {
-  test.each([3, 21])('preserves saved queue and stall evidence after %i idle days', async (idleDays) => {
+  test.each([3, 21])('preserves saved queue and stalled park after %i idle days', async (idleDays) => {
     const mocks = setupChromeMocks();
     try {
       const state = createServiceWorkerState();
       const campaign = { id: 'game', campaignId: 'saved-campaign', name: 'Saved game', imageUrl: '' };
-      const metadata = { source: 'manual' as const, addedAt: 1, reason: 'user-added' as const };
-      const block = {
-        blockedAt: 2,
-        rotationAttempts: 3,
-        eligibleStreamerNames: ['old-channel'],
-        rewardProgressByKey: { 'reward::saved-campaign': { progress: 20, currentMinutes: 12 } },
+      const metadata = {
+        source: 'manual' as const,
+        addedAt: 1,
+        reason: 'user-added' as const,
+        streamerRetryReason: 'stalled-progress' as const,
+        streamerRetryAt: 2,
+        parkedStreamerNames: ['old-channel'],
       };
       state.appState.queue = [campaign];
       state.appState.selectedGame = campaign;
       state.appState.availableGames = [campaign];
       state.appState.queueEntryMetadataByKey = { 'campaign:saved-campaign': metadata };
-      state.appState.stalledCampaignBlocksByKey = { 'campaign:saved-campaign': block };
       state.appState.manualQueueAuthorized = true;
       state.appState.farmingSessionOrigin = 'manual';
       state.appState.autoStartFavoriteGames = false;
@@ -75,7 +75,6 @@ describe('recovery after prolonged browser inactivity', () => {
         selectedGame: campaign,
         availableGames: [campaign],
         queueEntryMetadataByKey: { 'campaign:saved-campaign': metadata },
-        stalledCampaignBlocksByKey: { 'campaign:saved-campaign': block },
         manualQueueAuthorized: true,
         autoStartFavoriteGames: false,
         lastSuccessfulRefreshAt: 10,
@@ -85,7 +84,7 @@ describe('recovery after prolonged browser inactivity', () => {
       });
       expect(mocks.storage.local._store.get('appState')).toMatchObject({
         queue: [campaign],
-        stalledCampaignBlocksByKey: { 'campaign:saved-campaign': block },
+        queueEntryMetadataByKey: { 'campaign:saved-campaign': metadata },
       });
       expect(reset).toBe(true);
     } finally {

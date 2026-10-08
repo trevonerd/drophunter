@@ -1,7 +1,11 @@
 import { browser } from '../shared/browser-api.ts';
 import { replaceAvailableGames } from '../shared/game-selection.ts';
 import type { TwitchGame } from '../types/index.ts';
-import { preserveAcquiredCampaigns, rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
+import {
+  preserveAcquiredCampaigns,
+  rememberAcquiredCampaigns,
+  rememberKnownAcquiredCampaigns,
+} from './campaign-completion-evidence.ts';
 import {
   attemptAutoClaimChannelPointsBonusExt,
   recordChannelPointsBonusClaimedExt,
@@ -51,11 +55,7 @@ export function createServiceWorkerContentUtilities(
 
   async function handleUpdateGames(payload?: TwitchGame[]) {
     await dependencies.awaitInitialization();
-    rememberAcquiredCampaigns(state.appState, [
-      ...state.appState.availableGames,
-      ...state.appState.queue,
-      ...(state.appState.selectedGame ? [state.appState.selectedGame] : []),
-    ]);
+    rememberKnownAcquiredCampaigns(state.appState);
     retainCampaignExpiryEvidence(state, payload ?? []);
     state.appState.availableGames = preserveAcquiredCampaigns(
       state.appState,

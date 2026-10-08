@@ -1,33 +1,18 @@
 import { createServiceWorkerState } from '../../src/background/runtime-state.ts';
-import type { ServiceWorkerState } from '../../src/background/service-worker.ts';
+import { type ServiceWorkerState } from '../../src/background/service-worker.ts';
+import { type TwitchSession } from '../../src/background/twitch-api/types.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
 
-export * from '../../src/background/drops-projection.ts';
-export { refreshDropsData } from '../../src/background/drops-tick.ts';
-export type { ServiceWorkerState } from '../../src/background/service-worker.ts';
-export { dropMatchesGame } from '../../src/shared/game-selection.ts';
-export { createInitialState } from '../../src/shared/utils.ts';
-export type { TwitchDrop, TwitchGame } from '../../src/types/index.ts';
-
-export function makeState(overrides = {}) {
-  const appState = {
-    ...createInitialState(),
-    selectedGame: null,
-    allDrops: [],
-    pendingDrops: [],
-    completedDrops: [],
-    currentDrop: null,
-    availableGames: [],
-  };
+export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}): ServiceWorkerState {
   return {
     ...createServiceWorkerState(),
-    appState,
+    appState: createInitialState(),
     monitorTickInFlight: false,
     invalidStreamChecks: 0,
     lastStreamRotationAt: 0,
     streamValidationGraceUntil: 0,
-    lastTrackedProgress: -1,
-    lastTrackedMinutes: -1,
+    lastTrackedProgress: 0,
+    lastTrackedMinutes: 0,
     lastTrackedDropKey: null,
     lastProgressAdvanceAt: 0,
     noProgressRotationAttempts: 0,
@@ -39,7 +24,7 @@ export function makeState(overrides = {}) {
     cachedCampaignChannelsMap: {},
     lastFullRefreshAt: 0,
     dropClaimInFlight: false,
-    dropClaimRetryById: new Map(),
+    dropClaimRetryAtById: new Map(),
     lastActivityAt: 0,
     apiConsecutiveFailures: 0,
     apiBackoffUntil: 0,
@@ -49,7 +34,17 @@ export function makeState(overrides = {}) {
     lastRecoveryAttemptAt: 0,
     stalledRecoveryAttempts: 0,
     lastGamesCacheRefreshAt: 0,
-    unverifiableRewardsByKey: {},
     ...overrides,
-  } as ServiceWorkerState;
+  };
+}
+
+export function validSession(overrides: Partial<TwitchSession> = {}): TwitchSession {
+  return {
+    oauthToken: 'oauth12345678901234567890',
+    userId: '12345678',
+    deviceId: 'device-abc-12345678901234567',
+    uuid: 'abc12345',
+    clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+    ...overrides,
+  };
 }

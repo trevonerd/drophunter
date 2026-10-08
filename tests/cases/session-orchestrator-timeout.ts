@@ -30,15 +30,12 @@ test('auth timeout prevents a late open-tab read from creating a Drops tab', asy
         },
       },
       sanitizeTwitchSession: () => null,
-      sessionDebugSummary: () => ({}),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
       discardPersistedTwitchSessionIfMatches: async () => {},
       validateRecoveredTwitchSession: async () => true,
       getSessionRevision: () => 0,
       authRecoveryTimeoutMs: 25,
-      logDebug: () => {},
-      logWarn: () => {},
     },
   );
 
@@ -79,7 +76,6 @@ test('auth timeout closes an owned Drops tab when readiness never completes', as
         },
       },
       sanitizeTwitchSession: () => null,
-      sessionDebugSummary: () => ({}),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
       discardPersistedTwitchSessionIfMatches: async () => {},
@@ -90,8 +86,6 @@ test('auth timeout closes an owned Drops tab when readiness never completes', as
         return never;
       },
       authRecoveryTimeoutMs: 1,
-      logDebug: () => {},
-      logWarn: () => {},
     },
   );
 

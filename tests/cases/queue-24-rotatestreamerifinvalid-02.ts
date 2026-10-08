@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { StalledProgressSource } from '../../src/background/stalled-progress-recovery.ts';
 import type { StreamRotationReason } from '../../src/background/stream-rotation.ts';
 import { rotateStreamerIfInvalid } from '../../src/background/streamer-acquisition.ts';
-import type { RotateStreamerIfInvalidOptions } from '../../src/background/streamer-acquisition-contracts.ts';
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
+import { rotateIfInvalidOptions } from '../support/rotate-streamer-if-invalid-options.ts';
 
 export function registerQueue24Part02() {
   describe('rotateStreamerIfInvalid', () => {
@@ -39,15 +40,14 @@ export function registerQueue24Part02() {
       };
 
       const observed = { rotateReason: null as StreamRotationReason | null };
-      const opts: RotateStreamerIfInvalidOptions = {
+      const opts = rotateIfInvalidOptions({
         onFetchStreamContext: async () => offlineContext,
         onResolveCategorySlug: async () => 'test-game',
-        onForceRefreshDropsData: async () => 'refreshed',
         onRotateStreamer: async (_, reason) => {
           observed.rotateReason = reason;
           return true;
         },
-      };
+      });
 
       // First offline reading is not enough — a single one is usually a transient ad break.
       await rotateStreamerIfInvalid(state, opts);
@@ -80,15 +80,14 @@ export function registerQueue24Part02() {
 
       let isLive = false;
       const observed = { rotateReason: null as StreamRotationReason | null };
-      const opts: RotateStreamerIfInvalidOptions = {
+      const opts = rotateIfInvalidOptions({
         onFetchStreamContext: async () => ({ ...baseContext, isLive }),
         onResolveCategorySlug: async () => 'test-game',
-        onForceRefreshDropsData: async () => 'refreshed',
         onRotateStreamer: async (_, reason) => {
           observed.rotateReason = reason;
           return true;
         },
-      };
+      });
 
       await rotateStreamerIfInvalid(state, opts); // offline #1 -> defer
       expect(state.offlineChecks).toBe(1);
@@ -111,27 +110,22 @@ export function registerQueue24Part02() {
       state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
-
-      let attemptSelfHealCalled = false;
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => ({
-          channelName: 'streamer',
-          categorySlug: 'test-game',
-          categoryLabel: 'Test Game',
-          streamTitle: 'Stream Title',
-          titleContainsDrops: true,
-          hasDropsSignal: true,
-          isLive: true,
-          pageUrl: 'https://twitch.tv/streamer',
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => ({
+            channelName: 'streamer',
+            categorySlug: 'test-game',
+            categoryLabel: 'Test Game',
+            streamTitle: 'Stream Title',
+            titleContainsDrops: true,
+            hasDropsSignal: true,
+            isLive: true,
+            pageUrl: 'https://twitch.tv/streamer',
+          }),
+          onResolveCategorySlug: async () => 'test-game',
         }),
-        onResolveCategorySlug: async () => 'test-game',
-        onForceRefreshDropsData: async () => 'refreshed',
-        onAttemptPlaybackSelfHeal: async () => {
-          attemptSelfHealCalled = true;
-        },
-      });
-
-      expect(attemptSelfHealCalled).toBe(false);
+      );
       expect(state.stalledRecoveryAttempts).toBe(0);
       expect(state.appState.recoveryReason).toBeNull();
       expect(state.appState.recoveryAttempts).toBeNull();
@@ -145,38 +139,33 @@ export function registerQueue24Part02() {
       state.lastProgressAdvanceAt = Date.now() - 8 * 60 * 1000;
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
-
-      let attemptSelfHealCalled = false;
       const observed = { rotateReason: null as StreamRotationReason | null };
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => ({
-          channelName: 'streamer',
-          categorySlug: 'test-game',
-          categoryLabel: 'Test Game',
-          streamTitle: 'Stream Title',
-          titleContainsDrops: true,
-          hasDropsSignal: true,
-          isLive: true,
-          pageUrl: 'https://twitch.tv/streamer',
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => ({
+            channelName: 'streamer',
+            categorySlug: 'test-game',
+            categoryLabel: 'Test Game',
+            streamTitle: 'Stream Title',
+            titleContainsDrops: true,
+            hasDropsSignal: true,
+            isLive: true,
+            pageUrl: 'https://twitch.tv/streamer',
+          }),
+          onResolveCategorySlug: async () => 'test-game',
+          onRotateStreamer: async (_, reason) => {
+            observed.rotateReason = reason;
+            return true;
+          },
         }),
-        onResolveCategorySlug: async () => 'test-game',
-        onForceRefreshDropsData: async () => 'refreshed',
-        onAttemptPlaybackSelfHeal: async () => {
-          attemptSelfHealCalled = true;
-        },
-        onRotateStreamer: async (_, reason) => {
-          observed.rotateReason = reason;
-          return true;
-        },
-      });
-
-      expect(attemptSelfHealCalled).toBe(false);
+      );
       expect(observed.rotateReason).toBeNull();
       expect(state.stalledRecoveryAttempts).toBe(0);
       expect(state.appState.recoveryReason).toBeNull();
     });
 
-    test('rotates with a bounded stalled attempt count when past recovery backoff', async () => {
+    test('delegates a stall past recovery backoff to stalled-progress recovery', async () => {
       const state = createMinimalState();
       state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
       state.appState.tabId = 123;
@@ -189,34 +178,41 @@ export function registerQueue24Part02() {
       state.appState.recoveryBackoffUntil = Date.now() - 60 * 1000;
       state.appState.recoveryReason = 'stalled-progress';
 
+      const stallSources: StalledProgressSource[] = [];
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       const observed = { rotateReason: null as StreamRotationReason | null };
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => ({
-          channelName: 'streamer',
-          categorySlug: 'test-game',
-          categoryLabel: 'Test Game',
-          streamTitle: 'Stream Title',
-          titleContainsDrops: true,
-          hasDropsSignal: true,
-          isLive: true,
-          pageUrl: 'https://twitch.tv/streamer',
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => ({
+            channelName: 'streamer',
+            categorySlug: 'test-game',
+            categoryLabel: 'Test Game',
+            streamTitle: 'Stream Title',
+            titleContainsDrops: true,
+            hasDropsSignal: true,
+            isLive: true,
+            pageUrl: 'https://twitch.tv/streamer',
+          }),
+          onResolveCategorySlug: async () => 'test-game',
+          onRecoverStalledProgress: async (source) => {
+            stallSources.push(source);
+            return { kind: 'recovered' };
+          },
+          onRotateStreamer: async (_, reason) => {
+            observed.rotateReason = reason;
+            return true;
+          },
         }),
-        onResolveCategorySlug: async () => 'test-game',
-        onForceRefreshDropsData: async () => 'refreshed',
-        onRotateStreamer: async (_, reason) => {
-          observed.rotateReason = reason;
-          return true;
-        },
-      });
+      );
 
-      expect(observed.rotateReason).toBe('stalled-progress');
+      expect(observed.rotateReason).toBeNull();
       expect(state.stalledRecoveryAttempts).toBe(2);
       expect(state.appState.recoveryAttempts).toBeNull();
+      expect(stallSources).toEqual([{ kind: 'managed-tab', tabId: 123 }]);
     });
-
-    test('rotates on the second stall even when a rotation happened within the cooldown window', async () => {
+    test('delegates a repeated stall within the rotation cooldown to stalled-progress recovery', async () => {
       const state = createMinimalState();
       state.appState.selectedGame = createGame({ name: 'Test Game', categorySlug: 'test-game' });
       state.appState.tabId = 123;
@@ -226,35 +222,37 @@ export function registerQueue24Part02() {
       state.stalledRecoveryAttempts = 1;
       state.lastStreamRotationAt = Date.now();
 
+      const stallSources: StalledProgressSource[] = [];
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       const observed = { rotateReason: null as StreamRotationReason | null };
-      let selfHealCalled = false;
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => ({
-          channelName: 'streamer',
-          categorySlug: 'test-game',
-          categoryLabel: 'Test Game',
-          streamTitle: 'Stream Title',
-          titleContainsDrops: true,
-          hasDropsSignal: true,
-          isLive: true,
-          pageUrl: 'https://twitch.tv/streamer',
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => ({
+            channelName: 'streamer',
+            categorySlug: 'test-game',
+            categoryLabel: 'Test Game',
+            streamTitle: 'Stream Title',
+            titleContainsDrops: true,
+            hasDropsSignal: true,
+            isLive: true,
+            pageUrl: 'https://twitch.tv/streamer',
+          }),
+          onResolveCategorySlug: async () => 'test-game',
+          onRecoverStalledProgress: async (source) => {
+            stallSources.push(source);
+            return { kind: 'recovered' };
+          },
+          onRotateStreamer: async (_, reason) => {
+            observed.rotateReason = reason;
+            return true;
+          },
         }),
-        onResolveCategorySlug: async () => 'test-game',
-        onForceRefreshDropsData: async () => 'refreshed',
-        onAttemptPlaybackSelfHeal: async () => {
-          selfHealCalled = true;
-        },
-        onRotateStreamer: async (_, reason) => {
-          observed.rotateReason = reason;
-          return true;
-        },
-      });
-
-      expect(selfHealCalled).toBe(false);
-      expect(observed.rotateReason).toBe('stalled-progress');
+      );
+      expect(observed.rotateReason).toBeNull();
       expect(state.stalledRecoveryAttempts).toBe(1);
+      expect(stallSources).toEqual([{ kind: 'managed-tab', tabId: 123 }]);
     });
   });
 }

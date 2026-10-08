@@ -906,14 +906,6 @@ test('queued Play cancels safely when account binding clears previous account ca
     };
     state.appState.availableGames = [incumbent, queued];
     state.appState.acquiredCampaignIds = ['incumbent-campaign'];
-    state.appState.stalledCampaignBlocksByKey = {
-      [gameKey(incumbent)]: {
-        blockedAt: 1,
-        rotationAttempts: 1,
-        eligibleStreamerNames: [],
-        rewardProgressByKey: {},
-      },
-    };
     state.appState.campaignEvidenceUserId = 'old-account';
     state.twitchSessionCache = null;
     const fresh: DropsSnapshot = {
@@ -964,7 +956,6 @@ test('queued Play cancels safely when account binding clears previous account ca
       'incumbent-campaign',
     ]);
     expect(state.appState.acquiredCampaignIds).toEqual([]);
-    expect(state.appState.stalledCampaignBlocksByKey).toEqual({});
   } finally {
     setTimingSaveDebounceMsForTests(null);
     mocks.teardown();

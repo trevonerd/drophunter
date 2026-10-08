@@ -1,6 +1,5 @@
 import { gameKey } from '../shared/game-selection.ts';
 import { recordCampaignFailure } from './campaign-failure-episodes.ts';
-import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
 import type { FarmingSessionContext } from './farming-session-context.ts';
 import { currentFarmingSessionEpoch, isFarmingSessionEpochCurrent } from './farming-session-revision.ts';
 import { applyNoStreamersRecoveryState, applyStopState } from './recovery-state.ts';
@@ -10,11 +9,17 @@ import {
   isAutomaticFavoriteSession,
   prepareNextEligibleQueueHead,
 } from './session-lifecycle-queue-selection.ts';
-import type { QueueSkipReason, StopFarmingSessionRequest } from './session-lifecycle-types.ts';
+import type {
+  QueueProgressionExecution,
+  QueueSkipReason,
+  StopFarmingSessionRequest,
+} from './session-lifecycle-types.ts';
 
 export type QueueAvailabilityEvidence = {
   readonly eligibleCampaignKeys: ReadonlySet<string>;
   readonly rehabilitatedCampaignKeys: ReadonlySet<string>;
+  /** Live streamers to remember for stalled parks that have no baseline yet. */
+  readonly stallBaselines: ReadonlyMap<string, readonly string[]>;
 };
 
 export type FarmingQueueProgression = {
@@ -155,12 +160,9 @@ export function createFarmingQueueProgression(
       });
     },
     reconcileAvailability(evidence, observedAt) {
-      if (evidence.rehabilitatedCampaignKeys.size > 0) {
-        state.appState.stalledCampaignBlocksByKey = Object.fromEntries(
-          Object.entries(state.appState.stalledCampaignBlocksByKey).filter(
-            ([key]) => !evidence.rehabilitatedCampaignKeys.has(key),
-          ),
-        );
+      for (const [key, parkedStreamerNames] of evidence.stallBaselines) {
+        const metadata = state.appState.queueEntryMetadataByKey[key];
+        if (metadata) state.appState.queueEntryMetadataByKey[key] = { ...metadata, parkedStreamerNames };
       }
       const readyKeys = new Set<string>();
       for (const game of state.appState.queue) {
@@ -172,7 +174,7 @@ export function createFarmingQueueProgression(
           (metadata.streamerWaitState !== 'availability' && !evidence.rehabilitatedCampaignKeys.has(key))
         )
           continue;
-        const { streamerWaitState: _wait, ...ready } = metadata;
+        const { streamerWaitState: _wait, parkedStreamerNames: _parked, ...ready } = metadata;
         state.appState.queueEntryMetadataByKey[key] = { ...ready, streamerRetryAt: observedAt };
         readyKeys.add(key);
       }

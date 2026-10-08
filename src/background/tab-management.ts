@@ -17,14 +17,6 @@ export async function applyBestEffortAlwaysOnTop(windowId: number) {
   }
 }
 
-export async function createManagedTab(
-  url: string,
-  active = false,
-  allowInitialCreation = false,
-): Promise<Browser.tabs.Tab | null> {
-  return openSelectionTab(null, url, active, allowInitialCreation);
-}
-
 async function openSelectionTab(
   existingTabId: number | null,
   targetUrl: string,

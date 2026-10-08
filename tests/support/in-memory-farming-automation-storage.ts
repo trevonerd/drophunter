@@ -1,13 +1,4 @@
-import { browser } from '../shared/browser-api.ts';
-import type { FarmingAutomationStorageArea } from './farming-automation-contracts.ts';
-
-export function chromeStorageArea(scope: 'local' | 'session'): FarmingAutomationStorageArea {
-  return {
-    get: (keys) => browser.storage[scope].get([...keys]),
-    set: (values) => browser.storage[scope].set(values),
-    remove: (keys) => browser.storage[scope].remove([...keys]),
-  };
-}
+import type { FarmingAutomationStorageArea } from '../../src/background/farming-automation-contracts.ts';
 
 export class InMemoryFarmingAutomationStorage {
   readonly local: FarmingAutomationStorageArea;

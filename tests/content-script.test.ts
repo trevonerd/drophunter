@@ -1,11 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { needsPlaybackAttention } from '../src/background/playback.ts';
-import {
-  canAttemptPageUnmute,
-  isExpectedTwitchPlaybackInterruption,
-  startMutedPlayback,
-} from '../src/content/playback.ts';
+import { isExpectedTwitchPlaybackInterruption, startMutedPlayback } from '../src/content/playback.ts';
 
 function normalizeText(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -288,24 +283,6 @@ describe('playback prep policy', () => {
 
     expect(await startMutedPlayback(video)).toEqual({ played: false, error: failure });
     expect(video.muted).toBe(true);
-  });
-
-  test('does not attempt page unmute without real user activation', () => {
-    expect(canAttemptPageUnmute(false)).toBe(false);
-  });
-
-  test('allows page unmute after real user activation', () => {
-    expect(canAttemptPageUnmute(true)).toBe(true);
-  });
-
-  test('treats muted-but-playing playback as ready enough for farming', () => {
-    expect(needsPlaybackAttention({ isPlaybackReady: true, userInteractionRequired: true })).toBe(false);
-  });
-
-  test('requests attention only for an explicit browser gesture requirement', () => {
-    expect(needsPlaybackAttention({ isPlaybackReady: false, userInteractionRequired: true })).toBe(true);
-    expect(needsPlaybackAttention({ isPlaybackReady: false, userInteractionRequired: false })).toBe(false);
-    expect(needsPlaybackAttention(null)).toBe(false);
   });
 
   test('treats Twitch video replacement playback aborts as expected noise', () => {

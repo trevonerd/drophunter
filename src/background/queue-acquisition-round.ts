@@ -1,7 +1,6 @@
 import { gameKey } from '../shared/game-selection.ts';
 import type { TwitchGame } from '../types/index.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import { clearCampaignStallBlock } from './stalled-campaign-block.ts';
 
 function resetStalledHistoriesForRound(state: ServiceWorkerState, candidates: readonly TwitchGame[]): void {
   for (const game of candidates) {
@@ -18,10 +17,6 @@ function resetStalledHistoriesForRound(state: ServiceWorkerState, candidates: re
       } = metadata;
       state.appState.queueEntryMetadataByKey[key] = retained;
     }
-    state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
-      state.appState.stalledCampaignBlocksByKey,
-      game,
-    );
   }
 }
 

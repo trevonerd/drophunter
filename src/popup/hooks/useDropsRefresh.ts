@@ -1,4 +1,3 @@
-// Extracted from src/popup/App.tsx (Drops page refresh + stale auto-refresh).
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useState } from 'react';
 import { loadStoredAppState } from '../../shared/app-state-sync';
 import { sendRuntimeMessage } from '../../shared/messages';

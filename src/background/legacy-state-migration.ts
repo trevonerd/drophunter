@@ -1,10 +1,7 @@
+import { isRecord } from '../shared/app-state-normalization-values.ts';
 import { normalizeStoredAppState } from '../shared/app-state-sync.ts';
 import { createInitialState } from '../shared/utils.ts';
 import type { AppState } from '../types/index.ts';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function validBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;

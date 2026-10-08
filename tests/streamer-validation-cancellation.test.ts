@@ -3,6 +3,7 @@ import { invalidateFarmingSessionEpoch } from '../src/background/farming-session
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { rotateStreamerIfInvalid } from '../src/background/streamer-validation.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
+import { rotateIfInvalidOptions } from './support/rotate-streamer-if-invalid-options.ts';
 
 describe('streamer validation cancellation', () => {
   for (const action of ['stop', 'restart', 'selection'] as const) {
@@ -37,29 +38,32 @@ describe('streamer validation cancellation', () => {
             return { id, url: 'https://www.twitch.tv/channel-a', windowId: 1, status: 'complete' };
           };
           const effects: string[] = [];
-          const pending = rotateStreamerIfInvalid(state, {
-            onFetchStreamContext: async () => {
-              await waitAt('context');
-              return {
-                channelName: 'channel-a',
-                categorySlug: 'wrong-game',
-                categoryLabel: 'Wrong game',
-                streamTitle: 'Drops',
-                titleContainsDrops: true,
-                hasDropsSignal: true,
-                isLive: true,
-                pageUrl: 'https://www.twitch.tv/channel-a',
-              };
-            },
-            onResolveCategorySlug: async () => {
-              await waitAt('category');
-              return 'game-a';
-            },
-            onRotateStreamer: async () => {
-              effects.push('rotate');
-              return true;
-            },
-          });
+          const pending = rotateStreamerIfInvalid(
+            state,
+            rotateIfInvalidOptions({
+              onFetchStreamContext: async () => {
+                await waitAt('context');
+                return {
+                  channelName: 'channel-a',
+                  categorySlug: 'wrong-game',
+                  categoryLabel: 'Wrong game',
+                  streamTitle: 'Drops',
+                  titleContainsDrops: true,
+                  hasDropsSignal: true,
+                  isLive: true,
+                  pageUrl: 'https://www.twitch.tv/channel-a',
+                };
+              },
+              onResolveCategorySlug: async () => {
+                await waitAt('category');
+                return 'game-a';
+              },
+              onRotateStreamer: async () => {
+                effects.push('rotate');
+                return true;
+              },
+            }),
+          );
           await entered;
           if (action !== 'selection') invalidateFarmingSessionEpoch(state);
           state.appState.isRunning = action !== 'stop';

@@ -3,7 +3,6 @@ import { applyRecoveryStatus } from '../shared/runtime-status.ts';
 import { isExpiredGame } from '../shared/utils.ts';
 import type { QueueEntryMetadata, TwitchGame } from '../types/index.ts';
 import { expiryTime } from './campaign-priority.ts';
-import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
 import { unresolvedFarmingTargets } from './farming-session-targets.ts';
 import { markQueueCampaignAttempted, QUEUE_ROUND_RETRY_MS } from './queue-acquisition-round.ts';
 import {
@@ -15,6 +14,7 @@ import type { ServiceWorkerState } from './runtime-state.ts';
 import { hasCompletedCampaignWatchTime } from './session-lifecycle-completion.ts';
 import { parkCampaignAtQueueTail } from './session-lifecycle-queue-selection.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
+import type { QueueProgressionExecution } from './session-lifecycle-types.ts';
 
 export function parkCampaignForStreamerRetry(
   state: ServiceWorkerState,
@@ -38,6 +38,8 @@ export function parkCampaignForStreamerRetry(
     streamerRetryAt: now + QUEUE_ROUND_RETRY_MS,
     streamerRetryReason: reason,
     streamerWaitState: reason === 'no-streamers' ? 'availability' : undefined,
+    // Each park observes its own baseline of already-live streamers.
+    parkedStreamerNames: undefined,
   };
 }
 
@@ -46,7 +48,7 @@ export async function waitForParkedQueue(
   restrictUnauthorizedManualContinuation: boolean,
   options: QueueProgressionExecution,
 ): Promise<boolean> {
-  if (options?.isCurrent?.() === false) return false;
+  if (options.isCurrent() === false) return false;
   const now = options.now();
   const parked = state.appState.queue
     .filter((game) => {
@@ -80,7 +82,7 @@ export async function waitForParkedQueue(
   };
   if (retryAt <= now) return false;
   resetStreamTrackingState(state);
-  await options.onSuspendTransport?.();
+  await options.onSuspendTransport();
   if (!options.isCurrent()) return true;
   state.appState.selectedGame = next;
   state.appState.isRunning = true;
@@ -98,8 +100,8 @@ export async function waitForParkedQueue(
     state.recoveryBackoffUntil = retryAt;
     state.appState = applyRecoveryStatus(state.appState, { reason: 'rewards-pending', retryAt, attempts: 0 });
   } else applyRecovery(state, retryAt, 0);
-  await options?.onSaveState?.();
-  if (options?.isCurrent?.() === false) return true;
-  await options?.onSaveTimingState?.(state);
+  await options.onSaveState();
+  if (options.isCurrent() === false) return true;
+  await options.onSaveTimingState(state);
   return true;
 }

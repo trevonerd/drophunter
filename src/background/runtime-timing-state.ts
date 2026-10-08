@@ -1,3 +1,4 @@
+import { isRecord } from '../shared/app-state-normalization-values.ts';
 import { parseUnverifiableRewardKey } from './unverifiable-reward-key.ts';
 
 export interface UnverifiableRewardMarker {
@@ -68,10 +69,6 @@ export function createInitialTimingState(): TimingState {
 
 function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function isRecord(input: unknown): input is Record<string, unknown> {
-  return typeof input === 'object' && input !== null && !Array.isArray(input);
 }
 
 function isUnverifiableRewardMarker(input: unknown): input is UnverifiableRewardMarker {

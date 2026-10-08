@@ -1,19 +1,15 @@
 import { gameKey } from '../shared/game-selection.ts';
+import type { StreamContext } from './farming-session-context.ts';
 import { logDebug, logInfo } from './logging.ts';
 import { clearRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { OFFLINE_CONFIRMATION_CHECKS } from './stream-rotation.ts';
-import {
-  type RotateStreamerIfInvalidOptions,
-  rotateStreamerOptsFrom,
-  type StreamContext,
-} from './streamer-acquisition-contracts.ts';
-import { MAX_STREAMER_ATTEMPTS } from './streamer-watch-attempt.ts';
+import type { RotateStreamerFn, RotateStreamerOptions } from './streamer-acquisition-contracts.ts';
 
 export async function handleOfflineStream(
   state: ServiceWorkerState,
   context: Pick<StreamContext, 'channelName' | 'pageUrl'>,
-  opts: RotateStreamerIfInvalidOptions | undefined,
+  opts: RotateStreamerOptions & { readonly onRotateStreamer: RotateStreamerFn },
   now: number,
 ): Promise<void> {
   state.offlineChecks += 1;
@@ -51,48 +47,14 @@ export async function handleOfflineStream(
     };
   }
   state.avoidStreamerName = channel;
-  await opts?.onSaveState?.();
-  if (opts?.isCurrent?.() === false) return;
-  await opts?.onSaveTimingState?.(state);
-  if (opts?.isCurrent?.() === false) return;
+  await opts.onSaveState?.();
+  if (opts.isCurrent?.() === false) return;
+  await opts.onSaveTimingState?.(state);
+  if (opts.isCurrent?.() === false) return;
   state.invalidStreamChecks = 0;
   logInfo('Offline stream detected, rotating immediately', {
     channel: state.appState.activeStreamer?.name ?? context.channelName,
     pageUrl: context.pageUrl,
   });
-  await opts?.onRotateStreamer?.(state, 'offline', rotateStreamerOptsFrom(opts));
-}
-
-export async function handleStalledProgress(
-  state: ServiceWorkerState,
-  _tab: { id?: number },
-  opts: RotateStreamerIfInvalidOptions | undefined,
-  _now: number,
-  _stallThreshold: number,
-): Promise<void> {
-  if (opts?.isCurrent?.() === false) return;
-  const previousDrop = state.appState.currentDrop;
-  // Production callers use the common recovery controller. This leaf path
-  // still requires fresh inventory proof before treating a stall as confirmed.
-  if ((await opts?.onForceRefreshDropsData?.(opts.isCurrent)) !== 'refreshed') return;
-  if (opts?.isCurrent?.() === false || !state.appState.currentDrop) return;
-  const currentDrop = state.appState.currentDrop;
-  if (
-    previousDrop &&
-    currentDrop.id === previousDrop.id &&
-    currentDrop.campaignId === previousDrop.campaignId &&
-    (currentDrop.progress > previousDrop.progress ||
-      (currentDrop.currentMinutes ?? -1) > (previousDrop.currentMinutes ?? -1))
-  )
-    return;
-  const game = state.appState.selectedGame;
-  if (
-    game &&
-    (state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames?.length ?? 0) >=
-      MAX_STREAMER_ATTEMPTS
-  ) {
-    await opts?.onSkipCurrentGame?.();
-    return;
-  }
-  await opts?.onRotateStreamer?.(state, 'stalled-progress', rotateStreamerOptsFrom(opts));
+  await opts.onRotateStreamer(state, 'offline', opts);
 }

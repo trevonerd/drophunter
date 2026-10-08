@@ -280,7 +280,7 @@ export function replaceAvailableGames(incoming: TwitchGame[]): TwitchGame[] {
           game.displayName.trim().length > 0 &&
           game.displayName.trim() !== game.name,
       )
-      .map((game) => [gameKey(game), game.displayName!.trim()]),
+      .map((game) => [gameKey(game), game.displayName?.trim() ?? '']),
   );
 
   return applyGameDisplayNames(orderedGames).map((game) => ({

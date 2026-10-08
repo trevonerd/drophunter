@@ -15,6 +15,16 @@ export const watchTransportGame: TwitchGame = {
   rewardSummary: { completion: 'farmable', remainderReasons: [] },
 };
 
+/** Same as `watchTransportGame` without `dropCount`. */
+export const farmableSessionGame: TwitchGame = {
+  id: 'game-1',
+  name: 'Game',
+  imageUrl: '',
+  campaignId: 'campaign-1',
+  categorySlug: 'game',
+  rewardSummary: { completion: 'farmable', remainderReasons: [] },
+};
+
 export const watchTransportStreamer: TwitchStreamer = {
   id: 'channel-1',
   name: 'channel-1',
@@ -43,10 +53,10 @@ export function createWatchTransportDrop(game: TwitchGame, id = 'drop-1'): Twitc
   };
 }
 
-export function createWatchTransportState() {
+export function createWatchTransportState(game: TwitchGame = watchTransportGame) {
   const state = createServiceWorkerState();
-  const drop = createWatchTransportDrop(watchTransportGame);
-  state.appState.availableGames = [watchTransportGame];
+  const drop = createWatchTransportDrop(game);
+  state.appState.availableGames = [game];
   state.appState.allDrops = [drop];
   state.appState.pendingDrops = [drop];
   state.appState.currentDrop = drop;

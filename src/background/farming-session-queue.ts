@@ -108,46 +108,7 @@ export function createFarmingSessionQueue(
     );
   }
 
-  function handleSetSelectedGame(payload: { readonly game: TwitchGame }) {
-    return runFarmingSessionMutation(state, () => selectGame(payload));
-  }
-
-  async function addQueueEntry(payload: { readonly game?: TwitchGame }) {
-    return addToQueue(
-      state,
-      payload,
-      { onTrackActivity: adapters.trackActivity, onSaveState: adapters.saveState },
-      { resolveGameFromState, evaluateDropsForGame, getGameDisplayLabel },
-    );
-  }
-
-  function handleAddToQueue(payload: { readonly game?: TwitchGame }) {
-    return runFarmingSessionMutation(state, () => addQueueEntry(payload));
-  }
-
-  async function removeQueueEntry(payload: RemoveQueuePayload) {
-    return removeFromQueue(
-      state,
-      payload,
-      { onTrackActivity: adapters.trackActivity, onSaveState: adapters.saveState },
-      { removeGameFromQueue, sameCampaignId },
-    );
-  }
-
-  function handleRemoveFromQueue(payload: RemoveQueuePayload) {
-    return runFarmingSessionMutation(state, () => removeQueueEntry(payload));
-  }
-
-  async function reorderQueueEntries(payload: { readonly fromIndex?: number; readonly toIndex?: number }) {
-    return reorderQueue(state, payload, {
-      onTrackActivity: adapters.trackActivity,
-      onSaveState: adapters.saveState,
-    });
-  }
-
-  function handleReorderQueue(payload: { readonly fromIndex?: number; readonly toIndex?: number }) {
-    return runFarmingSessionMutation(state, () => reorderQueueEntries(payload));
-  }
+  const persistence = { onTrackActivity: adapters.trackActivity, onSaveState: adapters.saveState };
 
   async function clearQueue(): Promise<{ readonly success: true; readonly queueLength: number }> {
     const epoch = currentFarmingSessionEpoch(state);
@@ -170,15 +131,22 @@ export function createFarmingSessionQueue(
     return { success: true, queueLength: 0 };
   }
 
-  function handleClearQueue() {
-    return runFarmingSessionMutation(state, clearQueue);
-  }
-
   return {
-    handleAddToQueue,
-    handleClearQueue,
-    handleRemoveFromQueue,
-    handleReorderQueue,
-    handleSetSelectedGame,
+    handleAddToQueue: (payload) =>
+      runFarmingSessionMutation(state, () =>
+        addToQueue(state, payload, persistence, {
+          resolveGameFromState,
+          evaluateDropsForGame,
+          getGameDisplayLabel,
+        }),
+      ),
+    handleClearQueue: () => runFarmingSessionMutation(state, clearQueue),
+    handleRemoveFromQueue: (payload) =>
+      runFarmingSessionMutation(state, () =>
+        removeFromQueue(state, payload, persistence, { removeGameFromQueue, sameCampaignId }),
+      ),
+    handleReorderQueue: (payload) =>
+      runFarmingSessionMutation(state, () => reorderQueue(state, payload, persistence)),
+    handleSetSelectedGame: (payload) => runFarmingSessionMutation(state, () => selectGame(payload)),
   };
 }

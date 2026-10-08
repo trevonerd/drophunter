@@ -5,6 +5,7 @@ import { rotateStreamerIfInvalid } from '../../src/background/streamer-acquisiti
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
+import { rotateIfInvalidOptions } from '../support/rotate-streamer-if-invalid-options.ts';
 
 export function registerQueue24Part04() {
   describe('rotateStreamerIfInvalid', () => {
@@ -30,23 +31,26 @@ export function registerQueue24Part04() {
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       let rotateReason: StreamRotationReason | null = null;
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => ({
-          channelName: 'streamer',
-          categorySlug: 'other-game',
-          categoryLabel: 'Other Game',
-          streamTitle: 'Stream Title',
-          titleContainsDrops: false,
-          hasDropsSignal: false,
-          isLive: true,
-          pageUrl: 'https://twitch.tv/streamer',
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => ({
+            channelName: 'streamer',
+            categorySlug: 'other-game',
+            categoryLabel: 'Other Game',
+            streamTitle: 'Stream Title',
+            titleContainsDrops: false,
+            hasDropsSignal: false,
+            isLive: true,
+            pageUrl: 'https://twitch.tv/streamer',
+          }),
+          onResolveCategorySlug: async () => 'test-game',
+          onRotateStreamer: async (_, reason) => {
+            rotateReason = reason;
+            return true;
+          },
         }),
-        onResolveCategorySlug: async () => 'test-game',
-        onRotateStreamer: async (_, reason) => {
-          rotateReason = reason;
-          return true;
-        },
-      });
+      );
 
       expect(rotateReason).toBeNull();
       expect(state.invalidStreamChecks).toBe(0);
@@ -65,20 +69,23 @@ export function registerQueue24Part04() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => ({
-          channelName: 'streamer',
-          categorySlug: 'test-game',
-          categoryLabel: 'Test Game',
-          streamTitle: 'Stream Title',
-          titleContainsDrops: true,
-          hasDropsSignal: true,
-          isLive: false,
-          pageUrl: 'https://twitch.tv/streamer',
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => ({
+            channelName: 'streamer',
+            categorySlug: 'test-game',
+            categoryLabel: 'Test Game',
+            streamTitle: 'Stream Title',
+            titleContainsDrops: true,
+            hasDropsSignal: true,
+            isLive: false,
+            pageUrl: 'https://twitch.tv/streamer',
+          }),
+          onResolveCategorySlug: async () => 'test-game',
+          onRotateStreamer: async () => false,
         }),
-        onResolveCategorySlug: async () => 'test-game',
-        onRotateStreamer: async () => false,
-      });
+      );
 
       expect(state.appState.recoveryReason).toBeNull();
       expect(state.stalledRecoveryAttempts).toBe(0);

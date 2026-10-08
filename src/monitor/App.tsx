@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useState } from 'react';
+import { useRecoveryClock } from '../popup/hooks/useRecoveryClock';
 import { loadStoredAppState, subscribeToAppState } from '../shared/app-state-sync';
 import {
   deriveRuntimeMode,
@@ -170,7 +171,6 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: M
 function App() {
   const [state, setState] = useState<AppState>(createInitialState);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
-  const [recoveryNow, setRecoveryNow] = useState(Date.now());
   const [contextNow, setContextNow] = useState(Date.now());
 
   useEffect(() => {
@@ -189,14 +189,7 @@ function App() {
   }, []);
 
   const runtimeMode = deriveRuntimeMode(state);
-  useEffect(() => {
-    if (runtimeMode !== 'recovering') {
-      return;
-    }
-    setRecoveryNow(Date.now());
-    const timer = window.setInterval(() => setRecoveryNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [runtimeMode]);
+  const recoveryNow = useRecoveryClock(runtimeMode);
 
   useEffect(() => {
     const now = Date.now();

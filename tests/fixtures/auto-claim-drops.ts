@@ -65,7 +65,6 @@ export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}):
     lastTrackedDropKey: null,
     lastProgressAdvanceAt: 0,
     noProgressRotationAttempts: 0,
-    gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,
     twitchSessionFetchInFlight: null,
     twitchSessionLastAttemptAt: 0,

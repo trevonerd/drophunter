@@ -2,7 +2,6 @@ import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import { gameKey } from '../shared/game-selection.ts';
 import type { TwitchGame } from '../types/index.ts';
 import { cloneCampaignWorkingState } from './farming-campaign-transition.ts';
-import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
 import { reconcileFarmingSessionTargets, unresolvedFarmingTargets } from './farming-session-targets.ts';
 import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
 import { removeQueueEntriesForHeadGame } from './queue-operations.ts';
@@ -14,6 +13,7 @@ import {
   parkCampaignAtQueueTail,
   prepareNextEligibleQueueHead,
 } from './session-lifecycle-queue-selection.ts';
+import type { QueueProgressionExecution } from './session-lifecycle-types.ts';
 import { MAX_STREAMER_ATTEMPTS } from './streamer-watch-attempt.ts';
 
 type QueueProgressionResult =
@@ -53,7 +53,6 @@ export async function progressFarmingQueue(
     );
     state.appState.queueAcquisitionRound = selection.appState.queueAcquisitionRound;
     state.appState.queueEntryMetadataByKey = selection.appState.queueEntryMetadataByKey;
-    state.appState.stalledCampaignBlocksByKey = selection.appState.stalledCampaignBlocksByKey;
     state.appState.queue = selection.appState.queue;
     if (!candidate) break;
     if (state.appState.farmingSessionTargets[gameKey(candidate)]?.acquired) {
@@ -100,7 +99,7 @@ export async function progressFarmingQueue(
           MAX_STREAMER_ATTEMPTS
       )
         continue;
-      await options.onCampaignFailure?.(candidate, result.reason);
+      await options.onCampaignFailure(candidate, result.reason);
       if (!options.isCurrent()) return { kind: 'cancelled' };
       parkCampaignForStreamerRetry(state, candidate, result.reason, false, options.now());
     }

@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
+import { parseCampaignDrops } from '../src/background/twitch-api/campaign-drop-parsing.ts';
 import {
   buildClaimedRewardLookup,
   buildGlobalClaimedRewardEntry,
-  buildInventoryDropMaps,
-  parseCampaignDrops,
-} from '../src/background/twitch-api/client.ts';
+} from '../src/background/twitch-api/claimed-rewards.ts';
+import { buildInventoryDropMaps } from '../src/background/twitch-api/inventory-drops.ts';
 import { pickNearestDrop, sortPendingDrops } from '../src/shared/drop-order.js';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
 
@@ -85,7 +85,7 @@ test('pickNearestDrop keeps an unknown reward on the normal farming path', () =>
 
   const nearest = pickNearestDrop(drops);
   expect(nearest).not.toBeNull();
-  expect(nearest!.name).toBe('TimeDrop');
+  expect(nearest?.name).toBe('TimeDrop');
 });
 
 test('pickNearestDrop keeps a fresh Twitch-native reward on the normal farming path', () => {

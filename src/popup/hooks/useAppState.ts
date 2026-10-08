@@ -1,4 +1,3 @@
-// Extracted from src/popup/App.tsx (App state loading + live subscription).
 import { useEffect, useState } from 'react';
 import {
   loadStoredAppState,
@@ -48,7 +47,6 @@ export async function hydratePopupStateStaleWhileRevalidate({
 export function useAppState() {
   const [state, setState] = useState<AppState>(() => createInitialState());
   const [loading, setLoading] = useState(true);
-  const [gamesLoading, setGamesLoading] = useState(true);
   useEffect(() => {
     let disposed = false;
     let cachePhaseFinished = false;
@@ -72,10 +70,7 @@ export function useAppState() {
       finishBootstrap: () => {
         cachePhaseFinished = true;
         if (pendingLiveState) applyState(pendingLiveState);
-        if (!disposed) {
-          setLoading(false);
-          setGamesLoading(false);
-        }
+        if (!disposed) setLoading(false);
       },
       reportError: logPopupError,
     });
@@ -86,5 +81,5 @@ export function useAppState() {
     };
   }, []);
 
-  return { state, setState, loading, gamesLoading };
+  return { state, setState, loading, gamesLoading: loading };
 }

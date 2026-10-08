@@ -19,7 +19,6 @@ import type {
   StartFarmingPayload,
   StartFarmingResult,
 } from './session-lifecycle-types.ts';
-import { clearCampaignStallBlock } from './stalled-campaign-block.ts';
 
 export function startRejectionMessage(game: TwitchGame): string | null {
   const summary = game.rewardSummary;
@@ -115,10 +114,6 @@ export async function handleStartFarming(
     state.appState.forcedCampaignKey = options?.forceCampaign ? gameKey(refreshedRequestedGame) : null;
   }
   if (!options?.preserveQueueContext) {
-    state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
-      state.appState.stalledCampaignBlocksByKey,
-      refreshedRequestedGame,
-    );
   }
   state.appState.completionNotified = false;
   clearStopState(state);
@@ -156,10 +151,6 @@ export async function handleStartFarming(
       const { attemptedStreamerNames: _names, watchAttempt: _watch, ...retained } = metadata;
       state.appState.queueEntryMetadataByKey[key] = retained;
     }
-    state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
-      state.appState.stalledCampaignBlocksByKey,
-      committedGame,
-    );
   }
   if (options?.onSaveState) {
     await options.onSaveState();

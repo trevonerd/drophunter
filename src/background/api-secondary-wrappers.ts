@@ -1,5 +1,6 @@
 import type { DropsSnapshot, TwitchGame, TwitchStreamer } from '../types';
 import {
+  clearAndRecoverOnce,
   type FetchDropsSnapshotFromApiCallbacks,
   stopForSignInRequiredIfRunning,
 } from './api-drops-wrapper.ts';
@@ -10,6 +11,7 @@ import {
   getLastTwitchApiFailure,
 } from './api-operations.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
+import { logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { SessionRecoveryMode, TwitchApiRequestOptions } from './session-orchestrator.ts';
 import { TwitchApiBackoffError, TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
@@ -29,26 +31,17 @@ export async function fetchInventorySnapshotFromApiWrapper(
   baseDrops: DropsSnapshot['drops'],
   options: TwitchApiRequestOptions,
   callbacks: FetchInventorySnapshotFromApiCallbacks,
-  deps: { logWarn: (msg: string, ctx?: unknown) => void },
   authRecoveryAttempted = false,
   recoveredSession: TwitchSession | null = null,
 ): Promise<DropsSnapshot | null> {
   const recoveryMode = options.sessionRecoveryMode ?? 'passive';
   const session = recoveredSession ?? (await callbacks.onEnsureTwitchSession());
   if (!session) {
-    deps.logWarn('Inventory snapshot API skipped: Twitch session missing');
+    logWarn('Inventory snapshot API skipped: Twitch session missing');
     if (recoveryMode === 'background-tab' && !authRecoveryAttempted) {
       const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError?.(recoveryMode);
       if (recovered) {
-        return fetchInventorySnapshotFromApiWrapper(
-          state,
-          baseDrops,
-          options,
-          callbacks,
-          deps,
-          true,
-          recovered,
-        );
+        return fetchInventorySnapshotFromApiWrapper(state, baseDrops, options, callbacks, true, recovered);
       }
     }
     if (state.appState.isRunning) {
@@ -61,26 +54,15 @@ export async function fetchInventorySnapshotFromApiWrapper(
     return await fetchInventorySnapshotFromApi(state, session, baseDrops);
   } catch (error) {
     if (callbacks.onIsLikelyAuthError(error)) {
-      await callbacks.onClearTwitchSessionCache(state);
-      if (!authRecoveryAttempted && callbacks.onRecoverTwitchSessionAfterAuthError) {
-        const recovered = await callbacks.onRecoverTwitchSessionAfterAuthError(recoveryMode);
-        if (recovered) {
-          return fetchInventorySnapshotFromApiWrapper(
-            state,
-            baseDrops,
-            options,
-            callbacks,
-            deps,
-            true,
-            recovered,
-          );
-        }
+      const recovered = await clearAndRecoverOnce(state, callbacks, authRecoveryAttempted, recoveryMode);
+      if (recovered) {
+        return fetchInventorySnapshotFromApiWrapper(state, baseDrops, options, callbacks, true, recovered);
       }
-      deps.logWarn('Twitch inventory auth failed after explicit session recovery:', String(error));
+      logWarn('Twitch inventory auth failed after explicit session recovery:', String(error));
       await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
       return null;
     }
-    deps.logWarn('Twitch inventory snapshot fetch failed:', String(error));
+    logWarn('Twitch inventory snapshot fetch failed:', String(error));
     return null;
   }
 }
@@ -100,7 +82,6 @@ export async function fetchDirectoryStreamersFromApiWrapper(
   forceSessionRefresh: boolean,
   language: string,
   callbacks: FetchDirectoryStreamersFromApiCallbacks,
-  deps: { logWarn: (msg: string, ctx?: unknown) => void },
   options: {
     readonly sessionRecoveryMode?: SessionRecoveryMode;
     readonly preserveSessionOnAuthFailure?: boolean;
@@ -121,7 +102,7 @@ export async function fetchDirectoryStreamersFromApiWrapper(
   }
   let session = await callbacks.onEnsureTwitchSession(forceSessionRefresh);
   if (!isCurrent()) throw new TwitchDirectoryUnavailableError(new Error('Directory request cancelled'));
-  if (!session) deps.logWarn('Directory streamers fetch: session missing, using public client');
+  if (!session) logWarn('Directory streamers fetch: session missing, using public client');
   try {
     return await fetchDirectoryStreamersFromApi(state, game, session, language, isCurrent);
   } catch (error) {
@@ -157,7 +138,7 @@ export async function fetchDirectoryStreamersFromApiWrapper(
       }
       if (!preserveSession) await stopForSignInRequiredIfRunning(state, callbacks.onStopFarmingSession);
     }
-    deps.logWarn('Twitch API directory fetch failed:', String(error));
+    logWarn('Twitch API directory fetch failed:', String(error));
     throw new TwitchDirectoryUnavailableError(error);
   }
 }

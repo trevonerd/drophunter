@@ -1,5 +1,4 @@
 import type { QueueAcquisitionRound, QueueEntryMetadata } from './queue.ts';
-import type { StalledCampaignBlock } from './stalled-campaign';
 import type { WatchHealthSnapshot, WatchTransportMode } from './watch.ts';
 
 export type {
@@ -110,8 +109,6 @@ export interface HiddenGame {
   readonly identityKeys?: readonly string[];
 }
 
-export type { StalledCampaignBlock } from './stalled-campaign';
-
 export type ManualWatchState = 'inactive' | 'eligible-manual' | 'automation-paused';
 export type AutomationActivityKind =
   | 'favorite-added'
@@ -207,7 +204,6 @@ export interface AppState {
     }
   >;
   dismissedFarmingMessageIds: readonly string[];
-  stalledCampaignBlocksByKey: Record<string, StalledCampaignBlock>;
   automationActivity: AutomationActivityEntry[];
   lastAutomationMessage: string | null;
   nextAutomationCheckAt: number | null;

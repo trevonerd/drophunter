@@ -5,7 +5,6 @@ import {
   NO_STREAMERS_RETRY_MS,
   nextNoProgressRotationAttempts,
   STALLED_PROGRESS_RETRY_MS,
-  shouldIncrementNoProgressRotationAttempts,
 } from '../../src/background/stream-rotation.ts';
 
 export function registerStreamRecoveryCases() {
@@ -46,16 +45,6 @@ export function registerStreamRecoveryCases() {
         nextCompletedKeys: [],
       }),
     ).toBe(false);
-  });
-
-  test('only stalled rotations increment no-progress retry attempts', () => {
-    expect(shouldIncrementNoProgressRotationAttempts('stalled-progress')).toBe(true);
-    expect(shouldIncrementNoProgressRotationAttempts('open-failed')).toBe(false);
-    expect(shouldIncrementNoProgressRotationAttempts('no-streamers')).toBe(false);
-    expect(shouldIncrementNoProgressRotationAttempts('offline')).toBe(false);
-    expect(shouldIncrementNoProgressRotationAttempts('wrong-channel')).toBe(false);
-    expect(shouldIncrementNoProgressRotationAttempts('wrong-game')).toBe(false);
-    expect(shouldIncrementNoProgressRotationAttempts('drops-inactive')).toBe(false);
   });
 
   test('retry attempts stop at the configured cap', () => {

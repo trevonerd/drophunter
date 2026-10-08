@@ -26,7 +26,7 @@ describe('fetchDropsSnapshotFromApi', () => {
   });
 
   test('uses explicit auth recovery when userId auto-detect receives an OAuth error', async () => {
-    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-drops-wrapper.ts');
     const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
 
     const invalidSession = createSession({ userId: '' });
@@ -69,11 +69,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       },
       {
         TwitchApiClient,
-        sessionDebugSummary: (session) => ({ available: Boolean(session) }),
         PROGRESS_POLL_MS: 60_000,
-        logDebug: () => undefined,
-        logWarn: () => undefined,
-        logInfo: () => undefined,
       },
     );
 
@@ -83,7 +79,7 @@ describe('fetchDropsSnapshotFromApi', () => {
   });
 
   test('keeps a missing userId transient when Twitch did not reject OAuth', async () => {
-    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-drops-wrapper.ts');
     const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
 
     const session = createSession({ userId: '' });
@@ -120,11 +116,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       },
       {
         TwitchApiClient,
-        sessionDebugSummary: (nextSession) => ({ available: Boolean(nextSession) }),
         PROGRESS_POLL_MS: 60_000,
-        logDebug: () => undefined,
-        logWarn: () => undefined,
-        logInfo: () => undefined,
       },
     );
 
@@ -135,7 +127,7 @@ describe('fetchDropsSnapshotFromApi', () => {
   });
 
   test('keeps a missing cached session transient after checking existing Twitch tabs', async () => {
-    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-drops-wrapper.ts');
     const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
     const state = createMinimalState({
       appState: { ...createInitialState(), isRunning: true },
@@ -163,11 +155,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       },
       {
         TwitchApiClient,
-        sessionDebugSummary: () => ({ available: false }),
         PROGRESS_POLL_MS: 60_000,
-        logDebug: () => undefined,
-        logWarn: () => undefined,
-        logInfo: () => undefined,
       },
     );
 
@@ -179,7 +167,7 @@ describe('fetchDropsSnapshotFromApi', () => {
   });
 
   test('clears a stale sign-in-required stop once a drops snapshot fetch succeeds', async () => {
-    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-drops-wrapper.ts');
     const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
 
     const session = createSession();
@@ -218,11 +206,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       },
       {
         TwitchApiClient,
-        sessionDebugSummary: (nextSession) => ({ available: Boolean(nextSession) }),
         PROGRESS_POLL_MS: 60_000,
-        logDebug: () => undefined,
-        logWarn: () => undefined,
-        logInfo: () => undefined,
       },
     );
 

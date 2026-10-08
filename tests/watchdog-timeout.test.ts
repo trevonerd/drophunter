@@ -33,7 +33,7 @@ describe('timing constants — TICK_WATCHDOG_TIMEOUT_MS', () => {
     );
     const match = source.match(/export const\s+TICK_WATCHDOG_TIMEOUT_MS\s*=\s*([\d_]+)\s*;/);
     expect(match).not.toBeNull();
-    const value = Number(match![1].replace(/_/g, ''));
+    const value = Number(match?.[1]?.replace(/_/g, ''));
     expect(value).toBe(60_000);
   });
 });
@@ -41,12 +41,12 @@ describe('timing constants — TICK_WATCHDOG_TIMEOUT_MS', () => {
 describe('timing constants — STREAM_CONTEXT_TIMEOUT_MS', () => {
   test('STREAM_CONTEXT_TIMEOUT_MS must be 12_000 ms', () => {
     const source = require('fs').readFileSync(
-      require('path').resolve(__dirname, '../src/background/service-worker.ts'),
+      require('path').resolve(__dirname, '../src/background/constants.ts'),
       'utf-8',
     );
     const match = source.match(/const\s+STREAM_CONTEXT_TIMEOUT_MS\s*=\s*([\d_]+)\s*;/);
     expect(match).not.toBeNull();
-    const value = Number(match![1].replace(/_/g, ''));
+    const value = Number(match?.[1]?.replace(/_/g, ''));
     expect(value).toBe(12_000);
   });
 });

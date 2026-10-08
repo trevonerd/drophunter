@@ -46,18 +46,11 @@ test.each([
   };
   let caught: unknown;
   try {
-    await fetchDirectoryStreamersFromApiWrapper(
-      state,
-      createGame(),
-      false,
-      '',
-      {
-        onEnsureTwitchSession: async () => createSession(),
-        onIsLikelyAuthError: (error) => classifyTwitchApiFailure(error).kind === 'auth',
-        onClearTwitchSessionCache: () => undefined,
-      },
-      { logWarn: () => undefined },
-    );
+    await fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', {
+      onEnsureTwitchSession: async () => createSession(),
+      onIsLikelyAuthError: (error) => classifyTwitchApiFailure(error).kind === 'auth',
+      onClearTwitchSessionCache: () => undefined,
+    });
   } catch (error) {
     caught = error;
   }

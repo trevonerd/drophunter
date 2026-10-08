@@ -5,10 +5,7 @@ import {
   FARMING_AUTOMATION_FACTS_STORAGE_KEY,
   type FarmingAutomationPersistence,
 } from '../src/background/farming-automation-contracts.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import {
   deriveSafeRefreshPatch,
   type FarmingAutomationTwitchSnapshot,
@@ -18,6 +15,7 @@ import { applyStartupResumePolicy, createServiceWorkerState } from '../src/backg
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { campaign, reward, streamer } from './support/farming-automation-preemption-fixture.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 function fixture(candidateEndsAt: string, deduplicated = false, separateCategories = false) {

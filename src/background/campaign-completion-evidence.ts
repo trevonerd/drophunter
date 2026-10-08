@@ -9,6 +9,16 @@ export function rememberAcquiredCampaigns(state: AppState, games: readonly Twitc
   if (acquired.size > 0) state.acquiredCampaignIds = [...acquired].sort();
 }
 
+/** Remembers acquisition evidence from every campaign the state already knows, plus `extra`. */
+export function rememberKnownAcquiredCampaigns(state: AppState, extra: readonly TwitchGame[] = []): void {
+  rememberAcquiredCampaigns(state, [
+    ...state.availableGames,
+    ...state.queue,
+    ...(state.selectedGame ? [state.selectedGame] : []),
+    ...extra,
+  ]);
+}
+
 export function preserveAcquiredCampaigns(state: AppState, games: readonly TwitchGame[]): TwitchGame[] {
   const acquired = new Set(state.acquiredCampaignIds ?? []);
   return games.map((game) =>

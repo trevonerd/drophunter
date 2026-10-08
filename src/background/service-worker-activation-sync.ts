@@ -1,6 +1,5 @@
 import { browser } from '../shared/browser-api.ts';
 import type { ActivationTrigger } from '../types/index.ts';
-import { hasInterruptedQueue, resumeInterruptedQueue } from './activation-queue-resume.ts';
 import type { ActivationSyncAttempt, ActivationSyncExecution } from './activation-sync-coordinator.ts';
 import type { createDropsPageRefresher, DropsPageRefreshResult } from './drops-page-refresh.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
@@ -18,6 +17,33 @@ type FarmingSession = Pick<
 >;
 type DropsPageRefresher = Pick<ReturnType<typeof createDropsPageRefresher>, 'openDropsPageAndRefresh'>;
 type RefreshGamesCache = (options: RefreshGamesCacheOptions) => Promise<GamesCacheRefreshResult>;
+
+function hasInterruptedQueue(state: ServiceWorkerState): boolean {
+  const appState = state.appState;
+  return (
+    appState.wasRunning &&
+    !appState.isRunning &&
+    !appState.isPaused &&
+    appState.lastStopReason !== 'user-stop' &&
+    appState.selectedGame !== null
+  );
+}
+
+async function resumeInterruptedQueue(
+  state: ServiceWorkerState,
+  farmingSession: Pick<FarmingSession, 'handleStartFarming'>,
+  execution: ActivationSyncExecution,
+): Promise<boolean> {
+  const appState = state.appState;
+  if (!execution.isCurrent() || !hasInterruptedQueue(state) || !appState.selectedGame) return true;
+  const resumed = await farmingSession.handleStartFarming(
+    { game: appState.selectedGame },
+    execution.isCurrent,
+    true,
+  );
+  if (execution.isCurrent() && resumed.success) state.appState.wasRunning = false;
+  return resumed.success;
+}
 
 interface ActivationSyncDependencies {
   readonly automation: FarmingAutomation;

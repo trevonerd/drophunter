@@ -1,4 +1,10 @@
 import { expect, test } from 'bun:test';
+import {
+  DROPS_SNAPSHOT_CACHE_KEY,
+  LAST_ACTIVITY_AT_KEY,
+  TIMING_STATE_KEY,
+  TWITCH_SESSION_STORAGE_KEY,
+} from '../../src/background/constants.ts';
 import { clearRotationMetadata, createServiceWorkerState } from '../../src/background/runtime-state.ts';
 import { loadState as loadPersistedState } from '../../src/background/state-persistence.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
@@ -7,7 +13,6 @@ import {
   chromeMocks,
   dispatchMessage,
   getAppStateFromStorage,
-  serviceWorkerModule,
   sleepTick,
 } from '../helpers/service-worker-harness.ts';
 
@@ -47,8 +52,8 @@ export function registerUpdateLifecycleCase() {
         allDrops: [oldRewardSnapshot],
         pendingDrops: [oldRewardSnapshot],
       },
-      [serviceWorkerModule.DROPS_SNAPSHOT_CACHE_KEY]: [oldRewardSnapshot],
-      [serviceWorkerModule.TIMING_STATE_KEY]: { lastTrackedDropKey: 'old-reward::campaign-1' },
+      [DROPS_SNAPSHOT_CACHE_KEY]: [oldRewardSnapshot],
+      [TIMING_STATE_KEY]: { lastTrackedDropKey: 'old-reward::campaign-1' },
       farmingAutomationFactsV1: { version: 1 },
       farmingSessionTransitionReceiptV1: {
         version: 1,
@@ -73,10 +78,10 @@ export function registerUpdateLifecycleCase() {
         sessionDebugSummary: () => ({}),
         createInitialState,
         clearRotationMetadata,
-        TWITCH_SESSION_STORAGE_KEY: serviceWorkerModule.TWITCH_SESSION_STORAGE_KEY,
-        DROPS_SNAPSHOT_CACHE_KEY: serviceWorkerModule.DROPS_SNAPSHOT_CACHE_KEY,
-        LAST_ACTIVITY_AT_KEY: serviceWorkerModule.LAST_ACTIVITY_AT_KEY,
-        TIMING_STATE_KEY: serviceWorkerModule.TIMING_STATE_KEY,
+        TWITCH_SESSION_STORAGE_KEY: TWITCH_SESSION_STORAGE_KEY,
+        DROPS_SNAPSHOT_CACHE_KEY: DROPS_SNAPSHOT_CACHE_KEY,
+        LAST_ACTIVITY_AT_KEY: LAST_ACTIVITY_AT_KEY,
+        TIMING_STATE_KEY: TIMING_STATE_KEY,
         STREAM_VALIDATION_GRACE_MS: 0,
       },
     );
@@ -94,7 +99,7 @@ export function registerUpdateLifecycleCase() {
     expect(reloadedState.appState.monitorAutoOpen).toBe(true);
     expect(reloadedState.appState.muteFarmingTab).toBe(true);
     expect(reloadedState.appState.totalDropsClaimed).toBe(beforeUpdate.totalDropsClaimed);
-    const resetTimingState = chromeMocks.storage.local._store.get(serviceWorkerModule.TIMING_STATE_KEY) as {
+    const resetTimingState = chromeMocks.storage.local._store.get(TIMING_STATE_KEY) as {
       apiBackoffUntil?: number;
       lastLifecycleCheckAt?: number;
       lastTrackedDropKey?: string | null;

@@ -1,11 +1,9 @@
 import { expect, test } from 'bun:test';
 import { persistFarmingAutomationPlan } from '../src/background/farming-automation-effects.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 
 test('invalidated queue persistence never publishes or stores a proposed discovery activity', async () => {
   const state = createServiceWorkerState();

@@ -20,26 +20,14 @@ export type StreamRotationReason =
   | 'directory-unavailable'
   | 'no-streamers';
 
-export function shouldIncrementNoProgressRotationAttempts(reason: StreamRotationReason): boolean {
-  return reason === 'stalled-progress';
-}
-
 export function nextNoProgressRotationAttempts(
   previousAttempts: number,
   reason: StreamRotationReason,
 ): number {
-  if (!shouldIncrementNoProgressRotationAttempts(reason)) {
+  if (reason !== 'stalled-progress') {
     return previousAttempts;
   }
   return Math.min(MAX_NO_PROGRESS_ROTATION_ATTEMPTS, previousAttempts + 1);
-}
-
-export function didDropProgressAdvance(previousProgress: number, currentProgress: number): boolean {
-  return currentProgress > previousProgress;
-}
-
-export function didDropMinutesAdvance(previousMinutes: number, currentMinutes: number): boolean {
-  return currentMinutes > previousMinutes;
 }
 
 export function computeEffectiveStallThreshold(requiredMinutes: number | null | undefined): number {
@@ -63,7 +51,7 @@ export function detectRecoveryProof(input: RecoveryProofInput): boolean {
     input.previousDropKey &&
     input.nextDropKey &&
     input.previousDropKey === input.nextDropKey &&
-    didDropProgressAdvance(input.previousProgress, input.nextProgress)
+    input.nextProgress > input.previousProgress
   ) {
     return true;
   }

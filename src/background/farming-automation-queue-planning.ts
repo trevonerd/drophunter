@@ -8,15 +8,37 @@ import {
 } from './farming-automation-gates.ts';
 import type { QueueAvailabilityEvidence } from './farming-queue-progression.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import { hasNewEligibleStreamerEvidence } from './stalled-campaign-block.ts';
 
 type ReadyDiscovery = Extract<FarmingAutomationDiscoveryResult, { readonly kind: 'ready' }>;
 
 export function collectQueueAvailabilityEvidence(
   state: ServiceWorkerState,
   discovery: ReadyDiscovery,
+  now: number,
 ): QueueAvailabilityEvidence {
+  const stallBaselines = new Map<string, readonly string[]>();
+  const rehabilitatedCampaignKeys = new Set<string>();
+  for (const game of state.appState.queue) {
+    const key = gameKey(game);
+    const metadata = state.appState.queueEntryMetadataByKey[key];
+    const directory = discovery.directories.get(key);
+    if (
+      !directory ||
+      metadata?.streamerRetryReason !== 'stalled-progress' ||
+      (metadata.streamerRetryAt ?? 0) <= now
+    )
+      continue;
+    const live = [...new Set(directory.streamers.map((streamer) => streamer.name.trim().toLowerCase()))];
+    if (!metadata.parkedStreamerNames) {
+      stallBaselines.set(key, live);
+      continue;
+    }
+    const known = new Set([...metadata.parkedStreamerNames, ...(metadata.attemptedStreamerNames ?? [])]);
+    if (live.some((name) => name && !known.has(name))) rehabilitatedCampaignKeys.add(key);
+  }
   return {
+    stallBaselines,
+    rehabilitatedCampaignKeys,
     eligibleCampaignKeys: new Set(
       state.appState.queue
         .filter(
@@ -24,21 +46,6 @@ export function collectQueueAvailabilityEvidence(
             !discovery.directoryFailures.has(gameKey(game)) &&
             (discovery.availability[gameKey(game)]?.eligibleStreamerCount ?? 0) > 0,
         )
-        .map(gameKey),
-    ),
-    rehabilitatedCampaignKeys: new Set(
-      discovery.snapshot.games
-        .map(cloneFarmingAutomationGame)
-        .filter((game) => {
-          const directory = discovery.directories.get(gameKey(game));
-          return (
-            directory &&
-            hasNewEligibleStreamerEvidence(
-              state.appState.stalledCampaignBlocksByKey[gameKey(game)],
-              directory.streamers.map((streamer) => streamer.name),
-            )
-          );
-        })
         .map(gameKey),
     ),
   };

@@ -1,8 +1,8 @@
-// Extracted from src/popup/App.tsx (Compact Drop Image + Compact Drop Card).
 import { type CSSProperties, useState } from 'react';
 import { isRewardAcquired, isTwitchNativeAcquisitionUnverifiable } from '../../shared/reward-semantics';
+import { formatEtaMinutes } from '../../shared/runtime-status';
 import type { TwitchDrop } from '../../types';
-import { formatEtaMinutes, rewardInitials } from '../format';
+import { rewardInitials } from '../format';
 import { QuestionIcon, SubIcon } from './icons';
 
 type ProgressStyle = CSSProperties & Record<'--dh-progress', number>;

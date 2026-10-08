@@ -1,4 +1,5 @@
 import type { GamePreference, TwitchGame } from '../types';
+import { isRecord } from './app-state-normalization-values.ts';
 import { isBackupPayloadValid } from './backup-message-validation.ts';
 import {
   BOOLEAN_TOGGLE_MESSAGES,
@@ -13,10 +14,6 @@ const runtimeMessageTypeSet = new Set<string>(RUNTIME_MESSAGE_TYPES);
 
 export function isRuntimeMessageType(value: unknown): value is RuntimeMessageType {
   return typeof value === 'string' && runtimeMessageTypeSet.has(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isGamePreference(value: unknown): value is GamePreference {

@@ -5,6 +5,7 @@ import { rotateStreamerIfInvalid } from '../../src/background/streamer-acquisiti
 import { createDrop, createGame, createMinimalState, createStreamer } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
+import { rotateIfInvalidOptions } from '../support/rotate-streamer-if-invalid-options.ts';
 
 export function registerQueue19Part01() {
   describe('checkDropProgress', () => {
@@ -30,7 +31,6 @@ export function registerQueue19Part01() {
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       const calls: string[] = [];
-      let attemptSelfHealCalled = false;
       let rotateReason: StreamRotationReason | null = null;
 
       await checkDropProgress(state, {
@@ -47,26 +47,26 @@ export function registerQueue19Part01() {
         },
         onRotateStreamerIfInvalid: async () => {
           calls.push('validate-stream');
-          await rotateStreamerIfInvalid(state, {
-            onFetchStreamContext: async () => ({
-              channelName: 'streamer',
-              categorySlug: 'test-game',
-              categoryLabel: 'Test Game',
-              streamTitle: 'Stream Title',
-              titleContainsDrops: true,
-              hasDropsSignal: true,
-              isLive: true,
-              pageUrl: 'https://twitch.tv/streamer',
+          await rotateStreamerIfInvalid(
+            state,
+            rotateIfInvalidOptions({
+              onFetchStreamContext: async () => ({
+                channelName: 'streamer',
+                categorySlug: 'test-game',
+                categoryLabel: 'Test Game',
+                streamTitle: 'Stream Title',
+                titleContainsDrops: true,
+                hasDropsSignal: true,
+                isLive: true,
+                pageUrl: 'https://twitch.tv/streamer',
+              }),
+              onResolveCategorySlug: async () => 'test-game',
+              onRotateStreamer: async (_, reason) => {
+                rotateReason = reason;
+                return true;
+              },
             }),
-            onResolveCategorySlug: async () => 'test-game',
-            onAttemptPlaybackSelfHeal: async () => {
-              attemptSelfHealCalled = true;
-            },
-            onRotateStreamer: async (_, reason) => {
-              rotateReason = reason;
-              return true;
-            },
-          });
+          );
         },
         onAttemptAutoClaimChannelPointsBonus: async () => false,
         onAutoClaimClaimableDrops: async () => false,
@@ -75,7 +75,6 @@ export function registerQueue19Part01() {
       });
 
       expect(calls).toEqual(['playback-policy', 'refresh-drops', 'validate-stream']);
-      expect(attemptSelfHealCalled).toBe(false);
       expect(rotateReason).toBeNull();
     });
 

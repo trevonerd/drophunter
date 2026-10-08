@@ -60,7 +60,6 @@ export const createInitialState = (): AppState => ({
   farmingSessionTargets: {},
   campaignFailureEpisodesByKey: {},
   dismissedFarmingMessageIds: [],
-  stalledCampaignBlocksByKey: {},
   automationActivity: [],
   lastAutomationMessage: null,
   nextAutomationCheckAt: null,

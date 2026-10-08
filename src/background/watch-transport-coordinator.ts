@@ -1,6 +1,7 @@
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
-import type { TwitchStreamer, WatchTransportMode } from '../types/index.ts';
+import type { TwitchStreamer, WatchHealthSnapshot, WatchTransportMode } from '../types/index.ts';
 import type { WatchOwnershipV1 } from './farming-automation-contracts.ts';
+import type { ServiceWorkerState } from './runtime-state.ts';
 import type { WatchStartResult } from './streamer-acquisition-contracts.ts';
 import { tablessTargetKey } from './tabless-transport.ts';
 import { prepareWatchCandidate } from './watch-candidate-preparation.ts';
@@ -8,27 +9,65 @@ import { hasVerifiedWatchPlayback } from './watch-health.ts';
 import {
   type FarmingTarget,
   type ManagedTabOpenResult,
+  type ManagedTabOperations,
   ManagedTabTransport,
+  type TablessHeartbeat,
   TablessTransport,
   type WatchHealth,
   type WatchProbeResult,
   type WatchTransport,
 } from './watch-transport.ts';
-import type {
-  WatchTransportCoordinatorOptions,
-  WatchTransportRuntimeCoordinator,
-} from './watch-transport-coordinator-contracts.ts';
-import {
-  createWatchTransportProjectionStore,
-  type WatchTransportProjection,
-} from './watch-transport-projection.ts';
 import { createFarmingTarget, createInactiveWatchHealth } from './watch-transport-state.ts';
 import type {
   PreparedWatch,
   WatchPreparation,
   WatchPromotion,
   WatchTransportAdoption,
+  WatchTransportRuntime,
 } from './watch-transport-transition.ts';
+
+export interface WatchTransportCoordinatorOptions {
+  readonly state: ServiceWorkerState;
+  readonly heartbeat: (target: FarmingTarget) => Promise<TablessHeartbeat>;
+  readonly managedTab: ManagedTabOperations;
+  readonly enabled?: boolean;
+  readonly now?: () => number;
+  readonly minHeartbeatIntervalMs?: number;
+  readonly persist: () => Promise<void>;
+  readonly broadcast: () => void;
+}
+
+export interface WatchTransportCoordinator {
+  readonly start: (streamer: TwitchStreamer, isCurrent?: () => boolean) => Promise<WatchStartResult>;
+  readonly prepare?: (
+    target: FarmingTarget,
+    isCurrent?: () => boolean,
+    allowInitialCreation?: boolean,
+  ) => Promise<WatchPreparation>;
+  readonly currentTarget?: () => FarmingTarget | null;
+  readonly currentOwnership?: () => WatchOwnershipV1 | null;
+  readonly probeCurrent?: () => Promise<WatchHealth | null>;
+  readonly tick: (isCurrent?: () => boolean) => Promise<WatchHealth>;
+  readonly stop: () => Promise<void>;
+  readonly setPreference: (mode: WatchTransportMode) => Promise<void>;
+}
+
+export interface WatchTransportRuntimeCoordinator extends WatchTransportCoordinator, WatchTransportRuntime {
+  readonly stop: () => Promise<void>;
+  readonly currentOwnership: () => WatchOwnershipV1 | null;
+  readonly prepare: (
+    target: FarmingTarget,
+    isCurrent?: () => boolean,
+    allowInitialCreation?: boolean,
+  ) => Promise<WatchPreparation>;
+  readonly currentTarget: () => FarmingTarget | null;
+  readonly restore: (ownership: WatchOwnershipV1) => Promise<boolean>;
+}
+
+type WatchTransportProjection =
+  | { readonly kind: 'health'; readonly health: WatchHealthSnapshot }
+  | { readonly kind: 'stopped'; readonly health: WatchHealthSnapshot }
+  | { readonly kind: 'preference'; readonly mode: WatchTransportMode };
 
 export function createWatchTransportCoordinator(
   options: WatchTransportCoordinatorOptions,
@@ -43,7 +82,28 @@ export function createWatchTransportCoordinator(
       now,
     });
   const createManaged = (): WatchTransport => new ManagedTabTransport({ ...options.managedTab, now });
-  const projection = createWatchTransportProjectionStore(options);
+  const currentHealth = () => state.appState.watchHealth;
+  const applyProjection = async (projection: WatchTransportProjection): Promise<void> => {
+    const appState = state.appState;
+    switch (projection.kind) {
+      case 'health':
+        appState.watchTransportMode = projection.health.mode;
+        appState.watchHealth = projection.health;
+        break;
+      case 'stopped':
+        appState.pendingWatchTarget = null;
+        appState.watchTransportMode = projection.health.mode;
+        appState.watchHealth = { ...projection.health, status: 'stopped', reason: 'stopped' };
+        break;
+      case 'preference':
+        appState.watchTransportPreference = projection.mode;
+        break;
+      default:
+        projection satisfies never;
+    }
+    await options.persist();
+    options.broadcast();
+  };
   let active: WatchTransport = createManaged();
   let target: FarmingTarget | null = null;
   let lastTickAt = 0;
@@ -65,10 +125,9 @@ export function createWatchTransportCoordinator(
 
   const settleHealth = async (
     health: WatchHealth,
-    projectionKind: Extract<WatchTransportProjection['kind'], 'started' | 'checked'>,
     isCurrent: () => boolean = () => true,
   ): Promise<WatchHealth> => {
-    if (isCurrent()) await projection.apply({ kind: projectionKind, health });
+    if (isCurrent()) await applyProjection({ kind: 'health', health });
     return health;
   };
 
@@ -247,7 +306,6 @@ export function createWatchTransportCoordinator(
       prepared.watch.ownership.kind === 'managed-tab' ? prepared.watch.ownership.tabId : null;
     const health = await settleHealth(
       prepared.watch.health,
-      'started',
       () => isCurrent() && generation === operationGeneration,
     );
     return isCurrent() && generation === operationGeneration
@@ -258,14 +316,13 @@ export function createWatchTransportCoordinator(
   const tick = async (isCurrent: () => boolean = () => true): Promise<WatchHealth> => {
     const generation = operationGeneration;
     const isCurrentTick = () => isCurrent() && generation === operationGeneration;
-    if (!isCurrentTick())
-      return projection.currentHealth() ?? createInactiveWatchHealth(null, active.mode, now());
+    if (!isCurrentTick()) return currentHealth() ?? createInactiveWatchHealth(null, active.mode, now());
     if (!target) {
       const persistedStreamer = state.appState.activeStreamer;
       if (state.appState.isRunning && !state.appState.isPaused && persistedStreamer) {
         const started = await start(persistedStreamer, isCurrent);
         return started.kind === 'cancelled'
-          ? (projection.currentHealth() ?? createInactiveWatchHealth(null, active.mode, now()))
+          ? (currentHealth() ?? createInactiveWatchHealth(null, active.mode, now()))
           : (started.health ?? createInactiveWatchHealth(null, active.mode, now()));
       }
       const health = createInactiveWatchHealth(
@@ -273,15 +330,15 @@ export function createWatchTransportCoordinator(
         active.mode,
         now(),
       );
-      await projection.apply({ kind: 'checked', health });
+      await applyProjection({ kind: 'health', health });
       return health;
     }
     if (active.mode === 'tabless' && now() - lastTickAt < minHeartbeatIntervalMs) {
-      return projection.currentHealth() ?? createInactiveWatchHealth(null, active.mode, now());
+      return currentHealth() ?? createInactiveWatchHealth(null, active.mode, now());
     }
     lastTickAt = now();
     const health = await active.tick();
-    return settleHealth(health, 'checked', isCurrentTick);
+    return settleHealth(health, isCurrentTick);
   };
 
   const stop = async () => {
@@ -295,11 +352,11 @@ export function createWatchTransportCoordinator(
     target = null;
     lastTickAt = 0;
     const health = createInactiveWatchHealth(null, active.mode, now());
-    await projection.apply({ kind: 'stopped', health });
+    await applyProjection({ kind: 'stopped', health });
   };
 
   const setPreference = async (mode: WatchTransportMode) => {
-    await projection.apply({ kind: 'preference', mode });
+    await applyProjection({ kind: 'preference', mode });
   };
 
   const adopt = (adoption: WatchTransportAdoption): void => {
@@ -396,7 +453,7 @@ export function createWatchTransportCoordinator(
       const restarted = await start(streamer);
       return restarted.kind === 'started' && restarted.health?.mode === 'tabless';
     }
-    await projection.apply({ kind: 'started', health });
+    await applyProjection({ kind: 'health', health });
     return true;
   };
 
@@ -424,5 +481,4 @@ export function createWatchTransportCoordinator(
   };
 }
 
-export type * from './watch-transport-coordinator-contracts.ts';
 export type { ManagedTabOpenResult, WatchProbeResult };

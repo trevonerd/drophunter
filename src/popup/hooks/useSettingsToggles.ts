@@ -1,4 +1,3 @@
-// Extracted from src/popup/App.tsx (settings toggle + select handlers).
 import { type Dispatch, type SetStateAction, useLayoutEffect, useRef, useState } from 'react';
 import { sendRuntimeMessage } from '../../shared/messages';
 import type { AppState, FarmCategoryScope, StreamerSelectionMode, WatchTransportMode } from '../../types';

@@ -1,4 +1,5 @@
 import type { AppState, CampaignRemainderReason } from '../types/index.ts';
+import { assertNever } from './messages.ts';
 
 export type RuntimeMode = 'idle' | 'running' | 'paused' | 'recovering' | 'stopped-terminal';
 
@@ -28,10 +29,6 @@ export function isStreamerAcquisitionRecovery(reason: string | null | undefined)
   );
 }
 
-function assertNever(value: never): never {
-  throw new TypeError(`Unhandled campaign remainder reason: ${String(value)}`);
-}
-
 export function deriveRuntimeMode(
   state: Pick<AppState, 'isRunning' | 'isPaused' | 'recoveryReason' | 'lastStopReason'>,
 ) {
@@ -48,29 +45,6 @@ export function deriveRuntimeMode(
     return 'stopped-terminal' as const;
   }
   return 'idle' as const;
-}
-
-export function getRecoveryState(
-  state: Pick<AppState, 'recoveryReason' | 'recoveryBackoffUntil' | 'recoveryAttempts'>,
-) {
-  if (!state.recoveryReason) {
-    return null;
-  }
-  return {
-    reason: state.recoveryReason,
-    retryAt: state.recoveryBackoffUntil ?? null,
-    attempts: state.recoveryAttempts ?? null,
-  } satisfies RecoveryState;
-}
-
-export function getTerminalStopState(state: Pick<AppState, 'lastStopReason' | 'lastStopMessage'>) {
-  if (!state.lastStopReason) {
-    return null;
-  }
-  return {
-    reason: state.lastStopReason,
-    message: state.lastStopMessage ?? null,
-  } satisfies TerminalStopState;
 }
 
 export function clearRecoveryStatus(state: AppState): AppState {
@@ -146,33 +120,6 @@ export function formatFarmingCompleteStatusLine(reason: CampaignRemainderReason)
       return 'Farming finished · Twitch reward acquisition could not be verified';
     default:
       return assertNever(reason);
-  }
-}
-
-export function formatRotationReason(reason: string | null | undefined): string | null {
-  switch (reason) {
-    case 'offline':
-      return 'Stream went offline';
-    case 'wrong-channel':
-      return 'Wrong channel detected';
-    case 'wrong-game':
-      return 'Wrong game detected';
-    case 'drops-inactive':
-      return 'Drops signal missing';
-    case 'stalled-progress':
-      return 'Progress stalled';
-    case 'missing-context':
-      return 'Stream unresponsive';
-    case 'navigated-away':
-      return 'Tab navigated away';
-    case 'open-failed':
-      return 'Could not open stream';
-    case 'directory-unavailable':
-      return 'Twitch streamer search unavailable';
-    case 'no-streamers':
-      return 'No eligible streamer found yet';
-    default:
-      return reason ?? null;
   }
 }
 

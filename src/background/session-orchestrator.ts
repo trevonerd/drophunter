@@ -1,12 +1,13 @@
 import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
-import { readAndMaybePersistSessionFromDropsPage } from './session-page-recovery.ts';
+import { logDebug, logWarn } from './logging.ts';
 import {
   closeUntouchedRecoveryTab,
   publishValidatedRecoveredSession,
   withRecoveryTimeout,
 } from './session-recovery-lifecycle.ts';
 import { findSessionInTwitchTabs, type TwitchTabDiscoveryApi } from './session-tab-discovery.ts';
+import { sessionDebugSummary } from './state-persistence.ts';
 import type { TwitchSession } from './twitch-api/types';
 
 const DEFAULT_SESSION_READ_ATTEMPTS = 3;
@@ -54,7 +55,6 @@ interface SessionOrchestratorOptions {
   tabsApi?: TabsApi;
   scriptingApi?: ScriptingApi;
   sanitizeTwitchSession: (candidate: unknown) => TwitchSession | null;
-  sessionDebugSummary: (session: TwitchSession | null) => Record<string, unknown>;
   readTwitchSessionViaExecuteScript: (tabId: number) => Promise<TwitchSession | null>;
   persistTwitchSession: (session: TwitchSession) => Promise<unknown> | unknown;
   discardPersistedTwitchSessionIfMatches: (session: TwitchSession) => Promise<void>;
@@ -66,8 +66,6 @@ interface SessionOrchestratorOptions {
   openTabRecoveryTimeoutMs?: number;
   authRecoveryTimeoutMs?: number;
   now?: () => number;
-  logDebug: (...args: unknown[]) => void;
-  logWarn: (...args: unknown[]) => void;
 }
 
 interface TwitchSessionResponse {
@@ -94,7 +92,7 @@ export function createSessionOrchestrator(
       });
     } catch (error) {
       // Content script may already be injected or the tab may not allow scripting.
-      options.logDebug('Content script injection skipped', { tabId, reason: String(error) });
+      logDebug('Content script injection skipped', { tabId, reason: String(error) });
     }
   };
 
@@ -105,13 +103,13 @@ export function createSessionOrchestrator(
     try {
       response = await send();
     } catch (error) {
-      options.logWarn('GET_TWITCH_SESSION send failed on first attempt', {
+      logWarn('GET_TWITCH_SESSION send failed on first attempt', {
         tabId,
         error: String(error),
       });
       await ensureContentScriptOnTab(tabId);
       response = await send().catch((secondError) => {
-        options.logWarn('GET_TWITCH_SESSION send failed after injection', {
+        logWarn('GET_TWITCH_SESSION send failed after injection', {
           tabId,
           error: String(secondError),
         });
@@ -120,18 +118,18 @@ export function createSessionOrchestrator(
     }
 
     if (!response?.success) {
-      options.logDebug('GET_TWITCH_SESSION found no session on tab', { tabId });
+      logDebug('GET_TWITCH_SESSION found no session on tab', { tabId });
       return options.readTwitchSessionViaExecuteScript(tabId);
     }
 
     const session = options.sanitizeTwitchSession(response.session);
     if (!session) {
-      options.logWarn('Received invalid Twitch session payload from tab', { tabId });
+      logWarn('Received invalid Twitch session payload from tab', { tabId });
       return options.readTwitchSessionViaExecuteScript(tabId);
     }
-    options.logDebug('Extracted Twitch session from tab', {
+    logDebug('Extracted Twitch session from tab', {
       tabId,
-      ...options.sessionDebugSummary(session),
+      ...sessionDebugSummary(session),
     });
     return session;
   };
@@ -141,26 +139,29 @@ export function createSessionOrchestrator(
       getTabsApi(),
       readTwitchSessionFromTab,
       options.waitForTabComplete,
-      options.logDebug,
+      logDebug,
       timeoutMs,
     );
 
-  const persistSessionFromDropsPage = (tabId: number, publish = true): Promise<TwitchSession | null> => {
+  const persistSessionFromDropsPage = async (
+    tabId: number,
+    publish = true,
+  ): Promise<TwitchSession | null> => {
     const attempts = Math.max(1, Math.floor(options.sessionReadAttempts ?? DEFAULT_SESSION_READ_ATTEMPTS));
     const retryDelayMs = Math.max(0, options.sessionReadRetryDelayMs ?? DEFAULT_SESSION_READ_RETRY_DELAY_MS);
-    return readAndMaybePersistSessionFromDropsPage(
-      tabId,
-      {
-        ensureContentScriptOnTab,
-        readTwitchSessionFromTab,
-        attempts,
-        retryDelayMs,
-        logDebug: options.logDebug,
-      },
-      state,
-      options.persistTwitchSession,
-      publish,
-    );
+    await ensureContentScriptOnTab(tabId);
+    let session: TwitchSession | null = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      session = await readTwitchSessionFromTab(tabId).catch(() => null);
+      if (session || attempt === attempts) break;
+      logDebug('Retrying Twitch session extraction from Drops tab', { tabId, attempt, attempts });
+      if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+    if (!session || !publish) return session;
+    await options.persistTwitchSession(session);
+    state.twitchSessionCache = session;
+    state.twitchSessionLastAttemptAt = 0;
+    return session;
   };
 
   const recoverTwitchSessionAfterAuthError = async (
@@ -194,7 +195,7 @@ export function createSessionOrchestrator(
             isCurrentAttempt,
             persist: options.persistTwitchSession,
             discardPersistedIfMatches: options.discardPersistedTwitchSessionIfMatches,
-            onStale: () => options.logDebug('Discarded stale recovered Twitch session'),
+            onStale: () => logDebug('Discarded stale recovered Twitch session'),
           });
         }
         if (failedTemporaryRecovery?.revision === revision && now() < failedTemporaryRecovery.retryAt)
@@ -260,7 +261,7 @@ export function createSessionOrchestrator(
           isCurrentAttempt,
           persist: options.persistTwitchSession,
           discardPersistedIfMatches: options.discardPersistedTwitchSessionIfMatches,
-          onStale: () => options.logDebug('Discarded stale recovered Twitch session'),
+          onStale: () => logDebug('Discarded stale recovered Twitch session'),
         });
         if (!published && isCurrentAttempt() && options.getSessionRevision() === revision) {
           failedTemporaryRecovery = {

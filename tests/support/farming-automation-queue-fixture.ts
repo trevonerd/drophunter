@@ -1,10 +1,7 @@
 import type { AutomationEventNotifier } from '../../src/background/automation-event-notifier.ts';
 import { createFarmingAutomation } from '../../src/background/farming-automation.ts';
 import type { FarmingAutomationBrowser } from '../../src/background/farming-automation-browser.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../../src/background/farming-automation-persistence.ts';
 import {
   deriveSafeRefreshPatch,
   type FarmingAutomationTwitchAdapter,
@@ -17,6 +14,7 @@ import { createWatchTransportTransition } from '../../src/background/watch-trans
 import { gameKey } from '../../src/shared/game-selection.ts';
 import type { CampaignPriorityMode, TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 import { createQueueAvailabilityReconciler } from '../support/queue-progression.ts';
+import { createInMemoryFarmingAutomationStorage } from './in-memory-farming-automation-storage.ts';
 
 export function campaign(id: string, endsAt: string): TwitchGame {
   return {

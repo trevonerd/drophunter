@@ -3,8 +3,8 @@ import { projectDropsSnapshot } from '../src/background/drops-projection.ts';
 import {
   markDropUnverifiable,
   reconcileUnverifiableRewardMarkers,
+  snapshotProvenance,
 } from '../src/background/drops-projection-semantics.ts';
-import { snapshotProvenance } from '../src/background/drops-snapshot-provenance.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame } from '../src/types/index.ts';
@@ -137,7 +137,7 @@ describe('authoritative reward-set completeness', () => {
   });
 });
 
-test('an omitted campaign-verification flag cannot clear a stall block or terminal summary', () => {
+test('an omitted campaign-verification flag cannot clear a stalled park or terminal summary', () => {
   const state = createServiceWorkerState();
   const terminalCampaign = {
     ...authoritativeCampaign,
@@ -145,13 +145,13 @@ test('an omitted campaign-verification flag cannot clear a stall block or termin
   };
   state.appState.selectedGame = terminalCampaign;
   state.appState.availableGames = [terminalCampaign];
-  state.appState.stalledCampaignBlocksByKey = {
-    'campaign:campaign-1': {
-      blockedAt: 1,
-      rotationAttempts: 3,
-      eligibleStreamerNames: ['old-channel'],
-      rewardProgressByKey: {},
-    },
+  state.appState.queueEntryMetadataByKey['campaign:campaign-1'] = {
+    source: 'manual',
+    reason: 'user-added',
+    addedAt: 1,
+    streamerRetryReason: 'stalled-progress',
+    streamerRetryAt: 3,
+    parkedStreamerNames: ['old-channel'],
   };
   const snapshot = {
     games: [authoritativeCampaign],
@@ -163,7 +163,10 @@ test('an omitted campaign-verification flag cannot clear a stall block or termin
   projectDropsSnapshot(state, snapshot, snapshotProvenance(snapshot));
 
   expect(state.appState.selectedGame?.rewardSummary).toEqual(terminalCampaign.rewardSummary);
-  expect(state.appState.stalledCampaignBlocksByKey['campaign:campaign-1']).toBeDefined();
+  expect(state.appState.queueEntryMetadataByKey['campaign:campaign-1']).toMatchObject({
+    streamerRetryReason: 'stalled-progress',
+    parkedStreamerNames: ['old-channel'],
+  });
 });
 
 test('fresh progress clears only the matching inactive campaign streamer history', () => {

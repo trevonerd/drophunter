@@ -1,10 +1,6 @@
-// Extracted from src/popup/App.tsx (presentation formatting helpers).
-import { getGameDisplayLabel, isSameGameIdentity } from '../shared/game-selection';
-import { formatEtaMinutes, formatFarmingCompleteStatusLine } from '../shared/runtime-status';
-
-export { formatEtaMinutes };
-
-import type { CampaignCompletion, CampaignRemainderReason, ExpiryStatus, TwitchGame } from '../types';
+import { assertNever } from '../shared/messages';
+import { formatFarmingCompleteStatusLine } from '../shared/runtime-status';
+import type { CampaignCompletion, CampaignRemainderReason, TwitchGame } from '../types';
 
 export type CampaignIndicatorKind =
   | 'all-acquired'
@@ -16,10 +12,6 @@ export type CampaignStatusLine = {
   readonly reason: CampaignRemainderReason | 'farming-complete' | 'disconnected';
   readonly text: string;
 };
-
-function assertNever(value: never): never {
-  throw new TypeError(`Unhandled campaign indicator: ${String(value)}`);
-}
 
 function campaignCompletion(game: TwitchGame): CampaignCompletion {
   return game.rewardSummary?.completion ?? (game.allDropsCompleted === true ? 'all-acquired' : 'farmable');
@@ -93,44 +85,6 @@ export function getCampaignIndicatorKinds(game: TwitchGame): readonly CampaignIn
     indicators.push('disconnected');
   }
   return indicators;
-}
-
-function campaignIndicatorGlyph(indicator: CampaignIndicatorKind): string {
-  switch (indicator) {
-    case 'all-acquired':
-      return '\u2705';
-    case 'subscription-required':
-      return '\u{1F4B3}';
-    case 'unverifiable-twitch':
-      return '\u2754';
-    case 'disconnected':
-      return '\u{1F512}';
-    default:
-      return assertNever(indicator);
-  }
-}
-
-export function formatCampaignOptionLabel(game: TwitchGame, queuedGames: readonly TwitchGame[] = []): string {
-  const prefixes = getCampaignIndicatorKinds(game).map(campaignIndicatorGlyph);
-  if (queuedGames.some((queuedGame) => isSameGameIdentity(queuedGame, game))) {
-    prefixes.unshift('\u2637');
-  }
-  const prefix = prefixes.join(' ');
-  const label = `${getGameDisplayLabel(game)} · ${expiryLabel(game.expiryStatus)}`;
-  return prefix ? `${prefix} ${label}` : label;
-}
-
-export function expiryLabel(status?: ExpiryStatus) {
-  switch (status) {
-    case 'urgent':
-      return 'Expiry: < 24h';
-    case 'warning':
-      return 'Expiry: < 72h';
-    case 'safe':
-      return 'Expiry: not soon';
-    default:
-      return 'Expiry: unknown';
-  }
 }
 
 export function rewardInitials(name: string): string {

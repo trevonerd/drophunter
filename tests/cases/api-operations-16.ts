@@ -62,7 +62,9 @@ describe('fetchInventorySnapshotFromApi', () => {
   });
 
   test('wrapper stops running farming when inventory auth still fails after explicit session recovery', async () => {
-    const { fetchInventorySnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const { fetchInventorySnapshotFromApiWrapper } = await import(
+      '../../src/background/api-secondary-wrappers.ts'
+    );
 
     const session = createSession();
     const state = createMinimalState({
@@ -120,7 +122,6 @@ describe('fetchInventorySnapshotFromApi', () => {
           nextState.twitchSessionCache = null;
         },
       },
-      { logWarn: () => undefined },
     );
 
     expect(result).toBeNull();
@@ -130,7 +131,9 @@ describe('fetchInventorySnapshotFromApi', () => {
   });
 
   test('keeps a missing inventory session transient after checking existing Twitch tabs', async () => {
-    const { fetchInventorySnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const { fetchInventorySnapshotFromApiWrapper } = await import(
+      '../../src/background/api-secondary-wrappers.ts'
+    );
     const state = createMinimalState({
       appState: { ...createInitialState(), isRunning: true },
       twitchSessionCache: null,
@@ -154,7 +157,6 @@ describe('fetchInventorySnapshotFromApi', () => {
         onIsLikelyAuthError: () => false,
         onClearTwitchSessionCache: () => undefined,
       },
-      { logWarn: () => undefined },
     );
 
     expect(result).toBeNull();

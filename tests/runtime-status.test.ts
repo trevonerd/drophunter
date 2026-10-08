@@ -8,10 +8,7 @@ import {
   formatFarmingCompleteStatusLines,
   formatRecoveryReason,
   formatRetryLabel,
-  formatRotationReason,
   formatStopReason,
-  getRecoveryState,
-  getTerminalStopState,
   isStreamerAcquisitionRecovery,
 } from '../src/shared/runtime-status.ts';
 import { createInitialState } from '../src/shared/utils.ts';
@@ -103,36 +100,6 @@ describe('runtime status transitions', () => {
   });
 });
 
-describe('runtime status selectors', () => {
-  test('returns recovery state when available', () => {
-    const state = {
-      ...createInitialState(),
-      recoveryReason: 'wrong-game',
-      recoveryBackoffUntil: 12_000,
-      recoveryAttempts: 4,
-    };
-
-    expect(getRecoveryState(state)).toEqual({
-      reason: 'wrong-game',
-      retryAt: 12_000,
-      attempts: 4,
-    });
-  });
-
-  test('returns terminal stop state when available', () => {
-    const state = {
-      ...createInitialState(),
-      lastStopReason: 'sign-in-required',
-      lastStopMessage: 'Please sign in.',
-    };
-
-    expect(getTerminalStopState(state)).toEqual({
-      reason: 'sign-in-required',
-      message: 'Please sign in.',
-    });
-  });
-});
-
 describe('runtime status formatting', () => {
   test('recognizes global Twitch failures as acquisition recovery when the directory cannot be queried', () => {
     // Given global failures that must freeze campaign acquisition counters.
@@ -188,9 +155,6 @@ describe('runtime status formatting', () => {
   });
 
   test('formats rotation and recovery reasons for the UI', () => {
-    expect(formatRotationReason('drops-inactive')).toBe('Drops signal missing');
-    expect(formatRotationReason('open-failed')).toBe('Could not open stream');
-    expect(formatRotationReason('no-streamers')).toBe('No eligible streamer found yet');
     expect(formatRecoveryReason('drops-inactive')).toBe('Restoring Drops tracking');
     expect(formatRecoveryReason('open-failed')).toBe('Playback could not start; checking other streams');
     expect(formatRecoveryReason('no-streamers')).toBe('No eligible streamer yet');

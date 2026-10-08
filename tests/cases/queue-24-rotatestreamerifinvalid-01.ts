@@ -4,6 +4,7 @@ import { rotateStreamerIfInvalid } from '../../src/background/streamer-acquisiti
 import { createDrop, createGame, createMinimalState } from '../fixtures/queue-management.ts';
 import type { ChromeMocks } from '../mocks/chrome.ts';
 import { setupChromeMocks } from '../mocks/chrome.ts';
+import { rotateIfInvalidOptions } from '../support/rotate-streamer-if-invalid-options.ts';
 
 export function registerQueue24Part01() {
   describe('rotateStreamerIfInvalid', () => {
@@ -22,12 +23,15 @@ export function registerQueue24Part01() {
       state.appState.selectedGame = null;
 
       let rotateStreamerCalled = false;
-      await rotateStreamerIfInvalid(state, {
-        onRotateStreamer: async () => {
-          rotateStreamerCalled = true;
-          return true;
-        },
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onRotateStreamer: async () => {
+            rotateStreamerCalled = true;
+            return true;
+          },
+        }),
+      );
 
       expect(rotateStreamerCalled).toBe(false);
     });
@@ -39,12 +43,15 @@ export function registerQueue24Part01() {
       state.recoveryBackoffUntil = 0;
 
       const observed = { rotateReason: null as StreamRotationReason | null };
-      await rotateStreamerIfInvalid(state, {
-        onRotateStreamer: async (_, reason) => {
-          observed.rotateReason = reason;
-          return true;
-        },
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onRotateStreamer: async (_, reason) => {
+            observed.rotateReason = reason;
+            return true;
+          },
+        }),
+      );
 
       expect(observed.rotateReason).toBe('open-failed');
     });
@@ -57,12 +64,15 @@ export function registerQueue24Part01() {
       state.appState.recoveryReason = 'open-failed';
 
       let rotateStreamerCalled = false;
-      await rotateStreamerIfInvalid(state, {
-        onRotateStreamer: async () => {
-          rotateStreamerCalled = true;
-          return true;
-        },
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onRotateStreamer: async () => {
+            rotateStreamerCalled = true;
+            return true;
+          },
+        }),
+      );
 
       expect(rotateStreamerCalled).toBe(false);
     });
@@ -72,9 +82,12 @@ export function registerQueue24Part01() {
       state.appState.selectedGame = createGame();
       state.appState.tabId = 999;
 
-      await rotateStreamerIfInvalid(state, {
-        onRotateStreamer: async () => false,
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onRotateStreamer: async () => false,
+        }),
+      );
 
       expect(state.appState.tabId).toBeNull();
       expect(state.appState.activeStreamer).toBeNull();
@@ -89,12 +102,15 @@ export function registerQueue24Part01() {
       let fetchContextCalled = false;
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => {
-          fetchContextCalled = true;
-          return null;
-        },
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => {
+            fetchContextCalled = true;
+            return null;
+          },
+        }),
+      );
 
       expect(fetchContextCalled).toBe(true);
     });
@@ -107,9 +123,12 @@ export function registerQueue24Part01() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => null,
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => null,
+        }),
+      );
 
       expect(state.invalidStreamChecks).toBe(1);
     });
@@ -125,13 +144,16 @@ export function registerQueue24Part01() {
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       let rotateStreamerCalled = false;
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => null,
-        onRotateStreamer: async () => {
-          rotateStreamerCalled = true;
-          return true;
-        },
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => null,
+          onRotateStreamer: async () => {
+            rotateStreamerCalled = true;
+            return true;
+          },
+        }),
+      );
 
       expect(rotateStreamerCalled).toBe(false);
       expect(state.invalidStreamChecks).toBe(0);
@@ -141,7 +163,7 @@ export function registerQueue24Part01() {
       const state = createMinimalState();
       state.appState.selectedGame = createGame();
       state.appState.tabId = 123;
-      state.appState.currentDrop = createDrop({ requiredMinutes: 60, currentMinutes: 12 });
+      // A stale drop goes to stalled-progress recovery first; missing context rotates without one.
       state.lastProgressAdvanceAt = Date.now() - 10 * 60 * 1000;
       state.invalidStreamChecks = 7;
       state.lastStreamRotationAt = 0;
@@ -149,13 +171,16 @@ export function registerQueue24Part01() {
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       const observed = { rotateReason: null as StreamRotationReason | null };
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => null,
-        onRotateStreamer: async (_, reason) => {
-          observed.rotateReason = reason;
-          return true;
-        },
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => null,
+          onRotateStreamer: async (_, reason) => {
+            observed.rotateReason = reason;
+            return true;
+          },
+        }),
+      );
 
       expect(observed.rotateReason).toBe('missing-context');
       expect(state.invalidStreamChecks).toBe(0);
@@ -170,9 +195,12 @@ export function registerQueue24Part01() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://youtube.com/watch' });
 
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => null,
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => null,
+        }),
+      );
 
       expect(state.invalidStreamChecks).toBe(8);
     });
@@ -187,13 +215,16 @@ export function registerQueue24Part01() {
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       const observed = { rotateReason: null as StreamRotationReason | null };
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => null,
-        onRotateStreamer: async (_, reason) => {
-          observed.rotateReason = reason;
-          return true;
-        },
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => null,
+          onRotateStreamer: async (_, reason) => {
+            observed.rotateReason = reason;
+            return true;
+          },
+        }),
+      );
 
       expect(observed.rotateReason).toBe('missing-context');
       expect(state.invalidStreamChecks).toBe(0);
@@ -209,13 +240,16 @@ export function registerQueue24Part01() {
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
       let rotateStreamerCalled = false;
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => null,
-        onRotateStreamer: async () => {
-          rotateStreamerCalled = true;
-          return true;
-        },
-      });
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => null,
+          onRotateStreamer: async () => {
+            rotateStreamerCalled = true;
+            return true;
+          },
+        }),
+      );
 
       expect(rotateStreamerCalled).toBe(false);
     });
@@ -234,19 +268,22 @@ export function registerQueue24Part01() {
 
       mocks.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer' });
 
-      await rotateStreamerIfInvalid(state, {
-        onFetchStreamContext: async () => ({
-          channelName: 'streamer',
-          categorySlug: 'test-game',
-          categoryLabel: 'Test Game',
-          streamTitle: 'Playing Test Game',
-          titleContainsDrops: true,
-          hasDropsSignal: true,
-          isLive: true,
-          pageUrl: 'https://twitch.tv/streamer',
+      await rotateStreamerIfInvalid(
+        state,
+        rotateIfInvalidOptions({
+          onFetchStreamContext: async () => ({
+            channelName: 'streamer',
+            categorySlug: 'test-game',
+            categoryLabel: 'Test Game',
+            streamTitle: 'Playing Test Game',
+            titleContainsDrops: true,
+            hasDropsSignal: true,
+            isLive: true,
+            pageUrl: 'https://twitch.tv/streamer',
+          }),
+          onResolveCategorySlug: async () => 'test-game',
         }),
-        onResolveCategorySlug: async () => 'test-game',
-      });
+      );
 
       expect(state.invalidStreamChecks).toBe(0);
     });

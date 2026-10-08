@@ -1,4 +1,3 @@
-// Extracted from src/popup/App.tsx (onboarding + first-sync confirmation flow).
 import { useEffect, useState } from 'react';
 import { browser } from '../../shared/browser-api.ts';
 import { sendRuntimeMessage } from '../../shared/messages';

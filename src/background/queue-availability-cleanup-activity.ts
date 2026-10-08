@@ -1,6 +1,6 @@
 import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { recordAutomationActivity } from './automation-activity.ts';
-import type { GamesCacheRefreshDeps } from './games-cache-contracts.ts';
+import type { GamesCacheRefreshDeps } from './games-cache-orchestration.ts';
 import { logWarn } from './logging.ts';
 import type { QueueAvailabilityCleanupResult } from './queue-availability-cleanup.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';

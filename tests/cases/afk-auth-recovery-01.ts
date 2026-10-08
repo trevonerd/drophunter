@@ -5,26 +5,13 @@ import { createServiceWorkerState } from '../../src/background/runtime-state.ts'
 import { createServiceWorkerTwitchGateway } from '../../src/background/service-worker-twitch-gateway.ts';
 import type { TwitchSession } from '../../src/background/twitch-api/types.ts';
 import type { WatchHealth } from '../../src/background/watch-transport.ts';
-import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
+import type { TwitchDrop } from '../../src/types/index.ts';
 import { type ChromeMocks, setupChromeMocks } from '../mocks/chrome.ts';
-
-type FarmingSessionAdapters = Parameters<typeof createFarmingSession>[1];
-
-const game: TwitchGame = {
-  id: 'game-1',
-  name: 'Game',
-  imageUrl: '',
-  campaignId: 'campaign-1',
-  categorySlug: 'game',
-  rewardSummary: { completion: 'farmable', remainderReasons: [] },
-};
-
-const streamer: TwitchStreamer = {
-  id: 'channel-1',
-  name: 'channel-1',
-  displayName: 'Channel 1',
-  isLive: true,
-};
+import {
+  type FarmingSessionAdapters,
+  farmableSessionGame as game,
+  watchTransportStreamer as streamer,
+} from '../support/farming-session-watch-transport.ts';
 
 const drop: TwitchDrop = {
   id: 'drop-1',

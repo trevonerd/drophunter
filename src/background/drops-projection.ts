@@ -23,7 +23,6 @@ import {
 import { dropMatchesSelectedGame, splitDropsForSelectedGame } from './drops-selected-projection.ts';
 import { reconcileFarmingSessionTargets } from './farming-session-targets.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
-import { clearCampaignStallBlock, hasNewRewardProgressEvidence } from './stalled-campaign-block.ts';
 
 export type { DropsSnapshotProvenance } from './drops-projection-semantics.ts';
 export {
@@ -175,22 +174,13 @@ export function projectDropsSnapshot(
   if (provenance !== 'cached') {
     for (const game of annotatedGames) {
       const key = gameKey(game);
-      const block = state.appState.stalledCampaignBlocksByKey[key];
       const campaignDrops = reconciledDrops.filter((drop) => dropMatchesGame(drop, game));
       const previousDrops = mergeCampaignBaseline(
         game,
         previousCampaignDrops[key] ?? [],
         previousCachedDrops,
       );
-      if (
-        !hasNewRewardProgressEvidence(block, campaignDrops) &&
-        !campaignProgressAdvanced(previousDrops, campaignDrops)
-      )
-        continue;
-      state.appState.stalledCampaignBlocksByKey = clearCampaignStallBlock(
-        state.appState.stalledCampaignBlocksByKey,
-        game,
-      );
+      if (!campaignProgressAdvanced(previousDrops, campaignDrops)) continue;
       delete state.appState.campaignFailureEpisodesByKey[key];
       const metadata = state.appState.queueEntryMetadataByKey[key];
       if (metadata) {
@@ -199,6 +189,7 @@ export function projectDropsSnapshot(
           streamerRetryReason: _reason,
           streamerWaitState: _wait,
           attemptedStreamerNames: _attempted,
+          parkedStreamerNames: _parked,
           watchAttempt: _watch,
           ...ready
         } = metadata;

@@ -1,7 +1,6 @@
 import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import type { TwitchDrop, TwitchGame } from '../types/index.ts';
 import { dropStateKey } from './drops-projection.ts';
-import type { ServiceWorkerState } from './runtime-state.ts';
 import type { TwitchApiFailure } from './twitch-api/errors.ts';
 
 export type GamesCacheRefreshResult =
@@ -13,22 +12,6 @@ export type GamesCacheRefreshResult =
     }
   | { readonly kind: 'cached'; readonly games: TwitchGame[] }
   | { readonly kind: 'unavailable'; readonly games: TwitchGame[]; readonly failure?: TwitchApiFailure };
-
-const refreshInFlightByState = new WeakMap<ServiceWorkerState, Promise<GamesCacheRefreshResult>>();
-
-export function getGamesCacheRefreshInFlight(
-  state: ServiceWorkerState,
-): Promise<GamesCacheRefreshResult> | null {
-  return refreshInFlightByState.get(state) ?? null;
-}
-
-export function setGamesCacheRefreshInFlight(
-  state: ServiceWorkerState,
-  refresh: Promise<GamesCacheRefreshResult> | null,
-): void {
-  if (refresh === null) refreshInFlightByState.delete(state);
-  else refreshInFlightByState.set(state, refresh);
-}
 
 export function mergeUniqueDrops(primary: TwitchDrop[], additional: TwitchDrop[]): TwitchDrop[] {
   const merged = primary.slice();

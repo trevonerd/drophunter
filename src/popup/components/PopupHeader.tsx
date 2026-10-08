@@ -1,4 +1,3 @@
-// Extracted from src/popup/App.tsx (PopupHeader component).
 import type { AppState } from '../../types';
 import { DropsIcon, MonitorIcon, SettingsIcon, SpeakerIcon } from './icons';
 

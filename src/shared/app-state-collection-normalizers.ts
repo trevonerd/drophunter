@@ -1,8 +1,5 @@
 import type { AppState, TwitchDrop } from '../types/index.ts';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from './app-state-normalization-values.ts';
 
 export function normalizeStoredDrops(value: unknown): TwitchDrop[] {
   if (!Array.isArray(value)) return [];
@@ -106,6 +103,17 @@ export function normalizeHiddenGames(value: unknown): AppState['hiddenGames'] {
     }));
 }
 
+function normalizeStreamerNames(names: readonly unknown[]): string[] {
+  return [
+    ...new Set(
+      names
+        .filter((name): name is string => typeof name === 'string')
+        .map((name) => name.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMetadataByKey'] {
   if (!isRecord(value)) return {};
   return Object.fromEntries(
@@ -134,6 +142,7 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
           stalledStreamerNames,
           failedPlaybackStreamerNames,
           attemptedStreamerNames,
+          parkedStreamerNames,
           watchAttempt,
           ...provenance
         } = metadata;
@@ -169,6 +178,9 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
                   ].slice(0, 4),
                 }
               : {}),
+            ...(validRetry && streamerRetryReason === 'stalled-progress' && Array.isArray(parkedStreamerNames)
+              ? { parkedStreamerNames: normalizeStreamerNames(parkedStreamerNames) }
+              : {}),
             ...(isRecord(watchAttempt) &&
             typeof watchAttempt.channelName === 'string' &&
             watchAttempt.channelName.trim() &&
@@ -202,52 +214,6 @@ export function normalizeQueueMetadata(value: unknown): AppState['queueEntryMeta
         ];
       }),
   );
-}
-
-function isStalledCampaignBlock(value: unknown): value is AppState['stalledCampaignBlocksByKey'][string] {
-  return (
-    isRecord(value) &&
-    typeof value.blockedAt === 'number' &&
-    Number.isFinite(value.blockedAt) &&
-    typeof value.rotationAttempts === 'number' &&
-    Number.isInteger(value.rotationAttempts) &&
-    value.rotationAttempts >= 0 &&
-    Array.isArray(value.eligibleStreamerNames) &&
-    value.eligibleStreamerNames.every(
-      (streamerName) => typeof streamerName === 'string' && streamerName.trim().length > 0,
-    )
-  );
-}
-
-function normalizeStalledRewardProgress(
-  value: unknown,
-): Record<string, { readonly progress: number; readonly currentMinutes: number }> {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, { readonly progress: number; readonly currentMinutes: number }] =>
-        entry[0].trim().length > 0 &&
-        isRecord(entry[1]) &&
-        typeof entry[1].progress === 'number' &&
-        Number.isFinite(entry[1].progress) &&
-        typeof entry[1].currentMinutes === 'number' &&
-        Number.isFinite(entry[1].currentMinutes),
-    ),
-  );
-}
-
-export function normalizeStalledCampaignBlocks(value: unknown): AppState['stalledCampaignBlocksByKey'] {
-  if (!isRecord(value)) return {};
-  const normalized: AppState['stalledCampaignBlocksByKey'] = {};
-  for (const [key, block] of Object.entries(value)) {
-    if (key.trim().length === 0 || !isStalledCampaignBlock(block)) continue;
-    normalized[key] = {
-      ...block,
-      eligibleStreamerNames: Array.from(new Set(block.eligibleStreamerNames)),
-      rewardProgressByKey: normalizeStalledRewardProgress(block.rewardProgressByKey),
-    };
-  }
-  return normalized;
 }
 
 export function normalizeAutomationActivity(value: unknown): AppState['automationActivity'] {

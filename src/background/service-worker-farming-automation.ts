@@ -28,32 +28,29 @@ export function createServiceWorkerFarmingAutomationRuntime(
   const ready = new Promise<InitializationResult>((resolve) => {
     settleInitialization = resolve;
   });
+  const initialized = async () => {
+    const result = await ready;
+    if (result.kind === 'failed') throw result.error;
+    return result;
+  };
   let initialization: Promise<void> | null = null;
   let initializedAutomation: FarmingAutomation | null = null;
 
   const publicAutomation: FarmingAutomation = {
     invalidate: () => initializedAutomation?.invalidate?.(),
     async request(trigger) {
-      const result = await ready;
-      if (result.kind === 'failed') throw result.error;
-      return result.automation.request(trigger);
+      return (await initialized()).automation.request(trigger);
     },
     async suppressCampaignUntilRefresh(campaignKey) {
-      const result = await ready;
-      if (result.kind === 'failed') throw result.error;
-      return result.automation.suppressCampaignUntilRefresh(campaignKey);
+      return (await initialized()).automation.suppressCampaignUntilRefresh(campaignKey);
     },
   };
   const publicManualWatch: FarmingAutomationManualWatchController = {
     async evaluate(input) {
-      const result = await ready;
-      if (result.kind === 'failed') throw result.error;
-      return result.manualWatch.evaluate(input);
+      return (await initialized()).manualWatch.evaluate(input);
     },
     async reconcileTransport(input) {
-      const result = await ready;
-      if (result.kind === 'failed') throw result.error;
-      return result.manualWatch.reconcileTransport(input);
+      return (await initialized()).manualWatch.reconcileTransport(input);
     },
   };
 

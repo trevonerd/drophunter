@@ -3,11 +3,9 @@ import {
   createFarmingAutomationManualWatch,
   type FarmingAutomationManualWatchController,
 } from '../../src/background/farming-automation-manual-watch.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../../src/background/farming-automation-persistence.ts';
 import type { ServiceWorkerState } from '../../src/background/runtime-state.ts';
+import { createInMemoryFarmingAutomationStorage } from './in-memory-farming-automation-storage.ts';
 
 export function createFarmingSessionManualWatchFixture(
   state: ServiceWorkerState,

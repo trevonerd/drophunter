@@ -27,7 +27,7 @@ test('seven-campaign discovery preserves progressing SMITE while other directori
   const games = ['smite', 'r6-season', 'r6-circuit', 'skull', 'darktide', 'valorant', 'overwatch'].map(
     (id) => ({ ...campaign(id, 'farmable'), id, name: id, categorySlug: id }),
   );
-  const smite = games[0]!;
+  const [smite] = games as [TwitchGame, ...TwitchGame[]];
   const drop = createDrop({
     id: 'smite-drop',
     gameId: smite.id,
@@ -91,9 +91,9 @@ test('seven-campaign discovery preserves progressing SMITE while other directori
   if (result.kind !== 'ready') return;
   expect(result.availability[gameKey(smite)]?.eligibleStreamerCount).toBe(1);
   expect(result.directories.get(gameKey(smite))?.streamers).toEqual([]);
-  expect(result.availability[gameKey(games[1]!)]?.eligibleStreamerCount).toBe(0);
-  expect(result.availability[gameKey(games[5]!)]).toBeUndefined();
-  expect(result.directoryFailures.has(gameKey(games[5]!))).toBe(true);
+  expect(result.availability[gameKey(games[1] as TwitchGame)]?.eligibleStreamerCount).toBe(0);
+  expect(result.availability[gameKey(games[5] as TwitchGame)]).toBeUndefined();
+  expect(result.directoryFailures.has(gameKey(games[5] as TwitchGame))).toBe(true);
   expect(state.appState.selectedGame).toBe(smite);
   expect(state.appState.activeStreamer?.name).toBe('smite-live');
   expect(state.appState.queue).toEqual(games);

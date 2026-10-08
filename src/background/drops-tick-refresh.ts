@@ -11,7 +11,7 @@ import {
   dropStateKey,
   retainCampaignExpiryEvidence,
 } from './drops-projection.ts';
-import { snapshotProvenance } from './drops-snapshot-provenance.ts';
+import { snapshotProvenance } from './drops-projection-semantics.ts';
 import { cleanUnavailableQueueCampaigns } from './queue-availability-cleanup.ts';
 import { notifyQueueCleanup, recordQueueCleanupActivity } from './queue-availability-cleanup-activity.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';

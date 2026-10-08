@@ -1,3 +1,4 @@
+import { gameKey } from '../shared/game-selection.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 type FarmingSessionRevisionState = {
@@ -31,6 +32,22 @@ export function invalidateFarmingSessionEpoch(state: ServiceWorkerState): number
 
 export function isFarmingSessionEpochCurrent(state: ServiceWorkerState, epoch: number): boolean {
   return currentFarmingSessionEpoch(state) === epoch;
+}
+
+function selectedCampaignKey(state: ServiceWorkerState): string | null {
+  return state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+}
+
+/** Current while `outer` holds and the session epoch, tick and selected campaign are unchanged. */
+export function captureCampaignGuard(state: ServiceWorkerState, outer?: () => boolean): () => boolean {
+  const epoch = currentFarmingSessionEpoch(state);
+  const tick = state.tickGeneration;
+  const key = selectedCampaignKey(state);
+  return () =>
+    outer?.() !== false &&
+    currentFarmingSessionEpoch(state) === epoch &&
+    state.tickGeneration === tick &&
+    selectedCampaignKey(state) === key;
 }
 
 export function runInFarmingSessionCriticalSection<T>(

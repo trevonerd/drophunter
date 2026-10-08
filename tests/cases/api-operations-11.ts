@@ -55,7 +55,7 @@ describe('fetchDropsSnapshotFromApi', () => {
     [true, true],
   ] as const) {
     test(`wrapper ${preserveSessionOnAuthFailure ? 'retains authorized session' : 'requests login recovery'} when ${inventoryOnly ? 'inventory' : 'dashboard'} auth still fails after explicit session recovery`, async () => {
-      const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+      const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-drops-wrapper.ts');
       const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
 
       const session = createSession();
@@ -108,11 +108,7 @@ describe('fetchDropsSnapshotFromApi', () => {
         },
         {
           TwitchApiClient,
-          sessionDebugSummary: (nextSession) => ({ available: Boolean(nextSession) }),
           PROGRESS_POLL_MS: 60_000,
-          logDebug: () => undefined,
-          logWarn: () => undefined,
-          logInfo: () => undefined,
         },
       );
 
@@ -127,7 +123,7 @@ describe('fetchDropsSnapshotFromApi', () => {
   }
 
   test('does not stop farming when userId auto-detect fails transiently (network/timeout)', async () => {
-    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-operations.ts');
+    const { fetchDropsSnapshotFromApiWrapper } = await import('../../src/background/api-drops-wrapper.ts');
     const { TwitchApiClient } = await import('../../src/background/twitch-api/client.ts');
 
     const session = createSession({ userId: '' });
@@ -159,11 +155,7 @@ describe('fetchDropsSnapshotFromApi', () => {
       },
       {
         TwitchApiClient,
-        sessionDebugSummary: (nextSession) => ({ available: Boolean(nextSession) }),
         PROGRESS_POLL_MS: 60_000,
-        logDebug: () => undefined,
-        logWarn: () => undefined,
-        logInfo: () => undefined,
       },
     );
 

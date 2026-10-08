@@ -14,7 +14,7 @@ import {
 import { saveState } from '../src/background/state-persistence.ts';
 import { TwitchHttpError } from '../src/background/twitch-api/errors.ts';
 import { normalizeStoredAppState } from '../src/shared/app-state-sync.ts';
-import { getRecoveryState, isStreamerAcquisitionRecovery } from '../src/shared/runtime-status.ts';
+import { isStreamerAcquisitionRecovery } from '../src/shared/runtime-status.ts';
 import { createAppState, createMinimalState } from './fixtures/state-persistence.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
 
@@ -173,7 +173,11 @@ describe('runtime diagnostics persistence', () => {
     await flushRuntimeDiagnosticsForTests();
     const restored = normalizeStoredAppState(mocks.storage.local._store.get('appState'));
     // Then the UI and diagnostic history retain the actual global deadline and unfinished round.
-    expect(getRecoveryState(restored)).toEqual({
+    expect({
+      reason: restored.recoveryReason,
+      retryAt: restored.recoveryBackoffUntil,
+      attempts: restored.recoveryAttempts,
+    }).toEqual({
       reason: 'twitch-rate-limit',
       retryAt: state.apiBackoffUntil,
       attempts: 2,

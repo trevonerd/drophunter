@@ -115,21 +115,13 @@ describe('v4 queue continuation authorization', () => {
     });
   });
 
-  test('retains a stalled blocked campaign at the tail when it has no successor', async () => {
+  test('retains a stalled campaign at the tail when it has no successor', async () => {
     const manualA = campaign('A');
     const state = createQueueState();
     state.appState.isRunning = true;
     state.appState.manualQueueAuthorized = true;
     state.appState.selectedGame = manualA;
     state.appState.queue = [manualA];
-    state.appState.stalledCampaignBlocksByKey = {
-      [gameKey(manualA)]: {
-        blockedAt: 1,
-        rotationAttempts: 3,
-        eligibleStreamerNames: ['old-channel'],
-        rewardProgressByKey: {},
-      },
-    };
     await createQueueProgressionFixture(state).skipCurrent('stalled-progress');
 
     expect({

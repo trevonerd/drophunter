@@ -33,16 +33,7 @@ import {
 export type { RefreshDropsOptions, StreamContext } from './farming-session.ts';
 export type { ServiceWorkerState } from './runtime-state.ts';
 
-export const MONITOR_AUTO_OPEN_DELAY_MS = 450;
-export const TWITCH_SESSION_STORAGE_KEY = 'twitchSession';
-export const DROPS_SNAPSHOT_CACHE_KEY = 'dropsSnapshotCache';
-export const TIMING_STATE_KEY = 'timingState';
-export const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
-export const ALARM_NAME = 'dropCheck';
-export const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000;
-export const STREAM_CONTEXT_TIMEOUT_MS = 12_000;
-export const LINK_RECHECK_ALARM_PREFIX = 'campaignLinkRecheck:';
-export const GAMES_CACHE_TTL_MS = 5 * 60_000;
+const MONITOR_AUTO_OPEN_DELAY_MS = 450;
 
 const state = createServiceWorkerState();
 let farmingSession: ReturnType<typeof createFarmingSession>;

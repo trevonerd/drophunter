@@ -11,7 +11,7 @@ test.each([
   ['3.99.0.14', '3.99.0.15'],
   ['3.99.0.15', '3.99.0.14'],
 ])(
-  'preserves queue authorization, stall evidence and settings across %s → %s',
+  'preserves queue authorization and settings and drops legacy stall blocks across %s → %s',
   async (previousVersion, version) => {
     const mocks = setupChromeMocks();
     try {
@@ -39,9 +39,9 @@ test.each([
         notificationsEnabled: false,
         watchTransportPreference: 'managed-tab',
         watchTransportMode: 'managed-tab',
-        stalledCampaignBlocksByKey: { 'campaign:campaign-a': block },
         campaignPriorityMode: 'ending-soonest',
       });
+      expect(mocks.storage.local._store.get('appState')).not.toHaveProperty('stalledCampaignBlocksByKey');
     } finally {
       mocks.teardown();
     }

@@ -48,7 +48,6 @@ export async function bindCampaignEvidenceAccount(
     if (state.appState.selectedGame) {
       state.appState.selectedGame = withoutAccountEvidence(state.appState.selectedGame);
     }
-    state.appState.stalledCampaignBlocksByKey = {};
     state.appState.completionNotified = false;
     state.appState.lastSuccessfulRefreshAt = 0;
     state.cachedCampaignChannelsMap = {};

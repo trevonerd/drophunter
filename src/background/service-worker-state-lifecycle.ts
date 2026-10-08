@@ -1,3 +1,4 @@
+import { browser } from '../shared/browser-api.ts';
 import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { createInitialState } from '../shared/utils.ts';
 import { prepareBrowserSessionResume } from './browser-session-resume.ts';
@@ -13,7 +14,6 @@ import {
   applyExtensionUpdateStateTransition,
   captureExtensionUpdateIntent,
 } from './extension-reset.ts';
-import { persistExtensionResetState } from './extension-reset-persistence.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logInfo } from './logging.ts';
 import { clearRotationMetadata, type ServiceWorkerState } from './runtime-state.ts';
@@ -28,8 +28,24 @@ import {
   saveTimingState,
   sessionDebugSummary,
 } from './state-persistence.ts';
-import { clearExtensionRuntimeStorage, initializeAfterStorageMigration } from './storage-migrations.ts';
+import {
+  clearExtensionRuntimeStorage,
+  EXTENSION_VERSION_STORAGE_KEY,
+  initializeAfterStorageMigration,
+  STORAGE_SCHEMA_VERSION,
+  STORAGE_SCHEMA_VERSION_KEY,
+} from './storage-migrations.ts';
 import { sanitizeTwitchSession } from './twitch-api/types.ts';
+
+async function persistExtensionResetState(state: ServiceWorkerState): Promise<void> {
+  await browser.storage.local.set({
+    appState: state.appState,
+    [DROPS_SNAPSHOT_CACHE_KEY]: [],
+    [STORAGE_SCHEMA_VERSION_KEY]: STORAGE_SCHEMA_VERSION,
+    [EXTENSION_VERSION_STORAGE_KEY]: browser.runtime.getManifest().version,
+  });
+  broadcastStateUpdate(state.appState);
+}
 
 const INACTIVITY_RESET_MS = 3 * 24 * 60 * 60_000;
 

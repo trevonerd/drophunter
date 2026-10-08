@@ -3,12 +3,13 @@ import {
   favoriteGameIdentityKeys,
   gameKey,
   hiddenGameIdentityKeys,
+  isSameGameIdentity,
 } from '../../shared/game-selection.ts';
 import { isRewardWatchable } from '../../shared/reward-semantics.ts';
 import type { AppState, TwitchDrop, TwitchGame } from '../../types/index.ts';
 import type { CampaignSyncStatus } from '../constants.ts';
 import { isCampaignFarmable } from '../format.ts';
-import { getGameToStartFromQueue, isSameQueuedGame } from '../queue-start.ts';
+import { getGameToStartFromQueue } from '../queue-start.ts';
 import { type CampaignProgressSummary, isCampaignQueueEligible } from './campaign-list-model.ts';
 import { startupRecovery } from './startup-recovery.ts';
 
@@ -89,7 +90,7 @@ export function createMainViewModel({
     hiddenIds: hiddenGameIdentityKeys(state.hiddenGames ?? []),
     highlightedCampaignKey: highlightedGame ? gameKey(highlightedGame) : null,
     hasVisibleQueue: queueGames.some(
-      (game) => !state.isRunning || !state.selectedGame || !isSameQueuedGame(game, state.selectedGame),
+      (game) => !state.isRunning || !state.selectedGame || !isSameGameIdentity(game, state.selectedGame),
     ),
     showSelectedCampaignStatus:
       selectedGame !== null && sortedGames.some((game) => gameKey(game) === gameKey(selectedGame)),

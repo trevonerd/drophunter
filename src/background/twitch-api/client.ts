@@ -1,36 +1,9 @@
 import type { DropsSnapshot, TwitchDrop } from '../../types';
-import {
-  applyEarlyTwitchRewardClaimsToDrops,
-  buildClaimedRewardLookup,
-  buildGlobalClaimedIdCounts,
-  buildGlobalClaimedRewardEntry,
-  type ClaimedRewardEntry,
-  type ClaimedRewardLookup,
-  hasClaimedGameEventReward,
-  isEarlyAwardableTwitchReward,
-  matchClaimedReward,
-  resolveDropClaimedStatus,
-} from './claimed-rewards';
-import {
-  buildDirectoryPayload,
-  type DirectoryStreamersResult,
-  fetchDirectoryStreamers,
-} from './directory-operations';
+import { applyEarlyTwitchRewardClaimsToDrops } from './claimed-rewards';
+import { type DirectoryStreamersResult, fetchDirectoryStreamers } from './directory-operations';
 import { TwitchGqlTransport } from './gql';
 import { applyInventoryToDrops } from './inventory-drops';
-import {
-  buildConflictedRewardBenefitKeys,
-  classifyRewardAcquisitionMethod,
-  classifyRewardKind,
-  computeExpiry,
-  extractBenefitDistributionTypes,
-  extractBenefitIds,
-  extractBenefitNames,
-  normalizeImageUrl,
-  normalizeText,
-  toIsoDate,
-  toNumber,
-} from './parsing';
+import { normalizeText } from './parsing';
 import { CLAIM_DROP_REWARD_QUERY, CURRENT_USER_QUERY, INVENTORY_QUERY } from './queries';
 import { hasVerifiedInventory } from './snapshot-composition';
 import { type FetchDropsSnapshotOptions, fetchUncoalescedDropsSnapshot } from './snapshot-fetch';
@@ -38,43 +11,7 @@ import type { TwitchSession } from './types';
 
 const inFlightSnapshotRefreshes = new Map<string, Promise<DropsSnapshot>>();
 
-export { parseCampaignDrops } from './campaign-drop-parsing';
-export {
-  extractCampaignRewardDrops,
-  isCampaignUsable,
-  isTwitchNativeCampaign,
-  parseGameFromCampaign,
-} from './campaign-model';
-export {
-  extractBroadcasterLanguage,
-  normalizeLanguageForApi,
-  normalizeStreamerLanguage,
-} from './directory-operations';
-export type { InventoryDropMaps } from './inventory-drops';
-export { buildInventoryDropMaps, findInventoryStateForDrop } from './inventory-drops';
 export type { FetchDropsSnapshotOptions } from './snapshot-fetch';
-export type { ClaimedRewardEntry, ClaimedRewardLookup };
-export {
-  applyEarlyTwitchRewardClaimsToDrops,
-  buildClaimedRewardLookup,
-  buildConflictedRewardBenefitKeys,
-  buildGlobalClaimedIdCounts,
-  buildGlobalClaimedRewardEntry,
-  classifyRewardAcquisitionMethod,
-  classifyRewardKind,
-  computeExpiry,
-  extractBenefitDistributionTypes,
-  extractBenefitIds,
-  extractBenefitNames,
-  hasClaimedGameEventReward,
-  isEarlyAwardableTwitchReward,
-  matchClaimedReward,
-  normalizeImageUrl,
-  normalizeText,
-  resolveDropClaimedStatus,
-  toIsoDate,
-  toNumber,
-};
 
 export class TwitchApiClient {
   private readonly transport: TwitchGqlTransport;
@@ -209,10 +146,6 @@ export class TwitchApiClient {
       status === 'DROP_INSTANCE_ALREADY_CLAIMED' ||
       status === 'CLAIMED'
     );
-  }
-
-  buildDirectoryPayload(game: string, slug: string, tags?: string[], broadcasterLanguages?: string[]) {
-    return buildDirectoryPayload({ game, slug, tags, broadcasterLanguages });
   }
 
   async fetchDirectoryStreamers(

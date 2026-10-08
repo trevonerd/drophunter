@@ -7,12 +7,6 @@ export function logContentDebug(...args: unknown[]) {
   }
 }
 
-export function logContentInfo(...args: unknown[]) {
-  if (DEBUG_LOGS_ENABLED) {
-    console.info(LOG_PREFIX, ...args);
-  }
-}
-
 export function logContentWarn(...args: unknown[]) {
   console.warn(LOG_PREFIX, ...args);
 }

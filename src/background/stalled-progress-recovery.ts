@@ -1,6 +1,6 @@
 import { gameKey } from '../shared/game-selection.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
-import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
+import { captureCampaignGuard } from './farming-session-revision.ts';
 import { applyRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { computeEffectiveStallThreshold, STALLED_PROGRESS_RETRY_MS } from './stream-rotation.ts';
@@ -37,26 +37,14 @@ export interface StalledProgressRecoveryDependencies {
   readonly onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
 }
 
-function selectedCampaignKey(state: ServiceWorkerState): string | null {
-  return state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
-}
-
 export async function recoverStalledProgress(
   state: ServiceWorkerState,
   _source: StalledProgressSource,
   dependencies: StalledProgressRecoveryDependencies,
 ): Promise<StalledProgressRecoveryResult> {
   const now = dependencies.now();
-  const previousKey = selectedCampaignKey(state);
-  const epoch = currentFarmingSessionEpoch(state);
-  const generation = state.tickGeneration;
-  const isCurrent = () =>
-    dependencies.isCurrent?.() !== false &&
-    currentFarmingSessionEpoch(state) === epoch &&
-    state.tickGeneration === generation &&
-    state.appState.isRunning &&
-    !state.appState.isPaused &&
-    selectedCampaignKey(state) === previousKey;
+  const campaignCurrent = captureCampaignGuard(state, dependencies.isCurrent);
+  const isCurrent = () => campaignCurrent() && state.appState.isRunning && !state.appState.isPaused;
   if (!isCurrent()) return { kind: 'selection-changed' };
   const recoveryAlreadyActive = state.appState.recoveryReason === 'stalled-progress';
 

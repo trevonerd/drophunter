@@ -1,6 +1,6 @@
 import type { TwitchGame, TwitchStreamer } from '../types';
-import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { StreamInfoProbe } from './eligible-streamer-discovery.ts';
+import type { StreamContext } from './farming-session-context.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { StalledProgressRecoveryResult, StalledProgressSource } from './stalled-progress-recovery.ts';
 import type { StreamRotationReason } from './stream-rotation.ts';
@@ -25,30 +25,16 @@ export type RotateStreamerFn = (
   opts?: RotateStreamerOptions,
 ) => Promise<boolean>;
 
-export interface StreamContext {
-  channelName: string;
-  categorySlug: string;
-  categoryLabel: string;
-  streamTitle: string;
-  titleContainsDrops: boolean;
-  hasDropsSignal: boolean;
-  isLive: boolean;
-  pageUrl: string;
-}
-
-export interface RotateStreamerIfInvalidOptions {
-  readonly isCurrent?: () => boolean;
-  onFetchStreamContext?: (tabId: number) => Promise<StreamContext | null>;
-  onResolveCategorySlug?: (game: TwitchGame) => Promise<string>;
-  onAttemptPlaybackSelfHeal?: (tabId: number, isCurrent?: () => boolean) => Promise<void>;
-  onSaveState?: () => Promise<void>;
-  onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
-  onRotateStreamer?: RotateStreamerFn;
-  onOpenStreamer?: () => Promise<boolean>;
-  onSkipCurrentGame?: () => Promise<void>;
-  onForceRefreshDropsData?: (isCurrent?: () => boolean) => Promise<RefreshDropsOutcome>;
-  onTablessWatchActive?: () => boolean;
-  onRecoverStalledProgress?: (
+export interface RotateStreamerIfInvalidOptions extends RotateStreamerOptions {
+  onFetchStreamContext: (tabId: number) => Promise<StreamContext | null>;
+  onResolveCategorySlug: (game: TwitchGame) => Promise<string>;
+  onSaveState: () => Promise<void>;
+  onSaveTimingState: (state: ServiceWorkerState) => Promise<void>;
+  onRotateStreamer: RotateStreamerFn;
+  onOpenStreamer: (isCurrent?: () => boolean) => Promise<boolean>;
+  onSkipCurrentGame: () => Promise<void>;
+  onTablessWatchActive: () => boolean;
+  onRecoverStalledProgress: (
     source: StalledProgressSource,
     isCurrent?: () => boolean,
   ) => Promise<StalledProgressRecoveryResult>;
@@ -70,16 +56,4 @@ export interface OpenBestStreamerCallbacks {
     isCurrent?: () => boolean,
   ) => Promise<TwitchGame | null>;
   isCurrent?: () => boolean;
-}
-
-export function rotateStreamerOptsFrom(
-  opts: RotateStreamerIfInvalidOptions | undefined,
-): RotateStreamerOptions {
-  return {
-    isCurrent: opts?.isCurrent,
-    onOpenStreamer: opts?.onOpenStreamer,
-    onSaveState: opts?.onSaveState,
-    onSaveTimingState: opts?.onSaveTimingState,
-    onSkipCurrentGame: opts?.onSkipCurrentGame,
-  };
 }

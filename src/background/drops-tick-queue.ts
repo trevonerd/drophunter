@@ -1,15 +1,12 @@
 // Owns runtime queue add, remove, and reorder mutations.
 import { gameKey } from '../shared/game-selection';
 import type { AddToQueueReason } from '../shared/messages.ts';
+import { assertNever } from '../shared/messages.ts';
 import { isRewardWatchable } from '../shared/reward-semantics.ts';
 import type { TwitchDrop, TwitchGame } from '../types';
 import { retireFarmingTarget } from './farming-session-targets.ts';
 import { pushGameToQueue, queueContainsGame, queueEntryMatchesGame, reorderQueue } from './queue-operations';
 import type { ServiceWorkerState } from './runtime-state.ts';
-
-function assertNever(value: never): never {
-  throw new TypeError(`Unhandled add-to-queue completion: ${String(value)}`);
-}
 
 export interface HandleAddToQueueDeps {
   resolveGameFromState: (state: ServiceWorkerState, game: TwitchGame) => TwitchGame | null;

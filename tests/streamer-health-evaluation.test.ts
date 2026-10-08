@@ -53,7 +53,7 @@ describe('streamer health evaluation', () => {
       { onResolveCategorySlug: async () => 'game' },
     );
 
-    expect(result.stallThreshold).toBe(14 * 60_000);
-    expect(result.health.reason).toBe('drops-inactive');
+    expect(computeEffectiveStallThreshold(drop.requiredMinutes)).toBe(14 * 60_000);
+    expect(result.reason).toBe('drops-inactive');
   });
 });

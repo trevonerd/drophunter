@@ -13,7 +13,6 @@ import type {
   CampaignAvailability,
   FarmCategoryScope,
   QueueAcquisitionRound,
-  StalledCampaignBlock,
   TwitchDrop,
   TwitchGame,
 } from '../types/index.ts';
@@ -39,7 +38,6 @@ export interface FarmingAutomationCandidateFacts {
 export interface FarmingAutomationPolicySnapshot extends FavoriteCampaignQueuePlanInput {
   readonly manualQueueAuthorized?: boolean;
   readonly queueAcquisitionRound?: QueueAcquisitionRound | null;
-  readonly stalledCampaignBlocksByKey?: Readonly<Record<string, StalledCampaignBlock>>;
   readonly campaignAvailabilityByKey: Readonly<Record<string, CampaignAvailability>>;
   readonly farmCategoryScope: FarmCategoryScope;
   readonly candidateFactsByKey?: Readonly<Record<string, FarmingAutomationCandidateFacts>>;
@@ -153,11 +151,7 @@ export function rankFarmingAutomationCandidates(
   candidates: readonly FarmingAutomationCandidate[],
 ): readonly FarmingAutomationCandidate[] {
   const eligible = filterEligibleFarmingAutomationCandidates(candidates).filter(
-    (candidate) =>
-      !isHiddenGame(candidate.game, hiddenGameIdentityKeys(snapshot.hiddenGames ?? [])) &&
-      (snapshot.stalledCampaignBlocksByKey?.[gameKey(candidate.game)] === undefined ||
-        snapshot.queueEntryMetadataByKey[gameKey(candidate.game)]?.streamerRetryReason ===
-          'stalled-progress'),
+    (candidate) => !isHiddenGame(candidate.game, hiddenGameIdentityKeys(snapshot.hiddenGames ?? [])),
   );
   const favoriteIds = favoriteGameIdentityKeys(snapshot.favoriteGames);
   const candidateByKey = new Map(eligible.map((candidate) => [gameKey(candidate.game), candidate]));

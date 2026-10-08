@@ -1,3 +1,4 @@
+import { isRecord } from '../shared/app-state-normalization-values.ts';
 import type { AppState, ClaimLogEntry } from '../types/index.ts';
 
 export const TELEGRAM_HOST_PERMISSION: chrome.permissions.Permissions = {
@@ -70,9 +71,6 @@ const SYSTEM_EVENT_TITLES: Record<TelegramSystemEventReason, string> = {
   'queue-cleanup': '🧹 Queue updated',
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

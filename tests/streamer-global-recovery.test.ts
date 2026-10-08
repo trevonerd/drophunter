@@ -3,6 +3,12 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
   ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Test Game" (slug: test-game)', 1],
+  [
+    '[DropHunter] Twitch API directory fetch failed: TwitchInvalidResponseError: Twitch directory response is missing stream edges',
+    1,
+  ],
+  ['[DropHunter] Twitch API directory fetch failed: TwitchHttpError: Twitch gql HTTP 429', 1],
+  ['[DropHunter] Twitch API directory fetch failed: TwitchHttpError: Twitch gql HTTP 401', 1],
 ]);
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -92,18 +98,11 @@ describe('global streamer recovery', () => {
     globalThis.fetch = async () => Response.json({ data: { game: null } });
 
     await expect(
-      fetchDirectoryStreamersFromApiWrapper(
-        state,
-        createGame(),
-        false,
-        '',
-        {
-          onEnsureTwitchSession: async () => session,
-          onIsLikelyAuthError: () => false,
-          onClearTwitchSessionCache: () => undefined,
-        },
-        { logWarn: () => undefined },
-      ),
+      fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', {
+        onEnsureTwitchSession: async () => session,
+        onIsLikelyAuthError: () => false,
+        onClearTwitchSessionCache: () => undefined,
+      }),
     ).rejects.toBeInstanceOf(TwitchDirectoryUnavailableError);
     expect(state.apiBackoffUntil).toBeGreaterThan(now);
   });
@@ -121,14 +120,10 @@ describe('global streamer recovery', () => {
       onClearTwitchSessionCache: () => undefined,
     };
     await expect(
-      fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', callbacks, {
-        logWarn: () => undefined,
-      }),
+      fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', callbacks),
     ).rejects.toThrow();
     await expect(
-      fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', callbacks, {
-        logWarn: () => undefined,
-      }),
+      fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', callbacks),
     ).rejects.toThrow();
     expect(requests).toBe(1);
     expect(state.apiConsecutiveFailures).toBe(1);
@@ -151,25 +146,18 @@ describe('global streamer recovery', () => {
           ? Response.json({ data: { game: { streams: { edges: [] } } } })
           : new Response('', { status: 401 });
       };
-      const pending = fetchDirectoryStreamersFromApiWrapper(
-        state,
-        createGame(),
-        false,
-        '',
-        {
-          onEnsureTwitchSession: async () => session,
-          onIsLikelyAuthError: (error) => classifyTwitchApiFailure(error).kind === 'auth',
-          onClearTwitchSessionCache: () => undefined,
-          onRecoverTwitchSessionAfterAuthError: async () => {
-            recoveryCalls += 1;
-            return recovered ? session : null;
-          },
-          onStopFarmingSession: async () => {
-            signInCalls += 1;
-          },
+      const pending = fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', {
+        onEnsureTwitchSession: async () => session,
+        onIsLikelyAuthError: (error) => classifyTwitchApiFailure(error).kind === 'auth',
+        onClearTwitchSessionCache: () => undefined,
+        onRecoverTwitchSessionAfterAuthError: async () => {
+          recoveryCalls += 1;
+          return recovered ? session : null;
         },
-        { logWarn: () => undefined },
-      );
+        onStopFarmingSession: async () => {
+          signInCalls += 1;
+        },
+      });
 
       if (recovered) expect(await pending).toHaveLength(0);
       else await expect(pending).rejects.toBeInstanceOf(TwitchDirectoryUnavailableError);
@@ -195,21 +183,14 @@ describe('global streamer recovery', () => {
         markStarted();
       });
     let recoveries = 0;
-    const pending = fetchDirectoryStreamersFromApiWrapper(
-      state,
-      createGame(),
-      false,
-      '',
-      {
-        onEnsureTwitchSession: async () => createSession(),
-        onIsLikelyAuthError: () => true,
-        onClearTwitchSessionCache: () => {
-          recoveries += 1;
-        },
-        isCurrent: () => current,
+    const pending = fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', {
+      onEnsureTwitchSession: async () => createSession(),
+      onIsLikelyAuthError: () => true,
+      onClearTwitchSessionCache: () => {
+        recoveries += 1;
       },
-      { logWarn: () => undefined },
-    );
+      isCurrent: () => current,
+    });
     await started;
     current = false;
     resolveRequest(new Response('', { status: 401 }));
@@ -227,24 +208,17 @@ describe('global streamer recovery', () => {
     globalThis.fetch = async () => new Response('', { status: 401 });
     await acquireStreamerForSelectedGame(state, {
       onOpenStreamer: async () => {
-        await fetchDirectoryStreamersFromApiWrapper(
-          state,
-          createGame(),
-          false,
-          '',
-          {
-            onEnsureTwitchSession: async () => createSession(),
-            onIsLikelyAuthError: (error) => classifyTwitchApiFailure(error).kind === 'auth',
-            onClearTwitchSessionCache: () => undefined,
-            onRecoverTwitchSessionAfterAuthError: async () => {
-              throw new TwitchHttpError('gql', 503);
-            },
-            onStopFarmingSession: async () => {
-              signInCalls += 1;
-            },
+        await fetchDirectoryStreamersFromApiWrapper(state, createGame(), false, '', {
+          onEnsureTwitchSession: async () => createSession(),
+          onIsLikelyAuthError: (error) => classifyTwitchApiFailure(error).kind === 'auth',
+          onClearTwitchSessionCache: () => undefined,
+          onRecoverTwitchSessionAfterAuthError: async () => {
+            throw new TwitchHttpError('gql', 503);
           },
-          { logWarn: () => undefined },
-        );
+          onStopFarmingSession: async () => {
+            signInCalls += 1;
+          },
+        });
         return true;
       },
     });

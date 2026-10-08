@@ -1,4 +1,5 @@
 import type { AppState, TwitchStreamer } from '../types/index.ts';
+import { isRecord } from './app-state-normalization-values.ts';
 
 /** Upgrade suspended availability without granting new queue authorization. */
 export function restoreAuthorizedQueueRetry(state: AppState): void {
@@ -16,10 +17,6 @@ export function restoreAuthorizedQueueRetry(state: AppState): void {
       state.queueAcquisitionRound?.nextRoundAt ?? state.recoveryBackoffUntil ?? Date.now();
     state.recoveryAttempts = 0;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function normalizeStoredStreamer(value: unknown): TwitchStreamer | null {

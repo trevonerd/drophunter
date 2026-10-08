@@ -218,7 +218,6 @@ export async function resetStateForInactivity(
     campaignFailureEpisodesByKey: savedState.campaignFailureEpisodesByKey,
     dismissedFarmingMessageIds: savedState.dismissedFarmingMessageIds,
     selectedGame: savedState.selectedGame,
-    stalledCampaignBlocksByKey: savedState.stalledCampaignBlocksByKey,
     availableGames: savedState.availableGames,
     campaignDropsByKey: savedState.campaignDropsByKey,
     campaignEvidenceUserId: savedState.campaignEvidenceUserId,

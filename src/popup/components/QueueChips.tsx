@@ -1,10 +1,13 @@
-// Extracted from src/popup/App.tsx (QueueChips component).
 import { useEffect, useState } from 'react';
-import { gameKey, getGameDisplayLabel, isFavoriteGame } from '../../shared/game-selection';
+import {
+  gameKey,
+  getGameDisplayLabel,
+  isFavoriteGame,
+  isSameGameIdentity,
+} from '../../shared/game-selection';
 import { remainingCampaignTimeMs } from '../../shared/utils.ts';
 import type { CampaignPriorityMode, QueueEntryMetadata, TwitchGame } from '../../types';
 import { useQueueDragReorder } from '../hooks/useQueueDragReorder';
-import { isSameQueuedGame, queueGameIdentity } from '../queue-start';
 import { CampaignStatusIndicators } from './CampaignStatusIndicators';
 import { CloseIcon, GripIcon, PlayIcon } from './icons';
 
@@ -42,15 +45,15 @@ export function QueueChips({
 }: QueueChipsProps) {
   const visibleQueueGames =
     isRunning && selectedGame
-      ? queueGames.filter((game) => !isSameQueuedGame(game, selectedGame))
+      ? queueGames.filter((game) => !isSameGameIdentity(game, selectedGame))
       : queueGames;
   const canReorder = visibleQueueGames.length > 0;
   const requestReorder = (fromIndex: number, toIndex: number) => {
     const fromGame = visibleQueueGames[fromIndex];
     const toGame = visibleQueueGames[toIndex];
     if (!fromGame || !toGame) return;
-    const storedFromIndex = queueGames.findIndex((game) => isSameQueuedGame(game, fromGame));
-    const storedToIndex = queueGames.findIndex((game) => isSameQueuedGame(game, toGame));
+    const storedFromIndex = queueGames.findIndex((game) => isSameGameIdentity(game, fromGame));
+    const storedToIndex = queueGames.findIndex((game) => isSameGameIdentity(game, toGame));
     if (storedFromIndex < 0 || storedToIndex < 0 || storedFromIndex === storedToIndex) return;
     onReorder(storedFromIndex, storedToIndex);
   };
@@ -131,7 +134,7 @@ export function QueueChips({
 
           return (
             <li
-              key={queueGameIdentity(game)}
+              key={gameKey(game)}
               onDragOver={canReorder ? handleDragOver(index) : undefined}
               onDrop={canReorder ? handleDrop(index) : undefined}
               className={`grid min-h-11 w-full grid-cols-[1.5rem_minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg border border-[color:var(--dh-border)] bg-[color:var(--dh-surface-3)] px-2 py-1.5 text-[11px] text-[color:var(--dh-text-soft)] ${

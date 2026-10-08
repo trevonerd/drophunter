@@ -1,19 +1,11 @@
 import { browser } from '../shared/browser-api.ts';
-import { replaceAvailableGames } from '../shared/game-selection.ts';
-import { clearRecoveryStatus, clearTerminalStopStatus } from '../shared/runtime-status.ts';
 import type { ActivationTrigger } from '../types/index.ts';
 import { createActivationSyncCoordinator } from './activation-sync-coordinator.ts';
 import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import { persistCampaignSyncState } from './campaign-sync-state.ts';
 import { CAMPAIGN_SYNC_RETRY_ALARM_NAME } from './constants.ts';
 import { createDropsPageRefresher } from './drops-page-refresh.ts';
-import {
-  annotateGameCompletion,
-  clearSelectedCompletedIdleCampaignExt,
-  normalizeGameSelection,
-  resetStateForAuthoritativeEmptyCampaignExt,
-  splitDropsForSelectedGame,
-} from './drops-projection.ts';
+import { clearSelectedCompletedIdleCampaignExt } from './drops-projection.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
 import type { createFarmingSession } from './farming-session.ts';
 import { type GamesCacheRefreshDeps, refreshGamesCacheFromHiddenFetch } from './games-cache-orchestration.ts';
@@ -73,16 +65,9 @@ export function createServiceWorkerContentHandlers(
     fetchDropsSnapshot: dependencies.twitchGateway.fetchDropsSnapshot,
     fetchDropsSnapshotProgressively: dependencies.twitchGateway.fetchDropsSnapshotProgressively,
     getLastTwitchApiFailure: dependencies.twitchGateway.getLastTwitchApiFailure,
-    replaceAvailableGames,
-    annotateGameCompletion,
-    normalizeGameSelection,
     normalizeQueueSelection,
-    splitDropsForSelectedGame,
-    resetStateForAuthoritativeEmptyCampaign: resetStateForAuthoritativeEmptyCampaignExt,
     clearSelectedCompletedIdleCampaign: clearSelectedCompletedIdleCampaignExt,
     resetStreamTrackingState,
-    clearRecoveryStatus,
-    clearTerminalStopStatus,
     onAuthoritativeCampaignUnavailable: (game) =>
       dependencies.farmingSession.handleAuthoritativeCampaignUnavailable(game),
     onQueueCampaignsRemoved: async (result) => {

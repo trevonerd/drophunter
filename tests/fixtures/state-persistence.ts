@@ -18,7 +18,6 @@ export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}):
     noProgressRotationAttempts: 0,
     offlineChecks: 0,
     avoidStreamerName: null,
-    gamesCacheRefreshInFlight: null,
     twitchSessionCache: null,
     twitchSessionFetchInFlight: null,
     twitchSessionLastAttemptAt: 0,

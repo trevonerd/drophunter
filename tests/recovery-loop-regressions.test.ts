@@ -54,18 +54,11 @@ test('successful directory lookup followed by failed playback never becomes a Tw
           state,
           {
             onFetchDirectoryStreamersFromApi: (game, force, language) =>
-              fetchDirectoryStreamersFromApiWrapper(
-                state,
-                game,
-                force ?? false,
-                language ?? '',
-                {
-                  onEnsureTwitchSession: async () => createSession(),
-                  onIsLikelyAuthError: () => false,
-                  onClearTwitchSessionCache: () => {},
-                },
-                { logWarn: () => {} },
-              ),
+              fetchDirectoryStreamersFromApiWrapper(state, game, force ?? false, language ?? '', {
+                onEnsureTwitchSession: async () => createSession(),
+                onIsLikelyAuthError: () => false,
+                onClearTwitchSessionCache: () => {},
+              }),
             onOpenWatchTransport: async () => false,
             onOpenForegroundChannel: async () => {},
           },
@@ -293,7 +286,6 @@ test('queued Play directory auth failure preserves the incumbent and does not sp
           stops += 1;
         },
       },
-      { logWarn: () => undefined },
       { sessionRecoveryMode: 'passive', preserveSessionOnAuthFailure: true },
     ),
   ).rejects.toBeInstanceOf(TwitchDirectoryUnavailableError);

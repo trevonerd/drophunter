@@ -1,7 +1,5 @@
 import { expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { RewardList } from '../src/popup/components/RewardList';
-import { isRewardAutomatable } from '../src/shared/reward-semantics';
 import type { AppState } from '../src/types';
 import {
   appState,
@@ -10,35 +8,6 @@ import {
   renderMainView,
   startButtonMarkup,
 } from './fixtures/popup-reward';
-
-test('claimable count renders only rewards DropHunter can automate', () => {
-  // Given
-  const watchReward = drop({ id: 'watch', claimable: true });
-  const subscriptionReward = drop({
-    id: 'subscription',
-    claimable: true,
-    acquisitionMethod: 'subscription',
-  });
-  const pendingDrops = [watchReward, subscriptionReward];
-  const claimableCount = pendingDrops.filter(
-    (reward) => reward.claimable && isRewardAutomatable(reward),
-  ).length;
-
-  // When
-  const markup = renderToStaticMarkup(
-    <RewardList
-      pendingDrops={pendingDrops}
-      completedDrops={[]}
-      rewardsLoading={false}
-      syncLoading={false}
-      claimableCount={claimableCount}
-    />,
-  );
-
-  // Then
-  expect(markup).toContain('1 claimable');
-  expect(markup).not.toContain('2 claimable');
-});
 
 test('running status does not present a non-automatable reward as the nearest active reward', () => {
   // Given
@@ -108,30 +77,3 @@ test('farming-complete selection disables Start when no farmable queue head exis
   expect(markup).toContain('data-campaign-status-reason="unverifiable-twitch"');
   expect(markup).toContain('Farming finished · Twitch reward acquisition could not be verified');
 });
-
-test('non-automatable reward cards use the truthful remaining group label', () => {
-  const pendingDrops = [
-    drop({ id: 'subscription', acquisitionMethod: 'subscription' }),
-    drop({
-      id: 'native',
-      claimed: true,
-      progress: 100,
-      rewardKind: 'twitch-badge',
-      verificationState: 'unassessed',
-    }),
-  ];
-
-  const markup = renderToStaticMarkup(
-    <RewardList
-      pendingDrops={pendingDrops}
-      completedDrops={[]}
-      rewardsLoading={false}
-      syncLoading={false}
-      claimableCount={0}
-    />,
-  );
-
-  expect(markup).toContain('Remaining (2)');
-  expect(markup).not.toContain('Pending (2)');
-});
-

@@ -2,12 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import './cases/farming-automation-manual-watch-02.ts';
 import { createInitialFarmingAutomationFacts } from '../src/background/farming-automation-facts.ts';
 import { createFarmingAutomationManualWatch } from '../src/background/farming-automation-manual-watch.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import type { TwitchGame } from '../src/types/index.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 
 const target: TwitchGame = {
   id: 'game-1',

@@ -1,9 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY } from '../src/background/farming-automation-contracts.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { createFarmingSession } from '../src/background/farming-session.ts';
 import { currentFarmingSessionEpoch } from '../src/background/farming-session-revision.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
@@ -14,6 +11,7 @@ import { createFarmingSessionAdapters } from './fixtures/queue-management.ts';
 import { candidate, snapshot, streamer } from './helpers/farming-session-transition-tabless.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { createExecutionBarrier } from './support/farming-automation-fixtures.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 
 describe('Stop during an automatic transition commit', () => {
   test.each(['storage-pending', 'commit-return-pending'] as const)(

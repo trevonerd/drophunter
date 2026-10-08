@@ -1,4 +1,3 @@
-// Extracted from src/popup/App.tsx (recovery countdown clock).
 import { useEffect, useState } from 'react';
 import type { RuntimeMode } from '../../shared/runtime-status';
 

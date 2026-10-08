@@ -1,9 +1,14 @@
 import { gameKey } from '../shared/game-selection.ts';
+import type { CampaignAvailability } from '../types/index.ts';
+import type { AutomationEventNotifier } from './automation-event-notifier.ts';
 import { rememberAcquiredCampaigns } from './campaign-completion-evidence.ts';
+import type { FarmingAutomationBrowser } from './farming-automation-browser.ts';
 import { decideFarmingAutomationTransition } from './farming-automation-candidates.ts';
 import type {
+  FarmingAutomationFactsV1,
   FarmingAutomationFailureReason,
   FarmingAutomationOutcome,
+  FarmingAutomationPersistence,
   FarmingAutomationTrigger,
 } from './farming-automation-contracts.ts';
 import { discoverFarmingAutomationCandidates } from './farming-automation-discovery.ts';
@@ -14,7 +19,6 @@ import {
   persistFarmingAutomationRetry,
   runFarmingAutomationStartedEffects,
 } from './farming-automation-effects.ts';
-import { shouldRefreshAvailabilityOnly } from './farming-automation-evaluator-gates.ts';
 import {
   cheapFarmingAutomationGate,
   cloneFarmingAutomationGame,
@@ -24,8 +28,9 @@ import {
   factsWithFarmingAutomationManualWatch,
   farmingAutomationFingerprint,
   farmingAutomationStateFingerprint,
+  PARKED_CAMPAIGN_RETRY_MS,
 } from './farming-automation-gates.ts';
-import { reconcileParkedCampaigns } from './farming-automation-parked-campaigns.ts';
+import type { FarmingAutomationManualWatchController } from './farming-automation-manual-watch.ts';
 import {
   buildFarmingAutomationQueuePlan,
   collectQueueAvailabilityEvidence,
@@ -34,13 +39,74 @@ import {
   persistFailedFarmingTransition,
   transitionDiscoveredCampaign,
 } from './farming-automation-transition-attempt.ts';
+import type { FarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
+import type { FarmingQueueProgression } from './farming-queue-progression.ts';
+import type { ServiceWorkerState } from './runtime-state.ts';
 
-export type {
-  FarmingAutomationEvaluatorDependencies,
-  FarmingAutomationRuntime,
-} from './farming-automation-evaluator-types.ts';
+export type FarmingAutomationRuntime = { generation: number };
 
-import type { FarmingAutomationEvaluatorDependencies } from './farming-automation-evaluator-types.ts';
+export type FarmingAutomationEvaluatorDependencies = {
+  readonly state: ServiceWorkerState;
+  readonly reconcileQueueAvailability: FarmingQueueProgression['reconcileAvailability'];
+  readonly persistence: FarmingAutomationPersistence;
+  readonly browser: FarmingAutomationBrowser;
+  readonly manualWatch: FarmingAutomationManualWatchController;
+  readonly twitch: FarmingAutomationTwitchAdapter;
+  readonly runtime: FarmingAutomationRuntime;
+  readonly recover?: () => Promise<FarmingAutomationOutcome | null>;
+  readonly now: () => number;
+  readonly random: () => number;
+  readonly onStarted?: () => void;
+  readonly automationNotify?: AutomationEventNotifier;
+};
+
+function shouldRefreshAvailabilityOnly(
+  gate: FarmingAutomationOutcome | null,
+  triggers: ReadonlySet<FarmingAutomationTrigger>,
+  campaignPriorityMode: string,
+): boolean {
+  return (
+    gate?.kind === 'unchanged' &&
+    gate.reason === 'disabled' &&
+    triggers.has('campaign-refresh') &&
+    campaignPriorityMode === 'lowest-availability'
+  );
+}
+
+function reconcileParkedCampaigns(
+  facts: FarmingAutomationFactsV1,
+  availability: Readonly<Record<string, CampaignAvailability>>,
+  now: number,
+) {
+  const keys = new Set<string>();
+  const until: Record<string, number> = {};
+  for (const key of facts.suppressedCampaignKeys) {
+    const retryAt = facts.suppressedUntilByCampaignKey[key] ?? 0;
+    if (retryAt > now || (availability[key]?.eligibleStreamerCount ?? 0) <= 0) {
+      keys.add(key);
+      until[key] = retryAt > now ? retryAt : now + PARKED_CAMPAIGN_RETRY_MS;
+    }
+  }
+  const next = [...keys];
+  const changed =
+    JSON.stringify(next) !== JSON.stringify(facts.suppressedCampaignKeys) ||
+    JSON.stringify(until) !== JSON.stringify(facts.suppressedUntilByCampaignKey);
+  return {
+    parkedKeys: keys,
+    facts: changed
+      ? {
+          ...facts,
+          suppressedCampaignKeys: next,
+          suppressedUntilByCampaignKey: until,
+          nextEvaluationAt: Math.min(
+            ...Object.values(until),
+            facts.nextEvaluationAt ?? Number.POSITIVE_INFINITY,
+          ),
+        }
+      : facts,
+    changed,
+  };
+}
 
 export function createFarmingAutomationEvaluator(
   dependencies: FarmingAutomationEvaluatorDependencies,
@@ -102,7 +168,7 @@ export function createFarmingAutomationEvaluator(
     }
 
     dependencies.reconcileQueueAvailability(
-      collectQueueAvailabilityEvidence(dependencies.state, discovery),
+      collectQueueAvailabilityEvidence(dependencies.state, discovery, now),
       now,
     );
 

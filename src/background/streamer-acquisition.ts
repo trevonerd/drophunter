@@ -2,7 +2,8 @@ import { gameKey } from '../shared/game-selection.ts';
 import { isStreamerAcquisitionRecovery } from '../shared/runtime-status.ts';
 import { applyApiBackoff, getLastTwitchApiFailure } from './api-operations.ts';
 import { EligibleStreamerDiscoveryUnavailableError } from './eligible-streamer-discovery.ts';
-import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
+import { captureCampaignGuard, currentFarmingSessionEpoch } from './farming-session-revision.ts';
+import { logWarn } from './logging.ts';
 import {
   applyDirectoryUnavailableRecoveryState,
   applyGlobalStreamerRecoveryState,
@@ -15,7 +16,6 @@ import {
   nextNoProgressRotationAttempts,
   type StreamRotationReason,
 } from './stream-rotation.ts';
-import { runStreamerAcquisitionAttempt } from './streamer-acquisition-attempt.ts';
 import type { RotateStreamerOptions } from './streamer-acquisition-contracts.ts';
 import { NoEligibleStreamerError, WatchPlaybackUnavailableError } from './streamer-selection-flow.ts';
 import { MAX_STREAMER_ATTEMPTS } from './streamer-watch-attempt.ts';
@@ -167,14 +167,7 @@ export async function rotateStreamer(
   reason: StreamRotationReason,
   opts?: RotateStreamerOptions,
 ): Promise<boolean> {
-  const epoch = currentFarmingSessionEpoch(state);
-  const generation = state.tickGeneration;
-  const campaignKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
-  const isCurrent = () =>
-    opts?.isCurrent?.() !== false &&
-    currentFarmingSessionEpoch(state) === epoch &&
-    state.tickGeneration === generation &&
-    (state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null) === campaignKey;
+  const isCurrent = captureCampaignGuard(state, opts?.isCurrent);
   if (!isCurrent()) return false;
   const previousStreamer = state.appState.activeStreamer;
   const previousAvoid = state.avoidStreamerName;
@@ -209,4 +202,80 @@ export async function rotateStreamer(
   if (!isCurrent()) return false;
   await opts?.onSaveTimingState?.(state);
   return opened;
+}
+
+const ACQUISITION_TIMEOUT_MS = 60_000;
+
+export function runStreamerAcquisitionAttempt(
+  state: ServiceWorkerState,
+  operation: (isCurrent: () => boolean, release: () => void) => Promise<boolean>,
+  callbacks: {
+    readonly isCurrent?: () => boolean;
+    readonly onSaveState?: () => Promise<void>;
+    readonly onSaveTimingState?: (state: ServiceWorkerState) => Promise<void>;
+    readonly onSkipCurrentGame?: (reason: 'open-failed', isCurrent?: () => boolean) => Promise<void>;
+  },
+): Promise<boolean> {
+  if (callbacks.isCurrent?.() === false) return Promise.resolve(false);
+  if (state.streamerAcquisitionInFlight && state.streamerAcquisitionDeadlineAt > Date.now()) {
+    return state.streamerAcquisitionInFlight;
+  }
+  const generation = (state.streamerAcquisitionGeneration ?? 0) + 1;
+  state.streamerAcquisitionGeneration = generation;
+  state.streamerAcquisitionPhase = 'directory';
+  const key = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+  const authorized = captureCampaignGuard(state, callbacks.isCurrent);
+  const deadline = Date.now() + ACQUISITION_TIMEOUT_MS;
+  const owns = () => state.streamerAcquisitionGeneration === generation;
+  const isCurrent = () => owns() && authorized() && Date.now() < deadline;
+  const release = () => {
+    if (!owns()) return;
+    state.streamerAcquisitionInFlight = null;
+    state.streamerAcquisitionDeadlineAt = 0;
+    state.streamerAcquisitionPhase = null;
+  };
+  state.streamerAcquisitionDeadlineAt = deadline;
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => {
+      if (!owns() || !authorized()) {
+        resolve(false);
+        return;
+      }
+      const timedOutPhase = state.streamerAcquisitionPhase;
+      state.streamerAcquisitionGeneration += 1;
+      state.streamerAcquisitionInFlight = null;
+      state.streamerAcquisitionDeadlineAt = 0;
+      state.streamerAcquisitionPhase = null;
+      if (timedOutPhase === 'playback') {
+        const metadata = key ? state.appState.queueEntryMetadataByKey[key] : undefined;
+        const attempts = metadata?.attemptedStreamerNames?.length ?? 0;
+        applyPlaybackStartRecoveryState(state, Date.now() + 30_000, attempts);
+        if (attempts >= MAX_STREAMER_ATTEMPTS) {
+          void callbacks
+            .onSkipCurrentGame?.('open-failed', () => authorized())
+            .catch((error: unknown) => {
+              logWarn('Failed to advance after playback timeout', { error: String(error) });
+            });
+        }
+      } else {
+        applyApiBackoff(state);
+        applyGlobalStreamerRecoveryState(state, 'network');
+      }
+      const save = async () => {
+        await callbacks.onSaveState?.();
+        if (authorized()) await callbacks.onSaveTimingState?.(state);
+      };
+      resolve(false);
+      void save().catch((error: unknown) => {
+        logWarn('Failed to persist expired streamer acquisition', { error: String(error) });
+      });
+    }, ACQUISITION_TIMEOUT_MS);
+  });
+  const pending = Promise.race([operation(isCurrent, release), timeout]).finally(() => {
+    clearTimeout(timer);
+    release();
+  });
+  state.streamerAcquisitionInFlight = pending;
+  return pending;
 }

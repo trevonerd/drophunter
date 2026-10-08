@@ -6,7 +6,6 @@ import { markQueueCampaignAttempted, queueRoundCandidates } from './queue-acquis
 import { promoteQueueHead, removeQueueEntriesForGame } from './queue-operations.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
-import { isCampaignStallBlocked } from './stalled-campaign-block.ts';
 
 export function isAutomaticFavoriteSession(state: ServiceWorkerState, campaign: TwitchGame | null): boolean {
   return (
@@ -41,22 +40,15 @@ export function prepareNextEligibleQueueHead(
   for (const game of [...state.appState.queue]) {
     const key = gameKey(game);
     const metadata = state.appState.queueEntryMetadataByKey[key];
-    const legacyStall =
-      isCampaignStallBlocked(state.appState.stalledCampaignBlocksByKey, game) &&
-      metadata?.streamerRetryReason !== 'stalled-progress';
     if (
       !isExpiredGame(game) &&
-      (legacyStall ||
-        (metadata?.streamerWaitState === 'availability' && metadata.streamerRetryAt === undefined))
+      metadata?.streamerWaitState === 'availability' &&
+      metadata.streamerRetryAt === undefined
     ) {
       markQueueCampaignAttempted(state, game);
       state.appState.queueEntryMetadataByKey[key] = {
-        ...(metadata ?? {
-          source: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-auto' : 'manual',
-          reason: state.appState.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
-          addedAt: now,
-        }),
-        streamerRetryReason: legacyStall ? 'stalled-progress' : 'no-streamers',
+        ...metadata,
+        streamerRetryReason: 'no-streamers',
         streamerRetryAt: now + 60_000,
       };
     }

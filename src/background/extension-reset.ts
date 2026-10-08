@@ -38,6 +38,7 @@ export function captureExtensionUpdateIntent(appState: AppState): ExtensionUpdat
           streamerRetryReason: _retryReason,
           streamerWaitState: _waitState,
           attemptedStreamerNames: _names,
+          parkedStreamerNames: _parked,
           watchAttempt: _watch,
           ...provenance
         } = metadata;
@@ -98,7 +99,6 @@ export function createExtensionUpdateAppState(
     pendingDrops: appState.pendingDrops,
     completedDrops: appState.completedDrops,
     currentDrop: appState.currentDrop,
-    stalledCampaignBlocksByKey: appState.stalledCampaignBlocksByKey,
     wasRunning: intent.wasRunning,
   };
   return clearRotationMetadata({ ...createInitialState(), ...preserved });

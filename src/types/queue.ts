@@ -24,6 +24,8 @@ export interface QueueEntryMetadata {
     | 'stalled-progress';
   readonly streamerWaitState?: 'availability';
   readonly attemptedStreamerNames?: readonly string[];
+  /** Eligible live streamers already known while a stalled-progress park waits; a new one ends the wait. */
+  readonly parkedStreamerNames?: readonly string[];
   readonly watchAttempt?: {
     readonly channelName: string;
     readonly observedAt: number;

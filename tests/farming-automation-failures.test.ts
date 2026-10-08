@@ -5,10 +5,7 @@ import type {
   FarmingAutomationOutcome,
   FarmingAutomationPersistence,
 } from '../src/background/farming-automation-contracts.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import {
   deriveSafeRefreshPatch,
   type FarmingAutomationTwitchSnapshot,
@@ -18,6 +15,7 @@ import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 type FailureStage =

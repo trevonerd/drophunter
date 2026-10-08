@@ -1,3 +1,4 @@
+import { assertNever } from '../shared/messages.ts';
 import type {
   FarmingAutomationPersistence,
   FarmingAutomationPersistenceWrite,
@@ -25,10 +26,6 @@ export interface FarmingAutomationRecoveryOptions {
   ) => Promise<FarmingAutomationPersistenceWrite>;
   readonly watch: Pick<WatchTransportTransition, 'release'>;
   readonly now?: () => number;
-}
-
-function assertNever(value: never): never {
-  throw new DOMException(`Unexpected recovery variant: ${String(value)}`, 'InvariantError');
 }
 
 export async function reconcileFarmingAutomationRecovery(

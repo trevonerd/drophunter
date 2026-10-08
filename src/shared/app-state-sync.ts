@@ -6,7 +6,6 @@ import {
   normalizeFavoriteGames,
   normalizeHiddenGames,
   normalizeQueueMetadata,
-  normalizeStalledCampaignBlocks,
   normalizeStoredDrops,
 } from './app-state-collection-normalizers.ts';
 import {
@@ -51,7 +50,11 @@ export function normalizeStoredAppState(value: unknown): AppState {
   const hiddenIdentityKeys = new Set(
     hiddenGames.flatMap((entry) => [entry.gameId, ...(entry.identityKeys ?? [])]),
   );
-  const { autoResumeOnStartup: _legacyAutoResumeOnStartup, ...persistedValue } = value;
+  const {
+    autoResumeOnStartup: _legacyAutoResumeOnStartup,
+    stalledCampaignBlocksByKey: legacyStallBlocks,
+    ...persistedValue
+  } = value;
   const pendingGame = isRecord(value.pendingWatchTarget)
     ? normalizeStoredGame(value.pendingWatchTarget.game)
     : null;
@@ -130,7 +133,6 @@ export function normalizeStoredAppState(value: unknown): AppState {
     dismissedFarmingMessageIds: Array.isArray(value.dismissedFarmingMessageIds)
       ? [...new Set(value.dismissedFarmingMessageIds.filter((id): id is string => typeof id === 'string'))]
       : [],
-    stalledCampaignBlocksByKey: normalizeStalledCampaignBlocks(value.stalledCampaignBlocksByKey),
     automationActivity: normalizeAutomationActivity(value.automationActivity),
     lastAutomationMessage:
       typeof value.lastAutomationMessage === 'string' ? value.lastAutomationMessage : null,
@@ -186,11 +188,43 @@ export function normalizeStoredAppState(value: unknown): AppState {
         : Math.min(value.recoveryAttempts, 100),
     recoverySchedulerUnavailable: value.recoverySchedulerUnavailable === true,
   };
+  parkLegacyStalledCampaigns(storedState, legacyStallBlocks);
   restoreAuthorizedQueueRetry(storedState);
   if (storedState.isRunning && !storedState.selectedGame && storedState.queue.length > 0) {
     storedState.selectedGame = storedState.queue[0] ?? null;
   }
   return storedState;
+}
+
+// Beta builds through 4.0.0-beta.63 kept stalled campaigns in a separate block map. Fold each
+// queued block into the shared stalled-progress park, retaining its known-streamer baseline.
+function parkLegacyStalledCampaigns(state: AppState, blocks: unknown): void {
+  if (!isRecord(blocks)) return;
+  const now = Date.now();
+  for (const game of state.queue) {
+    const key = gameKey(game);
+    const block = blocks[key];
+    const metadata = state.queueEntryMetadataByKey[key];
+    if (!isRecord(block) || metadata?.streamerRetryReason) continue;
+    const knownNames = Array.isArray(block.eligibleStreamerNames) ? block.eligibleStreamerNames : [];
+    state.queueEntryMetadataByKey[key] = {
+      ...(metadata ?? {
+        source: state.farmingSessionOrigin === 'automatic' ? 'favorite-auto' : 'manual',
+        reason: state.farmingSessionOrigin === 'automatic' ? 'favorite-discovered' : 'user-added',
+        addedAt: now,
+      }),
+      streamerRetryReason: 'stalled-progress',
+      streamerRetryAt: now + 60_000,
+      parkedStreamerNames: [
+        ...new Set(
+          knownNames
+            .filter((name): name is string => typeof name === 'string')
+            .map((name) => name.trim().toLowerCase())
+            .filter(Boolean),
+        ),
+      ],
+    };
+  }
 }
 
 export async function loadStoredAppState(): Promise<AppState> {

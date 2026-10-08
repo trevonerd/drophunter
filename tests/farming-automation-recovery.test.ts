@@ -6,16 +6,14 @@ import {
   type WatchCleanupV1,
   type WatchOwnershipV1,
 } from '../src/background/farming-automation-contracts.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { reconcileFarmingAutomationRecovery } from '../src/background/farming-automation-recovery.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { transitionAutomaticFarmingSession } from '../src/background/session-lifecycle.ts';
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../src/types/index.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 
 const gameA: TwitchGame = { id: 'game', name: 'Game', imageUrl: '', campaignId: 'a' };
 const gameB: TwitchGame = { id: 'game', name: 'Game', imageUrl: '', campaignId: 'b' };

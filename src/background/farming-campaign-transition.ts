@@ -145,7 +145,6 @@ export function createFarmingCampaignTransition(
           completedDrops: working.appState.completedDrops,
           currentDrop: working.appState.currentDrop,
           lastSuccessfulRefreshAt: working.appState.lastSuccessfulRefreshAt,
-          stalledCampaignBlocksByKey: working.appState.stalledCampaignBlocksByKey,
           queueEntryMetadataByKey: { ...state.appState.queueEntryMetadataByKey },
           isRunning: true,
           isPaused: false,

@@ -11,11 +11,9 @@ import {
   normalizeFarmingAutomationFacts,
   normalizeFarmingSessionTransitionReceipt,
 } from '../src/background/farming-automation-facts.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 
 function receiptFixture(): FarmingSessionTransitionReceiptV1 {
   return {

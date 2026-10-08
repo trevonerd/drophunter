@@ -1,10 +1,10 @@
-import type { QueueProgressionExecution } from './farming-queue-progression-execution.ts';
 import { unresolvedFarmingTargets } from './farming-session-targets.ts';
 import { resetQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { clearRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type {
   CompletedQueueContext,
+  QueueProgressionExecution,
   QueueSkipReason,
   StopFarmingSessionOptions,
 } from './session-lifecycle-types.ts';
@@ -114,7 +114,7 @@ export async function finalizeCompletedQueue(
   context: CompletedQueueContext,
   options: QueueProgressionExecution,
 ): Promise<void> {
-  if (options?.isCurrent?.() === false) return;
+  if (!options.isCurrent()) return;
   if (unresolvedFarmingTargets(state).length > 0) return;
   resetQueueAcquisitionRound(state);
   state.appState.isRunning = false;
@@ -141,18 +141,14 @@ export async function finalizeCompletedQueue(
   const queueCompleteNotificationMessage = queueCompleteMessage;
   const stopReason = 'queue-complete';
   const stopMessage = queueCompleteMessage;
-  if (options?.onApplyStopState) {
-    options.onApplyStopState(state, stopReason, stopMessage);
-  }
-  if (options?.onStopMonitoring) {
-    await options.onStopMonitoring();
-    if (!options.isCurrent()) return;
-  }
+  options.onApplyStopState(state, stopReason, stopMessage);
+  await options.onStopMonitoring();
+  if (!options.isCurrent()) return;
   await options.onSaveState();
   if (!options.isCurrent()) return;
   void Promise.resolve()
     .then(async () => {
-      await options.onSystemAlert?.(stopReason, stopMessage);
+      await options.onSystemAlert(stopReason, stopMessage);
     })
     .catch(() => undefined);
   if (!context.terminalFarmingCompleteGame) {
@@ -166,7 +162,7 @@ export async function finalizeCompletedQueue(
           }
         } else if (expired > 0) {
           await options.onQueueCompleteNotification?.('Campaigns ended', queueCompleteMessage);
-        } else if (options?.onSendAlert && acquired > 0) {
+        } else if (acquired > 0) {
           await options.onSendAlert('all-complete', queueCompleteMessage);
         }
       })

@@ -66,7 +66,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Never infer a browser restart from a stale heartbeat alone: Chrome may recycle an MV3 worker between progress alarms. `chrome.storage.session` survives recycling but clears on browser restart or extension update. Preserve active farming across both paths, including after the first nonzero progress update.
 - Manual **Pause** preserves the authorized queue and session position in `AppState`; playback and monitoring stay stopped until an explicit Resume or Start. Manual **Stop** persists `lastStopReason === 'user-stop'`, ends the session, and clears manual queue authorization until an explicit Start. Explicitly enabling favorite auto-start may clear either block; merely adding a favorite must not restart farming. Browser recovery never overrides Pause or Stop.
 - `resumedFromCrash` is transient UI state. Clear it lazily through normal ticks/save paths rather than adding timer-only cleanup paths.
-- Recovery shares a four-distinct-streamer budget across playback failure and duration-based stalls; park failures and retry unresolved rounds after ten minutes. Terminal automatic stops require every authorized target positively acquired or validly expired. Missing data, nonautomatable rewards, claim failure and sign-in required remain scheduled nonterminal recovery.
+- Recovery shares a four-distinct-streamer budget across playback failure and duration-based stalls; park failures and retry unresolved rounds after ten minutes. A stalled park remembers the eligible streamers live when it began; a newly live one ends its wait early without resetting the round. Terminal automatic stops require every authorized target positively acquired or validly expired. Missing data, nonautomatable rewards, claim failure and sign-in required remain scheduled nonterminal recovery.
 - Keep Twitch directory/API failures separate from local watch-transport failures. A successful directory lookup followed by failed playback must not consume API backoff or reset the Twitch session. Bound candidate attempts and recovery cycles; park a failed campaign and continue eligible queued campaigns, then recheck at a spaced deadline.
 - A recovery countdown must correspond to a scheduled alarm and an actual attempt. Reconcile alarms after worker restart and sleep/wake; do not block farming monitoring behind campaign synchronization. Deduplicate popup Retry, alarms, and periodic ticks. Never describe a due but unstarted attempt as “retrying.”
 - Storage upgrades must preserve queue authorization, campaign identity/order, preferences, progress evidence, Pause, and manual Stop while rebuilding volatile retry, sync, acquisition, transport, and integrity state. Make migrations repeatable after interrupted writes. Apply defensive normalization on same-version load too; repair contradictory but valid historical campaign summaries rather than deleting campaigns. A failed scheduler write may not prevent all future checks.
@@ -113,7 +113,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - New campaign identity behavior: update shared helper first, then queue, popup selector/chips, drop matching, and campaign label tests.
 - New recovery behavior: update runtime status helpers if user-visible, timing persistence if durable, monitor/popup display, and soak-test notes if manual QA changes.
 - New Twitch API field: normalize in `twitch-api/parsing.ts` or nearby parser, keep raw response optional, add null/missing/wrong-shape tests.
-- New release behavior: update `scripts/release-check.mjs`, docs/checklist when store handoff changes, and release-check UI tests if terminal output changes.
+- New release behavior: update `scripts/release-check.mjs`, plus docs/checklist when store handoff changes.
 
 ## Testing Matrix
 - Queue/farming regressions: `tests/queue-management.test.ts`, `tests/queue-start.test.ts`, `tests/service-worker.test.ts`.
@@ -128,8 +128,8 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Twitch API/session/integrity parsing: `tests/client-parsing.test.ts`, `tests/integrity-token.test.ts`, `tests/session-management.test.ts`, `tests/api-operations.test.ts`.
 - Popup source behavior: `tests/popup-source.test.ts`.
 - Content/playback changes: `tests/content-script.test.ts`, `tests/content-app-state.test.ts`, `tests/playback-orchestrator.test.ts`.
-- Browser extension E2E: `e2e/extension-controls.spec.ts` through `bun run test:e2e` after a real Chrome MV3 build.
-- Release UI/check scripts: `tests/release-check-ui.test.ts`, `scripts/release-check.mjs`.
+- Browser extension E2E: `e2e/*.spec.ts` through `bun run test:e2e` after a real Chrome MV3 build. CI and `release:check` run it; `check` and pre-push do not.
+- Release check script: `scripts/release-check.mjs`.
 
 ## Work Rules
 - Preserve dirty worktree changes unless the user explicitly asks to revert.
@@ -156,10 +156,10 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
   - `bun run build:all`
   - `bun audit`
 - Preferred release gate is `bun run release:check`; it runs source and test TypeScript, Biome, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
-- Regenerate release zips with `bun run release:zip`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
+- Regenerate release zips with `bun run release:check`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
 - Before a stable store handoff, verify `README.md`, `PRIVACY.md`, screenshots, permission justifications, and listing copy against the exact production artifacts.
 - For long-run farming changes, exercise a real eligible campaign across progress, service-worker restart, sleep/wake, strict tabless recovery without a viewing-tab fallback, manual Twitch viewing, notifications, and recovery.
-- If touching video/promotional assets, also run `cd video && bun audit` and relevant `video:*` commands.
+- If touching video/promotional assets, also run `cd video && bun audit` and the relevant `cd video && bun run <script>` commands.
 
 ## Stability Hotspots
 - Queue advancement, drop refresh, crash recovery, and session/integrity recovery are regression-prone. Add or update focused tests.

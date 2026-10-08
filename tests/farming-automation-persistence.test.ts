@@ -8,11 +8,11 @@ import { createInitialFarmingAutomationFacts } from '../src/background/farming-a
 import {
   createChromeFarmingAutomationPersistence,
   createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
 } from '../src/background/farming-automation-persistence.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { drop, game, transitionReceipt } from './support/farming-automation-persistence-fixture.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 
 function persistenceFor(
   storage: ReturnType<typeof createInMemoryFarmingAutomationStorage>,

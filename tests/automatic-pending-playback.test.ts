@@ -1,9 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createFarmingAutomation } from '../src/background/farming-automation.ts';
-import {
-  createInMemoryFarmingAutomationPersistence,
-  createInMemoryFarmingAutomationStorage,
-} from '../src/background/farming-automation-persistence.ts';
+import { createInMemoryFarmingAutomationPersistence } from '../src/background/farming-automation-persistence.ts';
 import { deriveSafeRefreshPatch } from '../src/background/farming-automation-twitch.ts';
 import { currentFarmingSessionEpoch } from '../src/background/farming-session-revision.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
@@ -12,6 +9,7 @@ import { createWatchTransportCoordinator } from '../src/background/watch-transpo
 import { createWatchTransportTransition } from '../src/background/watch-transport-transition.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
 import { createDrop, createGame, createStreamer } from './fixtures/queue-management.ts';
+import { createInMemoryFarmingAutomationStorage } from './support/in-memory-farming-automation-storage.ts';
 import { createQueueAvailabilityReconciler } from './support/queue-progression.ts';
 
 function fixture(previousFailures: string[] = []) {

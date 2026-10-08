@@ -136,7 +136,7 @@ describe('integrity-interceptor — core logic', () => {
 
     const stored = mockWindow.sessionStorage.getItem(STORAGE_KEY);
     expect(stored).not.toBeNull();
-    const parsed = JSON.parse(stored!);
+    const parsed = JSON.parse(stored ?? '');
     expect(parsed.token).toBe('abc123');
     expect(parsed.expiration).toBe(9999999);
     expect(parsed.request_id).toBe('req-1');

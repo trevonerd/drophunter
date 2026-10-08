@@ -23,14 +23,11 @@ describe('session orchestrator', () => {
     const state = createState();
     const orchestrator = createSessionOrchestrator(state, {
       sanitizeTwitchSession: () => validSession,
-      sessionDebugSummary: () => ({}),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {},
       validateRecoveredTwitchSession: async () => true,
       getSessionRevision: () => 0,
       discardPersistedTwitchSessionIfMatches: async () => {},
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     expect(orchestrator.shouldRefreshCampaignsAfterSessionSync(60_000, 100_000)).toBe(true);
@@ -66,7 +63,6 @@ describe('session orchestrator', () => {
         },
       },
       sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
-      sessionDebugSummary: () => ({ available: true }),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async (session) => {
         persisted.push(session);
@@ -74,8 +70,6 @@ describe('session orchestrator', () => {
       validateRecoveredTwitchSession: async () => true,
       getSessionRevision: () => 0,
       discardPersistedTwitchSessionIfMatches: async () => {},
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     const session = await orchestrator.persistSessionFromDropsPage(77);
@@ -113,7 +107,6 @@ describe('session orchestrator', () => {
         },
       },
       sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
-      sessionDebugSummary: () => ({ available: true }),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async (session) => {
         persisted.push(session);
@@ -123,8 +116,6 @@ describe('session orchestrator', () => {
       discardPersistedTwitchSessionIfMatches: async () => {},
       sessionReadAttempts: 3,
       sessionReadRetryDelayMs: 0,
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     const session = await orchestrator.persistSessionFromDropsPage(88);
@@ -160,7 +151,6 @@ describe('session orchestrator', () => {
         },
       },
       sanitizeTwitchSession: (candidate) => (candidate === validSession ? validSession : null),
-      sessionDebugSummary: () => ({ available: true }),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {
         events.push('persist');
@@ -171,8 +161,6 @@ describe('session orchestrator', () => {
       waitForTabComplete: async (tabId) => {
         events.push(`wait:${tabId}`);
       },
-      logDebug: () => {},
-      logWarn: () => {},
     });
 
     const session = await orchestrator.recoverTwitchSessionAfterAuthError('passive');

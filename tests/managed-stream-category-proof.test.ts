@@ -109,6 +109,6 @@ test.each([
       Date.now(),
       { onResolveCategorySlug: async () => 'overwatch-2' },
     );
-    expect(result.health.reason).toBe(reason);
+    expect(result.reason).toBe(reason);
   },
 );

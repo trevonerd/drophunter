@@ -9,13 +9,6 @@ test('popup campaign catalog groups campaigns with the shared category identity'
   expect(source).not.toContain('CampaignSelector');
 });
 
-test('popup reward grouping uses reward automation semantics', () => {
-  const source = readPopupSource();
-
-  expect(source).toContain("import { isRewardAutomatable } from '../../shared/reward-semantics';");
-  expect(source).toContain('pendingDrops.every((drop) => !isRewardAutomatable(drop))');
-});
-
 test('popup maps the typed farming-complete queue response to campaign status vocabulary', () => {
   const source = readPopupSource();
 
@@ -77,7 +70,7 @@ test('popup gives aria-live feedback for favorite auto-start disposition', () =>
 test('popup campaign catalog and queue use campaign-aware identities', () => {
   const source = readPopupSource();
 
-  expect(source).toContain('key={queueGameIdentity(game)}');
+  expect(source).toContain('key={gameKey(game)}');
   expect(source).toContain('data-campaign-key={key}');
   expect(source).not.toContain('value={selectedGame?.id ??');
 });
@@ -103,7 +96,6 @@ test('popup splits the main campaign UI into focused components', () => {
 
   expect(source).toContain('function PopupHeader');
   expect(source).toContain('function QueueChips');
-  expect(source).toContain('function RewardList');
 });
 
 test('popup queue chips support drag-and-drop reordering', () => {

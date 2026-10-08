@@ -41,7 +41,6 @@ test('closes a temporary Drops tab only when it remains untouched', async () => 
         },
       },
       sanitizeTwitchSession: (candidate) => (candidate === session ? session : null),
-      sessionDebugSummary: () => ({}),
       readTwitchSessionViaExecuteScript: async () => null,
       persistTwitchSession: async () => {
         events.push('persist');
@@ -53,8 +52,6 @@ test('closes a temporary Drops tab only when it remains untouched', async () => 
         events.push('wait');
       },
       sessionReadAttempts: 1,
-      logDebug: () => {},
-      logWarn: () => {},
     },
   );
 

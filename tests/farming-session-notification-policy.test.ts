@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createFarmingSessionContext } from '../src/background/farming-session-context.ts';
-import { createFarmingSessionStallRecovery } from '../src/background/farming-session-stall-recovery.ts';
+import { createFarmingSessionStallRecovery } from '../src/background/farming-session-streaming.ts';
 import {
   createDrop,
   createFarmingSessionAdapters,

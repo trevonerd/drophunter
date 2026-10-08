@@ -42,14 +42,7 @@ function playBeep(kind: 'drop-complete' | 'all-complete') {
     return;
   }
   try {
-    const AudioCtx =
-      window.AudioContext ||
-      (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (!AudioCtx) {
-      return;
-    }
-    const ctx = new AudioCtx();
+    const ctx = new AudioContext();
     const sequence = kind === 'all-complete' ? [680, 860, 1020] : [740, 980];
 
     let lastEnd = 0;

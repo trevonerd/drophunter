@@ -8,6 +8,14 @@ import type { ServiceWorkerState } from './runtime-state.ts';
 import { encodeUnverifiableRewardKey, parseUnverifiableRewardKey } from './unverifiable-reward-key.ts';
 
 export type DropsSnapshotProvenance = 'campaign-authoritative' | 'inventory-partial' | 'cached';
+
+export function snapshotProvenance(snapshot: DropsSnapshot): DropsSnapshotProvenance {
+  if (snapshot.campaignsVerified === true) return 'campaign-authoritative';
+  if (snapshot.campaignsVerified === false && snapshot.inventoryVerified === true) {
+    return 'inventory-partial';
+  }
+  return 'cached';
+}
 export { hasCompleteIdentifiedRewardSet } from './campaign-reward-identity.ts';
 
 export function dropStateKey(drop: TwitchDrop): string {
