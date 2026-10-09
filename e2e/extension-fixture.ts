@@ -14,20 +14,34 @@ export interface ExtensionProfile {
   close(): Promise<void>;
 }
 
-export async function createExtensionProfile(userDataDir?: string): Promise<ExtensionProfile> {
+export interface ExtensionProfileOptions {
+  /** Route gql/www/spade.twitch.tv to a local mock on this port instead of staying offline. */
+  readonly twitchMockPort?: number;
+  /** Browser locale; defaults to the host's. */
+  readonly locale?: string;
+}
+
+export async function createExtensionProfile(
+  userDataDir?: string,
+  options: ExtensionProfileOptions = {},
+): Promise<ExtensionProfile> {
   const ownsProfile = userDataDir === undefined;
   const profilePath = userDataDir ?? (await mkdtemp(join(tmpdir(), 'drophunter-playwright-')));
   const context = await chromium.launchPersistentContext(profilePath, {
     channel: 'chromium',
     headless: true,
+    locale: options.locale,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
       '--disable-background-networking',
-      '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1',
+      options.twitchMockPort === undefined
+        ? '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'
+        : `--host-resolver-rules=MAP gql.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP www.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP spade.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`,
+      ...(options.twitchMockPort === undefined ? [] : ['--ignore-certificate-errors']),
     ],
   });
-  await context.setOffline(true);
+  if (options.twitchMockPort === undefined) await context.setOffline(true);
   let isShutdown = false;
 
   const worker = await getExtensionWorker(context);
