@@ -8,19 +8,20 @@
     "render:cta:4k": "bunx remotion render src/index.ts Cta4K60 out/cta-4k60.mp4",
     "render:promo": "bunx remotion render src/index.ts Promo1080p60 out/promo-1080p60.mp4",
     "render:promo:4k": "bunx remotion render src/index.ts Promo4K60 out/promo-4k60.mp4",
+    "render:all": "bun run render:cta && bun run render:cta:4k && bun run render:promo && bun run render:promo:4k",
     "still:cta": "bunx remotion still src/index.ts Cta1080p60 out/cta-1080p60.png --frame=160",
     "still:cta:4k": "bunx remotion still src/index.ts Cta4K60 out/cta-4k60.png --frame=160",
     "still:promo": "bunx remotion still src/index.ts Promo1080p60 out/promo-frame-1080p60.png --frame=576",
     "still:promo:4k": "bunx remotion still src/index.ts Promo4K60 out/promo-frame-4k60.png --frame=576"
   },
   "dependencies": {
-    "@remotion/media": "4.0.532",
+    "@remotion/media": "4.0.534",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "remotion": "4.0.532"
+    "remotion": "4.0.534"
   },
   "devDependencies": {
-    "@remotion/cli": "4.0.532",
-    "@remotion/transitions": "4.0.532"
+    "@remotion/cli": "4.0.534",
+    "@remotion/transitions": "4.0.534"
   }
 }
