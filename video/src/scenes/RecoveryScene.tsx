@@ -65,7 +65,7 @@ export const RecoveryScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-           DropHunter tries to recover playback automatically. If it still needs a click, it tells you clearly — after a short grace period to avoid false alarms.
+           DropHunter retries first. You get pinged only if it needs you.
         </div>
       </div>
       <div

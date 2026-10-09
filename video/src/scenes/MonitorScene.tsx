@@ -55,7 +55,7 @@ export const MonitorScene: React.FC = () => {
             color: "white",
           }}
         >
-          See what is moving right now.
+          Progress, at a glance.
         </div>
         <div
           style={{
@@ -66,7 +66,7 @@ export const MonitorScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-           Progress, ETA, current streamer, and recovery status — visible at a glance.
+           ETA, streamer, recovery status. Live.
         </div>
       </div>
       <div

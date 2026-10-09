@@ -57,7 +57,7 @@ export const ControlScene: React.FC = () => {
             color: "#7dd3fc",
           }}
         >
-          One popup. Full control.
+          One popup.
         </div>
         <div
           style={{
@@ -83,7 +83,7 @@ export const ControlScene: React.FC = () => {
             color: "rgba(255,255,255,0.72)",
           }}
         >
-           Queue campaigns, pause anytime, and open the live monitor — all from the same popup.
+           Queue, pause, or open the live monitor.
         </div>
       </div>
 

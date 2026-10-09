@@ -77,9 +77,9 @@ export const ChannelPointsScene: React.FC = () => {
             color: "white",
           }}
         >
-          Grab every bonus
+          Bonus points,
           <br />
-          automatically.
+          collected for you.
         </div>
         <div
           style={{
@@ -90,7 +90,7 @@ export const ChannelPointsScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-           DropHunter catches bonus channel points while farming so none go unclaimed.
+           Claimed while you farm. None missed.
         </div>
       </div>
 

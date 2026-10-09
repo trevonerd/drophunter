@@ -75,7 +75,7 @@ export const RotationScene: React.FC = () => {
             color: "#a970ff",
           }}
         >
-          Smart stream rotation
+          Streamer went offline?
         </div>
         <div
           style={{
@@ -88,7 +88,7 @@ export const RotationScene: React.FC = () => {
             color: "white",
           }}
         >
-          Switch streamers only when needed.
+          It switches.
         </div>
         <div
           style={{
@@ -99,7 +99,7 @@ export const RotationScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-           When a stream becomes invalid or progress stalls, DropHunter picks the next eligible streamer and keeps going.
+           Stream drops or progress stalls: next eligible streamer, no clicks.
         </div>
       </div>
       <div

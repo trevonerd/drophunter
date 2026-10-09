@@ -72,7 +72,7 @@ export const CtaScene: React.FC = () => {
               color: "rgba(255,255,255,0.68)",
             }}
           >
-            A Twitch Drops extension for Chrome, Chromium, and Edge. Local data, Twitch-only access, no tracking.
+            Free Twitch Drops farmer for Chrome and Edge. Local data, Twitch-only access, no tracking.
           </div>
         </div>
         <div

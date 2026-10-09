@@ -77,7 +77,7 @@ export const QueueScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-           When one campaign finishes — or vanishes — DropHunter moves to the next one automatically.
+           One ends or vanishes? The next one starts.
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>

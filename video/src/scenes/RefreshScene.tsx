@@ -57,7 +57,7 @@ export const RefreshScene: React.FC = () => {
             color: "#7dd3fc",
           }}
         >
-          Clean campaign refresh
+          Live campaigns
         </div>
         <div
           style={{
@@ -70,7 +70,7 @@ export const RefreshScene: React.FC = () => {
             color: "white",
           }}
         >
-          Keep the dropdown focused on farmable drops.
+          Only drops you can farm.
         </div>
         <div
           style={{
@@ -81,7 +81,7 @@ export const RefreshScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          DropHunter refreshes from Twitch, filters noisy reward-only entries, and shows one clear loading state.
+          Synced from Twitch. Reward-only entries filtered out.
         </div>
       </div>
 

@@ -47,7 +47,7 @@ export const ClaimScene: React.FC = () => {
             color: "#a970ff",
           }}
         >
-          Auto-claim rewards
+          Auto-claim
         </div>
         <div
           style={{
@@ -60,7 +60,7 @@ export const ClaimScene: React.FC = () => {
             color: "white",
           }}
         >
-          Claim drops the moment Twitch unlocks them.
+          Claimed the second they unlock.
         </div>
         <div
           style={{
@@ -71,7 +71,7 @@ export const ClaimScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-           No refreshing your inventory. No clicking every few minutes. Drops land in your account automatically.
+           No inventory refreshing. No clicking.
         </div>
       </div>
       <div

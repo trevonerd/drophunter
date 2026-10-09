@@ -38,13 +38,13 @@ export const WatchModesScene: React.FC = () => {
         }}
       >
         <div style={{ fontFamily: "system-ui", fontSize: 22, fontWeight: 800, letterSpacing: 3, textTransform: "uppercase", color: "#7dd3fc" }}>
-          Flexible watch transport
+          Watch modes
         </div>
         <div style={{ marginTop: 20, fontFamily: "system-ui", fontSize: 84, fontWeight: 850, letterSpacing: -3.2, lineHeight: 0.98, color: "white" }}>
-          Farm without babysitting a tab.
+          No tab to babysit.
         </div>
         <div style={{ marginTop: 26, maxWidth: 610, fontFamily: "system-ui", fontSize: 30, lineHeight: 1.35, color: "rgba(255,255,255,0.7)" }}>
-          Start hidden. Fall back to a muted managed tab when Twitch needs it. Your own Twitch viewing always comes first.
+          Runs hidden. Falls back to a muted tab if needed. Your own viewing always wins.
         </div>
       </Interactive.Div>
 

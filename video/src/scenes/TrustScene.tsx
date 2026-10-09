@@ -84,7 +84,7 @@ export const TrustScene: React.FC = () => {
             color: "rgba(255,255,255,0.68)",
           }}
         >
-          DropHunter uses your existing Twitch session in the browser and keeps extension data on your machine.
+          Uses your browser's Twitch session. Data stays on your machine.
         </div>
       </div>
 

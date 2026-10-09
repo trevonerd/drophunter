@@ -77,9 +77,9 @@ export const IntroScene: React.FC = () => {
               lineHeight: 1.03,
             }}
            >
-             Farm Twitch Drops
+             Twitch Drops,
              <br />
-             without the manual grind.
+             farmed while you're away.
            </div>
           <div
             style={{
@@ -90,7 +90,7 @@ export const IntroScene: React.FC = () => {
               color: "rgba(255,255,255,0.68)",
             }}
           >
-             Queue campaigns, track progress, auto-claim rewards — and keep farming when Twitch acts up.
+             Queue campaigns. DropHunter watches, switches streamers, and claims rewards.
           </div>
         </div>
       </div>

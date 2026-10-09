@@ -36,13 +36,13 @@ export const AlertsScene: React.FC = () => {
         }}
       >
         <div style={{ fontFamily: "system-ui", fontSize: 22, fontWeight: 800, letterSpacing: 3, textTransform: "uppercase", color: "#c4b5fd" }}>
-          Alerts and history
+          Alerts
         </div>
         <div style={{ marginTop: 20, fontFamily: "system-ui", fontSize: 82, fontWeight: 850, letterSpacing: -3, lineHeight: 0.98, color: "white" }}>
-          Know what happened. Wherever you are.
+          Know what dropped.
         </div>
         <div style={{ marginTop: 26, maxWidth: 610, fontFamily: "system-ui", fontSize: 30, lineHeight: 1.35, color: "rgba(255,255,255,0.7)" }}>
-          Optional desktop and Telegram alerts stay independent. Every claimed reward remains in your local history.
+          Desktop or Telegram, optional. Every claim logged locally.
         </div>
       </Interactive.Div>
 

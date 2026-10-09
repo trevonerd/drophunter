@@ -66,7 +66,7 @@ export const FavoritesScene: React.FC = () => {
         >
           Star a game.
           <br />
-          DropHunter takes it from there.
+          New campaign? It starts itself.
         </div>
         <div
           style={{
@@ -78,7 +78,7 @@ export const FavoritesScene: React.FC = () => {
             color: "rgba(255,255,255,0.7)",
           }}
         >
-          New campaigns can start automatically. An urgent favorite safely preempts, then your authorized queue resumes.
+          An urgent favorite jumps the line. Your queue resumes after.
         </div>
       </Interactive.Div>
 
