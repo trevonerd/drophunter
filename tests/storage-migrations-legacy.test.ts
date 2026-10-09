@@ -149,6 +149,8 @@ describe('legacy extension storage migration', () => {
   test('keeps only validated favorites in the pure legacy state transform', () => {
     const transformed = transformLegacyAppState({
       totalDropsClaimed: 8,
+      totalTwitchAdsBlocked: 42,
+      twitchAdblockEnabled: false,
       favoriteGames: [
         { gameId: 'valid', lastKnownName: 'Valid', addedAt: 10 },
         { gameId: '', lastKnownName: 'Missing id', addedAt: 11 },
@@ -163,6 +165,8 @@ describe('legacy extension storage migration', () => {
     expect(transformed.favoriteGames).toEqual([{ gameId: 'valid', lastKnownName: 'Valid', addedAt: 10 }]);
     expect(transformed.queue).toEqual([]);
     expect(transformed.totalDropsClaimed).toBe(8);
+    expect(transformed.totalTwitchAdsBlocked).toBe(42);
+    expect(transformed.twitchAdblockEnabled).toBe(false);
     expect(transformed.isRunning).toBe(false);
   });
 

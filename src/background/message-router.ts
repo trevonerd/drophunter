@@ -50,6 +50,8 @@ export interface RuntimeMessageHandlers {
   refreshDrops: RuntimeMessageHandler<'REFRESH_DROPS'>;
   setMonitorAutoOpen: RuntimeMessageHandler<'SET_MONITOR_AUTO_OPEN'>;
   setMuteFarmingTab: RuntimeMessageHandler<'SET_MUTE_FARMING_TAB'>;
+  setTwitchAdblockEnabled: RuntimeMessageHandler<'SET_TWITCH_ADBLOCK_ENABLED'>;
+  twitchAdsBlocked: RuntimeMessageHandler<'TWITCH_ADS_BLOCKED'>;
   setNotificationsEnabled: RuntimeMessageHandler<'SET_NOTIFICATIONS_ENABLED'>;
   setTelegramAlertsEnabled: RuntimeMessageHandler<'SET_TELEGRAM_ALERTS_ENABLED'>;
   setTelegramSystemAlertsEnabled: RuntimeMessageHandler<'SET_TELEGRAM_SYSTEM_ALERTS_ENABLED'>;
@@ -192,6 +194,10 @@ export function createRuntimeMessageListener(
         return respond(() => handlers.setMonitorAutoOpen(message, sender));
       case 'SET_MUTE_FARMING_TAB':
         return respond(() => handlers.setMuteFarmingTab(message, sender));
+      case 'SET_TWITCH_ADBLOCK_ENABLED':
+        return respond(() => handlers.setTwitchAdblockEnabled(message, sender));
+      case 'TWITCH_ADS_BLOCKED':
+        return respond(() => handlers.twitchAdsBlocked(message, sender));
       case 'SET_NOTIFICATIONS_ENABLED':
         return respond(() => handlers.setNotificationsEnabled(message, sender));
       case 'SET_TELEGRAM_ALERTS_ENABLED':

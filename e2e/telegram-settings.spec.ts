@@ -25,7 +25,7 @@ test('Telegram settings request permission on enable and hide credentials when d
     await setPermissionRequest(worker, { allow: false });
     await alertsSwitch.click();
     await expect(alertsSwitch).not.toBeChecked();
-    await expect(popup.getByRole('status')).toHaveText('Telegram host permission was not granted');
+    await expect(popup.getByRole('status').filter({ hasText: 'Telegram' })).toHaveText('Telegram host permission was not granted');
 
     await setPermissionRequest(worker, { allow: true });
     await alertsSwitch.click();
@@ -48,9 +48,9 @@ test('Telegram settings request permission on enable and hide credentials when d
     });
 
     await popup.getByRole('button', { name: 'Save credentials' }).click();
-    await expect(popup.getByRole('status')).toHaveText('Telegram credentials saved.');
+    await expect(popup.getByRole('status').filter({ hasText: 'Telegram' })).toHaveText('Telegram credentials saved.');
     await popup.getByRole('button', { name: 'Send test message' }).click();
-    await expect(popup.getByRole('status')).toHaveText('Telegram settings updated.');
+    await expect(popup.getByRole('status').filter({ hasText: 'Telegram' })).toHaveText('Telegram settings updated.');
     expect(telegramCalls).toEqual([
       { method: 'getMe', body: {} },
       {

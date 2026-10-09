@@ -4,9 +4,14 @@ import { TWITCH_SESSION_RETRY_COOLDOWN_MS, TWITCH_SESSION_STORAGE_KEY } from './
 import { logDebug, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
-import { invalidateTwitchSessionRevision, persistTwitchSession } from './session-credentials-storage.ts';
+import {
+  currentTwitchSessionRevision,
+  invalidateTwitchSessionRevision,
+  persistTwitchSession,
+} from './session-credentials-storage.ts';
 import { recoverTwitchSessionFromStorageKeys } from './session-storage-recovery.ts';
 import { sessionDebugSummary } from './state-persistence.ts';
+import { withStateStorageTransaction } from './state-storage-transaction.ts';
 import { fetchTwitchIntegrityToken } from './twitch-api/gql.ts';
 import { sanitizeTwitchSession, type TwitchSession } from './twitch-api/types.ts';
 
@@ -127,51 +132,52 @@ export async function ensureTwitchSession(
 ): Promise<TwitchSession | null> {
   const sessionAtStart = state.twitchSessionCache;
   if (!forceRefresh && state.twitchSessionCache) {
-    await bindCampaignEvidenceAccount(state, state.twitchSessionCache.userId);
-    return state.twitchSessionCache;
+    return withStateStorageTransaction(state, async () => {
+      await bindCampaignEvidenceAccount(state, state.twitchSessionCache?.userId);
+      return state.twitchSessionCache;
+    });
   }
   if (!forceRefresh && Date.now() - state.twitchSessionLastAttemptAt < TWITCH_SESSION_RETRY_COOLDOWN_MS)
     return null;
   if (state.twitchSessionFetchInFlight) return state.twitchSessionFetchInFlight;
   state.twitchSessionFetchInFlight = (async () => {
+    let revision = currentTwitchSessionRevision(state);
+    const acceptSession = (candidate: TwitchSession, persist = true) =>
+      withStateStorageTransaction(state, async () => {
+        const isCurrent = () =>
+          currentTwitchSessionRevision(state) === revision && state.twitchSessionCache === sessionAtStart;
+        if (!isCurrent())
+          return state.twitchSessionCache === sessionAtStart ? null : state.twitchSessionCache;
+        if (sessionsHaveDifferentCredentials(sessionAtStart, candidate))
+          revision = invalidateTwitchSessionRevision(state);
+        await bindCampaignEvidenceAccount(state, candidate.userId);
+        if (!isCurrent())
+          return state.twitchSessionCache === sessionAtStart ? null : state.twitchSessionCache;
+        state.twitchSessionCache = candidate;
+        if (persist) await deps.persistTwitchSession(candidate);
+        if (currentTwitchSessionRevision(state) !== revision || state.twitchSessionCache !== candidate)
+          return state.twitchSessionCache === candidate ? null : state.twitchSessionCache;
+        state.twitchSessionLastAttemptAt = Date.now();
+        return candidate;
+      });
     state.twitchSessionLastAttemptAt = Date.now();
     if (!forceRefresh) {
       const result: Record<string, unknown> = await browser.storage.local
         .get(['twitchSession'])
         .catch(() => ({}));
       const fromStorage = deps.sanitizeTwitchSession(result.twitchSession);
-      if (fromStorage) {
-        if (sessionsHaveDifferentCredentials(state.twitchSessionCache, fromStorage))
-          invalidateTwitchSessionRevision(state);
-        await bindCampaignEvidenceAccount(state, fromStorage.userId);
-        state.twitchSessionCache = fromStorage;
-        return fromStorage;
-      }
+      if (fromStorage) return acceptSession(fromStorage, false);
       const recovered = await recoverTwitchSessionFromStorageKeys();
-      if (recovered) {
-        if (sessionsHaveDifferentCredentials(state.twitchSessionCache, recovered))
-          invalidateTwitchSessionRevision(state);
-        await bindCampaignEvidenceAccount(state, recovered.userId);
-        state.twitchSessionCache = recovered;
-        await deps.persistTwitchSession(recovered);
-        state.twitchSessionLastAttemptAt = Date.now();
-        return recovered;
-      }
+      if (recovered) return acceptSession(recovered);
     }
     const fromOpenTabs = await callbacks.onFindTwitchSessionInOpenTabs();
-    if (fromOpenTabs) {
-      if (sessionsHaveDifferentCredentials(state.twitchSessionCache, fromOpenTabs))
-        invalidateTwitchSessionRevision(state);
-      await bindCampaignEvidenceAccount(state, fromOpenTabs.userId);
-      state.twitchSessionCache = fromOpenTabs;
-      await deps.persistTwitchSession(fromOpenTabs);
-      state.twitchSessionLastAttemptAt = Date.now();
-      return fromOpenTabs;
-    }
-    if (state.twitchSessionCache && state.twitchSessionCache !== sessionAtStart)
-      return state.twitchSessionCache;
-    await deps.clearTwitchSessionCache(state);
-    return null;
+    if (fromOpenTabs) return acceptSession(fromOpenTabs);
+    return withStateStorageTransaction(state, async () => {
+      if (currentTwitchSessionRevision(state) !== revision || state.twitchSessionCache !== sessionAtStart)
+        return state.twitchSessionCache;
+      await deps.clearTwitchSessionCache(state);
+      return null;
+    });
   })()
     .then((session) => {
       if (session && !state.appState.twitchSessionDetected) state.appState.twitchSessionDetected = true;
@@ -208,13 +214,16 @@ export async function syncTwitchSessionFromContentScriptExt(
   if (sessionsHaveDifferentCredentials(state.twitchSessionCache, incoming)) {
     invalidateTwitchSessionRevision(state);
   }
-  await bindCampaignEvidenceAccount(state, incoming.userId);
-  state.twitchSessionCache = incoming;
-  state.twitchSessionLastAttemptAt = 0;
-  state.appState.twitchSessionDetected = true;
-  const hadStaleSignInStop = state.appState.lastStopReason === 'sign-in-required';
-  if (hadStaleSignInStop) state.appState = clearTerminalStopStatus(state.appState);
-  await persistTwitchSession(incoming);
+  const hadStaleSignInStop = await withStateStorageTransaction(state, async () => {
+    await bindCampaignEvidenceAccount(state, incoming.userId);
+    state.twitchSessionCache = incoming;
+    state.twitchSessionLastAttemptAt = 0;
+    state.appState.twitchSessionDetected = true;
+    const hadStaleStop = state.appState.lastStopReason === 'sign-in-required';
+    if (hadStaleStop) state.appState = clearTerminalStopStatus(state.appState);
+    await persistTwitchSession(incoming);
+    return hadStaleStop;
+  });
   logDebug('Twitch session synced from content script', sessionDebugSummary(incoming));
   if (senderTabId && callbacks.shouldRefreshCampaignsAfterSessionSync()) {
     await callbacks.onRefreshCampaigns();

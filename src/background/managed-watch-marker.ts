@@ -156,7 +156,10 @@ export async function pauseManagedWatch(
             marker.expectedUrl !== expectedUrl
           )
             return false;
-          if (document.documentElement) delete document.documentElement.dataset.drophunterKeepalive;
+          if (document.documentElement) {
+            document.documentElement.dataset.drophunterPlaybackSuspended = expectedUrl;
+            delete document.documentElement.dataset.drophunterKeepalive;
+          }
           const control = document.querySelector?.<HTMLButtonElement>(
             'button[data-a-target="player-play-pause-button"][data-a-player-state="playing"]',
           );

@@ -6,6 +6,8 @@ export interface SettingsViewProps {
   onOpenClaimLog: () => void;
   onMonitorAutoOpenToggle: () => void;
   onMuteFarmingTabToggle: () => void;
+  onTwitchAdblockToggle: () => void;
+  twitchAdblockWarning?: string | null;
   onNotificationsEnabledToggle: () => void;
   notificationPermissionDenied?: boolean;
   onTelegramAlertsToggle: () => Promise<{ success: boolean; error?: string } | undefined>;

@@ -22,7 +22,7 @@ import {
   clearRecoveryState,
   clearStopState,
 } from './recovery-state.ts';
-import { clearRotationMetadata } from './runtime-state.ts';
+import { clearRotationMetadata, pickDurablePreferences } from './runtime-state.ts';
 import { handleStartFarming as startFarming, stopFarmingSession } from './session-lifecycle.ts';
 import { resetStreamTrackingState } from './session-lifecycle-stop.ts';
 import type { StartFarmingPayload, StartFarmingResult } from './session-lifecycle-types.ts';
@@ -421,8 +421,19 @@ async function runFarmingSessionStart(
     resetStreamTrackingState(next, preserveQueueContext);
     next.avoidStreamerName = null;
     splitDropsForSelectedGame(next, next.cachedDropsSnapshot);
+    let published = false;
+    const publishStart = () => {
+      if (published || !isCurrent()) return;
+      state.appState = { ...next.appState, ...pickDurablePreferences(state.appState) };
+      published = true;
+    };
     try {
-      await adapters.saveState(next, { deferPublicEffects: true, transactionOwner: state });
+      await adapters.saveState(next, {
+        deferPublicEffects: true,
+        transactionOwner: state,
+        updateAppState: (appState) => ({ ...appState, ...pickDurablePreferences(state.appState) }),
+        onPersisted: publishStart,
+      });
       if (!isCurrent()) {
         await adapters.saveState(state);
         return superseded();
@@ -430,7 +441,7 @@ async function runFarmingSessionStart(
     } catch {
       return { success: false, error: 'Unable to save the farming start.' };
     }
-    state.appState = next.appState;
+    publishStart();
     resetStreamTrackingState(state, preserveQueueContext);
     adapters.broadcastStateUpdate(state.appState);
     void adapters.saveTimingState(state).catch((error: unknown) => {

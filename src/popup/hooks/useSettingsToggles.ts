@@ -10,6 +10,8 @@ interface UseSettingsTogglesArgs {
 
 export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) {
   const [notificationPermissionDenied, setNotificationPermissionDenied] = useState(false);
+  const [twitchAdblockWarning, setTwitchAdblockWarning] = useState<string | null>(null);
+  const twitchAdblockToggleInFlight = useRef(false);
   const stateRef = useRef(state);
   useLayoutEffect(() => {
     stateRef.current = state;
@@ -31,6 +33,7 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
   type BooleanSettingKey =
     | 'monitorAutoOpen'
     | 'muteFarmingTab'
+    | 'twitchAdblockEnabled'
     | 'autoClaimChannelPointsBonus'
     | 'autoClaimDrops';
 
@@ -75,6 +78,24 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     (enabled) => sendRuntimeMessage({ type: 'SET_MUTE_FARMING_TAB', payload: { enabled } }),
     (response, next) => ({ muteFarmingTab: response.muteFarmingTab ?? next }),
   );
+
+  const handleTwitchAdblockToggle = async () => {
+    if (twitchAdblockToggleInFlight.current) return;
+    twitchAdblockToggleInFlight.current = true;
+    setTwitchAdblockWarning(null);
+    try {
+      const next = !stateRef.current.twitchAdblockEnabled;
+      const result = await transactions.run({
+        key: 'twitchAdblockEnabled',
+        next,
+        send: () => sendRuntimeMessage({ type: 'SET_TWITCH_ADBLOCK_ENABLED', payload: { enabled: next } }),
+        successPatch: (response) => ({ twitchAdblockEnabled: response.twitchAdblockEnabled ?? next }),
+      });
+      if (result.kind === 'rejected') setTwitchAdblockWarning('Could not update Twitch ad blocking.');
+    } finally {
+      twitchAdblockToggleInFlight.current = false;
+    }
+  };
 
   const handleNotificationsEnabledToggle = async () => {
     const next = !stateRef.current.notificationsEnabled;
@@ -178,6 +199,8 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     handleAutoClaimChannelPointsBonusToggle,
     handleAutoClaimDropsToggle,
     handleMuteFarmingTabToggle,
+    handleTwitchAdblockToggle,
+    twitchAdblockWarning,
     handleNotificationsEnabledToggle,
     handleAutoStartFavoriteGamesToggle,
     handleFarmCategoryScopeChange,

@@ -26,6 +26,7 @@ Farming uses **twitch.tv** and your existing browser session. State stays local;
 - Show a separate live monitor window for at-a-glance progress
 - Let you choose whether the monitor opens automatically when farming starts
 - Control whether farming tabs are muted from Settings
+- Block Twitch live/VOD ads with a single Advanced setting, enabled by default; reload open Twitch tabs after changing it
 - Warn you when Twitch playback likely needs manual attention
 - Distinguish campaigns for the same game with labels such as "Game · Campaign A"
 
@@ -106,6 +107,8 @@ DropHunter includes a few runtime controls in the popup so you can tune how aggr
 - switch between low-view, random, and top-viewer streamer selection
 - prefer a specific streamer language when one is available
 - choose whether the farming tab stays muted
+
+Twitch adblock uses a locally bundled adaptation of [TTV-AB by GosuDRM](https://github.com/GosuDRM/TTV-AB), revision `11c2a7ea`. Blocking, ad spoofing, and low-quality fallback are enabled internally; quality recovers after the ad break. Advanced settings show a cumulative blocked-ad count stored locally. See the [engine attribution and license](vendor/ttv-ab/README.md).
 
 Accepting the optional browser-notification or Telegram permission automatically
 saves and enables that setting, even when the browser closes the popup during the

@@ -1,29 +1,54 @@
 import type { AppState } from '../types/index.ts';
 
 type Category = AppState['favoriteGames'][number] | AppState['hiddenGames'][number];
-export const overlap = (a: Category, b: Category) =>
-  [a.gameId, ...(a.identityKeys ?? [])].some((key) => [b.gameId, ...(b.identityKeys ?? [])].includes(key));
+const keys = (entry: Category) => [entry.gameId, ...(entry.identityKeys ?? [])];
+export function categoryMatcher(entries: Category[]) {
+  const identities = new Set(entries.flatMap(keys));
+  return (entry: Category) => keys(entry).some((key) => identities.has(key));
+}
 export const union = <T extends Category>(local: T[], added: T[]) => {
-  const all = [...local];
+  const all = new Map(local.map((entry, index) => [index, entry]));
+  const identities = new Map<string, Set<number>>();
+  const indexEntry = (entry: T, index: number) => {
+    for (const key of keys(entry)) {
+      const indexes = identities.get(key) ?? new Set<number>();
+      indexes.add(index);
+      identities.set(key, indexes);
+    }
+  };
+  local.forEach(indexEntry);
+  let nextIndex = local.length;
   for (const entry of added) {
-    const indexes = all.flatMap((item, index) => (overlap(item, entry) ? [index] : []));
+    const indexes = [...new Set(keys(entry).flatMap((key) => [...(identities.get(key) ?? [])]))].sort(
+      (a, b) => a - b,
+    );
     const first = indexes[0];
     if (first === undefined) {
-      all.push({ ...entry, ...(entry.identityKeys ? { identityKeys: [...entry.identityKeys] } : {}) });
+      all.set(nextIndex, {
+        ...entry,
+        ...(entry.identityKeys ? { identityKeys: [...entry.identityKeys] } : {}),
+      });
+      indexEntry(entry, nextIndex++);
       continue;
     }
-    const existing = all[first];
+    const existing = all.get(first);
     if (!existing) continue;
-    const aliases = new Set([entry.gameId, ...(entry.identityKeys ?? [])]);
+    const aliases = new Set(keys(entry));
     for (const index of indexes) {
-      const item = all[index];
-      if (item) for (const key of [item.gameId, ...(item.identityKeys ?? [])]) aliases.add(key);
+      const item = all.get(index);
+      if (item)
+        for (const key of keys(item)) {
+          aliases.add(key);
+          identities.get(key)?.delete(index);
+        }
+      if (index !== first) all.delete(index);
     }
     aliases.delete(existing.gameId);
-    all[first] = { ...existing, ...(aliases.size ? { identityKeys: [...aliases] } : {}) };
-    for (const index of indexes.slice(1).reverse()) all.splice(index, 1);
+    const merged = { ...existing, ...(aliases.size ? { identityKeys: [...aliases] } : {}) };
+    all.set(first, merged);
+    indexEntry(merged, first);
   }
-  return all;
+  return [...all.values()];
 };
 export function hasUnknownBackupMetadata(input: Record<string, unknown>): boolean {
   return Object.keys(input).some(

@@ -38,6 +38,8 @@ export function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}):
     refreshDrops: missing,
     setMonitorAutoOpen: missing,
     setMuteFarmingTab: missing,
+    setTwitchAdblockEnabled: missing,
+    twitchAdsBlocked: missing,
     setNotificationsEnabled: missing,
     setTelegramAlertsEnabled: missing,
     setTelegramSystemAlertsEnabled: missing,

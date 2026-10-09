@@ -85,6 +85,7 @@ test('settings exposes farming automation controls without an obsolete recovery 
     ...createInitialState(),
     campaignPriorityMode: 'ending-soonest' as const,
     farmCategoryScope: 'favorites-only' as const,
+    totalTwitchAdsBlocked: 42,
   };
   const markup = renderToStaticMarkup(
     <SettingsView
@@ -93,6 +94,7 @@ test('settings exposes farming automation controls without an obsolete recovery 
       onOpenClaimLog={() => {}}
       onMonitorAutoOpenToggle={() => {}}
       onMuteFarmingTabToggle={() => {}}
+      onTwitchAdblockToggle={() => {}}
       onNotificationsEnabledToggle={() => {}}
       onTelegramAlertsToggle={async () => undefined}
       onTelegramSystemAlertsToggle={async () => undefined}
@@ -122,6 +124,9 @@ test('settings exposes farming automation controls without an obsolete recovery 
   expect(markup).toContain('Managed background tab');
   expect(markup).toContain('<details');
   expect(markup).toContain('Advanced settings');
+  expect(markup).toContain('Ads blocked');
+  expect(markup).toMatch(/tabular-nums[^>]*>42<\/strong>/);
+  expect(markup.indexOf('Ads blocked')).toBeGreaterThan(markup.indexOf('Advanced settings'));
   expect(markup).toContain('aria-labelledby="advanced-rewards-heading"');
   expect(markup).toContain('aria-labelledby="advanced-playback-heading"');
   expect(markup.indexOf('Auto-claim Twitch Drops')).toBeLessThan(markup.indexOf('Telegram alerts'));

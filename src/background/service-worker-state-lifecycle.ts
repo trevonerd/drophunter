@@ -35,6 +35,7 @@ import {
   STORAGE_SCHEMA_VERSION,
   STORAGE_SCHEMA_VERSION_KEY,
 } from './storage-migrations.ts';
+import { createTwitchAdblockController } from './twitch-adblock.ts';
 import { sanitizeTwitchSession } from './twitch-api/types.ts';
 
 async function persistExtensionResetState(state: ServiceWorkerState): Promise<void> {
@@ -66,6 +67,7 @@ export function createServiceWorkerStateLifecycle(
   state: ServiceWorkerState,
   dependencies: ServiceWorkerStateLifecycleDependencies,
 ) {
+  const twitchAdblock = createTwitchAdblockController(state);
   let initPromise: Promise<void> | null = null;
   let extensionStorageResetInFlight: Promise<void> | null = null;
 
@@ -121,6 +123,7 @@ export function createServiceWorkerStateLifecycle(
     await clearExtensionRuntimeStorage();
     await saveTimingState(state);
     await persistExtensionResetState(state);
+    await twitchAdblock.reconcile().catch(() => undefined);
     if (state.appState.isRunning && !state.appState.isPaused) {
       dependencies.getFarmingSession().startMonitoring();
     }
@@ -136,6 +139,7 @@ export function createServiceWorkerStateLifecycle(
       await clearExtensionRuntimeStorage();
       await saveTimingState(state);
       await persistExtensionResetState(state);
+      await twitchAdblock.reconcile().catch(() => undefined);
     })().finally(() => {
       extensionStorageResetInFlight = null;
     });
@@ -159,6 +163,7 @@ export function createServiceWorkerStateLifecycle(
       },
     );
     await prepareBrowserSessionResume(state);
+    await twitchAdblock.reconcile().catch(() => undefined);
   }
 
   async function ensureStateHydratedForCache(): Promise<void> {

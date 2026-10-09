@@ -159,14 +159,7 @@ export async function appendClaimLogEntries(
 }
 
 export async function clearClaimLog(): Promise<void> {
-  writeQueue = writeQueue.then(async () => {
-    try {
-      await browser.storage.local.remove(CLAIM_LOG_KEY);
-    } catch (error) {
-      logWarn('Failed to clear claim log:', String(error));
-    }
-  });
-  return writeQueue as Promise<void>;
+  return withClaimLogTransaction(() => browser.storage.local.remove(CLAIM_LOG_KEY));
 }
 
 export function detectNewlyClaimedDrops(nextDrops: TwitchDrop[], previousDrops: TwitchDrop[]): TwitchDrop[] {

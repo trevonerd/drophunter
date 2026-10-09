@@ -7,15 +7,18 @@ const INTEGRITY_CLIENT_ID = 'ue6666qo983tsx6so1t0vnawi233wa';
 const INTEGRITY_CLIENT_VERSION = 'da69d5f2-ac48-4169-9574-48fee4a96513';
 const GQL_FETCH_TIMEOUT_MS = 20_000;
 
-async function fetchWithTimeout(
-  input: string,
-  init: RequestInit,
-  timeoutMs = GQL_FETCH_TIMEOUT_MS,
-): Promise<Response> {
+async function fetchJsonWithTimeout(input: string, init: RequestInit): Promise<unknown> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), GQL_FETCH_TIMEOUT_MS);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined);
+      throw createTwitchHttpError(input === INTEGRITY_ENDPOINT ? 'integrity' : 'gql', response);
+    }
+    const json = await response.json().catch(() => null);
+    if (controller.signal.aborted) throw new Error('Twitch GQL request timed out.');
+    return json;
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error('Twitch GQL request timed out.');
@@ -77,16 +80,11 @@ export class TwitchGqlTransport {
   }
 
   async post<T>(payload: unknown): Promise<T> {
-    const response = await fetchWithTimeout(GQL_ENDPOINT, {
+    const json = await fetchJsonWithTimeout(GQL_ENDPOINT, {
       method: 'POST',
       headers: this.buildBaseHeaders(),
       body: JSON.stringify(payload),
     });
-
-    const json = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw createTwitchHttpError('gql', response);
-    }
 
     if (!json || Array.isArray(json) || typeof json !== 'object') {
       throw createErrorFromResponse(json);
@@ -105,16 +103,11 @@ export class TwitchGqlTransport {
   }
 
   async postAuthorized<T>(payload: unknown): Promise<T> {
-    const response = await fetchWithTimeout(GQL_ENDPOINT, {
+    const json = await fetchJsonWithTimeout(GQL_ENDPOINT, {
       method: 'POST',
       headers: this.buildAuthorizedHeaders(),
       body: JSON.stringify(payload),
     });
-
-    const json = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw createTwitchHttpError('gql', response);
-    }
 
     if (!json || Array.isArray(json) || typeof json !== 'object') {
       throw createErrorFromResponse(json);
@@ -133,16 +126,11 @@ export class TwitchGqlTransport {
   }
 
   async postAuthorizedBatch<T>(payloads: unknown[]): Promise<Array<TwitchGraphQLResponse<T>>> {
-    const response = await fetchWithTimeout(GQL_ENDPOINT, {
+    const json = await fetchJsonWithTimeout(GQL_ENDPOINT, {
       method: 'POST',
       headers: this.buildAuthorizedHeaders(),
       body: JSON.stringify(payloads),
     });
-
-    const json = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw createTwitchHttpError('gql', response);
-    }
 
     if (!Array.isArray(json)) {
       throw new Error('Expected batched response from Twitch GQL.');
@@ -157,7 +145,7 @@ export async function fetchTwitchIntegrityToken(session: TwitchSession): Promise
     return null;
   }
 
-  const response = await fetchWithTimeout(INTEGRITY_ENDPOINT, {
+  const payload = (await fetchJsonWithTimeout(INTEGRITY_ENDPOINT, {
     method: 'POST',
     headers: {
       'Client-Id': INTEGRITY_CLIENT_ID,
@@ -166,13 +154,7 @@ export async function fetchTwitchIntegrityToken(session: TwitchSession): Promise
       'Client-Session-Id': session.uuid,
       'Client-Version': INTEGRITY_CLIENT_VERSION,
     },
-  });
-
-  if (!response.ok) {
-    throw createTwitchHttpError('integrity', response);
-  }
-
-  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  })) as Record<string, unknown> | null;
   if (!payload || typeof payload !== 'object') {
     return null;
   }

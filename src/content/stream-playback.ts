@@ -27,6 +27,7 @@ export async function prepareStreamPlayback() {
       userInteractionRequired: false,
     };
   }
+  delete document.documentElement.dataset.drophunterPlaybackSuspended;
   document.documentElement.dataset.drophunterKeepalive = '1';
   const isCurrent = () =>
     revision === playbackPreparationRevision &&

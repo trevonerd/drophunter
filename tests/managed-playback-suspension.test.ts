@@ -117,6 +117,7 @@ test.each(['playing', 'paused', 'unknown', 'stale', 'disabled'] as const)(
     await pauseManagedWatch(ownership);
     await Promise.resolve();
     expect(page.dataset.drophunterKeepalive).toBeUndefined();
+    expect(page.dataset.drophunterPlaybackSuspended).toBe(url);
     expect(page.clicks).toBe(state === 'playing' ? 1 : 0);
     expect(page.video.paused).toBe(true);
     if (state === 'playing') expect(page.control.state).toBe('paused');
@@ -127,6 +128,7 @@ test('unproven ownership cannot change keepalive or the Twitch player intent', a
   const page = player();
   await pauseManagedWatch({ ...ownership, ownershipToken: 'obsolete-token' });
   expect(page.dataset.drophunterKeepalive).toBe('1');
+  expect(page.dataset.drophunterPlaybackSuspended).toBeUndefined();
   expect(page.clicks).toBe(0);
   expect(page.video.paused).toBe(false);
 });
@@ -254,6 +256,7 @@ test('a new Prepare after Stop authorizes the same player without reviving its o
   expect(page.nativePlays).toBe(0);
   expect(page.clicks).toBe(3);
   expect(page.dataset.drophunterKeepalive).toBe('1');
+  expect(page.dataset.drophunterPlaybackSuspended).toBeUndefined();
   expect(page.video.paused).toBe(false);
   expect(page.control.state).toBe('playing');
 });

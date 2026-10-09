@@ -35,6 +35,10 @@ export {
 export function createTelegramNotifier(state: TelegramNotifierState, options: TelegramNotifierOptions) {
   const permissionsApi = options.permissionsApi ?? browser.permissions;
   const fetchApi = options.fetchApi ?? fetch;
+  const saveEnabled = async (enabled: boolean, isCurrent: () => boolean = () => true) => {
+    await options.saveState(enabled, isCurrent);
+    if (isCurrent()) state.appState.telegramAlertsEnabled = enabled;
+  };
   const hasTelegramHostPermission = async (): Promise<boolean> => {
     try {
       return await permissionsApi.contains(TELEGRAM_HOST_PERMISSION);
@@ -44,8 +48,7 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
   };
   const syncPermissionState = async () => {
     if (!state.appState.telegramAlertsEnabled || (await hasTelegramHostPermission())) return;
-    state.appState.telegramAlertsEnabled = false;
-    await options.saveState();
+    await saveEnabled(false);
   };
   const buildNotifyContext = (entry: ClaimLogEntry): TelegramNotifyContext => {
     const selectedGame = state.appState.selectedGame;
@@ -88,8 +91,7 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
   const ensureReadyToSend = async (): Promise<TelegramCredentials | null> => {
     if (!state.appState.telegramAlertsEnabled) return null;
     if (!(await hasTelegramHostPermission())) {
-      state.appState.telegramAlertsEnabled = false;
-      await options.saveState();
+      await saveEnabled(false);
       return null;
     }
     return options.loadCredentials();
@@ -145,9 +147,8 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
   };
   const setTelegramAlertsEnabled = async (enabled: boolean, isCurrent: () => boolean = () => true) => {
     if (!enabled) {
-      state.appState.telegramAlertsEnabled = false;
-      await options.saveState();
-      return { success: true, telegramAlertsEnabled: false };
+      await saveEnabled(false, isCurrent);
+      return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
     }
     const granted = await hasTelegramHostPermission();
     if (!isCurrent())
@@ -157,17 +158,15 @@ export function createTelegramNotifier(state: TelegramNotifierState, options: Te
         error: 'Setting changed while permission was pending',
       };
     if (!granted) {
-      state.appState.telegramAlertsEnabled = false;
-      await options.saveState();
+      await saveEnabled(false, isCurrent);
       return {
         success: false,
-        telegramAlertsEnabled: false,
+        telegramAlertsEnabled: state.appState.telegramAlertsEnabled,
         error: 'Telegram host permission was not granted',
       };
     }
-    state.appState.telegramAlertsEnabled = true;
-    await options.saveState();
-    return { success: true, telegramAlertsEnabled: true };
+    await saveEnabled(true, isCurrent);
+    return { success: true, telegramAlertsEnabled: state.appState.telegramAlertsEnabled };
   };
 
   const setTelegramCredentials = async (input: {

@@ -1,6 +1,7 @@
 export const BACKUP_SETTINGS = {
   monitorAutoOpen: 'boolean',
   muteFarmingTab: 'boolean',
+  twitchAdblockEnabled: 'boolean',
   notificationsEnabled: 'boolean',
   autoClaimChannelPointsBonus: 'boolean',
   autoClaimDrops: 'boolean',

@@ -41,7 +41,10 @@ let contentHandlers: ReturnType<typeof createServiceWorkerContentHandlers>;
 let browserEvents: ReturnType<typeof createServiceWorkerBrowserEvents>;
 
 const notificationController = createNotificationController(state, {
-  saveState: () => saveState(state),
+  saveState: (enabled, isCurrent = () => true) =>
+    saveState(state, {
+      updateAppState: (appState) => (isCurrent() ? { ...appState, notificationsEnabled: enabled } : appState),
+    }),
   openDropHunter: () => browserEvents.openMonitorDashboardWindow({ toggle: false }),
   openTwitchDrops: () => contentHandlers.openDropsAndSync(),
   pauseFarming: () =>
@@ -52,7 +55,11 @@ const notificationController = createNotificationController(state, {
 });
 
 const telegramNotifier = createTelegramNotifier(state, {
-  saveState: () => saveState(state),
+  saveState: (enabled, isCurrent = () => true) =>
+    saveState(state, {
+      updateAppState: (appState) =>
+        isCurrent() ? { ...appState, telegramAlertsEnabled: enabled } : appState,
+    }),
   loadCredentials: loadTelegramCredentials,
   saveCredentials: saveTelegramCredentials,
 });

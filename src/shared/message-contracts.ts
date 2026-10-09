@@ -24,6 +24,8 @@ export const RUNTIME_MESSAGE_TYPES = [
   'OPEN_MONITOR_DASHBOARD',
   'SET_MONITOR_AUTO_OPEN',
   'SET_MUTE_FARMING_TAB',
+  'SET_TWITCH_ADBLOCK_ENABLED',
+  'TWITCH_ADS_BLOCKED',
   'SET_NOTIFICATIONS_ENABLED',
   'SET_TELEGRAM_ALERTS_ENABLED',
   'SET_TELEGRAM_SYSTEM_ALERTS_ENABLED',
@@ -77,6 +79,7 @@ export type RuntimeMessageType = (typeof RUNTIME_MESSAGE_TYPES)[number];
 export const BOOLEAN_TOGGLE_MESSAGES = {
   SET_MONITOR_AUTO_OPEN: { responseField: 'monitorAutoOpen' },
   SET_MUTE_FARMING_TAB: { responseField: 'muteFarmingTab' },
+  SET_TWITCH_ADBLOCK_ENABLED: { responseField: 'twitchAdblockEnabled' },
   SET_NOTIFICATIONS_ENABLED: { responseField: 'notificationsEnabled' },
   SET_TELEGRAM_ALERTS_ENABLED: { responseField: 'telegramAlertsEnabled' },
   SET_TELEGRAM_SYSTEM_ALERTS_ENABLED: { responseField: 'telegramSystemAlertsEnabled' },
@@ -118,6 +121,7 @@ export type RuntimeRequest =
   | { type: 'PREPARE_STREAM_PLAYBACK' }
   | { type: 'CLAIM_CHANNEL_POINTS_BONUS' }
   | { type: 'CHANNEL_POINTS_BONUS_CLAIMED'; payload?: { channelName?: string | null } }
+  | { type: 'TWITCH_ADS_BLOCKED'; payload: { count: number } }
   | { type: 'OPEN_MONITOR_DASHBOARD'; payload?: { toggle?: boolean } }
   | BooleanToggleRequest
   | MinimalRequest
@@ -166,6 +170,7 @@ export type RuntimeResponseByType = BooleanToggleResponseByType &
     PREPARE_STREAM_PLAYBACK: { success: boolean } & PlaybackPrepResult;
     CLAIM_CHANNEL_POINTS_BONUS: BasicResponse & { claimed?: boolean; reason?: string };
     CHANNEL_POINTS_BONUS_CLAIMED: BasicResponse;
+    TWITCH_ADS_BLOCKED: BasicResponse;
     OPEN_MONITOR_DASHBOARD: BasicResponse & { monitorWindowId?: number | null };
     SET_TELEGRAM_CREDENTIALS: BasicResponse & { configured?: boolean; chatId?: string | null };
     GET_TELEGRAM_SETTINGS: BasicResponse & { configured?: boolean; chatId?: string | null };

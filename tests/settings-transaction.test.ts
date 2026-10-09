@@ -72,6 +72,65 @@ describe('settings transaction coordinator', () => {
     expect(subject.state().monitorAutoOpen).toBe(false);
   });
 
+  for (const latestFirst of [false, true]) {
+    test(`overlapping failures restore the confirmed value (latest first: ${latestFirst})`, async () => {
+      const subject = createSubject();
+      const firstResponse = createDeferred<{ success: boolean }>();
+      const secondResponse = createDeferred<{ success: boolean }>();
+      const first = subject.coordinator.run({
+        key: 'monitorAutoOpen',
+        next: true,
+        send: () => firstResponse.promise,
+      });
+      const second = subject.coordinator.run({
+        key: 'monitorAutoOpen',
+        next: false,
+        send: () => secondResponse.promise,
+      });
+      if (latestFirst) {
+        secondResponse.resolve({ success: false });
+        await second;
+        firstResponse.resolve({ success: false });
+      } else {
+        firstResponse.resolve({ success: false });
+        await first;
+        secondResponse.resolve({ success: false });
+      }
+      expect(await first).toEqual({ kind: 'stale' });
+      expect(await second).toEqual({ kind: 'rejected', reason: 'runtime' });
+      expect(subject.state().monitorAutoOpen).toBe(false);
+    });
+
+    test(`a successful older request survives a newer rejection (latest first: ${latestFirst})`, async () => {
+      const subject = createSubject();
+      const firstResponse = createDeferred<{ success: boolean }>();
+      const secondResponse = createDeferred<{ success: boolean }>();
+      const first = subject.coordinator.run({
+        key: 'monitorAutoOpen',
+        next: true,
+        send: () => firstResponse.promise,
+        successPatch: () => ({ monitorAutoOpen: true, notificationsEnabled: true }),
+      });
+      const second = subject.coordinator.run({
+        key: 'monitorAutoOpen',
+        next: false,
+        send: () => secondResponse.promise,
+      });
+      if (latestFirst) {
+        secondResponse.resolve({ success: false });
+        await second;
+        firstResponse.resolve({ success: true });
+      } else {
+        firstResponse.resolve({ success: true });
+        await first;
+        secondResponse.resolve({ success: false });
+      }
+      await Promise.all([first, second]);
+      expect(subject.state().monitorAutoOpen).toBe(true);
+      expect(subject.state().notificationsEnabled).toBe(true);
+    });
+  }
+
   test('rolls back permission denial without sending the runtime command', async () => {
     // Given: a permission-gated setting and a denied request.
     const subject = createSubject();

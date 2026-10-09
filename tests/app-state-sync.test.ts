@@ -33,6 +33,8 @@ describe('normalizeStoredAppState', () => {
     expect(state.queue).toEqual([]);
     expect('autoResumeOnStartup' in state).toBe(false);
     expect(state.muteFarmingTab).toBe(true);
+    expect(state.twitchAdblockEnabled).toBe(true);
+    expect(state.totalTwitchAdsBlocked).toBe(0);
     expect(state.notificationsEnabled).toBe(false);
     expect(state.autoClaimChannelPointsBonus).toBe(true);
     expect(state.streamerSelectionMode).toBe('low-view');
@@ -70,6 +72,23 @@ describe('normalizeStoredAppState', () => {
     expect('autoResumeOnStartup' in state).toBe(false);
     expect(state.muteFarmingTab).toBe(false);
     expect(state.autoStartFavoriteGames).toBe(false);
+  });
+
+  test('normalizes Twitch ad blocking to true unless a valid boolean was saved', () => {
+    expect(normalizeStoredAppState({ twitchAdblockEnabled: false }).twitchAdblockEnabled).toBe(false);
+    expect(normalizeStoredAppState({ twitchAdblockEnabled: 'false' }).twitchAdblockEnabled).toBe(true);
+    expect(normalizeStoredAppState({}).twitchAdblockEnabled).toBe(true);
+    expect(normalizeStoredAppState({ twitchAdblockUnavailable: true }).twitchAdblockUnavailable).toBe(true);
+    expect(normalizeStoredAppState({ twitchAdblockUnavailable: 'true' }).twitchAdblockUnavailable).toBe(
+      false,
+    );
+  });
+
+  test('keeps only safe non-negative integers for the local ad-block count', () => {
+    expect(normalizeStoredAppState({ totalTwitchAdsBlocked: 42 }).totalTwitchAdsBlocked).toBe(42);
+    for (const invalid of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, '42']) {
+      expect(normalizeStoredAppState({ totalTwitchAdsBlocked: invalid }).totalTwitchAdsBlocked).toBe(0);
+    }
   });
 
   test('preserves an explicit manual session origin during normalization', () => {

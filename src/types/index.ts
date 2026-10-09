@@ -156,6 +156,8 @@ export interface AppState {
   isPaused: boolean;
   monitorAutoOpen: boolean;
   muteFarmingTab: boolean;
+  twitchAdblockEnabled: boolean;
+  twitchAdblockUnavailable?: boolean;
   notificationsEnabled: boolean;
   telegramAlertsEnabled: boolean;
   telegramSystemAlertsEnabled: boolean;
@@ -163,6 +165,7 @@ export interface AppState {
   autoClaimDrops: boolean;
   totalDropsClaimed: number;
   totalChannelPointsClaimed: number;
+  totalTwitchAdsBlocked: number;
   streamerSelectionMode: StreamerSelectionMode;
   preferredStreamerLanguage: string | null;
   activeStreamer: TwitchStreamer | null;

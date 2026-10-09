@@ -26,6 +26,30 @@ function captureNotifications() {
 }
 
 export function registerStartAndSettingsCases() {
+  test('adblock toggle persists registration and reports failures without changing the setting', async () => {
+    expect(
+      await dispatchMessage({ type: 'SET_TWITCH_ADBLOCK_ENABLED', payload: { enabled: false } }),
+    ).toEqual({ success: true, twitchAdblockEnabled: false });
+    expect(getAppStateFromStorage().twitchAdblockEnabled).toBe(false);
+    const register = chromeMocks.scripting.registerContentScripts;
+    chromeMocks.scripting.registerContentScripts = async () => {
+      throw new Error('registry unavailable');
+    };
+    try {
+      expect(
+        await dispatchMessage({ type: 'SET_TWITCH_ADBLOCK_ENABLED', payload: { enabled: true } }),
+      ).toEqual({ success: false, error: 'Error: registry unavailable' });
+      expect(getAppStateFromStorage().twitchAdblockEnabled).toBe(false);
+      expect(await chromeMocks.scripting.getRegisteredContentScripts()).toEqual([]);
+    } finally {
+      chromeMocks.scripting.registerContentScripts = register;
+      expect(
+        await dispatchMessage({ type: 'SET_TWITCH_ADBLOCK_ENABLED', payload: { enabled: true } }),
+      ).toEqual({ success: true, twitchAdblockEnabled: true });
+    }
+    expect(await chromeMocks.scripting.getRegisteredContentScripts()).toHaveLength(1);
+  });
+
   test('START_FARMING returns an error when no game is provided', async () => {
     const response = await dispatchMessage({ type: 'START_FARMING', payload: {} });
 

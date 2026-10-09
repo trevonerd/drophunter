@@ -13,6 +13,7 @@ describe('extension update reset', () => {
       ...createInitialState(),
       totalDropsClaimed: 42,
       notificationsEnabled: true,
+      twitchAdblockEnabled: false,
       watchTransportPreference: 'tabless',
       favoriteGames: [
         { gameId: 'favorite-1', lastKnownName: 'Favorite', addedAt: 1, identityKeys: ['id:favorite-1'] },
@@ -28,6 +29,7 @@ describe('extension update reset', () => {
     expect(reset).toMatchObject({
       totalDropsClaimed: 42,
       notificationsEnabled: true,
+      twitchAdblockEnabled: false,
       watchTransportPreference: 'tabless',
       availableGames: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],
       queue: [{ id: 'game-1', name: 'Stale Game', imageUrl: '' }],

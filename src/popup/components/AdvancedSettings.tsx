@@ -8,6 +8,8 @@ type AdvancedSettingsProps = Pick<
   | 'state'
   | 'onMonitorAutoOpenToggle'
   | 'onMuteFarmingTabToggle'
+  | 'onTwitchAdblockToggle'
+  | 'twitchAdblockWarning'
   | 'onTelegramAlertsToggle'
   | 'onTelegramSystemAlertsToggle'
   | 'onSaveTelegramCredentials'
@@ -23,6 +25,8 @@ export function AdvancedSettings({
   state,
   onMonitorAutoOpenToggle,
   onMuteFarmingTabToggle,
+  onTwitchAdblockToggle,
+  twitchAdblockWarning,
   onTelegramAlertsToggle,
   onTelegramSystemAlertsToggle,
   onSaveTelegramCredentials,
@@ -75,6 +79,31 @@ export function AdvancedSettings({
             checked={state.muteFarmingTab}
             ariaLabel="Mute farming tab"
             onToggle={onMuteFarmingTabToggle}
+          />
+          <SettingRow
+            title="Twitch adblock"
+            description={
+              <>
+                Apply to new Twitch pages and reload open Twitch tabs.
+                <span
+                  className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[color:var(--dh-text-soft)]"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span>Ads blocked </span>
+                  <strong className="font-semibold tabular-nums text-[color:var(--dh-text)]">
+                    {state.totalTwitchAdsBlocked.toLocaleString()}
+                  </strong>
+                </span>
+              </>
+            }
+            checked={state.twitchAdblockEnabled}
+            ariaLabel="Twitch adblock"
+            onToggle={onTwitchAdblockToggle}
+            warning={
+              twitchAdblockWarning ??
+              (state.twitchAdblockUnavailable ? 'Could not apply Twitch adblock. Toggle it to retry.' : null)
+            }
           />
           <div className="dh-panel dh-contain px-3 py-2.5">
             <p className="dh-title text-xs">Streamer selection</p>

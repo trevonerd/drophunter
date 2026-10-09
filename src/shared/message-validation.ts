@@ -186,6 +186,14 @@ function isRuntimePayloadValid(type: RuntimeMessageType, payload: unknown): bool
   const optionalResult = isValidOptionalPayload(type, payload);
   if (optionalResult !== undefined) return optionalResult;
   switch (type) {
+    case 'TWITCH_ADS_BLOCKED':
+      return (
+        isRecord(payload) &&
+        typeof payload.count === 'number' &&
+        Number.isSafeInteger(payload.count) &&
+        payload.count > 0 &&
+        payload.count <= 10000
+      );
     case 'DISMISS_FARMING_MESSAGE':
       return (
         isRecord(payload) &&

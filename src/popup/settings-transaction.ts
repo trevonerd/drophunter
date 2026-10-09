@@ -3,6 +3,7 @@ import type { AppState } from '../types/index.ts';
 type TransactionalSettingKey =
   | 'monitorAutoOpen'
   | 'muteFarmingTab'
+  | 'twitchAdblockEnabled'
   | 'autoClaimChannelPointsBonus'
   | 'autoClaimDrops'
   | 'notificationsEnabled'
@@ -46,6 +47,10 @@ export function createSettingsTransactionCoordinator(
   options: SettingsTransactionOptions,
 ): SettingsTransactionCoordinator {
   const revisions = new Map<TransactionalSettingKey, number>();
+  const pending = new Map<
+    TransactionalSettingKey,
+    { confirmed: Partial<AppState>; confirmedRevision: number; count: number; latestPending: boolean }
+  >();
 
   const run = async <
     Key extends TransactionalSettingKey,
@@ -53,39 +58,60 @@ export function createSettingsTransactionCoordinator(
   >(
     spec: SettingsTransactionSpec<Key, CommandResponse>,
   ): Promise<SettingsTransactionResult> => {
-    const previous = options.read(spec.key);
+    const transaction = pending.get(spec.key) ?? {
+      confirmed: { [spec.key]: options.read(spec.key) },
+      confirmedRevision: 0,
+      count: 0,
+      latestPending: true,
+    };
+    pending.set(spec.key, transaction);
+    transaction.count += 1;
+    transaction.latestPending = true;
     const revision = (revisions.get(spec.key) ?? 0) + 1;
     revisions.set(spec.key, revision);
     options.write(spec.key, spec.next);
     const isCurrent = () => revisions.get(spec.key) === revision;
 
-    if (spec.authorize) {
-      let authorized = false;
+    try {
+      if (spec.authorize) {
+        let authorized = false;
+        try {
+          authorized = await spec.authorize();
+        } catch {
+          authorized = false;
+        }
+        if (!isCurrent()) return { kind: 'stale' };
+        if (!authorized) {
+          transaction.latestPending = false;
+          options.patch(transaction.confirmed);
+          return { kind: 'rejected', reason: 'permission' };
+        }
+      }
+
+      let response: CommandResponse | undefined;
       try {
-        authorized = await spec.authorize();
+        response = await spec.send();
       } catch {
-        authorized = false;
+        response = undefined;
+      }
+      if (response?.success && revision > transaction.confirmedRevision) {
+        const patch = { [spec.key]: spec.next, ...spec.successPatch?.(response) };
+        transaction.confirmed = patch;
+        transaction.confirmedRevision = revision;
+        if (isCurrent()) options.patch(patch);
+        else if (!transaction.latestPending) options.patch(transaction.confirmed);
       }
       if (!isCurrent()) return { kind: 'stale' };
-      if (!authorized) {
-        options.write(spec.key, previous);
-        return { kind: 'rejected', reason: 'permission' };
+      transaction.latestPending = false;
+      if (!response?.success) {
+        options.patch(transaction.confirmed);
+        return { kind: 'rejected', reason: 'runtime' };
       }
+      return { kind: 'committed' };
+    } finally {
+      transaction.count -= 1;
+      if (!transaction.count) pending.delete(spec.key);
     }
-
-    let response: CommandResponse | undefined;
-    try {
-      response = await spec.send();
-    } catch {
-      response = undefined;
-    }
-    if (!isCurrent()) return { kind: 'stale' };
-    if (!response?.success) {
-      options.write(spec.key, previous);
-      return { kind: 'rejected', reason: 'runtime' };
-    }
-    if (spec.successPatch) options.patch(spec.successPatch(response));
-    return { kind: 'committed' };
   };
 
   return { run };

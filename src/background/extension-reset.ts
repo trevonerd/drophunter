@@ -57,6 +57,7 @@ export function createExtensionUpdateAppState(
     totalChannelPointsClaimed: appState.totalChannelPointsClaimed,
     monitorAutoOpen: appState.monitorAutoOpen,
     muteFarmingTab: appState.muteFarmingTab,
+    twitchAdblockEnabled: appState.twitchAdblockEnabled,
     notificationsEnabled: appState.notificationsEnabled,
     telegramAlertsEnabled: appState.telegramAlertsEnabled,
     telegramSystemAlertsEnabled: appState.telegramSystemAlertsEnabled,

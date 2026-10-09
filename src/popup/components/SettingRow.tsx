@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react';
+
 export interface SettingRowProps {
   readonly title: string;
-  readonly description: string;
+  readonly description: ReactNode;
   readonly checked: boolean;
   readonly ariaLabel: string;
   readonly onToggle: () => void | Promise<void>;

@@ -120,6 +120,9 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
       refreshDrops: contentHandlers.refreshDrops,
       setMonitorAutoOpen: (message) => settingsHandlers.handleSetMonitorAutoOpen(message.payload),
       setMuteFarmingTab: (message) => settingsHandlers.handleSetMuteFarmingTab(message.payload),
+      setTwitchAdblockEnabled: (message) => settingsHandlers.handleSetTwitchAdblockEnabled(message.payload),
+      twitchAdsBlocked: (message, sender) =>
+        settingsHandlers.handleTwitchAdsBlocked(message.payload, sender.url),
       setNotificationsEnabled: (message) => settingsHandlers.handleSetNotificationsEnabled(message.payload),
       setTelegramAlertsEnabled: (message) => settingsHandlers.handleSetTelegramAlertsEnabled(message.payload),
       setTelegramSystemAlertsEnabled: (message) =>

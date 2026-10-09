@@ -7,6 +7,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Package manager: Bun only. Use `bun install`, `bun test`, `bun run build:all`.
 - Main code: `src/background/`, `src/popup/`, `src/monitor/`, `src/content/`, `src/shared/`.
 - Entrypoints live in `src/entrypoints/`: background service worker, popup HTML, monitor HTML, Twitch content scripts, and integrity interceptor.
+- `src/background/twitch-adblock.ts` owns transactional MAIN-world registration of the locally bundled TTV-AB engine in `vendor/ttv-ab/`. The single portable setting defaults ON; changes affect new/reloaded Twitch documents. Preserve integrity fetch chaining and explicit pause intent; hidden farming uses its own transport.
 - Generated builds and release zips live under `.output/`; do not hand-edit generated files.
 
 ## Architecture Map
@@ -103,6 +104,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - New mutable service-worker state belongs in `ServiceWorkerState` and `createServiceWorkerState()`.
 - Extracted functions should receive `state` and dependencies explicitly, matching existing controller/module patterns.
 - When changing persistence or timing fields, update load/save normalization, default state factory, and round-trip tests.
+- Persist preference changes through `saveState`'s `updateAppState` before publishing them; preserve concurrent session changes. Farming start drafts publish through `onPersisted` inside the owner's storage transaction.
 - When changing queue semantics, check start, pause/resume, skip, complete, expired/vanished, and selected-game behavior.
 - When changing Twitch API parsing, prefer explicit guards and typed normalization helpers over trusting nested fields.
 

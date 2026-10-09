@@ -112,6 +112,8 @@ function App() {
         state,
         onMonitorAutoOpenToggle: () => void settings.handleMonitorAutoOpenToggle(),
         onMuteFarmingTabToggle: () => void settings.handleMuteFarmingTabToggle(),
+        onTwitchAdblockToggle: () => void settings.handleTwitchAdblockToggle(),
+        twitchAdblockWarning: settings.twitchAdblockWarning,
         onNotificationsEnabledToggle: () => void settings.handleNotificationsEnabledToggle(),
         notificationPermissionDenied: settings.notificationPermissionDenied,
         onTelegramAlertsToggle: telegram.handleTelegramAlertsToggle,

@@ -8,7 +8,7 @@ import {
 } from './farming-session-revision.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { broadcastStateUpdate } from './state-persistence.ts';
-import { withStateStorageTransaction } from './state-storage-transaction.ts';
+import { createTwitchAdblockController } from './twitch-adblock.ts';
 
 async function fingerprint(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
@@ -17,6 +17,7 @@ async function fingerprint(value: unknown): Promise<string> {
 }
 
 export function createBackupController(state: ServiceWorkerState, invalidateAutomation: () => void) {
+  const twitchAdblock = createTwitchAdblockController(state);
   const requireStopped = () => {
     if (state.appState.isRunning || state.appState.isPaused) {
       throw new Error('Stop farming before importing a backup. Pausing is not enough.');
@@ -81,6 +82,7 @@ export function createBackupController(state: ServiceWorkerState, invalidateAuto
               throw new Error('Local data changed. Refresh the preview before importing.');
             }
             const result = applyBackup(state.appState, claimLog, backup, options);
+            result.appState.twitchAdblockUnavailable = false;
             const patch = Object.fromEntries(
               Object.entries(result.appState).filter(
                 ([key, value]) =>
@@ -91,7 +93,7 @@ export function createBackupController(state: ServiceWorkerState, invalidateAuto
             invalidateAutomation();
             invalidateFarmingSessionEpoch(state);
             // One storage operation commits both durable collections. Memory changes only on success.
-            await withStateStorageTransaction(state, async () => {
+            await twitchAdblock.commit(result.appState.twitchAdblockEnabled, async () => {
               requireStopped();
               if (initialState !== JSON.stringify(state.appState))
                 throw new Error('Local data changed. Refresh the preview before importing.');

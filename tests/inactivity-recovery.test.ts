@@ -35,6 +35,8 @@ describe('recovery after prolonged browser inactivity', () => {
       state.appState.manualQueueAuthorized = true;
       state.appState.farmingSessionOrigin = 'manual';
       state.appState.autoStartFavoriteGames = false;
+      state.appState.twitchAdblockEnabled = false;
+      state.appState.totalTwitchAdsBlocked = 42;
       state.appState.isRunning = true;
       state.appState.tabId = 9;
       state.appState.lastSuccessfulRefreshAt = 10;
@@ -77,12 +79,16 @@ describe('recovery after prolonged browser inactivity', () => {
         queueEntryMetadataByKey: { 'campaign:saved-campaign': metadata },
         manualQueueAuthorized: true,
         autoStartFavoriteGames: false,
+        twitchAdblockEnabled: false,
+        totalTwitchAdsBlocked: 42,
         lastSuccessfulRefreshAt: 10,
         campaignSyncState: sync,
         isRunning: true,
         tabId: null,
       });
       expect(mocks.storage.local._store.get('appState')).toMatchObject({
+        twitchAdblockEnabled: false,
+        totalTwitchAdsBlocked: 42,
         queue: [campaign],
         queueEntryMetadataByKey: { 'campaign:saved-campaign': metadata },
       });

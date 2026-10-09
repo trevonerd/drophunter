@@ -34,8 +34,10 @@ export function transformLegacyAppState(value: unknown): AppState {
       source.totalChannelPointsClaimed,
       defaults.totalChannelPointsClaimed,
     ),
+    totalTwitchAdsBlocked: normalized.totalTwitchAdsBlocked,
     monitorAutoOpen: validBoolean(source.monitorAutoOpen, defaults.monitorAutoOpen),
     muteFarmingTab: validBoolean(source.muteFarmingTab, defaults.muteFarmingTab),
+    twitchAdblockEnabled: validBoolean(source.twitchAdblockEnabled, defaults.twitchAdblockEnabled),
     notificationsEnabled: validBoolean(source.notificationsEnabled, defaults.notificationsEnabled),
     telegramAlertsEnabled: validBoolean(source.telegramAlertsEnabled, defaults.telegramAlertsEnabled),
     telegramSystemAlertsEnabled: validBoolean(

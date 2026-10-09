@@ -18,8 +18,10 @@ export function pickDurablePreferences(appState: AppState) {
   return {
     totalDropsClaimed: appState.totalDropsClaimed,
     totalChannelPointsClaimed: appState.totalChannelPointsClaimed,
+    totalTwitchAdsBlocked: appState.totalTwitchAdsBlocked,
     monitorAutoOpen: appState.monitorAutoOpen,
     muteFarmingTab: appState.muteFarmingTab,
+    twitchAdblockEnabled: appState.twitchAdblockEnabled,
     notificationsEnabled: appState.notificationsEnabled,
     telegramAlertsEnabled: appState.telegramAlertsEnabled,
     telegramSystemAlertsEnabled: appState.telegramSystemAlertsEnabled,

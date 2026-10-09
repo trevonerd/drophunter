@@ -150,7 +150,7 @@ interface NotificationState {
 interface NotificationControllerOptions {
   permissionsApi?: Pick<typeof chrome.permissions, 'contains'>;
   notificationsApi?: NotificationApi;
-  saveState: () => Promise<unknown> | unknown;
+  saveState: (enabled: boolean, isCurrent?: () => boolean) => Promise<unknown> | unknown;
   openDropHunter?: () => Promise<unknown> | unknown;
   openTwitchDrops?: () => Promise<unknown> | unknown;
   pauseFarming?: () => Promise<unknown> | unknown;
@@ -163,6 +163,11 @@ export function createNotificationController(
   const permissionsApi = options.permissionsApi ?? browser.permissions;
   const resolveNotificationsApi = createNotificationApiResolver(options);
   resolveNotificationsApi();
+
+  const saveEnabled = async (enabled: boolean, isCurrent: () => boolean = () => true) => {
+    await options.saveState(enabled, isCurrent);
+    if (isCurrent()) state.appState.notificationsEnabled = enabled;
+  };
 
   const hasNotificationPermission = async (): Promise<boolean> => {
     try {
@@ -179,8 +184,7 @@ export function createNotificationController(
     if (await hasNotificationPermission()) {
       return;
     }
-    state.appState.notificationsEnabled = false;
-    await options.saveState();
+    await saveEnabled(false);
   };
 
   const notify = async (title: string, message: string, priority = 2) => {
@@ -188,8 +192,7 @@ export function createNotificationController(
       return;
     }
     if (!(await hasNotificationPermission())) {
-      state.appState.notificationsEnabled = false;
-      await options.saveState();
+      await saveEnabled(false);
       return;
     }
     const notificationsApi = resolveNotificationsApi();
@@ -210,8 +213,7 @@ export function createNotificationController(
       return;
     }
     if (!(await hasNotificationPermission())) {
-      state.appState.notificationsEnabled = false;
-      await options.saveState();
+      await saveEnabled(false);
       return;
     }
     const notificationsApi = resolveNotificationsApi();
@@ -247,8 +249,7 @@ export function createNotificationController(
     isCurrent: () => boolean = () => true,
   ): Promise<{ success: boolean; notificationsEnabled: boolean; error?: string }> => {
     if (!enabled) {
-      state.appState.notificationsEnabled = false;
-      await options.saveState();
+      await saveEnabled(false, isCurrent);
       return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
     }
     const granted = await hasNotificationPermission();
@@ -259,8 +260,7 @@ export function createNotificationController(
         error: 'Setting changed while permission was pending',
       };
     if (!granted) {
-      state.appState.notificationsEnabled = false;
-      await options.saveState();
+      await saveEnabled(false, isCurrent);
       return {
         success: false,
         notificationsEnabled: state.appState.notificationsEnabled,
@@ -268,8 +268,7 @@ export function createNotificationController(
       };
     }
     resolveNotificationsApi();
-    state.appState.notificationsEnabled = true;
-    await options.saveState();
+    await saveEnabled(true, isCurrent);
     return { success: true, notificationsEnabled: state.appState.notificationsEnabled };
   };
 
@@ -280,8 +279,7 @@ export function createNotificationController(
       return { shown: false, deduplicated: false };
     }
     if (!(await hasNotificationPermission())) {
-      state.appState.notificationsEnabled = false;
-      await options.saveState();
+      await saveEnabled(false);
       return { shown: false, deduplicated: false };
     }
     const notificationsApi = resolveNotificationsApi();

@@ -68,10 +68,21 @@ export function normalizeStoredAppState(value: unknown): AppState {
     pendingDrops: normalizeStoredDrops(value.pendingDrops),
     completedDrops: normalizeStoredDrops(value.completedDrops),
     currentDrop: normalizeStoredDrops([value.currentDrop])[0] ?? null,
+    totalTwitchAdsBlocked:
+      typeof value.totalTwitchAdsBlocked === 'number' &&
+      Number.isSafeInteger(value.totalTwitchAdsBlocked) &&
+      value.totalTwitchAdsBlocked >= 0
+        ? value.totalTwitchAdsBlocked
+        : defaults.totalTwitchAdsBlocked,
     isRunning:
       (value.isRunning === true || (value.isPaused === true && value.manualQueueAuthorized === true)) &&
       lastStopReason !== 'user-stop',
     isPaused: value.isPaused === true && lastStopReason !== 'user-stop',
+    twitchAdblockEnabled:
+      typeof value.twitchAdblockEnabled === 'boolean'
+        ? value.twitchAdblockEnabled
+        : defaults.twitchAdblockEnabled,
+    twitchAdblockUnavailable: value.twitchAdblockUnavailable === true,
     wasRunning: value.wasRunning === true,
     tabId:
       typeof value.tabId === 'number' && Number.isInteger(value.tabId) && value.tabId > 0

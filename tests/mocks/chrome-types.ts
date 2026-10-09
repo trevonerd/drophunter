@@ -202,6 +202,12 @@ export interface MockChrome {
   };
   scripting: {
     executeScript: (options: ScriptInjection) => Promise<ScriptInjectionResult[]>;
+    getRegisteredContentScripts: (filter?: {
+      ids?: string[];
+    }) => Promise<chrome.scripting.RegisteredContentScript[]>;
+    registerContentScripts: (scripts: chrome.scripting.RegisteredContentScript[]) => Promise<void>;
+    updateContentScripts: (scripts: chrome.scripting.RegisteredContentScript[]) => Promise<void>;
+    unregisterContentScripts: (filter?: { ids?: string[] }) => Promise<void>;
   };
 }
 

@@ -1,5 +1,5 @@
 import type { AppState, ClaimLogEntry } from '../types/index.ts';
-import { overlap, union } from './backup-collections.ts';
+import { categoryMatcher, union } from './backup-collections.ts';
 import { BACKUP_SETTINGS } from './backup-settings-policy.ts';
 import type { BackupApplyContext, BackupSectionBehavior } from './backup-types.ts';
 
@@ -16,10 +16,9 @@ function restoreSettings(context: BackupApplyContext, data: unknown) {
 }
 function restoreFavorites(context: BackupApplyContext, data: unknown, merge: boolean) {
   const entries = data as AppState['favoriteGames'];
+  const hiddenLocally = categoryMatcher(context.localState.hiddenGames);
   const excluded =
-    merge || !context.options.sections.includes('hidden')
-      ? entries.filter((e) => context.localState.hiddenGames.some((h) => overlap(e, h))).length
-      : 0;
+    merge || !context.options.sections.includes('hidden') ? entries.filter(hiddenLocally).length : 0;
   if (excluded)
     context.warnings.push(
       `${excluded} imported favorite entries are excluded because these categories are hidden locally.${merge ? ' Local classification is preserved.' : ' Select both Favorites and Hidden categories to replace their classification.'}`,
@@ -27,20 +26,17 @@ function restoreFavorites(context: BackupApplyContext, data: unknown, merge: boo
   context.appState.favoriteGames = merge
     ? union(
         context.localState.favoriteGames,
-        entries.filter((e) => !context.localState.hiddenGames.some((h) => overlap(e, h))),
+        entries.filter((e) => !hiddenLocally(e)),
       )
     : union([], entries);
   if (!merge && !context.options.sections.includes('hidden'))
-    context.appState.favoriteGames = context.appState.favoriteGames.filter(
-      (f) => !context.localState.hiddenGames.some((h) => overlap(f, h)),
-    );
+    context.appState.favoriteGames = context.appState.favoriteGames.filter((f) => !hiddenLocally(f));
 }
 function restoreHidden(context: BackupApplyContext, data: unknown, merge: boolean) {
   const entries = data as AppState['hiddenGames'];
+  const favoriteLocally = categoryMatcher(context.localState.favoriteGames);
   const excluded =
-    merge || !context.options.sections.includes('favorites')
-      ? entries.filter((e) => context.localState.favoriteGames.some((f) => overlap(e, f))).length
-      : 0;
+    merge || !context.options.sections.includes('favorites') ? entries.filter(favoriteLocally).length : 0;
   if (excluded)
     context.warnings.push(
       `${excluded} imported hidden entries are excluded because these categories are favorites locally.${merge ? ' Local classification is preserved.' : ' Select both Favorites and Hidden categories to replace their classification.'}`,
@@ -48,19 +44,16 @@ function restoreHidden(context: BackupApplyContext, data: unknown, merge: boolea
   context.appState.hiddenGames = merge
     ? union(
         context.localState.hiddenGames,
-        entries.filter((e) => !context.localState.favoriteGames.some((f) => overlap(e, f))),
+        entries.filter((e) => !favoriteLocally(e)),
       )
     : union([], entries);
   if (!merge && !context.options.sections.includes('favorites'))
-    context.appState.hiddenGames = context.appState.hiddenGames.filter(
-      (h) => !context.localState.favoriteGames.some((f) => overlap(f, h)),
-    );
+    context.appState.hiddenGames = context.appState.hiddenGames.filter((h) => !favoriteLocally(h));
   if (context.options.sections.includes('favorites')) {
     const favoriteCount = context.appState.favoriteGames.length;
+    const hidden = categoryMatcher(context.appState.hiddenGames);
     context.appState.favoriteGames = context.appState.favoriteGames.filter(
-      (f) =>
-        (merge && context.localState.favoriteGames.some((local) => overlap(local, f))) ||
-        !context.appState.hiddenGames.some((h) => overlap(h, f)),
+      (f) => (merge && favoriteLocally(f)) || !hidden(f),
     );
     const removed = favoriteCount - context.appState.favoriteGames.length;
     if (removed)

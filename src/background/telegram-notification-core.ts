@@ -23,7 +23,7 @@ export interface TelegramNotifierState {
 export interface TelegramNotifierOptions {
   permissionsApi?: Pick<typeof chrome.permissions, 'contains' | 'request'>;
   fetchApi?: typeof fetch;
-  saveState: () => Promise<unknown> | unknown;
+  saveState: (enabled: boolean, isCurrent?: () => boolean) => Promise<unknown> | unknown;
   loadCredentials: () => Promise<TelegramCredentials | null>;
   saveCredentials: (credentials: TelegramCredentials | null) => Promise<void>;
 }

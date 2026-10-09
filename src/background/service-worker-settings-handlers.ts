@@ -15,6 +15,7 @@ import {
 } from './streamer-selection.ts';
 import { syncManagedTabMuteState } from './tab-management.ts';
 import { type createTelegramNotifier, getTelegramSettingsSummary } from './telegram-notifications.ts';
+import { createTwitchAdblockController } from './twitch-adblock.ts';
 
 type StateLifecycle = Pick<
   ReturnType<typeof createServiceWorkerStateLifecycle>,
@@ -41,18 +42,22 @@ export function createServiceWorkerSettingsHandlers(
 ) {
   const trackActivity = dependencies.stateLifecycle.trackActivity;
   const automationSettings = createServiceWorkerAutomationSettingsHandlers(state, dependencies);
+  const twitchAdblock = createTwitchAdblockController(state);
 
   async function handleSetMonitorAutoOpen(payload?: { readonly enabled?: boolean }) {
     await trackActivity('set-monitor-auto-open');
-    state.appState.monitorAutoOpen = payload?.enabled !== false;
-    await saveState(state);
+    await saveState(state, {
+      updateAppState: (appState) => ({ ...appState, monitorAutoOpen: payload?.enabled !== false }),
+    });
     return { success: true, monitorAutoOpen: state.appState.monitorAutoOpen };
   }
 
   async function handleSetMuteFarmingTab(payload?: { readonly enabled?: boolean }) {
     await trackActivity('set-mute-farming-tab');
-    state.appState.muteFarmingTab = payload?.enabled !== false;
-    await Promise.all([saveState(state), syncManagedTabMuteState(state)]);
+    await saveState(state, {
+      updateAppState: (appState) => ({ ...appState, muteFarmingTab: payload?.enabled !== false }),
+    });
+    await syncManagedTabMuteState(state);
     return { success: true, muteFarmingTab: state.appState.muteFarmingTab };
   }
 
@@ -78,15 +83,17 @@ export function createServiceWorkerSettingsHandlers(
 
   async function handleSetAutoClaimChannelPointsBonus(payload?: { readonly enabled?: boolean }) {
     await trackActivity('set-auto-claim-channel-points-bonus');
-    state.appState = applyAutoClaimChannelPointsBonusSetting(state.appState, payload?.enabled);
-    await saveState(state);
+    await saveState(state, {
+      updateAppState: (appState) => applyAutoClaimChannelPointsBonusSetting(appState, payload?.enabled),
+    });
     return { success: true, autoClaimChannelPointsBonus: state.appState.autoClaimChannelPointsBonus };
   }
 
   async function handleSetAutoClaimDrops(payload?: { readonly enabled?: boolean }) {
     await trackActivity('set-auto-claim-drops');
-    state.appState = applyAutoClaimDropsSetting(state.appState, payload?.enabled);
-    await saveState(state);
+    await saveState(state, {
+      updateAppState: (appState) => applyAutoClaimDropsSetting(appState, payload?.enabled),
+    });
     return { success: true, autoClaimDrops: state.appState.autoClaimDrops };
   }
 
@@ -94,15 +101,17 @@ export function createServiceWorkerSettingsHandlers(
     readonly mode?: 'low-view' | 'random' | 'top-viewers';
   }) {
     await trackActivity('set-streamer-selection-mode');
-    state.appState = applyStreamerSelectionModeSetting(state.appState, payload?.mode);
-    await saveState(state);
+    await saveState(state, {
+      updateAppState: (appState) => applyStreamerSelectionModeSetting(appState, payload?.mode),
+    });
     return { success: true, streamerSelectionMode: state.appState.streamerSelectionMode };
   }
 
   async function handleSetPreferredStreamerLanguage(payload?: { readonly language?: string | null }) {
     await trackActivity('set-preferred-streamer-language');
-    state.appState = applyPreferredStreamerLanguageSetting(state.appState, payload?.language);
-    await saveState(state);
+    await saveState(state, {
+      updateAppState: (appState) => applyPreferredStreamerLanguageSetting(appState, payload?.language),
+    });
     return { success: true, preferredStreamerLanguage: state.appState.preferredStreamerLanguage };
   }
 
@@ -128,6 +137,12 @@ export function createServiceWorkerSettingsHandlers(
     handleSetAutoClaimDrops,
     handleSetMonitorAutoOpen,
     handleSetMuteFarmingTab,
+    handleSetTwitchAdblockEnabled: async (payload?: { readonly enabled?: boolean }) => {
+      await trackActivity('set-setting');
+      return twitchAdblock.setEnabled(payload?.enabled !== false);
+    },
+    handleTwitchAdsBlocked: (payload: { readonly count: number }, senderUrl?: string) =>
+      twitchAdblock.recordBlockedAds(payload.count, senderUrl),
     handleSetNotificationsEnabled,
     handleSetPreferredStreamerLanguage,
     handleSetStreamerSelectionMode,
@@ -140,8 +155,12 @@ export function createServiceWorkerSettingsHandlers(
     },
     handleSetTelegramSystemAlertsEnabled: async (payload?: { readonly enabled?: boolean }) => {
       await trackActivity('set-telegram-system-alerts-enabled');
-      state.appState.telegramSystemAlertsEnabled = payload?.enabled !== false;
-      await saveState(state);
+      await saveState(state, {
+        updateAppState: (appState) => ({
+          ...appState,
+          telegramSystemAlertsEnabled: payload?.enabled !== false,
+        }),
+      });
       return { success: true, telegramSystemAlertsEnabled: state.appState.telegramSystemAlertsEnabled };
     },
     handleSetTelegramCredentials: async (payload?: {

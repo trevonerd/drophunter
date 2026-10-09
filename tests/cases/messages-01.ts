@@ -89,6 +89,7 @@ describe('runtime message protocol', () => {
     const expectedTypes = [
       'SET_MONITOR_AUTO_OPEN',
       'SET_MUTE_FARMING_TAB',
+      'SET_TWITCH_ADBLOCK_ENABLED',
       'SET_NOTIFICATIONS_ENABLED',
       'SET_TELEGRAM_ALERTS_ENABLED',
       'SET_TELEGRAM_SYSTEM_ALERTS_ENABLED',
@@ -101,6 +102,7 @@ describe('runtime message protocol', () => {
     expect(Object.values(BOOLEAN_TOGGLE_MESSAGES).map(({ responseField }) => responseField)).toEqual([
       'monitorAutoOpen',
       'muteFarmingTab',
+      'twitchAdblockEnabled',
       'notificationsEnabled',
       'telegramAlertsEnabled',
       'telegramSystemAlertsEnabled',

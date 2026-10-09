@@ -245,6 +245,24 @@ describe('loadClaimLog / appendClaimLogEntries / clearClaimLog', () => {
     expect(loaded).toEqual([]);
   });
 
+  test('failed clear preserves entries, rejects, and leaves the write queue usable', async () => {
+    const first = makeEntry({ id: 'e1' });
+    await appendClaimLogEntries([first]);
+    const remove = mocks.storage.local.remove;
+    mocks.storage.local.remove = async () => {
+      throw new Error('storage unavailable');
+    };
+
+    await expect(clearClaimLog()).rejects.toThrow('storage unavailable');
+    expect(await loadClaimLog()).toEqual([first]);
+
+    mocks.storage.local.remove = remove;
+    const second = makeEntry({ id: 'e2', claimedAt: 2000 });
+    await expect(appendClaimLogEntries([second])).resolves.toEqual({ added: 1, entries: [second] });
+    await clearClaimLog();
+    expect(await loadClaimLog()).toEqual([]);
+  });
+
   test('clear after append resolves to empty (write serialization)', async () => {
     const entries = [makeEntry({ id: 'e1' }), makeEntry({ id: 'e2' })];
     const appendPromise = appendClaimLogEntries(entries);

@@ -20,6 +20,62 @@ const log = (id: string): ClaimLogEntry => ({
   claimedAt: 1,
 });
 describe('portable backup', () => {
+  test('bridged category aliases retain the earliest entry and stable order', () => {
+    const local = createInitialState();
+    local.favoriteGames = [
+      { gameId: 'first', lastKnownName: 'First', addedAt: 1, identityKeys: ['a'] },
+      { gameId: 'unrelated', lastKnownName: 'Unrelated', addedAt: 2 },
+      { gameId: 'last', lastKnownName: 'Last', addedAt: 3, identityKeys: ['b'] },
+    ];
+    const remote = createInitialState();
+    remote.favoriteGames = [
+      { gameId: 'bridge', lastKnownName: 'Bridge', addedAt: 4, identityKeys: ['a', 'b'] },
+      { gameId: 'tail', lastKnownName: 'Tail', addedAt: 5, identityKeys: ['last'] },
+    ];
+    const before = JSON.stringify([local.favoriteGames, remote.favoriteGames]);
+    const result = applyBackup(local, [], exportBackup(remote, [], 'old'), {
+      mode: 'merge',
+      settings: 'local',
+      sections: ['favorites'],
+    });
+    expect(result.appState.favoriteGames).toEqual([
+      {
+        gameId: 'first',
+        lastKnownName: 'First',
+        addedAt: 1,
+        identityKeys: ['tail', 'last', 'bridge', 'a', 'b'],
+      },
+      local.favoriteGames[1],
+    ]);
+    expect(JSON.stringify([local.favoriteGames, remote.favoriteGames])).toBe(before);
+  });
+
+  test('large supported backups merge without blocking on pairwise category scans', () => {
+    const local = createInitialState();
+    local.hiddenGames = Array.from({ length: 10000 }, (_, i) => ({
+      gameId: `hidden:${i}`,
+      lastKnownName: 'Hidden',
+      hiddenAt: 1,
+    }));
+    const remote = createInitialState();
+    remote.favoriteGames = Array.from({ length: 10000 }, (_, i) => ({
+      gameId: `favorite:${i}`,
+      lastKnownName: 'Favorite',
+      addedAt: 1,
+    }));
+    const file = exportBackup(remote, [], 'old');
+    const start = performance.now();
+    const result = applyBackup(local, [], file, {
+      mode: 'merge',
+      settings: 'local',
+      sections: ['favorites', 'hidden'],
+    });
+    const elapsed = performance.now() - start;
+    expect(result.appState.favoriteGames).toHaveLength(10000);
+    expect(result.appState.hiddenGames).toHaveLength(10000);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
   test('category aliases merge without losing local names or mutating originals', () => {
     const local = createInitialState();
     local.favoriteGames = [
@@ -95,15 +151,19 @@ describe('portable backup', () => {
     const state = createInitialState();
     state.notificationsEnabled = true;
     state.autoStartFavoriteGames = true;
+    state.totalTwitchAdsBlocked = 42;
     const file = exportBackup(state, [], '4.0.0-beta.49');
     expect(JSON.stringify(file)).not.toContain('telegram');
     expect(JSON.stringify(file)).not.toContain('queue');
+    expect(JSON.stringify(file)).not.toContain('totalTwitchAdsBlocked');
     expect(inspectBackup(file).compatibility).toBe('compatible');
-    const result = applyBackup(createInitialState(), [], file, {
+    const local = { ...createInitialState(), totalTwitchAdsBlocked: 7 };
+    const result = applyBackup(local, [], file, {
       ...options,
       sections: [...options.sections],
     });
     expect(result.appState.notificationsEnabled).toBe(false);
+    expect(result.appState.totalTwitchAdsBlocked).toBe(7);
     expect(result.appState.autoStartFavoriteGames).toBe(false);
     expect(result.summary.reactivationRequired).toBe(true);
   });
@@ -126,12 +186,17 @@ describe('portable backup', () => {
   test('old partial settings preserve missing new settings even on replace', () => {
     const state = createInitialState();
     state.muteFarmingTab = true;
+    state.twitchAdblockEnabled = false;
     const file = exportBackup(state, [], 'old');
     file.sections.settings = { version: 1, data: { monitorAutoOpen: false } };
     expect(
       applyBackup(state, [], file, { mode: 'replace', settings: 'backup', sections: ['settings'] }).appState
         .muteFarmingTab,
     ).toBe(true);
+    expect(
+      applyBackup(state, [], file, { mode: 'replace', settings: 'backup', sections: ['settings'] }).appState
+        .twitchAdblockEnabled,
+    ).toBe(false);
   });
   test('strict invalid known data blocks section and radical container blocks file', () => {
     const file = exportBackup(createInitialState(), [], 'old');

@@ -6,6 +6,7 @@ import {
   isFavoriteGame,
   isHiddenGame,
 } from '../shared/game-selection.ts';
+import { clearTerminalStopStatus } from '../shared/runtime-status.ts';
 import type {
   ActivationSyncResult,
   ActivationTrigger,
@@ -15,9 +16,9 @@ import type {
   WatchTransportMode,
 } from '../types/index.ts';
 import type { FarmingAutomation, FarmingAutomationOutcome } from './farming-automation.ts';
-import { setGamePreference } from './favorite-games.ts';
+import { currentFarmingSessionEpoch, isFarmingSessionEpochCurrent } from './farming-session-revision.ts';
+import { type SetGamePreferenceResult, setGamePreference } from './favorite-games.ts';
 import { logWarn } from './logging.ts';
-import { clearStopState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { createServiceWorkerBrowserEvents } from './service-worker-browser-events.ts';
 import type { createServiceWorkerStateLifecycle } from './service-worker-state-lifecycle.ts';
@@ -123,8 +124,14 @@ export function createServiceWorkerAutomationSettingsHandlers(
   }) {
     await trackActivity('set-game-favorite');
     const wasFavorite = isFavoriteGame(payload.game, favoriteGameIdentityKeys(state.appState.favoriteGames));
-    const result = setGamePreference(state.appState, payload.game, payload.preference, Date.now());
-    await saveState(state);
+    const changedAt = Date.now();
+    let result!: SetGamePreferenceResult;
+    await saveState(state, {
+      updateAppState: (appState) => {
+        result = setGamePreference(appState, payload.game, payload.preference, changedAt);
+        return appState;
+      },
+    });
     const addedFavorite = payload.preference === 'favorite' && !wasFavorite;
     if (addedFavorite && !state.appState.autoStartFavoriteGames) {
       return {
@@ -174,34 +181,41 @@ export function createServiceWorkerAutomationSettingsHandlers(
     readonly mode: 'ending-soonest' | 'lowest-availability' | 'priority-list-only';
   }) {
     await trackActivity('set-campaign-priority-mode');
-    state.appState.campaignPriorityMode = payload.mode;
-    await saveState(state);
+    await saveState(state, {
+      updateAppState: (appState) => ({ ...appState, campaignPriorityMode: payload.mode }),
+    });
     await dependencies.automation.request('campaign-refresh');
     return { success: true, campaignPriorityMode: state.appState.campaignPriorityMode };
   }
 
   async function handleSetFarmCategoryScope(payload: { readonly scope: 'all' | 'favorites-only' }) {
     await trackActivity('set-farm-category-scope');
-    state.appState.farmCategoryScope = payload.scope;
-    await saveState(state);
+    await saveState(state, {
+      updateAppState: (appState) => ({ ...appState, farmCategoryScope: payload.scope }),
+    });
     await dependencies.automation.request('campaign-refresh');
     return { success: true, farmCategoryScope: state.appState.farmCategoryScope };
   }
 
   async function handleSetAutoStartFavorites(payload?: { readonly enabled?: boolean }) {
+    const epoch = currentFarmingSessionEpoch(state);
     await trackActivity('set-auto-start-favorites');
     if (payload?.enabled !== true) {
-      state.appState.autoStartFavoriteGames = false;
-      await saveState(state);
+      await saveState(state, {
+        updateAppState: (appState) => ({ ...appState, autoStartFavoriteGames: false }),
+      });
       await dependencies.automation.request('campaign-refresh');
       return { success: true, autoStartFavoriteGames: false };
     }
-    const wasPaused = state.appState.isPaused;
-    state.appState.autoStartFavoriteGames = true;
-    state.appState.isPaused = false;
-    if (wasPaused) state.appState.isRunning = false;
-    if (state.appState.lastStopReason === 'user-stop') clearStopState(state);
-    await saveState(state);
+    await saveState(state, {
+      updateAppState: (appState) => {
+        const next = { ...appState, autoStartFavoriteGames: true };
+        if (!isFarmingSessionEpochCurrent(state, epoch)) return next;
+        next.isPaused = false;
+        if (appState.isPaused) next.isRunning = false;
+        return next.lastStopReason === 'user-stop' ? clearTerminalStopStatus(next) : next;
+      },
+    });
     await dependencies.automation.request('campaign-refresh');
     return {
       success: true,
@@ -213,7 +227,9 @@ export function createServiceWorkerAutomationSettingsHandlers(
     await trackActivity('set-watch-transport-mode');
     const transport = dependencies.browserEvents.watchTransport;
     const currentStreamer = state.appState.activeStreamer;
-    await transport.setPreference(payload.mode);
+    await saveState(state, {
+      updateAppState: (appState) => ({ ...appState, watchTransportPreference: payload.mode }),
+    });
     if (state.appState.isRunning && !state.appState.isPaused && currentStreamer) {
       await transport.start(currentStreamer);
     }

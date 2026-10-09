@@ -141,8 +141,27 @@ export function setupChromeMocks(): ChromeMocks {
     _requests: permissionRequests,
   };
 
+  const registeredScripts = new Map<string, chrome.scripting.RegisteredContentScript>();
   const scripting: MockChrome['scripting'] = {
     executeScript: createManagedMarkerScriptMock(),
+    getRegisteredContentScripts: async (filter) =>
+      [...registeredScripts.values()].filter((script) => !filter?.ids || filter.ids.includes(script.id)),
+    registerContentScripts: async (scripts) => {
+      for (const script of scripts) {
+        if (registeredScripts.has(script.id)) throw new Error(`Script ${script.id} already registered`);
+        registeredScripts.set(script.id, structuredClone(script));
+      }
+    },
+    updateContentScripts: async (scripts) => {
+      for (const script of scripts) {
+        const existing = registeredScripts.get(script.id);
+        if (!existing) throw new Error(`Script ${script.id} not registered`);
+        registeredScripts.set(script.id, { ...existing, ...structuredClone(script) });
+      }
+    },
+    unregisterContentScripts: async (filter) => {
+      for (const id of filter?.ids ?? registeredScripts.keys()) registeredScripts.delete(id);
+    },
   };
   const chrome: MockChrome = {
     storage,
