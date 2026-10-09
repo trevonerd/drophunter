@@ -57,11 +57,11 @@ describe('manifest permissions', () => {
     const releaseVersion = resolveReleaseVersion(packageJson.version);
     const betaNumber = /^4\.0\.0-beta\.(\d+)$/.exec(packageJson.version)?.[1];
 
-    expect(releaseVersion).toEqual({
-      channel: 'beta',
-      manifestVersion: `3.99.0.${betaNumber}`,
-      versionName: packageJson.version,
-    });
+    expect(releaseVersion).toEqual(
+      betaNumber === undefined
+        ? { channel: 'stable', manifestVersion: packageJson.version }
+        : { channel: 'beta', manifestVersion: `3.99.0.${betaNumber}`, versionName: packageJson.version },
+    );
   });
 
   test('declares WXT entrypoints for both Twitch content scripts', () => {
