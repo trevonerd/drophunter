@@ -3,11 +3,8 @@ import type { WatchHealthSnapshot, WatchTransportMode } from './watch.ts';
 
 export type {
   FavoriteAutoStartDisposition,
-  FavoriteAutoStartDispositionReason,
-  FavoriteAutoStartDispositionStatus,
   QueueAcquisitionRound,
   QueueEntryMetadata,
-  QueueEntrySource,
 } from './queue.ts';
 export type {
   WatchHealthReason,
@@ -18,7 +15,7 @@ export type {
 
 export type RewardAcquisitionMethod = 'watch-time' | 'subscription' | 'other-event' | 'unknown';
 export type RewardKind = 'in-game' | 'twitch-badge' | 'twitch-emote' | 'unknown';
-export type RewardVerificationState = 'unassessed' | 'verified' | 'unverifiable';
+type RewardVerificationState = 'unassessed' | 'verified' | 'unverifiable';
 export type CampaignCompletion = 'farmable' | 'farming-complete' | 'all-acquired';
 export type CampaignRemainderReason = 'subscription-required' | 'unverifiable-twitch';
 export type CampaignRewardSummary = {
@@ -84,12 +81,12 @@ export interface TwitchStreamer {
   thumbnailUrl?: string;
 }
 
-export type ExpiryStatus = 'safe' | 'warning' | 'urgent' | 'unknown';
+type ExpiryStatus = 'safe' | 'warning' | 'urgent' | 'unknown';
 export type StreamerSelectionMode = 'low-view' | 'random' | 'top-viewers';
 export type CampaignPriorityMode = 'ending-soonest' | 'lowest-availability' | 'priority-list-only';
 export type FarmCategoryScope = 'all' | 'favorites-only';
 export type GamePreference = 'normal' | 'favorite' | 'hidden';
-export type FarmingSessionOrigin = 'manual' | 'automatic';
+type FarmingSessionOrigin = 'manual' | 'automatic';
 export type TwitchSessionSyncState =
   | { readonly status: 'unknown'; readonly attempts: 0; readonly nextRetryAt: null }
   | { readonly status: 'ready'; readonly attempts: 0; readonly nextRetryAt: null }
@@ -109,8 +106,8 @@ export interface HiddenGame {
   readonly identityKeys?: readonly string[];
 }
 
-export type ManualWatchState = 'inactive' | 'eligible-manual' | 'automation-paused';
-export type AutomationActivityKind =
+type ManualWatchState = 'inactive' | 'eligible-manual' | 'automation-paused';
+type AutomationActivityKind =
   | 'favorite-added'
   | 'auto-started'
   | 'preempted'
@@ -134,7 +131,7 @@ export interface CampaignAvailability {
 }
 
 export type DropStatus = 'active' | 'pending' | 'completed';
-export type DropProgressSource = 'campaign' | 'inventory';
+type DropProgressSource = 'campaign' | 'inventory';
 
 export interface DropsSnapshot {
   games: TwitchGame[];
@@ -241,11 +238,6 @@ export interface AppState {
 }
 
 export type { ClaimLogEntry } from './claim-log.ts';
-
-export interface StorageData {
-  state: AppState;
-  lastUpdate: number;
-}
 
 export interface PlaybackPrepResult {
   gateDismissed?: boolean;

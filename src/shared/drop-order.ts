@@ -9,7 +9,7 @@ function expiryOrInfinity(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 }
 
-export function comparePendingDrops(a: TwitchDrop, b: TwitchDrop): number {
+function comparePendingDrops(a: TwitchDrop, b: TwitchDrop): number {
   const aAutomationOrder = isRewardFarmableNow(a) ? 0 : 1;
   const bAutomationOrder = isRewardFarmableNow(b) ? 0 : 1;
   if (aAutomationOrder !== bAutomationOrder) return aAutomationOrder - bAutomationOrder;

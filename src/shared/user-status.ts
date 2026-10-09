@@ -20,7 +20,7 @@ export type UserStatusMode =
   | 'complete'
   | 'attention-required';
 
-export type ProgressState = 'waiting' | 'tracking' | 'paused' | 'recovering' | 'complete' | 'unavailable';
+type ProgressState = 'waiting' | 'tracking' | 'paused' | 'recovering' | 'complete' | 'unavailable';
 
 export type UserStatusModel = {
   readonly mode: UserStatusMode;
@@ -57,7 +57,7 @@ function recoveryDetail(state: AppState, now: number): string {
     : detail;
 }
 
-export function trackedProgress(drop: TwitchDrop): number {
+function trackedProgress(drop: TwitchDrop): number {
   return Math.max(0, Math.min(100, drop.progress));
 }
 

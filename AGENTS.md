@@ -138,7 +138,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Keep imports and exports type-safe. Type-only re-exports such as `export type { ServiceWorkerState }` are okay for backward compatibility and erase at runtime.
 - Do not amend commits unless explicitly asked.
 - Do not use destructive git commands unless the user explicitly asks and the risk is clear.
-- Run the smallest relevant tests during development. `bun run test:types` and `bun run test:ts` are mandatory before handoff for every change; run the full release gate before release/store handoff.
+- Run the smallest relevant tests during development. `bun run test:types`, `bun run test:ts`, and `bun run knip` are mandatory before handoff for every change; install both root and `video/` dependencies first. Knip covers both projects through `knip.ts` and runs in `check`, pre-push, CI, and `release:check`. Preserve intentional facade contracts with specific `@public` annotations and compatibility aliases with `@alias`; do not suppress whole issue categories. Run the full release gate before release/store handoff.
 - Use stable Bun 1.4.2 or newer; CI reads the pinned package-manager version from `package.json`.
 - Commit subjects use short English Conventional Commits. Author and committer: `trevonerd <marco.trevisani81@gmail.com>`; preserve historical ImgBotApp attribution. No co-author or generated-by trailers.
 - Repo skills are limited to review, debugging, TDD, code design, domain modeling, and research, pinned in `skills-lock.json`. Keep their references valid; do not vendor a general skill catalog.
@@ -151,11 +151,12 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
   - `bun run test:types`
   - `bun run test:ts`
   - `bun run lint`
+  - `bun run knip`
   - `bun test tests/`
   - `bun run test:e2e`
   - `bun run build:all`
   - `bun audit`
-- Preferred release gate is `bun run release:check`; it runs source and test TypeScript, Biome, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
+- Preferred release gate is `bun run release:check`; it runs source and test TypeScript, Biome, Knip, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
 - Regenerate release zips with `bun run release:check`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
 - Before a stable store handoff, verify `README.md`, `PRIVACY.md`, screenshots, permission justifications, and listing copy against the exact production artifacts.
 - For long-run farming changes, exercise a real eligible campaign across progress, service-worker restart, sleep/wake, strict tabless recovery without a viewing-tab fallback, manual Twitch viewing, notifications, and recovery.

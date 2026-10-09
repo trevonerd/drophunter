@@ -142,4 +142,5 @@ export function insertCampaignByDeadline(
   return { queue: result, position: index + 1 };
 }
 
+/** @alias insertCampaignByDeadline */
 export const insertFavoriteCampaignByDeadline = insertCampaignByDeadline;

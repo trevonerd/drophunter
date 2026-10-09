@@ -39,7 +39,7 @@ function isCampaignRewardSummaryLike(value: unknown): boolean {
   return canonical && (completion === 'farming-complete' || reasons.length === 0);
 }
 
-export function validateBooleanTogglePayload(payload: unknown): payload is { enabled?: boolean } {
+function validateBooleanTogglePayload(payload: unknown): payload is { enabled?: boolean } {
   return (
     payload === undefined ||
     (isRecord(payload) && (payload.enabled === undefined || typeof payload.enabled === 'boolean'))

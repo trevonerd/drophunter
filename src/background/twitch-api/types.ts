@@ -7,7 +7,7 @@ export interface TwitchSession {
   clientIntegrity?: string;
 }
 
-export interface TwitchGraphQLError {
+interface TwitchGraphQLError {
   message?: string;
 }
 

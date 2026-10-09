@@ -115,19 +115,17 @@ export type FarmingSessionTransitionCommit = {
   readonly receipt: FarmingSessionTransitionReceiptV1;
 };
 
-export type FarmingSessionTransitionCommitResult =
+type FarmingSessionTransitionCommitResult =
   | { readonly kind: 'committed' }
   | { readonly kind: 'stale' }
   | { readonly kind: 'failed'; readonly reason: 'transition-commit-failed' };
 
-export type FarmingAutomationReceiptCleanupUpdate = {
+type FarmingAutomationReceiptCleanupUpdate = {
   readonly attemptId: string;
   readonly cleanup: WatchCleanupV1;
 };
 
-export type FarmingAutomationReceiptCleanupResult =
-  | FarmingAutomationPersistenceWrite
-  | { readonly kind: 'stale' };
+type FarmingAutomationReceiptCleanupResult = FarmingAutomationPersistenceWrite | { readonly kind: 'stale' };
 
 export interface FarmingAutomationPersistence {
   loadFacts(): Promise<FarmingAutomationPersistenceRead<FarmingAutomationFactsV1>>;
@@ -145,6 +143,7 @@ export const FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY = 'farmingSessionTra
 
 export type FarmingAutomationTrigger = 'browser-start' | 'periodic' | 'campaign-refresh' | 'user-request';
 
+/** @public Result contract of the farming automation facade. */
 export type FarmingAutomationUnchangedReason =
   | 'disabled'
   | 'paused'

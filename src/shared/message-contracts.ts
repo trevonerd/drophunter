@@ -109,7 +109,7 @@ type MinimalMessageType = keyof typeof NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES;
 type MinimalRequest = { [T in MinimalMessageType]: { type: T } }[MinimalMessageType];
 type MinimalResponseByType = { [T in MinimalMessageType]: { success: boolean; error?: string } };
 
-export const ADD_TO_QUEUE_REASONS = ['already-queued', 'already-completed', 'farming-complete'] as const;
+const ADD_TO_QUEUE_REASONS = ['already-queued', 'already-completed', 'farming-complete'] as const;
 export type AddToQueueReason = (typeof ADD_TO_QUEUE_REASONS)[number];
 
 export type RuntimeRequest =

@@ -181,11 +181,6 @@ export function matchClaimedReward(
   return { idMatch, nameMatch, globalIdMatch };
 }
 
-export function isEarlyAwardableTwitchReward(rewardDistributionTypes?: string[]): boolean {
-  const rewardKind = classifyRewardKind(rewardDistributionTypes ?? []);
-  return rewardKind === 'twitch-badge' || rewardKind === 'twitch-emote';
-}
-
 // Native awards may have game:null. Their exact benefit must be unique across
 // campaigns, with a real timestamp inside the reward window; named games stay scoped.
 export function hasClaimedGameEventReward(

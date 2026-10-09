@@ -19,10 +19,14 @@ jobs:
       - name: Install (root)
         run: bun install --frozen-lockfile
 
+      - name: Install (video)
+        working-directory: video
+        run: bun install --frozen-lockfile
+
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
 
-      - name: Check (typecheck + lint + unit + build)
+      - name: Check (typecheck + lint + knip + unit + build)
         run: bun run check
 
       - name: Extension E2E
@@ -30,10 +34,6 @@ jobs:
 
       - name: Audit dependencies
         run: bun run deps:audit
-
-      - name: Install (video)
-        working-directory: video
-        run: bun install --frozen-lockfile
 
       - name: Audit video dependencies
         working-directory: video

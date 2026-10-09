@@ -4,7 +4,6 @@ import { BACKUP_MAX_BYTES, type BackupFile } from './backup-types.ts';
 
 export { applyBackup } from './backup-apply.ts';
 export { inspectBackup } from './backup-inspection.ts';
-export { BACKUP_SECTION_REGISTRY } from './backup-sections.ts';
 export type { BackupFile, BackupImportOptions, BackupInspection, BackupSummary } from './backup-types.ts';
 export { BACKUP_MAX_BYTES } from './backup-types.ts';
 export function exportBackup(

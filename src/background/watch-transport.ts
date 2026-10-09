@@ -40,7 +40,6 @@ export interface FarmingTarget {
   readonly channelName: string;
 }
 
-export type { WatchHealthReason, WatchHealthStatus, WatchTransportMode } from '../types/index.ts';
 export type WatchHealth = WatchHealthSnapshot;
 
 /** Signals returned by a managed-tab probe or a tabless heartbeat. */
@@ -69,14 +68,14 @@ export interface ManagedTabSession {
   readonly dispose?: () => Promise<void>;
 }
 
-export interface UnmanagedTabSession {
+interface UnmanagedTabSession {
   readonly owner: 'user';
   readonly tabId: number;
 }
 
 export type ManagedTabOpenResult = ManagedTabSession | UnmanagedTabSession | null;
 
-export interface ManagedTabStartOptions {
+interface ManagedTabStartOptions {
   readonly allowInitialCreation?: boolean;
   readonly active: false;
   readonly focus: false;
@@ -117,6 +116,5 @@ export interface TablessTransportOptions {
 export { ManagedTabTransport } from './managed-tab-transport.ts';
 export {
   createTablessTransport,
-  TABLESS_HEARTBEAT_FAILURE_LIMIT,
   TablessTransport,
 } from './tabless-transport.ts';

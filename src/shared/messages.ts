@@ -3,12 +3,10 @@ import type { RuntimeRequest, RuntimeResponseByType } from './message-contracts.
 
 export type {
   AddToQueueReason,
-  RuntimeMessageType,
   RuntimeRequest,
   RuntimeResponseByType,
 } from './message-contracts.ts';
 export {
-  ADD_TO_QUEUE_REASONS,
   BOOLEAN_TOGGLE_MESSAGES,
   NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES,
   RUNTIME_MESSAGE_TYPES,
@@ -16,7 +14,6 @@ export {
 export {
   isRuntimeMessageType,
   isRuntimeRequest,
-  validateBooleanTogglePayload,
 } from './message-validation.ts';
 
 export async function sendRuntimeMessage<T extends RuntimeRequest['type']>(

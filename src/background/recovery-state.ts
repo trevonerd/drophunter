@@ -61,7 +61,7 @@ export function clearStreamerAcquisitionRecoveryState(state: ServiceWorkerState)
   state.appState = clearRecoveryStatus(state.appState);
 }
 
-export function applyTwitchDataUnavailableRecoveryState(state: ServiceWorkerState) {
+function applyTwitchDataUnavailableRecoveryState(state: ServiceWorkerState) {
   state.recoveryBackoffUntil = Math.max(state.apiBackoffUntil, Date.now() + NO_STREAMERS_RETRY_MS);
   state.lastRecoveryAttemptAt = Date.now();
   state.appState = applyRecoveryStatus(state.appState, {

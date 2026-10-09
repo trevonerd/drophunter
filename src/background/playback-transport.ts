@@ -13,7 +13,7 @@ export type PlaybackPreparationOptions = {
   readonly isCurrent?: () => boolean;
 };
 
-export type VisiblePlaybackPreparation = {
+type VisiblePlaybackPreparation = {
   readonly focus: boolean;
   readonly muteAfterPrep: boolean;
   readonly isCurrent?: () => boolean;

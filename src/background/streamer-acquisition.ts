@@ -21,6 +21,7 @@ import { NoEligibleStreamerError, WatchPlaybackUnavailableError } from './stream
 import { MAX_STREAMER_ATTEMPTS } from './streamer-watch-attempt.ts';
 import { classifyTwitchApiFailure, TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
 
+/** @public Streamer acquisition callback and option contracts. */
 export type {
   OpenBestStreamerCallbacks,
   RotateStreamerIfInvalidOptions,

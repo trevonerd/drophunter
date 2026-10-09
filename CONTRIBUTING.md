@@ -10,4 +10,4 @@
 
 ## Checks
 
-Use stable Bun as pinned in `package.json`. Before handoff, run both TypeScript checks and the relevant tests. Before a release, run `bun run release:check`; lint warnings fail the gate. Tests must verify intentional diagnostics rather than print or silently discard them. See `AGENTS.md` for domain and recovery rules.
+Use stable Bun as pinned in `package.json`. Install root and `video/` dependencies before running checks. Before handoff, run both TypeScript checks, `bun run knip`, and the relevant tests. Knip covers both projects and fails `check`, pre-push, CI, and `release:check` on unused files, exports, types, dependencies, or unresolved imports. Preserve intentional facade contracts with narrowly scoped `@public` annotations; use `@alias` for compatibility aliases. Before a release, run `bun run release:check`; lint warnings fail the gate. Tests must verify intentional diagnostics rather than print or silently discard them. See `AGENTS.md` for domain and recovery rules.

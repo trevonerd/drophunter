@@ -131,6 +131,7 @@ DropHunter backup files are local JSON. They include settings, favorites, hidden
 bun run dev
 bun run build
 bun run lint
+bun run knip
 bun test tests/
 bun run test:ts
 bun run test:types
@@ -145,6 +146,11 @@ bun run update:interactive
 ```
 
 ### Local workflow
+
+Install both dependency sets with `bun install` and `bun install --cwd video` before running checks.
+`bun run knip` checks the extension, tests, scripts, and video project for unused files, exports,
+types, and dependencies. It also runs in `check`, pre-push, CI, and `release:check`.
+Keep framework entrypoints in `knip.ts`; reserve `@public` and `@alias` annotations for intentional contracts.
 
 1. Make your changes in `src/`
 2. Run `bun run dev` for Chrome, `bun run dev:edge` for Edge, or `bun run build:all` for production builds

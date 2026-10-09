@@ -26,56 +26,56 @@ export interface MessageSender {
   url?: string;
 }
 
-export interface BadgeTextDetails {
+interface BadgeTextDetails {
   text?: string | null;
   tabId?: number;
 }
 
-export interface BadgeColorDetails {
+interface BadgeColorDetails {
   color: string | [number, number, number, number];
   tabId?: number;
 }
 
-export interface QueryInfo {
+interface QueryInfo {
   active?: boolean;
   lastFocusedWindow?: boolean;
   windowId?: number;
   url?: string | string[];
 }
 
-export interface TabCreateProperties {
+interface TabCreateProperties {
   active?: boolean;
   url?: string;
   windowId?: number;
 }
 
-export interface TabUpdateProperties {
+interface TabUpdateProperties {
   active?: boolean;
   muted?: boolean;
   url?: string;
 }
 
-export interface TabUpdateInfo {
+interface TabUpdateInfo {
   status?: string;
   url?: string;
 }
 
-export interface MockMessage {
+interface MockMessage {
   type?: string;
   [key: string]: unknown;
 }
 
-export interface MockWindow {
+interface MockWindow {
   id?: number;
   focused?: boolean;
   tabs?: Tab[];
 }
 
-export interface WindowUpdateInfo {
+interface WindowUpdateInfo {
   focused?: boolean;
 }
 
-export interface WindowCreateInfo {
+interface WindowCreateInfo {
   focused?: boolean;
   type?: string;
   url?: string;

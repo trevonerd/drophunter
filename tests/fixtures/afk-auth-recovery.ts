@@ -6,7 +6,7 @@ import type { TwitchDrop, TwitchGame, TwitchStreamer } from '../../src/types/ind
 
 type FarmingSessionAdapters = Parameters<typeof createFarmingSession>[1];
 
-export const afkGame: TwitchGame = {
+const afkGame: TwitchGame = {
   id: 'game-1',
   name: 'Game',
   imageUrl: '',

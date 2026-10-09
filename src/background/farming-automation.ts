@@ -17,6 +17,7 @@ import {
   type FarmingAutomationScheduler,
 } from './farming-automation-scheduler.ts';
 
+/** @public Farming automation facade result contracts. */
 export type {
   FarmingAutomation,
   FarmingAutomationFailureReason,

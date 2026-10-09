@@ -38,7 +38,6 @@ export function createMinimalState(overrides: Partial<ServiceWorkerState> = {}):
     ...overrides,
   };
 }
-
 export function createSession(overrides: Partial<TwitchSession> = {}): TwitchSession {
   return {
     oauthToken: 'test-token-at-least-20-chars-long',
@@ -229,8 +228,4 @@ export function buildDirectoryResponse(
       },
     },
   };
-}
-
-export function _buildIntegrityResponse(): unknown {
-  return { token: 'mock-integrity-token' };
 }

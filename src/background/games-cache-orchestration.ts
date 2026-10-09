@@ -304,4 +304,5 @@ export async function refreshGamesCacheFromHiddenFetch(
   return refreshInFlight;
 }
 
+/** @public Games-cache orchestration dependency contract. */
 export { type EnsureGamesCacheDeps, handleEnsureGamesCache } from './games-cache-ensure.ts';

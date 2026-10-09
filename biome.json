@@ -8,6 +8,7 @@
       "scripts/**/*.mjs",
       "tests/**/*.mjs",
       "tests/**/*.ts",
+      "knip.ts",
       "vite.config.ts",
       "!!.codegraph",
       "!!.claude"

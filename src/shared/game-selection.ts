@@ -83,6 +83,7 @@ export function gameKey(game: TwitchGame): string {
   return `name:${normalizedGameName(game)}::${game.endsAt ?? ''}`;
 }
 
+/** @public Documented module contract. */
 export function gameIdentity(game: TwitchGame): string {
   return gameKey(game);
 }

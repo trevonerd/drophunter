@@ -2,7 +2,7 @@ import type { FarmingTarget, WatchProbeResult } from '../../src/background/watch
 import type { ExecutionBarrier } from './farming-automation-fixtures.ts';
 import { cloneFixture, createExecutionBarrier } from './farming-automation-fixtures.ts';
 
-export interface InMemoryManagedTabSession {
+interface InMemoryManagedTabSession {
   readonly owner: 'drophunter';
   readonly tabId: number;
   readonly active: false;
@@ -11,7 +11,7 @@ export interface InMemoryManagedTabSession {
   readonly target: FarmingTarget;
 }
 
-export interface InMemoryTab {
+interface InMemoryTab {
   readonly id: number;
   readonly url: string;
   readonly active: false;
@@ -21,7 +21,7 @@ export interface InMemoryTab {
   readonly windowId: number;
 }
 
-export type BrowserOperation =
+type BrowserOperation =
   | { readonly kind: 'open'; readonly tabId: number; readonly target: FarmingTarget }
   | { readonly kind: 'probe'; readonly tabId: number; readonly target: FarmingTarget }
   | { readonly kind: 'close'; readonly tabId: number }
@@ -50,12 +50,12 @@ export interface FarmingAutomationBrowser {
   readonly setNotificationPermission: (allowed: boolean) => void;
 }
 
-export interface BrowserFailureRecord {
+interface BrowserFailureRecord {
   readonly operation: 'open' | 'probe' | 'close';
   readonly message: string;
 }
 
-export interface BrowserProbeBarrier extends Omit<ExecutionBarrier<WatchProbeResult>, 'release'> {
+interface BrowserProbeBarrier extends Omit<ExecutionBarrier<WatchProbeResult>, 'release'> {
   readonly release: (value?: WatchProbeResult) => void;
 }
 

@@ -2,7 +2,7 @@ import type { TwitchGame, TwitchStreamer } from '../../src/types/index.ts';
 import type { ExecutionBarrier } from './farming-automation-fixtures.ts';
 import { cloneFixture, createExecutionBarrier } from './farming-automation-fixtures.ts';
 
-export interface FarmingAutomationTwitchSnapshot {
+interface FarmingAutomationTwitchSnapshot {
   readonly games: readonly TwitchGame[];
   readonly updatedAt: number;
 }
@@ -29,7 +29,7 @@ export interface FarmingAutomationTwitch {
   readonly failNextDirectory: (error: Error) => void;
 }
 
-export interface TwitchFailureRecord {
+interface TwitchFailureRecord {
   readonly operation: 'refresh' | 'directory';
   readonly message: string;
 }

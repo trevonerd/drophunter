@@ -139,6 +139,7 @@ const steps = [
   { name: 'Test TypeScript', command: ['bun', 'run', 'test:types'] },
   { name: 'TypeScript', command: ['bun', 'run', 'test:ts'] },
   { name: 'Biome', command: ['bun', 'run', 'lint'] },
+  { name: 'Knip', command: ['bun', 'run', 'knip'] },
   { name: 'Tests', command: ['bun', 'run', 'test'] },
   { name: 'Extension E2E', command: ['bun', 'run', 'test:e2e'] },
   { name: 'Dependency audit', command: ['bun', 'audit'] },

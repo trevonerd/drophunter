@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-export interface MockDrop {
+interface MockDrop {
   readonly id: string;
   readonly name: string;
   readonly requiredMinutes: number;

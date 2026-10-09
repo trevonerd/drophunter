@@ -3,9 +3,9 @@ import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
-export type QueueCampaignRemovalReason = 'expired' | 'unavailable';
+type QueueCampaignRemovalReason = 'expired' | 'unavailable';
 
-export interface RemovedQueueCampaign {
+interface RemovedQueueCampaign {
   readonly game: TwitchGame;
   readonly reason: QueueCampaignRemovalReason;
 }

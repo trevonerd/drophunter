@@ -1,6 +1,6 @@
-export type QueueEntrySource = 'manual' | 'favorite-auto';
-export type FavoriteAutoStartDispositionStatus = 'started' | 'queued' | 'waiting' | 'disabled';
-export type FavoriteAutoStartDispositionReason =
+type QueueEntrySource = 'manual' | 'favorite-auto';
+type FavoriteAutoStartDispositionStatus = 'started' | 'queued' | 'waiting' | 'disabled';
+type FavoriteAutoStartDispositionReason =
   | 'session'
   | 'campaign-data'
   | 'streamer'

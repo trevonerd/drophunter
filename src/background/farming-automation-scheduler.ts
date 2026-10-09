@@ -8,7 +8,7 @@ export interface FarmingAutomationSchedulerDependencies {
   readonly evaluateBatch: FarmingAutomationEvaluateBatch;
 }
 
-export interface FarmingAutomationSchedulerStatus {
+interface FarmingAutomationSchedulerStatus {
   readonly active: boolean;
   readonly pending: boolean;
   readonly activeTriggerCount: number;

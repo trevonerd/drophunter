@@ -30,7 +30,6 @@ import {
   saveTelegramCredentials,
 } from './telegram-notifications.ts';
 
-export type { RefreshDropsOptions, StreamContext } from './farming-session.ts';
 export type { ServiceWorkerState } from './runtime-state.ts';
 
 const MONITOR_AUTO_OPEN_DELAY_MS = 450;

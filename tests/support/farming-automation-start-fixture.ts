@@ -14,7 +14,7 @@ import { type TwitchDrop, type TwitchGame, type TwitchStreamer } from '../../src
 import { createInMemoryFarmingAutomationStorage } from './in-memory-farming-automation-storage.ts';
 import { createQueueAvailabilityReconciler } from './queue-progression.ts';
 
-export function campaign(campaignId: string, endsAt: string): TwitchGame {
+function campaign(campaignId: string, endsAt: string): TwitchGame {
   return {
     id: 'shared-game',
     name: 'Shared Game',
@@ -26,7 +26,7 @@ export function campaign(campaignId: string, endsAt: string): TwitchGame {
   };
 }
 
-export function reward(game: TwitchGame): TwitchDrop {
+function reward(game: TwitchGame): TwitchDrop {
   return {
     id: `drop-${game.campaignId}`,
     name: 'Reward',
