@@ -29,6 +29,10 @@ Twitch pages and may open one temporary Twitch Drops tab in the background. It
 does not move focus to that tab. It closes the temporary tab only while it remains
 owned by the extension and has not been used by you.
 
+## Manual Twitch viewing
+
+DropHunter reads the URL, channel/category information and playback state of open Twitch channel pages to detect manual viewing and suspend automated farming while you watch. It stores a local operational record and recheck deadline for this purpose. It does not access your general browser history or record keystrokes, mouse movements or personal communications. Manual-view observations are not sent to developer-owned servers.
+
 ## Data storage
 
 All operational state is stored **locally** in your browser:
@@ -68,6 +72,10 @@ DropHunter does **not** include:
 | `host_permissions` (twitch.tv) | Access Twitch pages and API endpoints |
 
 DropHunter does not request the `tabs` or `cookies` permissions and does not use the `chrome.cookies` API. Session recovery relies on Twitch page storage and content scripts running only on Twitch pages.
+
+## Limited Use
+
+DropHunter's use and transfer of information received through browser APIs complies with the Chrome Web Store User Data Policy, including the Limited Use requirements. This information is used only to provide the extension's disclosed functionality.
 
 ## Open source
 
