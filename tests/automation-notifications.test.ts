@@ -44,7 +44,7 @@ describe('automation notifications', () => {
     });
     expect(fakes.records).toEqual([
       {
-        id: 'drophunter-automation-start-campaign-1-start%3Acampaign-1%3A1',
+        id: getAutomationNotificationId('start', 'campaign-1', 'start:campaign-1:1'),
         options: {
           type: 'basic',
           iconUrl: 'icons/icon128.png',
@@ -109,5 +109,14 @@ describe('automation notifications', () => {
     await Promise.resolve();
 
     expect(actions).toEqual(['open', 'open', 'pause']);
+  });
+
+  test('keeps notification ids short, stable and distinct for long non-ASCII campaign keys', () => {
+    const key = `name:${'Ünïcode™ Gäme: Ëxtra Düpe '.repeat(12)}::2026-12-31T00:00:00Z`;
+    const id = getAutomationNotificationId('start', key, `favorite-added:${key}:1`);
+    expect(id.length).toBeLessThanOrEqual(500);
+    expect(id).toBe(getAutomationNotificationId('start', key, `favorite-added:${key}:1`));
+    expect(id).not.toBe(getAutomationNotificationId('start', key, `favorite-added:${key}:2`));
+    expect(id.startsWith('drophunter-automation-start-')).toBe(true);
   });
 });
