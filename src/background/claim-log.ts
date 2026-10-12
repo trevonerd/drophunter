@@ -23,6 +23,8 @@ export async function readClaimLogStrict(): Promise<ClaimLogEntry[]> {
 
 export interface ClaimNotificationOptions {
   readonly suppressBrowserNotifications?: boolean;
+  // Claim-log entry ids that are recorded without any alert.
+  readonly silentIds?: ReadonlySet<string>;
 }
 
 type ClaimRecordedHandler = (
@@ -176,6 +178,23 @@ export function detectNewlyClaimedDrops(nextDrops: TwitchDrop[], previousDrops: 
     const previous = previousByKey.get(dropStateKey(drop));
     return previous !== undefined && !isRewardAcquired(previous);
   });
+}
+
+// A drop first seen acquired without ever being observed claimable or in progress was claimed
+// outside this session (manual claim, late native verification): record it, but do not alert.
+// ponytail: native rewards awarded between two polls are silent too; the log still records them.
+export function unobservedClaimIds(claimed: TwitchDrop[], previousDrops: TwitchDrop[]): Set<string> {
+  const previousByKey = new Map(previousDrops.map((drop) => [dropStateKey(drop), drop]));
+  const ids = new Set<string>();
+  for (const drop of claimed) {
+    const key = dropStateKey(drop);
+    const previous = previousByKey.get(key);
+    const observed =
+      previous !== undefined &&
+      (previous.claimable === true || (previous.progress > 0 && previous.progress < 100));
+    if (!observed) ids.add(key);
+  }
+  return ids;
 }
 
 export interface ClaimRecordTarget {

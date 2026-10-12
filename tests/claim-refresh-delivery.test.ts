@@ -115,6 +115,42 @@ for (const suppressNotifications of [false, true]) {
   });
 }
 
+test('inventory refresh records a never-observed acquisition without alerts', async () => {
+  const state = createWatchTransportState();
+  const unseen = {
+    ...createWatchTransportDrop(watchTransportGame),
+    claimed: false,
+    claimable: false,
+    progress: 0,
+  };
+  state.cachedDropsSnapshot = [unseen];
+  state.appState.allDrops = [unseen];
+  const deliveries: string[] = [];
+  setClaimRecordedHandler(
+    createClaimRecordedHandler({
+      notifyBrowser: async () => {
+        deliveries.push('browser');
+      },
+      notifyTelegram: async () => {
+        deliveries.push('telegram');
+      },
+    }),
+  );
+  const session = createFarmingSession(
+    state,
+    createWatchTransportAdapters({
+      fetchInventorySnapshotFromApi: async () => ({
+        games: [watchTransportGame],
+        drops: [{ ...unseen, claimed: true, progress: 100 }],
+        updatedAt: Date.now(),
+      }),
+    }),
+  );
+  await session.refreshDropsData({ includeInventoryFetch: true });
+  expect(deliveries).toEqual([]);
+  expect(state.appState.totalDropsClaimed).toBe(1);
+});
+
 test('a failed claim-log write retains the completion alert fallback', async () => {
   const state = createWatchTransportState();
   state.appState.selectedGame = watchTransportGame;

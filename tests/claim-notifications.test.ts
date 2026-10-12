@@ -103,3 +103,50 @@ test('a failed desktop delivery does not block Telegram claim alerts', async () 
     warning.mockRestore();
   }
 });
+
+function claimEntry(index: number) {
+  return {
+    id: `reward-${index}::campaign-1`,
+    dropId: `reward-${index}`,
+    dropName: `Reward ${index}`,
+    gameId: 'game-1',
+    gameName: 'Test Game',
+    campaignLabel: 'Test Game',
+    claimedAt: 1,
+  };
+}
+
+test('silent claim ids skip every channel while other entries still alert', async () => {
+  const messages: string[] = [];
+  const telegramBatches: string[][] = [];
+  const handler = createClaimRecordedHandler({
+    notifyBrowser: async (_title, message) => {
+      messages.push(message);
+    },
+    notifyTelegram: async (entries) => {
+      telegramBatches.push(entries.map((entry) => entry.id));
+    },
+  });
+  await handler([claimEntry(1), claimEntry(2)], { silentIds: new Set([claimEntry(1).id]) });
+  expect(messages).toEqual(['Claimed: Reward 2 (Test Game)']);
+  expect(telegramBatches).toEqual([[claimEntry(2).id]]);
+  await handler([claimEntry(1)], { silentIds: new Set([claimEntry(1).id]) });
+  expect(messages).toHaveLength(1);
+  expect(telegramBatches).toHaveLength(1);
+});
+
+test('large claim batches collapse into one browser notification', async () => {
+  const messages: string[] = [];
+  const telegramBatches: number[] = [];
+  const handler = createClaimRecordedHandler({
+    notifyBrowser: async (_title, message) => {
+      messages.push(message);
+    },
+    notifyTelegram: async (entries) => {
+      telegramBatches.push(entries.length);
+    },
+  });
+  await handler([1, 2, 3, 4, 5].map(claimEntry));
+  expect(messages).toEqual(['Claimed 5 drops']);
+  expect(telegramBatches).toEqual([5]);
+});

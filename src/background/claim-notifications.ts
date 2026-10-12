@@ -7,17 +7,23 @@ interface ClaimNotificationDependencies {
   readonly notifyTelegram: (entries: ClaimLogEntry[]) => Promise<unknown>;
 }
 
+const BROWSER_SUMMARY_THRESHOLD = 3;
+
+function browserMessages(entries: ClaimLogEntry[]): string[] {
+  if (entries.length > BROWSER_SUMMARY_THRESHOLD) return [`Claimed ${entries.length} drops`];
+  return entries.map((entry) => `Claimed: ${entry.dropName} (${entry.campaignLabel || entry.gameName})`);
+}
+
 export function createClaimRecordedHandler(dependencies: ClaimNotificationDependencies) {
-  return async (entries: ClaimLogEntry[], options: ClaimNotificationOptions = {}): Promise<void> => {
+  return async (recorded: ClaimLogEntry[], options: ClaimNotificationOptions = {}): Promise<void> => {
+    const entries = options.silentIds
+      ? recorded.filter((entry) => !options.silentIds?.has(entry.id))
+      : recorded;
     if (entries.length === 0) return;
+    const browserDeliveries = options.suppressBrowserNotifications ? [] : browserMessages(entries);
     const deliveries = await Promise.allSettled([
-      ...(options.suppressBrowserNotifications ? [] : entries).map((entry) =>
-        Promise.resolve().then(() =>
-          dependencies.notifyBrowser(
-            'Drop completed',
-            `Claimed: ${entry.dropName} (${entry.campaignLabel || entry.gameName})`,
-          ),
-        ),
+      ...browserDeliveries.map((message) =>
+        Promise.resolve().then(() => dependencies.notifyBrowser('Drop completed', message)),
       ),
       Promise.resolve().then(() => dependencies.notifyTelegram(entries)),
     ]);

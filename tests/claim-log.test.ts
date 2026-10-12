@@ -8,6 +8,7 @@ import {
   normalizeClaimLogEntry,
   recordClaimedDrops,
   setClaimRecordedHandler,
+  unobservedClaimIds,
 } from '../src/background/claim-log.ts';
 import type { ClaimLogEntry, TwitchDrop, TwitchGame } from '../src/types/index.ts';
 import type { ChromeMocks } from './mocks/chrome.ts';
@@ -443,5 +444,30 @@ describe('detectNewlyClaimedDrops', () => {
 
     expect(detectNewlyClaimedDrops(unassessedAfter, before)).toEqual([]);
     expect(detectNewlyClaimedDrops(verifiedAfter, before)).toHaveLength(1);
+  });
+});
+
+describe('unobservedClaimIds', () => {
+  test('flags acquisitions never seen claimable or in progress', () => {
+    const before = [
+      makeDrop({ id: 'claimable', claimed: false, progress: 100, claimable: true }),
+      makeDrop({ id: 'partial', claimed: false, progress: 40, claimable: false }),
+      makeDrop({ id: 'unseen', claimed: false, progress: 0, claimable: false }),
+      makeDrop({
+        id: 'late-native',
+        claimed: false,
+        progress: 0,
+        rewardKind: 'twitch-emote',
+        verificationState: 'unassessed',
+      }),
+    ];
+    const after = [
+      makeDrop({ id: 'claimable' }),
+      makeDrop({ id: 'partial' }),
+      makeDrop({ id: 'unseen' }),
+      makeDrop({ id: 'late-native', rewardKind: 'twitch-emote', verificationState: 'verified' }),
+    ];
+    const ids = unobservedClaimIds(detectNewlyClaimedDrops(after, before), before);
+    expect([...ids]).toEqual(after.slice(2).map((drop) => createClaimLogEntry(drop, []).id));
   });
 });

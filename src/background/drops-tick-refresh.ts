@@ -4,6 +4,7 @@ import {
   type ClaimRecordTarget,
   detectNewlyClaimedDrops,
   recordClaimedDropsWithResult,
+  unobservedClaimIds,
 } from './claim-log.ts';
 import {
   completedDropKeys,
@@ -205,6 +206,7 @@ export async function refreshDropsData(
       Date.now(),
       {
         suppressBrowserNotifications: options.suppressNotifications,
+        silentIds: unobservedClaimIds(newlyClaimed, previousSnapshotForClaims),
       },
     );
     if (!isCurrent()) return 'transient-failure';
