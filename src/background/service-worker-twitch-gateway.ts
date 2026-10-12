@@ -9,11 +9,11 @@ import {
   fetchDirectoryStreamersFromApiWrapper,
   fetchInventorySnapshotFromApiWrapper,
 } from './api-secondary-wrappers.ts';
-import { PROGRESS_POLL_MS, STREAM_CONTEXT_TIMEOUT_MS } from './constants.ts';
+import { PROGRESS_POLL_MS, STREAM_CONTEXT_TIMEOUT_MS, TABLESS_SUSTAIN_ALARM_NAME } from './constants.ts';
 import { normalizeFarmingAutomationSnapshot } from './farming-automation-normalization.ts';
 import type { StreamContext } from './farming-session.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
-import { logWarn } from './logging.ts';
+import { logDebug, logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
 import {
@@ -30,7 +30,8 @@ import { sessionDebugSummary } from './state-persistence.ts';
 import { waitForTabComplete } from './tab-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/errors.ts';
-import { createTwitchSpadeHeartbeat } from './twitch-api/spade-heartbeat.ts';
+import { createHlsWatch } from './twitch-api/hls-watch.ts';
+import { createTwitchTablessHeartbeat } from './twitch-api/tabless-heartbeat.ts';
 import {
   DEFAULT_TWITCH_CLIENT_ID,
   isLikelyAuthError,
@@ -109,7 +110,37 @@ export function createServiceWorkerTwitchGateway(
     getSessionRevision: () => currentTwitchSessionRevision(state),
     waitForTabComplete,
   });
-  const twitchSpadeHeartbeat = createTwitchSpadeHeartbeat({ clientId: DEFAULT_TWITCH_CLIENT_ID });
+  const hlsWatch = createHlsWatch({
+    fetchPlaybackToken: async (channel) => {
+      if (state.apiBackoffUntil > Date.now()) return null;
+      const session = state.twitchSessionCache ?? (await ensureTwitchSession());
+      if (!session) return null;
+      try {
+        return await new TwitchApiClient(session).fetchPlaybackAccessToken(channel);
+      } catch (error) {
+        const failure = classifyTwitchApiFailure(error);
+        if (failure.kind === 'rate-limit') applyApiBackoff(state, failure.retryAfterMs);
+        throw error;
+      }
+    },
+    // The alarm keeps the worker awake while live media is polled between farming ticks.
+    onSustainChange: (sustaining) => {
+      const update = sustaining
+        ? browser.alarms.create(TABLESS_SUSTAIN_ALARM_NAME, { periodInMinutes: 0.5 })
+        : browser.alarms.clear(TABLESS_SUSTAIN_ALARM_NAME);
+      Promise.resolve(update).catch((error) =>
+        logWarn('Tabless sustain alarm update failed:', String(error)),
+      );
+    },
+  });
+  const tablessHeartbeat = createTwitchTablessHeartbeat({
+    clientId: DEFAULT_TWITCH_CLIENT_ID,
+    watch: async (context) => {
+      const result = await hlsWatch.poll(context);
+      if (!result.ok) logDebug('Tabless live media request failed:', result.message);
+      return result;
+    },
+  });
   let latestProgressSnapshot: DropsSnapshot | null = null;
   let latestTwitchApiFailure: TwitchApiFailure | null = null;
 
@@ -278,14 +309,14 @@ export function createServiceWorkerTwitchGateway(
     if (!userId) {
       return { accepted: false, isLive: true, reason: 'error' };
     }
-    const result = await twitchSpadeHeartbeat.heartbeat(target, userId);
+    const result = await tablessHeartbeat.heartbeat(target, userId);
     return { ...result, progress: currentCachedProgress(target) };
   }
 
   async function probeStreamInfo(channelName: string) {
     if (state.apiBackoffUntil > Date.now()) return { kind: 'unavailable' as const };
     try {
-      return await twitchSpadeHeartbeat.probeStreamInfo(channelName);
+      return await tablessHeartbeat.probeStreamInfo(channelName);
     } catch (error) {
       const failure = classifyTwitchApiFailure(error);
       if (failure.kind === 'rate-limit') applyApiBackoff(state, failure.retryAfterMs);
@@ -355,6 +386,8 @@ export function createServiceWorkerTwitchGateway(
     fetchInventorySnapshot,
     fetchStreamContext,
     heartbeat,
+    releaseTablessWatch: hlsWatch.release,
+    sustainTablessWatch: hlsWatch.sustain,
     probeStreamInfo,
     refreshVerifiedGame,
     persistSessionFromDropsPage: sessionOrchestrator.persistSessionFromDropsPage,

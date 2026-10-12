@@ -49,6 +49,7 @@ Current farming contract. It supersedes older expectations about an indefinite i
 | Pending claim during Pause/Play | Discard the stale outcome; the next batch stays runnable | session-account-evidence |
 | Popup messages | Expansion, × and dismissal persist across popup close and worker recycle | e2e/farming-messages.spec.ts |
 | Tabless heartbeat service unavailable | Global recovery, no warning attributed to channels; observation time suspended | farming-cycle-contract, streamer-transport-failure |
+| Tabless live media rejected or unreachable | Reported as heartbeat failure; playlist reacquired, playback-token requests back off, no telemetry sent | twitch-tabless-heartbeat, hls-watch |
 | Tabless response restored, even degraded | Resume time from the suspended point without an immediate stall | farming-cycle-contract |
 | Publication cancelled by concurrent state | Neither parks nor spends the channel; wakes the same alarm after the owning tick, unless blocked or in cooldown | farming-campaign-handoff |
 | Playback timeout with late response | The attempt stays spent; no late promotion | farming-campaign-handoff |
@@ -64,4 +65,4 @@ Names refer to files in `tests/`. `e2e/queue-campaign-handoff.spec.ts` uses MV3 
 
 ## Not verified on real Twitch
 
-Fixtures validate logic but do not certify AFK farming on the live service. Still unverified on the current build: fresh-install bootstrap/sign-in, real sleep/wake, full acquisition of every reward, real browser/Telegram delivery, and tabless progress when the Twitch heartbeat endpoint is unreachable. Restart and worker recycle are covered automatically with simulated Twitch.
+Fixtures validate logic but do not certify AFK farming on the live service. Still unverified on the current build: fresh-install bootstrap/sign-in, real sleep/wake, full acquisition of every reward, real browser/Telegram delivery, tabless progress credited by live HLS media requests, and tabless progress when the Twitch heartbeat endpoint is unreachable. Restart and worker recycle are covered automatically with simulated Twitch.

@@ -49,6 +49,8 @@ DropHunter does not sell user data, use it for advertising or analytics, or send
 
 Core network requests are directed to **twitch.tv** domains, using your existing Twitch session to perform the same actions you would perform manually: checking campaigns, watching eligible streams, and claiming Drops.
 
+During hidden (tabless) farming, DropHunter requests the live stream's audio playlist and its newest segments from Twitch's video CDN (**ttvnw.net**), as Twitch's player does. These requests carry only the signed playback grant Twitch issues for that stream; they send no cookies, OAuth token or referrer, and the media is not downloaded or played.
+
 If you explicitly configure and enable **Telegram alerts**, DropHunter sends notifications to **api.telegram.org** through the bot and chat ID you provide. Reward alerts may include the claimed Drop name, benefit name when available, campaign or game label, claim time, selected farming campaign, active streamer name, and reward image URL. Enabled farming-event alerts may include campaign discovery, automatic starts and campaign changes, suspension or recovery status, completion, and a reason when your attention is needed. Twitch session credentials are never included. This data is sent only to the Telegram chat you specify. Telegram alerts are disabled by default and require optional host permission.
 
 DropHunter does **not** include:
@@ -70,6 +72,7 @@ DropHunter does **not** include:
 | `optional host access` to `api.telegram.org` (optional) | Send the Telegram reward and farming-event alerts you enable, after you grant the permission |
 | `alarms` | Keep the background farming loop running reliably |
 | `host_permissions` (twitch.tv) | Access Twitch pages and API endpoints |
+| `host_permissions` (ttvnw.net) | Request live stream media from Twitch's video CDN during hidden farming |
 
 DropHunter does not request the `tabs` or `cookies` permissions and does not use the `chrome.cookies` API. Session recovery relies on Twitch page storage and content scripts running only on Twitch pages.
 

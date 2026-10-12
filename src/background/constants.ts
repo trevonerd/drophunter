@@ -8,6 +8,7 @@ export const LAST_ACTIVITY_AT_KEY = 'lastActivityAt';
 export const ALARM_NAME = 'dropCheck';
 export const CAMPAIGN_SYNC_ALARM_NAME = 'campaignSync';
 export const CAMPAIGN_SYNC_RETRY_ALARM_NAME = 'campaignSyncRetry';
+export const TABLESS_SUSTAIN_ALARM_NAME = 'tablessSustain';
 export const TWITCH_DROPS_PAGE_URL = 'https://www.twitch.tv/drops/campaigns';
 
 // Timing constants

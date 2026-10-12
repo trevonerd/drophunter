@@ -84,6 +84,8 @@ browserEvents = createServiceWorkerBrowserEvents(state, {
   ensureContentScriptOnTab: twitchGateway.ensureContentScriptOnTab,
   fetchStreamContext: twitchGateway.fetchStreamContext,
   heartbeat: twitchGateway.heartbeat,
+  releaseTablessWatch: twitchGateway.releaseTablessWatch,
+  sustainTablessWatch: twitchGateway.sustainTablessWatch,
   notify,
   notifyQueueComplete: notificationController.notifyQueueComplete,
   clearQueueCompleteNotification: notificationController.clearQueueCompleteNotification,

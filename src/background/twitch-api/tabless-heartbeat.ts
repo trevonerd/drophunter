@@ -1,6 +1,7 @@
 import type { TwitchStreamer } from '../../types/index.ts';
 import type { FarmingTarget, TablessHeartbeat } from '../watch-transport.ts';
 import { createTwitchHttpError } from './errors.ts';
+import type { HlsPollResult, HlsWatchContext } from './hls-watch.ts';
 import {
   channelUrl,
   extractSettingsBundle,
@@ -22,10 +23,12 @@ const STREAM_INFO_QUERY = `query StreamInfo($channel: String!) {
 }`;
 const DEFAULT_TIMEOUT_MS = 12_000;
 
-export type SpadeFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export type TwitchHeartbeatFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-export interface TwitchSpadeHeartbeatOptions {
-  readonly fetch?: SpadeFetch;
+export interface TwitchTablessHeartbeatOptions {
+  /** Requests live media for a verified broadcast; Twitch credits progress only for this. */
+  readonly watch: (context: HlsWatchContext) => Promise<HlsPollResult>;
+  readonly fetch?: TwitchHeartbeatFetch;
   readonly clientId?: string;
   readonly now?: () => string;
   readonly timeoutMs?: number;
@@ -47,7 +50,7 @@ interface JsonRecord {
   readonly [key: string]: unknown;
 }
 
-const defaultFetch: SpadeFetch = (input, init) => globalThis.fetch(input, init);
+const defaultFetch: TwitchHeartbeatFetch = (input, init) => globalThis.fetch(input, init);
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -101,7 +104,7 @@ async function readResponseBody(response: Response): Promise<string> {
   }
 }
 
-export interface TwitchSpadeHeartbeat {
+export interface TwitchTablessHeartbeat {
   readonly heartbeat: (target: FarmingTarget, viewerUserId: string) => Promise<TablessHeartbeat>;
   readonly probeStreamInfo: (channelName: string) => Promise<
     | { readonly kind: 'offline' }
@@ -115,7 +118,7 @@ export interface TwitchSpadeHeartbeat {
   >;
 }
 
-export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions = {}): TwitchSpadeHeartbeat {
+export function createTwitchTablessHeartbeat(options: TwitchTablessHeartbeatOptions): TwitchTablessHeartbeat {
   const fetchImpl = options.fetch ?? defaultFetch;
   const timeoutMs = Math.max(1_000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const now = options.now ?? (() => new Date().toISOString());
@@ -209,7 +212,7 @@ export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions 
     }
   };
 
-  const probeStreamInfo: TwitchSpadeHeartbeat['probeStreamInfo'] = async (channelName) => {
+  const probeStreamInfo: TwitchTablessHeartbeat['probeStreamInfo'] = async (channelName) => {
     const channel = channelName.trim().toLowerCase();
     if (!channel) return { kind: 'unavailable' };
     try {
@@ -252,6 +255,20 @@ export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions 
     });
   };
 
+  // Auxiliary minute-watched telemetry after a successful live-media request.
+  // Its result never decides the watch.
+  const sendBeacon = async (channel: string, target: FarmingTarget, userId: string, stream: StreamInfo) => {
+    try {
+      const destination = destinations.get(channel) ?? (await resolveDestination(channel));
+      if (!destination) return;
+      const response = await send(destination, target, userId, stream);
+      if (response.status === 204) destinations.set(channel, destination);
+      else destinations.delete(channel);
+    } catch {
+      destinations.delete(channel);
+    }
+  };
+
   const heartbeat = async (target: FarmingTarget, viewerUserId: string): Promise<TablessHeartbeat> => {
     const channel = target.channelName.trim().toLowerCase();
     if (!channel || !viewerUserId.trim()) {
@@ -279,28 +296,10 @@ export function createTwitchSpadeHeartbeat(options: TwitchSpadeHeartbeatOptions 
           reason: 'wrong-game',
         };
       }
-      const cached = destinations.get(channel);
-      const firstDestination = cached ?? (await resolveDestination(channel));
-      if (!firstDestination) {
-        return { accepted: false, isLive: true, reason: 'error' };
-      }
-      destinations.set(channel, firstDestination);
-      const first = await send(firstDestination, target, viewerUserId, stream);
-      if (first.status === 204) {
-        return { accepted: true, isLive: true, sameChannel: true, sameGame: true, reason: 'heartbeat' };
-      }
-      destinations.delete(channel);
-      const refreshed = await resolveDestination(channel);
-      if (!refreshed) {
-        return { accepted: false, isLive: true, reason: 'error' };
-      }
-      destinations.set(channel, refreshed);
-      const second = await send(refreshed, target, viewerUserId, stream);
-      if (second.status === 204) {
-        return { accepted: true, isLive: true, sameChannel: true, sameGame: true, reason: 'heartbeat' };
-      }
-      destinations.delete(channel);
-      return { accepted: false, isLive: true, reason: 'heartbeat-failed' };
+      const watched = await options.watch({ channel, broadcastId: stream.broadcastId });
+      if (!watched.ok) return { accepted: false, isLive: true, reason: 'heartbeat-failed' };
+      await sendBeacon(channel, target, viewerUserId, stream);
+      return { accepted: true, isLive: true, sameChannel: true, sameGame: true, reason: 'heartbeat' };
     } catch {
       destinations.delete(channel);
       return { accepted: false, isLive: true, reason: 'error' };

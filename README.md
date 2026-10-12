@@ -59,7 +59,7 @@ New installations enable favorite auto-start and prefer hidden farming. Browser 
 
 From there, DropHunter will:
 
-- farm with the transport you choose: hidden (tabless) farming never falls back to a viewing tab; managed farming reuses one Twitch tab
+- farm with the transport you choose: hidden (tabless) farming requests the stream's live audio media from Twitch's video CDN (`ttvnw.net`) without opening a tab and never falls back to a viewing tab; managed farming reuses one Twitch tab
 - track progress and update the extension badge
 - claim completed drops when they become available
 - claim free channel points bonuses on open Twitch channel tabs when enabled

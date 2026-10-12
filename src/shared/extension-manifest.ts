@@ -1,4 +1,6 @@
 export const TWITCH_MATCHES = ['https://*.twitch.tv/*'] as const;
+// Twitch's video CDN, where tabless farming requests live HLS media.
+export const TWITCH_VIDEO_HOST = 'https://*.ttvnw.net/*';
 
 export const EXTENSION_MANIFEST = {
   name: 'DropHunter',
@@ -10,7 +12,7 @@ export const EXTENSION_MANIFEST = {
   permissions: ['storage', 'scripting', 'alarms'],
   optional_permissions: ['notifications'],
   optional_host_permissions: ['https://api.telegram.org/*'],
-  host_permissions: TWITCH_MATCHES,
+  host_permissions: [...TWITCH_MATCHES, TWITCH_VIDEO_HOST],
   content_security_policy: {
     extension_pages: "script-src 'self'; object-src 'self';",
   },

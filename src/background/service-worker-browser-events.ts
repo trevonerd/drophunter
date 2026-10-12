@@ -1,7 +1,12 @@
 import { browser } from '../shared/browser-api.ts';
 import { observedStreamCategoryMatch } from '../shared/stream-category.ts';
 import type { ActivationTrigger } from '../types/index.ts';
-import { ALARM_NAME, CAMPAIGN_SYNC_RETRY_ALARM_NAME, INVALID_STREAM_THRESHOLD } from './constants.ts';
+import {
+  ALARM_NAME,
+  CAMPAIGN_SYNC_RETRY_ALARM_NAME,
+  INVALID_STREAM_THRESHOLD,
+  TABLESS_SUSTAIN_ALARM_NAME,
+} from './constants.ts';
 import { registerExtensionLifecycleListeners } from './extension-lifecycle.ts';
 import type { FarmingAutomation } from './farming-automation.ts';
 import {
@@ -37,6 +42,8 @@ interface ServiceWorkerBrowserDependencies {
   readonly ensureContentScriptOnTab: (tabId: number) => Promise<void>;
   readonly fetchStreamContext: (tabId: number) => Promise<StreamContext | null>;
   readonly heartbeat: (target: FarmingTarget) => Promise<TablessHeartbeat>;
+  readonly releaseTablessWatch?: () => void;
+  readonly sustainTablessWatch?: () => Promise<void>;
   readonly notify: (title: string, message: string, priority?: number) => Promise<void>;
   readonly notifyQueueComplete: (title: string, message: string) => Promise<void>;
   readonly clearQueueCompleteNotification: () => Promise<void>;
@@ -83,6 +90,7 @@ export function createServiceWorkerBrowserEvents(
     state,
     enabled: true,
     heartbeat: dependencies.heartbeat,
+    releaseTablessWatch: dependencies.releaseTablessWatch,
     managedTab: {
       pause: async (session) => {
         if (session.ownership) await pauseManagedWatch(session.ownership);
@@ -216,6 +224,7 @@ export function createServiceWorkerBrowserEvents(
       automationDeadlineAlarmName: FARMING_AUTOMATION_DEADLINE_ALARM,
       farmingAutomation: registration.farmingAutomation,
       linkRecheckAlarmPrefix: LINK_RECHECK_ALARM_PREFIX,
+      tablessSustainAlarmName: TABLESS_SUSTAIN_ALARM_NAME,
       getInitPromise: registration.getInitPromise,
       onExtensionUpdate: registration.onExtensionUpdate,
       onExtensionStorageCleared: registration.onExtensionStorageCleared,
@@ -223,6 +232,7 @@ export function createServiceWorkerBrowserEvents(
       onFarmingRecoveryAlarm: registration.onFarmingRecoveryAlarm,
       onActivationSync: registration.onActivationSync,
       onLinkRecheckAlarm: registration.onLinkRecheckAlarm,
+      onTablessSustainAlarm: dependencies.sustainTablessWatch,
       onManagedTabRemoved: handleManagedTabRemoved,
       onManagedTabNavigatedAway: handleManagedTabNavigatedAway,
       onManualTabChanged: registration.onMonitoringAlarm,

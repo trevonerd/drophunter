@@ -173,6 +173,35 @@ describe('extension lifecycle listeners', () => {
     expect(ticks).toBe(1);
   });
 
+  test('sustains tabless live media only on its own alarm, without a monitor tick', async () => {
+    const api = createLifecycleApi();
+    let ticks = 0;
+    let sustains = 0;
+    registerExtensionLifecycleListeners({
+      api,
+      alarmName: 'dropCheck',
+      tablessSustainAlarmName: 'tablessSustain',
+      farmingAutomation: inactiveAutomation,
+      getInitPromise: () => null,
+      onExtensionUpdate: async () => {},
+      onAlarm: async () => {
+        ticks += 1;
+      },
+      onTablessSustainAlarm: async () => {
+        sustains += 1;
+      },
+      onManagedTabRemoved: async () => {},
+      onManagedTabNavigatedAway: async () => {},
+      onMonitorWindowRemoved: async () => {},
+      logWarn: () => {},
+    });
+
+    api.alarms.onAlarm.trigger({ name: 'tablessSustain', scheduledTime: 1, persistAcrossSessions: false });
+    await flushAsyncListeners();
+
+    expect([ticks, sustains]).toEqual([0, 1]);
+  });
+
   test('runs a due campaign retry immediately instead of as a gated periodic refresh', async () => {
     // Given a one-shot retry scheduled while an interrupted queue is not currently running.
     const api = createLifecycleApi();

@@ -7,6 +7,12 @@ export interface TwitchSession {
   clientIntegrity?: string;
 }
 
+/** Signed grant for one channel's live HLS playlist. */
+export interface PlaybackAccessToken {
+  readonly value: string;
+  readonly signature: string;
+}
+
 export interface TwitchGraphQLError {
   message?: string;
 }

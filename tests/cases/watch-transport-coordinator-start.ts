@@ -93,6 +93,32 @@ export function registerWatchTransportCoordinatorStartCases() {
     expect(fixture.counters.opens).toBe(0);
   });
 
+  test('releases tabless live media when watching stops', async () => {
+    const fixture = createWatchTransportCoordinatorFixture();
+    let releases = 0;
+    const coordinator = createWatchTransportCoordinator({
+      state: fixture.state,
+      heartbeat: async () => ({ accepted: true, progress: 1 }),
+      releaseTablessWatch: () => {
+        releases += 1;
+      },
+      managedTab: {
+        open: async () => null,
+        probe: async () => ({ accepted: true, progress: 1 }),
+        close: async () => {},
+      },
+      persist: async () => {},
+      broadcast: () => {},
+    });
+    await coordinator.start({ id: 'channel-1', name: 'channel-1', displayName: 'Channel 1', isLive: true });
+    expect(releases).toBe(0);
+
+    await coordinator.stop();
+
+    expect(releases).toBe(1);
+    expect(fixture.state.appState.watchHealth?.status).toBe('stopped');
+  });
+
   test('keeps strict tabless watching when the initial heartbeat fails', async () => {
     const fixture = createWatchTransportCoordinatorFixture();
     const coordinator = createWatchTransportCoordinator({

@@ -29,6 +29,8 @@ import type {
 export interface WatchTransportCoordinatorOptions {
   readonly state: ServiceWorkerState;
   readonly heartbeat: (target: FarmingTarget) => Promise<TablessHeartbeat>;
+  /** Ends live media requests made by tabless heartbeats. */
+  readonly releaseTablessWatch?: () => void;
   readonly managedTab: ManagedTabOperations;
   readonly enabled?: boolean;
   readonly now?: () => number;
@@ -345,6 +347,7 @@ export function createWatchTransportCoordinator(
     const generation = ++operationGeneration;
     const tick = state.tickGeneration;
     const isCurrent = () => generation === operationGeneration && state.tickGeneration === tick;
+    options.releaseTablessWatch?.();
     await active.stop();
     if (!isCurrent()) return;
     await options.managedTab.pauseRetained?.(isCurrent);

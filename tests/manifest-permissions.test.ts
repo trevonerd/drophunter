@@ -46,11 +46,9 @@ describe('manifest permissions', () => {
     );
   });
 
-  test('uses one Twitch-only host pattern everywhere', () => {
-    const expected: typeof EXTENSION_MANIFEST.host_permissions = ['https://*.twitch.tv/*'];
-
-    expect(EXTENSION_MANIFEST.host_permissions).toEqual(expected);
-    expect(TWITCH_MATCHES).toEqual(expected);
+  test('requests only Twitch and its video CDN as required hosts', () => {
+    expect(TWITCH_MATCHES).toEqual(['https://*.twitch.tv/*']);
+    expect(EXTENSION_MANIFEST.host_permissions).toEqual(['https://*.twitch.tv/*', 'https://*.ttvnw.net/*']);
   });
 
   test('maps the package version to Chrome-compatible WXT manifest metadata', () => {

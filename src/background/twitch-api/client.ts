@@ -4,10 +4,15 @@ import { type DirectoryStreamersResult, fetchDirectoryStreamers } from './direct
 import { TwitchGqlTransport } from './gql';
 import { applyInventoryToDrops } from './inventory-drops';
 import { normalizeText } from './parsing';
-import { CLAIM_DROP_REWARD_QUERY, CURRENT_USER_QUERY, INVENTORY_QUERY } from './queries';
+import {
+  CLAIM_DROP_REWARD_QUERY,
+  CURRENT_USER_QUERY,
+  INVENTORY_QUERY,
+  PLAYBACK_ACCESS_TOKEN_QUERY,
+} from './queries';
 import { hasVerifiedInventory } from './snapshot-composition';
 import { type FetchDropsSnapshotOptions, fetchUncoalescedDropsSnapshot } from './snapshot-fetch';
-import type { TwitchSession } from './types';
+import type { PlaybackAccessToken, TwitchSession } from './types';
 
 const inFlightSnapshotRefreshes = new Map<string, Promise<DropsSnapshot>>();
 
@@ -28,6 +33,19 @@ export class TwitchApiClient {
     const data = await this.transport.postAuthorized<{ currentUser?: { id?: string } }>(CURRENT_USER_QUERY);
     const userId = data.currentUser?.id;
     return typeof userId === 'string' && userId.trim() ? userId.trim() : null;
+  }
+
+  async fetchPlaybackAccessToken(channelLogin: string): Promise<PlaybackAccessToken | null> {
+    const data = await this.transport.postAuthorized<{
+      streamPlaybackAccessToken?: { value?: unknown; signature?: unknown } | null;
+    }>({
+      operationName: 'PlaybackAccessToken',
+      query: PLAYBACK_ACCESS_TOKEN_QUERY,
+      variables: { login: channelLogin },
+    });
+    const value = normalizeText(data.streamPlaybackAccessToken?.value);
+    const signature = normalizeText(data.streamPlaybackAccessToken?.signature);
+    return value && signature ? { value, signature } : null;
   }
 
   private snapshotRefreshKey(): string {

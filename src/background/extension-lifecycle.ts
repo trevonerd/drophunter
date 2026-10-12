@@ -49,6 +49,7 @@ interface ExtensionLifecycleOptions {
   readonly automationDeadlineAlarmName?: string;
   readonly farmingAutomation: Pick<FarmingAutomation, 'request'>;
   readonly linkRecheckAlarmPrefix?: string;
+  readonly tablessSustainAlarmName?: string;
   readonly getInitPromise: () => Promise<void> | null;
   readonly onExtensionUpdate: (details: chrome.runtime.InstalledDetails) => Promise<unknown> | unknown;
   readonly onExtensionStorageCleared?: () => Promise<unknown> | unknown;
@@ -56,6 +57,7 @@ interface ExtensionLifecycleOptions {
   readonly onFarmingRecoveryAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
   readonly onActivationSync?: (trigger: ActivationTrigger) => Promise<unknown> | unknown;
   readonly onLinkRecheckAlarm?: (alarm: chrome.alarms.Alarm) => Promise<unknown> | unknown;
+  readonly onTablessSustainAlarm?: () => Promise<unknown> | unknown;
   readonly onManagedTabRemoved: (tabId: number) => Promise<unknown> | unknown;
   readonly onManagedTabNavigatedAway: (tabId: number, url: string) => Promise<unknown> | unknown;
   readonly onManualTabChanged?: () => Promise<unknown> | unknown;
@@ -190,12 +192,15 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
         alarm.name === options.automationDeadlineAlarmName);
     const isLinkRecheckAlarm =
       options.linkRecheckAlarmPrefix !== undefined && alarm.name.startsWith(options.linkRecheckAlarmPrefix);
+    const isTablessSustainAlarm =
+      options.tablessSustainAlarmName !== undefined && alarm.name === options.tablessSustainAlarmName;
     if (
       !isMonitoringAlarm &&
       !isFarmingRecoveryAlarm &&
       !isCampaignSyncAlarm &&
       !isAutomationAlarm &&
-      !isLinkRecheckAlarm
+      !isLinkRecheckAlarm &&
+      !isTablessSustainAlarm
     ) {
       return;
     }
@@ -215,6 +220,8 @@ export function registerExtensionLifecycleListeners(options: ExtensionLifecycleO
             await options.onActivationSync(isCampaignRetryAlarm ? 'manual-retry' : 'periodic-campaign');
         } else if (isAutomationAlarm) {
           await options.farmingAutomation.request('periodic');
+        } else if (isTablessSustainAlarm) {
+          await options.onTablessSustainAlarm?.();
         } else {
           await options.onLinkRecheckAlarm?.(alarm);
         }

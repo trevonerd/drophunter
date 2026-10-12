@@ -40,3 +40,14 @@ export const CLAIM_DROP_REWARD_QUERY = {
     },
   },
 };
+
+// Raw query: the persisted hash for this operation rotates with Twitch's player.
+export const PLAYBACK_ACCESS_TOKEN_QUERY = `query PlaybackAccessToken($login: String!) {
+  streamPlaybackAccessToken(
+    channelName: $login
+    params: { platform: "web", playerBackend: "mediaplayer", playerType: "site" }
+  ) {
+    value
+    signature
+  }
+}`;
