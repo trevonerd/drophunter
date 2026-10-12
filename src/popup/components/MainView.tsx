@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { classifyStartupPresentation } from '../../shared/startup-presentation.ts';
+import { hasSavedCampaigns } from '../../shared/user-status.ts';
 import { AutomationSummary } from './AutomationSummary';
 import { CampaignList, type CampaignListHandle } from './CampaignList';
 import { CampaignQueueControls } from './CampaignQueueControls';
@@ -72,7 +73,7 @@ export function MainView({
     <CampaignSyncPanel
       status={campaignSyncStatus}
       error={activeSyncError}
-      hasCachedCampaigns={state.availableGames.length > 0}
+      hasCachedCampaigns={hasSavedCampaigns(state)}
       campaignSyncState={state.campaignSyncState}
       blocksStartup={model.startup.isBlocking}
       automaticStartPending={model.startup.automaticStartPending}

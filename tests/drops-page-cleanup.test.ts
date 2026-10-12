@@ -109,7 +109,7 @@ test('a timed out automatic consumer releases its created page after pending wor
   try {
     const pending = f.refresher.openDropsPageAndRefresh({ active: false, closeAfterRefresh: true });
     await f.entered.promise;
-    now.mockReturnValue(startedAt + 61_000);
+    now.mockReturnValue(startedAt + 76_000);
     expect(f.tabs.removed).toEqual([]);
     f.loaded.resolve();
     expect((await pending).success).toBe(false);

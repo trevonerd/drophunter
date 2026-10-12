@@ -64,11 +64,13 @@ export function CampaignSyncPanel({
             ? 'Validating saved campaigns…'
             : 'Updating campaigns…'
           : status === 'pending-validation'
-            ? !isRoutineStartupSync(campaignSyncState)
-              ? 'Campaign validation is delayed.'
-              : retryScheduled
-                ? 'Saved campaigns are pending validation. DropHunter will retry automatically.'
-                : 'Saved campaigns are pending validation.'
+            ? !hasCachedCampaigns
+              ? 'Checking Twitch for campaigns.'
+              : !isRoutineStartupSync(campaignSyncState)
+                ? 'Campaign validation is delayed.'
+                : retryScheduled
+                  ? 'Saved campaigns are pending validation. DropHunter will retry automatically.'
+                  : 'Saved campaigns are pending validation.'
             : status === 'waiting'
               ? 'Campaigns are waiting for a Twitch session.'
               : 'No active campaigns found.';

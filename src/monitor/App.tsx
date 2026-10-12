@@ -65,7 +65,11 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: M
     nearestDrop === null && selectedRewardSummary?.completion === 'farming-complete'
       ? formatFarmingCompleteStatusLines(selectedRewardSummary.remainderReasons)
       : [];
-  const runStateClass = monitorPillClasses[status.mode];
+  // Routine campaign loading stays neutral; only a warning tone turns it yellow.
+  const runStateClass =
+    status.mode === 'pending-validation' && status.tone !== 'warning'
+      ? monitorPillClasses.ready
+      : monitorPillClasses[status.mode];
   const recentAutomationMessage =
     state.autoStartFavoriteGames && state.twitchSessionDetected
       ? (getRecentAutomationActivity(state.automationActivity, contextNow)?.message ?? null)
@@ -80,7 +84,7 @@ export function MonitorView({ state, lastUpdatedAt, recoveryNow, contextNow }: M
   const contextNoticeClass =
     status.mode === 'recovering' ||
     status.mode === 'attention-required' ||
-    status.mode === 'pending-validation'
+    (status.mode === 'pending-validation' && status.tone === 'warning')
       ? 'monitor-context-notice monitor-context-notice--warning'
       : 'monitor-context-notice';
   const announceContextNotice = status.mode !== 'recovering';

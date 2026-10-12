@@ -279,3 +279,24 @@ test('monitor CSS keeps one document scroll owner without extra layers', () => {
   expect(css).not.toContain("-webkit-locale: 'ja'");
   expect(css).not.toContain('word-break: auto-phrase');
 });
+
+test('monitor shows routine campaign loading without yellow warning styling', () => {
+  const html = renderMonitor({
+    twitchSessionDetected: false,
+    availableGames: [createGame({ completion: 'farmable', remainderReasons: [] })],
+    campaignSyncState: {
+      status: 'syncing',
+      lastAttemptAt: 0,
+      lastSuccessAt: null,
+      campaignCount: null,
+      retryAttemptCount: 0,
+      lastErrorKind: null,
+      nextRetryAt: null,
+      attemptDeadlineAt: 90_000,
+    },
+  });
+
+  expect(html).toContain('Confirming saved campaigns with Twitch.');
+  expect(html).not.toContain('monitor-pill--paused');
+  expect(html).not.toContain('monitor-context-notice--warning');
+});

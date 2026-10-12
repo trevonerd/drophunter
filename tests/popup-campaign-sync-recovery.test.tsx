@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { campaignValidationFeedback } from '../src/popup/components/campaign-sync-feedback';
 import { deriveCampaignSyncStatus } from '../src/popup/constants';
+import { createInitialState } from '../src/shared/utils';
 import type { AppState } from '../src/types';
 import { appState, game, renderMainView } from './fixtures/popup-reward';
 
@@ -227,4 +228,27 @@ test('unverified recovery does not show the fresh-campaign success banner', () =
   });
 
   expect(markup).not.toContain('3 campaigns loaded.');
+});
+
+test('a fresh install never describes missing campaigns as saved or warns while checking Twitch', () => {
+  const state = {
+    ...createInitialState(),
+    campaignSyncState: {
+      status: 'retry-scheduled',
+      lastAttemptAt: Date.now(),
+      lastSuccessAt: null,
+      campaignCount: null,
+      retryAttemptCount: 1,
+      lastErrorKind: 'network',
+      nextRetryAt: Date.now() + 60_000,
+      attemptDeadlineAt: null,
+      error: 'offline',
+    },
+  } satisfies AppState;
+
+  const markup = renderMainView(state, [], { campaignSyncStatus: 'pending-validation' });
+
+  expect(markup).not.toContain('Saved campaigns');
+  expect(markup).not.toContain('Campaigns pending validation');
+  expect(markup).toContain('Checking Twitch');
 });

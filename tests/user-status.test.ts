@@ -4,6 +4,7 @@ import { normalizeWatchHealth } from '../src/shared/app-state-runtime-normalizer
 import { gameKey } from '../src/shared/game-selection.ts';
 import { createUserStatusModel } from '../src/shared/user-status.ts';
 import { createInitialState } from '../src/shared/utils.ts';
+import type { CampaignSyncState } from '../src/types';
 
 test('popup and monitor request a video gesture without showing active progress or a retry countdown', () => {
   const state = createInitialState();
@@ -148,4 +149,87 @@ test('presents exhausted queue retries as an attention state', () => {
     badge: 'ATTENTION',
     detail: 'Stopped after repeated attempts',
   });
+});
+
+test('a fresh install without saved campaigns checks Twitch without a warning', () => {
+  const state = createInitialState();
+  state.campaignSyncState = {
+    status: 'syncing',
+    lastAttemptAt: 0,
+    lastSuccessAt: null,
+    campaignCount: null,
+    retryAttemptCount: 0,
+    lastErrorKind: null,
+    nextRetryAt: null,
+    attemptDeadlineAt: 90_000,
+  };
+  const status = createUserStatusModel({
+    state,
+    runtimeMode: 'idle',
+    currentAutomatableDrop: null,
+    recoveryNow: 0,
+  });
+  expect(status).toMatchObject({ mode: 'pending-validation', label: 'Checking Twitch', tone: 'neutral' });
+});
+
+test('loading campaigns progressively never flashes a warning', () => {
+  const state = createInitialState();
+  state.availableGames = [{ id: 'g1', name: 'Game', imageUrl: '' }];
+  const snapshot = {
+    lastAttemptAt: 0,
+    lastSuccessAt: null,
+    campaignCount: null,
+    retryAttemptCount: 0,
+    lastErrorKind: null,
+  };
+  const syncStates: CampaignSyncState[] = [
+    { ...snapshot, status: 'syncing', nextRetryAt: null, attemptDeadlineAt: 90_000 },
+    { ...snapshot, status: 'idle', nextRetryAt: null, attemptDeadlineAt: null },
+    {
+      ...snapshot,
+      status: 'retry-scheduled',
+      retryAttemptCount: 1,
+      lastErrorKind: 'network',
+      nextRetryAt: 60_000,
+      attemptDeadlineAt: null,
+      error: 'Twitch could not be reached.',
+    },
+  ];
+  for (const campaignSyncState of syncStates) {
+    state.campaignSyncState = campaignSyncState;
+    const status = createUserStatusModel({
+      state,
+      runtimeMode: 'idle',
+      currentAutomatableDrop: null,
+      recoveryNow: 0,
+    });
+    expect(status).toMatchObject({
+      mode: 'pending-validation',
+      label: 'Updating campaigns',
+      tone: 'neutral',
+    });
+  }
+});
+
+test('repeated campaign validation failures still warn', () => {
+  const state = createInitialState();
+  state.availableGames = [{ id: 'g1', name: 'Game', imageUrl: '' }];
+  state.campaignSyncState = {
+    status: 'retry-scheduled',
+    lastAttemptAt: 0,
+    lastSuccessAt: null,
+    campaignCount: null,
+    retryAttemptCount: 3,
+    lastErrorKind: 'network',
+    nextRetryAt: 60_000,
+    attemptDeadlineAt: null,
+    error: 'Twitch could not be reached.',
+  };
+  const status = createUserStatusModel({
+    state,
+    runtimeMode: 'idle',
+    currentAutomatableDrop: null,
+    recoveryNow: 0,
+  });
+  expect(status).toMatchObject({ label: 'Campaigns pending validation', tone: 'warning' });
 });

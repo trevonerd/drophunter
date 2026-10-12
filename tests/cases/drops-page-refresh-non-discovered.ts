@@ -203,4 +203,30 @@ export function registerNonDiscoveredDropsPageRefreshCases() {
     });
     expect(state.appState.dropsPageRefreshInProgress).toBe(false);
   });
+
+  test('waits for a slow Drops page to expose the session without spending refresh attempts', async () => {
+    const state = createDropsPageState();
+    let sessionReads = 0;
+    let refreshCalls = 0;
+    const refresher = createTestRefresher(state, createTabsApi(), {
+      persistSessionFromDropsPage: async () => {
+        sessionReads += 1;
+        return sessionReads > 5 ? { oauthToken: 'token', deviceId: 'device', uuid: 'uuid' } : null;
+      },
+      refreshGamesCacheFromHiddenFetch: async () => {
+        refreshCalls += 1;
+        if (sessionReads <= 5) return { kind: 'unavailable', games: [] };
+        setDiscoveredGame(state);
+        return { kind: 'refreshed', games: state.appState.availableGames, inventoryVerified: true };
+      },
+      campaignRefreshRetryDelayMs: 0,
+    });
+
+    const result = await refresher.openDropsPageAndRefresh();
+
+    expect(result.success).toBe(true);
+    expect(result.gamesCount).toBe(1);
+    expect(sessionReads).toBe(6);
+    expect(refreshCalls).toBe(2);
+  });
 }

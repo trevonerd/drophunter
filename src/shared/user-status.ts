@@ -8,7 +8,7 @@ import {
   formatStopReason,
   type RuntimeMode,
 } from './runtime-status';
-import { classifyStartupPresentation } from './startup-presentation.ts';
+import { classifyStartupPresentation, isRoutineStartupSync } from './startup-presentation.ts';
 
 export type UserStatusMode =
   | 'ready'
@@ -59,6 +59,11 @@ function recoveryDetail(state: AppState, now: number): string {
 
 export function trackedProgress(drop: TwitchDrop): number {
   return Math.max(0, Math.min(100, drop.progress));
+}
+
+/** Catalog, queue, or selection worth validating; a fresh install has none. */
+export function hasSavedCampaigns(state: AppState): boolean {
+  return state.availableGames.length > 0 || state.queue.length > 0 || state.selectedGame !== null;
 }
 
 export function effectiveTransport(state: AppState): EffectiveTransport | null {
@@ -297,6 +302,24 @@ export function createUserStatusModel({
     campaignSyncStatus === 'retry-scheduled' ||
     campaignSyncStatus === 'retry-failed'
   ) {
+    // Routine loading (fresh install, startup sync, early retries) is not a warning.
+    const hasSaved = hasSavedCampaigns(state);
+    if (
+      campaignSyncStatus !== 'retry-failed' &&
+      (!hasSaved || !state.campaignSyncState || isRoutineStartupSync(state.campaignSyncState))
+    ) {
+      return {
+        mode: 'pending-validation',
+        progressState: 'waiting',
+        label: hasSaved ? 'Updating campaigns' : 'Checking Twitch',
+        badge: 'SYNCING',
+        subject,
+        detail: hasSaved
+          ? 'Confirming saved campaigns with Twitch.'
+          : 'Looking for your Twitch session and campaigns.',
+        tone: 'neutral',
+      };
+    }
     return {
       mode: 'pending-validation',
       progressState: 'waiting',

@@ -88,7 +88,7 @@ test('popup uses a single campaign sync panel for cache validation and confirmed
   expect(source).not.toContain('onRetry={onRetryCampaignSync}');
   expect(source).toContain('Campaign update failed. Showing saved data.');
   expect(source).toContain('Campaign update failed. No campaigns are available yet.');
-  expect(source).toContain('hasCachedCampaigns={state.availableGames.length > 0}');
+  expect(source).toContain('hasCachedCampaigns={hasSavedCampaigns(state)}');
 });
 
 test('popup splits the main campaign UI into focused components', () => {

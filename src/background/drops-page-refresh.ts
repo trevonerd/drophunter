@@ -1,6 +1,9 @@
 import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
-import { refreshDropsPageCampaigns } from './drops-page-campaign-refresh.ts';
+import {
+  DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS,
+  refreshDropsPageCampaigns,
+} from './drops-page-campaign-refresh.ts';
 import {
   createDropsPageTabConsumers,
   type DropsPageRefreshOptions,
@@ -9,8 +12,7 @@ import {
 } from './drops-page-tab-lifecycle.ts';
 import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/errors.ts';
 
-const DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS = 10_000;
-const DROPS_PAGE_OPERATION_TIMEOUT_MS = 60_000;
+const DROPS_PAGE_OPERATION_TIMEOUT_MS = 75_000;
 
 export interface DropsPageRefreshResult {
   success: boolean;

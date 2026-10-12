@@ -1,7 +1,8 @@
 import type { DropsPageRefreshOptions, DropsPageState } from './drops-page-tab-lifecycle.ts';
 import type { TwitchApiFailure } from './twitch-api/errors.ts';
 
-const DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS = 10_000;
+// Twitch Drops can take well over ten seconds to load and expose the session.
+export const DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_CAMPAIGN_REFRESH_ATTEMPTS = 3;
 const DEFAULT_CAMPAIGN_REFRESH_RETRY_DELAY_MS = 500;
 
@@ -61,13 +62,24 @@ export async function refreshDropsPageCampaigns(input: CampaignRefreshInput): Pr
     });
   };
 
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+  let attempt = 1;
+  let refreshedOnce = false;
+  while (attempt <= attempts) {
     if (!input.isCurrent()) break;
     const isFinalAttemptByCount = attempt === attempts;
     const isFinalAttemptByTime = Date.now() >= deadline;
     const sessionFromTab = await input.options.persistSessionFromDropsPage(input.tabId);
     if (!input.isCurrent()) break;
     sawSession = sawSession || Boolean(sessionFromTab);
+    // A slow page has not exposed its session yet: keep waiting without
+    // spending refresh attempts or repeating Twitch requests.
+    if (!sawSession && refreshedOnce && !isFinalAttemptByTime) {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, Math.max(0, Math.min(retryDelayMs, deadline - Date.now()))),
+      );
+      continue;
+    }
+    refreshedOnce = true;
     const refreshResult = await input.options.refreshGamesCacheFromHiddenFetch({
       // A missed page read is not evidence that the cached OAuth session is invalid.
       // The normal session resolver still checks cache, persisted state, and open tabs.
@@ -93,6 +105,7 @@ export async function refreshDropsPageCampaigns(input: CampaignRefreshInput): Pr
         (gamesCount > 0 || refreshResult.authoritativeEmpty === true);
       break;
     }
+    attempt += 1;
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
     await new Promise<void>((resolve) => setTimeout(resolve, Math.min(retryDelayMs, remainingMs)));
