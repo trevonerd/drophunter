@@ -329,6 +329,44 @@ describe('farming monitoring recovery', () => {
     expect(state.appState.queue).toHaveLength(1);
   });
 
+  test('restarts a stopped managed player in place before its failure budget rotates the streamer', async () => {
+    const state = runningState();
+    state.appState.activeStreamer = createStreamer({ name: 'streamer-a' });
+    state.appState.watchTransportPreference = 'managed-tab';
+    state.appState.tabId = 123;
+    chrome.tabs.setTabsGetResult({ id: 123, url: 'https://twitch.tv/streamer-a' });
+    const healed: number[] = [];
+    const starts: string[] = [];
+    const session = createFarmingSession(
+      state,
+      createFarmingSessionAdapters({
+        attemptPlaybackSelfHeal: async (tabId) => {
+          healed.push(tabId);
+        },
+        watchTransport: {
+          start: async (streamer) => {
+            starts.push(streamer.name);
+            return { kind: 'failed', health: null };
+          },
+          tick: async () =>
+            createWatchHealth('managed-tab', 'failed', 'playback-inactive', Date.now, {
+              consecutiveFailures: 1,
+            }),
+          stop: async () => {},
+          setPreference: async () => {},
+        },
+      }),
+    );
+
+    await session.checkDropProgress();
+
+    expect({ healed, starts, streamer: state.appState.activeStreamer?.name }).toEqual({
+      healed: [123],
+      starts: [],
+      streamer: 'streamer-a',
+    });
+  });
+
   test('rotates a managed streamer after confirmed playback failure despite healthy channel metadata', async () => {
     const state = runningState();
     const currentStreamer = {

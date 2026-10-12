@@ -247,3 +247,41 @@ test('Stop during a content reply discards readiness and prevents late tab updat
   expect(await preparation).toEqual({});
   expect(updates()).toBe(0);
 });
+
+test('a new tab waits for the click in front; a reused tab prepares in the background and comes forward only for a click', async () => {
+  const updates: unknown[] = [];
+  let requests = 0;
+  let response: unknown = { isPlaybackReady: true };
+  const transport = createPlaybackTransport({
+    ensureContentScriptOnTab: async () => {},
+    ensureManagedTab: async () => 20,
+    waitForTabComplete: async () => {},
+    tabsApi: {
+      get: async () => ({ id: 20 }),
+      update: async (_tabId, properties) => {
+        updates.push(properties);
+      },
+      sendMessage: async () => {
+        requests++;
+        return response;
+      },
+    },
+  });
+  const managed = { unmuteTab: false, muteAfterPrep: true, focusForClick: true } as const;
+
+  expect(await transport.prepare(20, { ...managed, newTab: true })).toEqual({
+    userInteractionRequired: true,
+  });
+  expect({ requests, updates }).toEqual({ requests: 0, updates: [{ active: true }] });
+
+  updates.length = 0;
+  expect(await transport.prepare(20, { ...managed, newTab: false })).toMatchObject({ isPlaybackReady: true });
+  expect(updates).toEqual([{ muted: true }]);
+
+  updates.length = 0;
+  response = { isPlaybackReady: false, userInteractionRequired: true };
+  expect(await transport.prepare(20, { ...managed, newTab: false })).toMatchObject({
+    userInteractionRequired: true,
+  });
+  expect(updates).toEqual([{ muted: true }, { active: true }]);
+});

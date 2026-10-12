@@ -58,6 +58,7 @@ function browserEventsFor(
   categoryOverride?: string,
   hasDropsSignal = true,
   acceptsHeartbeat = false,
+  isPlaybackReady = true,
 ) {
   const gamesByChannel = new Map<string, TwitchGame>();
   chrome.tabs.sendMessage = async (_tabId, message: { type: string }) =>
@@ -83,7 +84,7 @@ function browserEventsFor(
         titleContainsDrops: true,
         pageUrl: tab.url ?? url,
         isLive: true,
-        isPlaybackReady: true,
+        isPlaybackReady,
         hasDropsSignal,
       };
     },
@@ -355,6 +356,9 @@ test.each(['playback-failed', 'cancelled'] as const)(
     const tabs = installManagedWatchPages(mocks);
     try {
       const userPage = tabs.add('https://example.org/keep-window');
+      // Background preparation runs in the retained farming tab; a new tab waits for the user's click instead.
+      const retained = tabs.add('https://www.twitch.tv/old_channel');
+      await managedWatchMarker.write(retained.id, 'retained', retained.url);
       const state = createServiceWorkerState();
       state.appState.availableGames = [
         createGame({
@@ -390,7 +394,7 @@ test.each(['playback-failed', 'cancelled'] as const)(
       });
       const initial = await automationBrowser.watch.prepare(nextTarget, 'managed-tab', () => current, true);
       expect(initial.kind).toBe('failed');
-      const initialTabId = required(tabs.created[0]);
+      const initialTabId = retained.id;
       const retainedBeforeRetry = tabs.pages.has(initialTabId);
       ready = true;
       current = true;
@@ -409,7 +413,7 @@ test.each(['playback-failed', 'cancelled'] as const)(
         ownership: retry.watch.ownership,
       }).toMatchObject({
         retainedBeforeRetry: true,
-        created: [initialTabId],
+        created: [],
         removed: [],
         ownership: { kind: 'managed-tab', tabId: initialTabId, expectedChannel: 'third_streamer' },
       });
@@ -659,6 +663,56 @@ test.each([true, false])(
     }
   },
 );
+
+test('browser restart with a restored farming tab waiting for its click brings that tab forward', async () => {
+  setTimingSaveDebounceMsForTests(0);
+  const mocks = setupChromeMocks();
+  const tabs = installManagedWatchPages(mocks);
+  try {
+    const page = tabs.add(url);
+    await managedWatchMarker.write(page.id, 'assembly-owned', url);
+    tabs.pages.delete(page.id);
+    page.id = 83;
+    tabs.pages.set(83, page);
+    mocks.storage.session._store.clear();
+    const state = runningState();
+    const browserEvents = browserEventsFor(state, undefined, true, false, false);
+    // The restored document has no user activation, so Chrome keeps its hidden player paused.
+    mocks.chrome.tabs.sendMessage = async (_tabId, message) =>
+      message.type === 'PREPARE_STREAM_PLAYBACK'
+        ? { isPlaybackReady: false, userInteractionRequired: true }
+        : {};
+    const fetchStreamContext = async () => null;
+    await prepareBrowserSessionResume(state);
+    await assembleServiceWorkerFarmingAutomation(state, {
+      reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
+      browserEvents,
+      startMonitoring: () => {},
+      twitchGateway: {
+        ensureTwitchSession: async () => null,
+        fetchDirectoryStreamers: async () => Object.assign([], { languageFilterApplied: false }),
+        fetchDropsSnapshot: async () => null,
+        getLatestProgressSnapshot: () => null,
+        fetchInventorySnapshot: async () => null,
+        fetchStreamContext,
+        heartbeat: async () => ({ accepted: false }),
+      },
+    });
+    expect(state.appState.activeStreamer).toBeNull();
+    tabs.updated.length = 0;
+
+    await browserEvents.watchTransport.start(createStreamer({ name: 'test_streamer' }));
+
+    expect({
+      created: tabs.created,
+      focused: tabs.updated.filter((update) => update.properties.active === true).map((update) => update.id),
+      reason: state.appState.watchHealth?.reason,
+    }).toEqual({ created: [], focused: [83], reason: 'user-interaction-required' });
+  } finally {
+    setTimingSaveDebounceMsForTests(null);
+    mocks.teardown();
+  }
+});
 
 test.each(['wrong-channel', 'wrong-game', 'missing-tab'] as const)(
   'startup discards stale healthy state after rejecting a %s owned watch',

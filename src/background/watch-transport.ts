@@ -102,6 +102,8 @@ export interface WatchTransport {
 export interface ManagedTabTransportOptions extends ManagedTabOperations {
   readonly now?: () => number;
   readonly failedProbeLimit?: number;
+  /** Delay between probes while a just-started player is still rendering its page details. */
+  readonly probeSettleMs?: number;
 }
 
 export interface TablessTransportOptions {

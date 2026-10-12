@@ -171,6 +171,18 @@ export function createFarmingSessionMonitoring(
     if (!isCurrent()) return false;
     if (health) state.appState.watchHealth = health;
     if (health?.reason === 'user-interaction-required') return false;
+    // A player that already played and then stopped is broken: restart it in place
+    // before the failure budget rotates the streamer.
+    if (
+      health?.mode === 'managed-tab' &&
+      health.status === 'failed' &&
+      health.reason === 'playback-inactive' &&
+      !health.shouldFallback &&
+      state.appState.tabId !== null
+    ) {
+      await adapters.attemptPlaybackSelfHeal(state.appState.tabId, isCurrent);
+      if (!isCurrent()) return false;
+    }
     const key = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
     const metadata = key ? state.appState.queueEntryMetadataByKey[key] : undefined;
     if (

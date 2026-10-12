@@ -112,10 +112,12 @@ export function createServiceWorkerBrowserEvents(
         openOwnedManagedWatch(
           state,
           target,
-          (tabId, isCurrent) =>
+          (tabId, isCurrent, newTab) =>
             playbackOrchestrator.prepareStreamPlayback(tabId, {
               unmuteTab: false,
               muteAfterPrep: true,
+              focusForClick: true,
+              newTab,
               isCurrent,
             }),
           () => watchTransport.currentOwnership(),

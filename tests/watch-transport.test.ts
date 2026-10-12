@@ -74,6 +74,7 @@ describe('ManagedTabTransport', () => {
               ownershipToken: 'candidate',
               expectedChannel: 'channel-one',
             },
+            created: false,
             confirm: async () => true,
             discard: async () => {},
           }),
@@ -189,25 +190,55 @@ describe('ManagedTabTransport', () => {
     });
   });
 
-  test('marks inactive managed playback terminal after exactly three probes', async () => {
+  test('asks for a click instead of failing when the managed player is not playing', async () => {
     const transport = new ManagedTabTransport({
       open: async () => managedSession,
-      probe: async () => ({ accepted: false, reason: 'playback-inactive' }),
+      probe: async () => ({
+        accepted: false,
+        isLive: true,
+        sameChannel: true,
+        sameGame: true,
+        reason: 'playback-inactive',
+      }),
       close: async () => {},
     });
     await transport.start(target);
 
-    const first = await transport.tick();
-    const second = await transport.tick();
-    const third = await transport.tick();
+    for (let tick = 0; tick < 5; tick++) {
+      expect(await transport.tick()).toMatchObject({
+        status: 'degraded',
+        reason: 'user-interaction-required',
+        consecutiveFailures: 0,
+        shouldFallback: false,
+      });
+    }
+  });
 
-    expect(first.shouldFallback).toBe(false);
-    expect(second.shouldFallback).toBe(false);
-    expect(third).toMatchObject({
-      reason: 'playback-inactive',
-      consecutiveFailures: 3,
-      shouldFallback: true,
+  test('a player that stops after verified playback is broken and spends the failure budget', async () => {
+    let playing = true;
+    const transport = new ManagedTabTransport({
+      open: async () => managedSession,
+      probe: async () => ({
+        accepted: playing,
+        isLive: true,
+        sameChannel: true,
+        sameGame: true,
+        reason: playing ? 'heartbeat' : 'playback-inactive',
+      }),
+      close: async () => {},
     });
+    await transport.start(target);
+    expect(await transport.tick()).toMatchObject({ status: 'healthy' });
+    playing = false;
+
+    for (const consecutiveFailures of [1, 2, 3]) {
+      expect(await transport.tick()).toMatchObject({
+        status: 'failed',
+        reason: 'playback-inactive',
+        consecutiveFailures,
+        shouldFallback: consecutiveFailures === 3,
+      });
+    }
   });
 });
 

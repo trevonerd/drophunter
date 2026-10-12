@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { createWatchHealth } from '../src/background/watch-health.ts';
 import { normalizeWatchHealth } from '../src/shared/app-state-runtime-normalizers.ts';
 import { gameKey } from '../src/shared/game-selection.ts';
-import { createUserStatusModel } from '../src/shared/user-status.ts';
+import { createUserStatusModel, effectiveTransport } from '../src/shared/user-status.ts';
 import { createInitialState } from '../src/shared/utils.ts';
 import type { CampaignSyncState } from '../src/types';
 
@@ -24,7 +24,7 @@ test('popup and monitor request a video gesture without showing active progress 
     progressState: 'waiting',
     label: 'Start the video',
   });
-  expect(status.detail).toContain('Click Play');
+  expect(status.detail).toContain('Click the video in the Twitch tab once');
   expect(status.detail).not.toContain('retry');
   expect(
     createUserStatusModel({ state, runtimeMode: 'paused', currentAutomatableDrop: null, recoveryNow: 100 })
@@ -232,4 +232,22 @@ test('repeated campaign validation failures still warn', () => {
     recoveryNow: 0,
   });
   expect(status).toMatchObject({ label: 'Campaigns pending validation', tone: 'warning' });
+});
+
+test('a pending tab-mode switch shows the preferred Tab transport instead of the previous Hidden one', () => {
+  const state = createInitialState();
+  state.isRunning = true;
+  state.tabId = 12;
+  state.watchTransportPreference = 'managed-tab';
+  state.watchTransportMode = 'tabless';
+  state.pendingWatchTarget = {
+    game: { id: 'g', name: 'Game' },
+    channelName: 'w0n23',
+  } as NonNullable<typeof state.pendingWatchTarget>;
+
+  expect(effectiveTransport(state)?.label).toBe('Tab');
+
+  state.pendingWatchTarget = null;
+  state.activeStreamer = { id: 'w0n23', name: 'w0n23', displayName: 'w0n23', isLive: true, viewerCount: 1 };
+  expect(effectiveTransport(state)?.label).toBe('Hidden');
 });

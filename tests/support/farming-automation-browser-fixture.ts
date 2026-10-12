@@ -113,7 +113,7 @@ export function createAdapter(
         operations.push(`wait:${timeoutMs}`);
       },
       preparePlayback: async (_tabId, options) => {
-        operations.push(`prep:${options.activateTab}:${options.unmuteTab}:${options.muteAfterPrep}`);
+        operations.push(`prep:${options.newTab}:${options.unmuteTab}:${options.muteAfterPrep}`);
         return fixtureOptions.playbackPreparation ?? { isPlaybackReady: true };
       },
       probeManaged: async (_ownership, explicitTarget) => {

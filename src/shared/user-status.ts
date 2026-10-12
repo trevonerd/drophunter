@@ -75,7 +75,10 @@ export function effectiveTransport(state: AppState): EffectiveTransport | null {
     return { mode: 'manual-tab', label: 'Manual tab', icon: 'monitor' };
   }
   if (!state.activeStreamer && state.tabId === null) return null;
-  switch (state.watchTransportMode) {
+  const preparing =
+    state.pendingWatchTarget !== null ||
+    (!state.activeStreamer && state.watchHealth?.reason === 'playback-pending');
+  switch (preparing ? state.watchTransportPreference : state.watchTransportMode) {
     case 'tabless':
       return { mode: 'hidden', label: 'Hidden', icon: 'eye-off' };
     case 'managed-tab':
@@ -148,7 +151,7 @@ export function createUserStatusModel({
       label: 'Start the video',
       badge: 'ATTENTION',
       subject,
-      detail: 'Click Play in the Twitch tab. Farming resumes when playback starts.',
+      detail: 'Click the video in the Twitch tab once and leave the tab open.',
       tone: 'neutral',
     };
   }

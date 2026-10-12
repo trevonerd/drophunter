@@ -22,12 +22,7 @@ describe('farming automation browser', () => {
     const preparation = await adapter.watch.prepare(target, 'managed-tab');
 
     // Then: preparation is inactive/muted, probes B once, and cannot disturb A.
-    expect(operations).toEqual([
-      'open:false:true',
-      'wait:15000',
-      'prep:false:false:true',
-      'probe:campaign-b',
-    ]);
+    expect(operations).toEqual(['open:false:true', 'wait:15000', 'prep:true:false:true', 'probe:campaign-b']);
     expect(adapter.watch.currentOwnership()).toEqual(incumbent);
     expect(preparation.kind).toBe('prepared');
     if (preparation.kind !== 'prepared') throw new Error('Expected a prepared managed watch');
@@ -101,7 +96,7 @@ describe('farming automation browser', () => {
     expect(operations).toEqual([
       'open:false:true',
       'wait:15000',
-      'prep:false:false:true',
+      'prep:true:false:true',
       'probe:campaign-b',
       'remove:22',
     ]);

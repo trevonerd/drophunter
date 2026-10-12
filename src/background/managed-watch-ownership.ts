@@ -19,6 +19,8 @@ type ManagedOwnership = Extract<WatchOwnershipV1, { kind: 'managed-tab' }>;
 
 interface ManagedWatchCandidate {
   readonly ownership: ManagedOwnership;
+  /** A new document has no user activation, so its player cannot start in the background. */
+  readonly created: boolean;
   confirm(): Promise<boolean>;
   discard(): Promise<void>;
 }
@@ -150,6 +152,7 @@ export function createManagedWatchOwnership(
       let confirmed = false;
       const candidate: ManagedWatchCandidate = {
         ownership,
+        created: tab.reused !== true,
         confirm: () => {
           if (disposal) return Promise.resolve(false);
           confirmation ??= (async () => {

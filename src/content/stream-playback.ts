@@ -131,6 +131,8 @@ export async function prepareStreamPlayback() {
   ) {
     userInteractionRequired = true;
   }
+  // Chrome keeps muted autoplay paused in a hidden page until the user has clicked it once.
+  if (!isPlaybackReady && !hasUserActivation && document.hidden && video) userInteractionRequired = true;
   return {
     played,
     clickedSurface: false,

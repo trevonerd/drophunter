@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createFarmingSession } from '../src/background/farming-session.ts';
+import { managedWatchMarker } from '../src/background/managed-watch-marker.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { createServiceWorkerBrowserEvents } from '../src/background/service-worker-browser-events.ts';
 import { extractStreamContext } from '../src/content/stream-context.ts';
@@ -29,6 +30,9 @@ for (const command of ['Start Queue', 'queued Play'] as const) {
       };
       let mountTimer: ReturnType<typeof setTimeout> | undefined;
       try {
+        // Background preparation runs in the retained farming tab; a new tab waits for the user's click instead.
+        const retained = tabs.add('https://www.twitch.tv/old_channel');
+        await managedWatchMarker.write(retained.id, 'retained', retained.url);
         const state = createServiceWorkerState();
         const game = createGame({
           id: 'albion',

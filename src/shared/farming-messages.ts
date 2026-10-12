@@ -9,7 +9,7 @@ export function farmingMessages(state: AppState) {
     messages.push({
       id: `playback-gesture:${selectedKey}:${attempt?.observedAt ?? state.tabId ?? 0}`,
       kind: 'info',
-      text: 'Click Play in the Twitch tab to start the video. DropHunter will check reward progress automatically.',
+      text: 'Click the video in the Twitch tab once (Play or unmute) and leave the tab open. DropHunter checks reward progress automatically.',
     });
   }
   if (

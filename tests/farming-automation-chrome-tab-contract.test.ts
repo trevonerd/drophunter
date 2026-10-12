@@ -27,7 +27,7 @@ test('production Chrome host prepares a muted candidate using valid create and u
       'create:false',
       'update:22:true',
       'wait:15000',
-      'prep:false:false:true',
+      'prep:true:false:true',
       'probe:campaign-b',
     ]);
   } finally {

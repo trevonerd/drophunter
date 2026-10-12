@@ -32,6 +32,7 @@ test.each([
     const streamer = createStreamer({ name: 'nika' });
     Object.assign(state.appState, {
       watchTransportPreference: 'managed-tab',
+      tablessFallbackEnabled: false,
       queue: [game],
       availableGames: [game],
     });
@@ -81,7 +82,8 @@ test.each([
     );
     expect(await farming.handleStartQueuedCampaign(gameKey(game))).toEqual({ success: true });
     await farming.checkDropProgress();
-    if (scenario === 'gesture-category-loading') {
+    // A new tab never prepares playback: it waits for the user's click whatever the player reports.
+    if (scenario === 'gesture-category-loading' || scenario === 'playing-category-loading') {
       expect(state.appState.activeStreamer?.name).toBe('nika');
       expect(state.appState.watchHealth).toMatchObject({
         status: 'degraded',

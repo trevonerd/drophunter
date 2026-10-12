@@ -10,7 +10,7 @@ import type { FarmingTarget, ManagedTabOpenResult } from './watch-transport.ts';
 export async function openOwnedManagedWatch(
   state: ServiceWorkerState,
   target: FarmingTarget,
-  preparePlayback: (tabId: number, isCurrent: () => boolean) => Promise<PlaybackPrepResult>,
+  preparePlayback: (tabId: number, isCurrent: () => boolean, newTab: boolean) => Promise<PlaybackPrepResult>,
   currentOwnership: () => WatchOwnershipV1 | null = () => null,
   externalIsCurrent: () => boolean = () => true,
   ownedTabs: ManagedWatchOwnership = createChromeFarmingAutomationHost(
@@ -39,7 +39,7 @@ export async function openOwnedManagedWatch(
     state.appState.activeStreamer = null;
     state.appState.watchHealth = null;
     state.appState.tabId = tabId;
-    const prepared = await preparePlayback(tabId, isCurrent);
+    const prepared = await preparePlayback(tabId, isCurrent, candidate.created);
     accepted = isCurrent();
     if (!accepted) return null;
     return {

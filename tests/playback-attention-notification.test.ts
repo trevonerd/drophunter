@@ -107,7 +107,10 @@ test('the main farming flow keeps the gesture local across ticks and worker reco
   await f.session().checkDropProgress();
   expect(farmingMessages(f.state.appState)).toEqual(first);
   expect(first).toHaveLength(1);
-  expect(first[0]).toMatchObject({ kind: 'info', text: expect.stringContaining('Click Play') });
+  expect(first[0]).toMatchObject({
+    kind: 'info',
+    text: expect.stringContaining('Click the video in the Twitch tab once'),
+  });
   expect(f.browserAlerts).toEqual([]);
   expect(f.telegramAlerts).toEqual([]);
 });

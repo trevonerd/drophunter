@@ -10,6 +10,10 @@ export type PlaybackPreparationOptions = {
   readonly activateTab?: boolean;
   readonly unmuteTab?: boolean;
   readonly muteAfterPrep?: boolean;
+  /** A new document cannot start playback in the background: skip preparation and wait for the user's click. */
+  readonly newTab?: boolean;
+  /** Bring the tab forward only when playback needs the user's click. */
+  readonly focusForClick?: boolean;
   readonly isCurrent?: () => boolean;
 };
 
@@ -90,6 +94,10 @@ export function createPlaybackTransport(options: PlaybackTransportOptions): Play
     let expired = false;
     const isCurrent = () => !expired && (preparation?.isCurrent?.() ?? true);
     if (!isCurrent()) return {};
+    if (preparation?.newTab) {
+      await focus(tabId, isCurrent);
+      return isCurrent() ? { userInteractionRequired: true } : {};
+    }
     const deadline = Date.now() + PLAYBACK_PREPARATION_TIMEOUT_MS;
     const maxAttempts = PLAYBACK_PREPARATION_TIMEOUT_MS / PLAYBACK_PREPARATION_POLL_MS;
     let prepared: PlaybackPrepResult = {};
@@ -143,8 +151,10 @@ export function createPlaybackTransport(options: PlaybackTransportOptions): Play
     const result = await withRecoveryTimeout(run(), PLAYBACK_PREPARATION_TIMEOUT_MS, () => {
       expired = true;
     });
-    if (result !== null) return result;
-    return preparation?.isCurrent?.() !== false && prepared.playbackPending ? prepared : {};
+    if (result === null)
+      return preparation?.isCurrent?.() !== false && prepared.playbackPending ? prepared : {};
+    if (preparation?.focusForClick && result.userInteractionRequired) await focus(tabId, isCurrent);
+    return result;
   }
 
   return {
