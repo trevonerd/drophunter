@@ -236,7 +236,7 @@ export function GameCampaignGroup(props: GameCampaignGroupProps) {
           >
             <button
               type="button"
-              className="dh-action-secondary dh-focus h-7 shrink-0 rounded-md px-2 text-[10px] font-semibold disabled:opacity-45"
+              className="dh-action-secondary dh-focus h-7 min-w-[3.5rem] shrink-0 rounded-md px-2 text-center text-[10px] font-semibold tabular-nums disabled:opacity-45"
               aria-label={
                 props.hidden
                   ? `Restore ${props.group.name} to available games`
