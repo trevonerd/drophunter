@@ -65,6 +65,7 @@ function fixture(
     queue: games,
     availableGames: games,
     watchTransportPreference: 'managed-tab',
+    tablessFallbackEnabled: false,
   });
   state.cachedDropsSnapshot = drops;
   const opened: string[] = [];

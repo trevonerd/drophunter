@@ -66,6 +66,7 @@ export const createInitialState = (): AppState => ({
   manualWatchState: 'inactive',
   campaignAvailabilityByKey: {},
   watchTransportPreference: 'tabless',
+  tablessFallbackEnabled: true,
   watchTransportMode: 'tabless',
   watchHealth: null,
   monitorWindowId: null,

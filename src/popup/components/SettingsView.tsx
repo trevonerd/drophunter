@@ -17,6 +17,7 @@ export function SettingsView(props: SettingsViewProps) {
     notificationPermissionDenied,
     onFarmCategoryScopeChange,
     onWatchTransportModeChange,
+    onTablessFallbackToggle,
   } = props;
 
   return (
@@ -51,6 +52,7 @@ export function SettingsView(props: SettingsViewProps) {
           onNotificationsEnabledToggle={onNotificationsEnabledToggle}
           onFarmCategoryScopeChange={onFarmCategoryScopeChange}
           onWatchTransportModeChange={onWatchTransportModeChange}
+          onTablessFallbackToggle={onTablessFallbackToggle}
         />
         <AdvancedSettings {...props} />
         <SettingsBackup state={state} />

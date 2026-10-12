@@ -63,6 +63,7 @@ describe('campaign handoff through the farming session', () => {
       pendingDrops: [drops[0]],
       currentDrop: drops[0],
       watchTransportPreference: 'managed-tab',
+      tablessFallbackEnabled: false,
     });
     state.cachedDropsSnapshot = drops;
     let opens = 0;

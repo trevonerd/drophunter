@@ -132,6 +132,7 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
       channelPointsBonusClaimed: (message, sender) =>
         contentHandlers.handleChannelPointsBonusClaimed(message.payload, sender),
       setAutoClaimDrops: (message) => settingsHandlers.handleSetAutoClaimDrops(message.payload),
+      setTablessFallback: (message) => settingsHandlers.handleSetTablessFallback(message.payload),
       setStreamerSelectionMode: (message) => settingsHandlers.handleSetStreamerSelectionMode(message.payload),
       setPreferredStreamerLanguage: (message) =>
         settingsHandlers.handleSetPreferredStreamerLanguage(message.payload),

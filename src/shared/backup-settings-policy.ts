@@ -10,4 +10,5 @@ export const BACKUP_SETTINGS = {
   campaignPriorityMode: ['ending-soonest', 'lowest-availability', 'priority-list-only'],
   farmCategoryScope: ['all', 'favorites-only'],
   watchTransportPreference: ['managed-tab', 'tabless'],
+  tablessFallbackEnabled: 'boolean',
 } as const;

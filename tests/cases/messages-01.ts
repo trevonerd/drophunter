@@ -95,6 +95,7 @@ describe('runtime message protocol', () => {
       'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
       'SET_AUTO_CLAIM_DROPS',
       'SET_AUTO_START_FAVORITES',
+      'SET_TABLESS_FALLBACK',
     ] as const satisfies readonly RuntimeRequest['type'][];
 
     expect(Object.keys(BOOLEAN_TOGGLE_MESSAGES)).toEqual([...expectedTypes]);
@@ -107,6 +108,7 @@ describe('runtime message protocol', () => {
       'autoClaimChannelPointsBonus',
       'autoClaimDrops',
       'autoStartFavoriteGames',
+      'tablessFallbackEnabled',
     ]);
 
     type ToggleResponseField =

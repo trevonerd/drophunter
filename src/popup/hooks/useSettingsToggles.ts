@@ -32,7 +32,8 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     | 'monitorAutoOpen'
     | 'muteFarmingTab'
     | 'autoClaimChannelPointsBonus'
-    | 'autoClaimDrops';
+    | 'autoClaimDrops'
+    | 'tablessFallbackEnabled';
 
   const makeToggleHandler =
     <Response extends { readonly success: boolean }>(
@@ -68,6 +69,12 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     'autoClaimDrops',
     (enabled) => sendRuntimeMessage({ type: 'SET_AUTO_CLAIM_DROPS', payload: { enabled } }),
     (response, next) => ({ autoClaimDrops: response.autoClaimDrops ?? next }),
+  );
+
+  const handleTablessFallbackToggle = makeToggleHandler(
+    'tablessFallbackEnabled',
+    (enabled) => sendRuntimeMessage({ type: 'SET_TABLESS_FALLBACK', payload: { enabled } }),
+    (response, next) => ({ tablessFallbackEnabled: response.tablessFallbackEnabled ?? next }),
   );
 
   const handleMuteFarmingTabToggle = makeToggleHandler(
@@ -177,6 +184,7 @@ export function useSettingsToggles({ state, setState }: UseSettingsTogglesArgs) 
     handleMonitorAutoOpenToggle,
     handleAutoClaimChannelPointsBonusToggle,
     handleAutoClaimDropsToggle,
+    handleTablessFallbackToggle,
     handleMuteFarmingTabToggle,
     handleNotificationsEnabledToggle,
     handleAutoStartFavoriteGamesToggle,

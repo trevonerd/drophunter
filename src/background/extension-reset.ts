@@ -65,6 +65,7 @@ export function createExtensionUpdateAppState(
     streamerSelectionMode: appState.streamerSelectionMode,
     preferredStreamerLanguage: appState.preferredStreamerLanguage,
     watchTransportPreference: appState.watchTransportPreference,
+    tablessFallbackEnabled: appState.tablessFallbackEnabled,
     watchTransportMode: appState.watchTransportPreference,
     favoriteGames: appState.favoriteGames,
     hiddenGames: appState.hiddenGames,

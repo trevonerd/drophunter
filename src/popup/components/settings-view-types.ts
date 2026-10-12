@@ -22,6 +22,7 @@ export interface SettingsViewProps {
   >;
   onAutoClaimChannelPointsBonusToggle: () => void;
   onAutoClaimDropsToggle: () => void;
+  onTablessFallbackToggle?: () => void;
   onStreamerSelectionModeChange: (mode: StreamerSelectionMode) => void;
   onPreferredStreamerLanguageChange: (language: string) => void;
   onFarmCategoryScopeChange?: (scope: FarmCategoryScope) => void;

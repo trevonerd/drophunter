@@ -80,6 +80,7 @@ function fixture(
     pendingDrops: [drop],
     allDrops: [drop],
     watchTransportPreference: mode,
+    tablessFallbackEnabled: false,
     watchTransportMode: mode,
     streamerSelectionMode: 'top-viewers',
   });

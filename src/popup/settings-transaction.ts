@@ -9,6 +9,7 @@ type TransactionalSettingKey =
   | 'autoStartFavoriteGames'
   | 'farmCategoryScope'
   | 'watchTransportPreference'
+  | 'tablessFallbackEnabled'
   | 'streamerSelectionMode'
   | 'preferredStreamerLanguage';
 

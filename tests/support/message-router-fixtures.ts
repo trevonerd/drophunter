@@ -47,6 +47,7 @@ export function createHandlers(overrides: Partial<RuntimeMessageHandlers> = {}):
     setAutoClaimChannelPointsBonus: missing,
     channelPointsBonusClaimed: missing,
     setAutoClaimDrops: missing,
+    setTablessFallback: missing,
     setStreamerSelectionMode: missing,
     setPreferredStreamerLanguage: missing,
     setGameFavorite: missing,

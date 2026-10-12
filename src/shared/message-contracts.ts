@@ -32,6 +32,7 @@ export const RUNTIME_MESSAGE_TYPES = [
   'GET_TELEGRAM_SETTINGS',
   'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS',
   'SET_AUTO_CLAIM_DROPS',
+  'SET_TABLESS_FALLBACK',
   'SET_GAME_FAVORITE',
   'SET_GAME_PREFERENCE',
   'SET_CAMPAIGN_PRIORITY_MODE',
@@ -83,6 +84,7 @@ export const BOOLEAN_TOGGLE_MESSAGES = {
   SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS: { responseField: 'autoClaimChannelPointsBonus' },
   SET_AUTO_CLAIM_DROPS: { responseField: 'autoClaimDrops' },
   SET_AUTO_START_FAVORITES: { responseField: 'autoStartFavoriteGames' },
+  SET_TABLESS_FALLBACK: { responseField: 'tablessFallbackEnabled' },
 } as const satisfies Partial<Record<RuntimeMessageType, { responseField: keyof AppState }>>;
 
 type BooleanToggleMessageType = keyof typeof BOOLEAN_TOGGLE_MESSAGES;

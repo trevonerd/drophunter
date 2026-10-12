@@ -1,9 +1,11 @@
 import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import { gameKey } from '../shared/game-selection.ts';
+import { isExpiredGame } from '../shared/utils.ts';
 import type { TwitchGame } from '../types/index.ts';
 import { cloneCampaignWorkingState } from './farming-campaign-transition.ts';
 import { reconcileFarmingSessionTargets, unresolvedFarmingTargets } from './farming-session-targets.ts';
-import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
+import { logInfo } from './logging.ts';
+import { markQueueCampaignAttempted, restartQueueAcquisitionRound } from './queue-acquisition-round.ts';
 import { removeQueueEntriesForHeadGame } from './queue-operations.ts';
 import { applyRecoveryState } from './recovery-state.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
@@ -28,6 +30,21 @@ type QueueProgressionRequest = {
   readonly hasScheduledWaiting?: boolean;
   readonly options: QueueProgressionExecution;
 };
+
+// A full pass in tab mode where every campaign ended on streamer playback or stall failures.
+function completedTabPassWithoutProgress(state: ServiceWorkerState, hasScheduledWaiting: boolean): boolean {
+  const app = state.appState;
+  if (!app.tablessFallbackEnabled || app.watchTransportPreference !== 'managed-tab' || hasScheduledWaiting)
+    return false;
+  const remaining = app.queue.filter((game) => !isExpiredGame(game));
+  return (
+    remaining.length > 0 &&
+    remaining.every((game) => {
+      const reason = app.queueEntryMetadataByKey[gameKey(game)]?.streamerRetryReason;
+      return reason === 'open-failed' || reason === 'stalled-progress';
+    })
+  );
+}
 
 export async function progressFarmingQueue(
   state: ServiceWorkerState,
@@ -106,6 +123,13 @@ export async function progressFarmingQueue(
     await options.onSaveState();
   }
   if (!options.isCurrent()) return { kind: 'cancelled' };
+  if (completedTabPassWithoutProgress(state, hasScheduledWaiting)) {
+    logInfo('Tab mode made no progress across the queue; switching to tabless and restarting the queue');
+    state.appState.watchTransportPreference = 'tabless';
+    restartQueueAcquisitionRound(state, options.now());
+    await options.onSaveState();
+    return progressFarmingQueue(state, { ...request, hasScheduledWaiting: false });
+  }
   if (await waitForParkedQueue(state, request.restrictUnauthorizedManualContinuation, options))
     return { kind: 'waiting' };
   if (hasScheduledWaiting && state.appState.queue.length > 0) {

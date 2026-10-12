@@ -59,6 +59,7 @@ export interface RuntimeMessageHandlers {
   setAutoClaimChannelPointsBonus: RuntimeMessageHandler<'SET_AUTO_CLAIM_CHANNEL_POINTS_BONUS'>;
   channelPointsBonusClaimed: RuntimeMessageHandler<'CHANNEL_POINTS_BONUS_CLAIMED'>;
   setAutoClaimDrops: RuntimeMessageHandler<'SET_AUTO_CLAIM_DROPS'>;
+  setTablessFallback: RuntimeMessageHandler<'SET_TABLESS_FALLBACK'>;
   setStreamerSelectionMode: RuntimeMessageHandler<'SET_STREAMER_SELECTION_MODE'>;
   setPreferredStreamerLanguage: RuntimeMessageHandler<'SET_PREFERRED_STREAMER_LANGUAGE'>;
   setGameFavorite: RuntimeMessageHandler<'SET_GAME_FAVORITE'>;
@@ -210,6 +211,8 @@ export function createRuntimeMessageListener(
         return respond(() => handlers.channelPointsBonusClaimed(message, sender));
       case 'SET_AUTO_CLAIM_DROPS':
         return respond(() => handlers.setAutoClaimDrops(message, sender));
+      case 'SET_TABLESS_FALLBACK':
+        return respond(() => handlers.setTablessFallback(message, sender));
       case 'SET_STREAMER_SELECTION_MODE':
         return respond(() => handlers.setStreamerSelectionMode(message, sender));
       case 'SET_PREFERRED_STREAMER_LANGUAGE':

@@ -90,6 +90,13 @@ export function createServiceWorkerSettingsHandlers(
     return { success: true, autoClaimDrops: state.appState.autoClaimDrops };
   }
 
+  async function handleSetTablessFallback(payload?: { readonly enabled?: boolean }) {
+    await trackActivity('set-tabless-fallback');
+    state.appState = { ...state.appState, tablessFallbackEnabled: payload?.enabled === true };
+    await saveState(state);
+    return { success: true, tablessFallbackEnabled: state.appState.tablessFallbackEnabled };
+  }
+
   async function handleSetStreamerSelectionMode(payload?: {
     readonly mode?: 'low-view' | 'random' | 'top-viewers';
   }) {
@@ -126,6 +133,7 @@ export function createServiceWorkerSettingsHandlers(
     handleGetTelegramSettings,
     handleSetAutoClaimChannelPointsBonus,
     handleSetAutoClaimDrops,
+    handleSetTablessFallback,
     handleSetMonitorAutoOpen,
     handleSetMuteFarmingTab,
     handleSetNotificationsEnabled,

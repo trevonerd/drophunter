@@ -207,6 +207,7 @@ export interface AppState {
   manualWatchState: ManualWatchState;
   campaignAvailabilityByKey: Record<string, CampaignAvailability>;
   watchTransportPreference: WatchTransportMode;
+  tablessFallbackEnabled: boolean;
   watchTransportMode: WatchTransportMode;
   watchHealth: WatchHealthSnapshot | null;
   monitorWindowId: number | null;

@@ -163,6 +163,10 @@ export function normalizeStoredAppState(value: unknown): AppState {
       value.watchTransportPreference === 'tabless' || value.watchTransportPreference === 'managed-tab'
         ? value.watchTransportPreference
         : defaults.watchTransportPreference,
+    tablessFallbackEnabled:
+      typeof value.tablessFallbackEnabled === 'boolean'
+        ? value.tablessFallbackEnabled
+        : defaults.tablessFallbackEnabled,
     watchTransportMode:
       value.watchTransportMode === 'tabless' || value.watchTransportMode === 'managed-tab'
         ? value.watchTransportMode

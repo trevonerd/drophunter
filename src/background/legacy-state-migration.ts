@@ -47,6 +47,7 @@ export function transformLegacyAppState(value: unknown): AppState {
       defaults.autoClaimChannelPointsBonus,
     ),
     autoClaimDrops: validBoolean(source.autoClaimDrops, defaults.autoClaimDrops),
+    tablessFallbackEnabled: validBoolean(source.tablessFallbackEnabled, defaults.tablessFallbackEnabled),
     streamerSelectionMode: validEnum(
       source.streamerSelectionMode,
       ['low-view', 'random', 'top-viewers'],

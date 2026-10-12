@@ -123,6 +123,7 @@ function App() {
         onWatchTransportModeChange: (mode) => void settings.handleWatchTransportModeChange(mode),
         onAutoClaimChannelPointsBonusToggle: () => void settings.handleAutoClaimChannelPointsBonusToggle(),
         onAutoClaimDropsToggle: () => void settings.handleAutoClaimDropsToggle(),
+        onTablessFallbackToggle: () => void settings.handleTablessFallbackToggle(),
         onStreamerSelectionModeChange: (mode) => void settings.handleStreamerSelectionModeChange(mode),
         onPreferredStreamerLanguageChange: (language) =>
           void settings.handlePreferredStreamerLanguageChange(language),

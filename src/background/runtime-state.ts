@@ -28,6 +28,7 @@ export function pickDurablePreferences(appState: AppState) {
     streamerSelectionMode: appState.streamerSelectionMode,
     preferredStreamerLanguage: appState.preferredStreamerLanguage,
     watchTransportPreference: appState.watchTransportPreference,
+    tablessFallbackEnabled: appState.tablessFallbackEnabled,
     favoriteGames: appState.favoriteGames,
     hiddenGames: appState.hiddenGames,
     campaignPriorityMode: appState.campaignPriorityMode,

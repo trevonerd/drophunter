@@ -7,6 +7,7 @@ interface FarmingAutomationSettingsProps {
   readonly onNotificationsEnabledToggle: () => void;
   readonly onFarmCategoryScopeChange?: (scope: FarmCategoryScope) => void;
   readonly onWatchTransportModeChange?: (mode: WatchTransportMode) => void;
+  readonly onTablessFallbackToggle?: () => void;
 }
 
 function isFarmCategoryScope(value: string): value is FarmCategoryScope {
@@ -23,6 +24,7 @@ export function FarmingAutomationSettings({
   onNotificationsEnabledToggle,
   onFarmCategoryScopeChange,
   onWatchTransportModeChange,
+  onTablessFallbackToggle,
 }: FarmingAutomationSettingsProps) {
   return (
     <section className="dh-panel dh-contain px-3 py-2.5" aria-labelledby="farming-automation-heading">
@@ -77,6 +79,15 @@ export function FarmingAutomationSettings({
             </p>
           )}
         </div>
+        {onTablessFallbackToggle && (
+          <SettingRow
+            title="Fall back to no-tab mode"
+            description="If a full pass of the queue in tab mode makes no progress, switch to no-tab mode and restart the queue."
+            checked={state.tablessFallbackEnabled}
+            ariaLabel="Fall back to no-tab mode"
+            onToggle={onTablessFallbackToggle}
+          />
+        )}
         <SettingRow
           title="Notifications"
           description="Show desktop alerts for farming and automation events."
