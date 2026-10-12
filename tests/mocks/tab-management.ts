@@ -2,7 +2,7 @@ interface TabUpdateInfo {
   readonly status?: string;
 }
 
-export interface TabManagementTab {
+interface TabManagementTab {
   readonly id?: number;
   readonly url?: string;
   readonly title?: string;

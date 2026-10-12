@@ -20,15 +20,6 @@ export function createDeferred<T>(): Deferred<T> {
   };
 }
 
-export interface Barrier<T = void> extends Deferred<T> {
-  readonly release: (value: T) => void;
-}
-
-export function createBarrier<T = void>(defaultValue: T): Barrier<T> {
-  const deferred = createDeferred<T>();
-  return { ...deferred, release: (value = defaultValue) => deferred.resolve(value) };
-}
-
 export interface ExecutionBarrier<T = void> {
   readonly started: Promise<void>;
   readonly promise: Promise<T>;

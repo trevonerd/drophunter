@@ -19,10 +19,8 @@ import {
 
 export type {
   FarmingAutomation,
-  FarmingAutomationFailureReason,
   FarmingAutomationOutcome,
   FarmingAutomationTrigger,
-  FarmingAutomationUnchangedReason,
 } from './farming-automation-contracts.ts';
 
 interface FarmingAutomationHarnessDependencies {

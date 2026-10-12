@@ -5,8 +5,8 @@ import type { AppState } from '../types/index.ts';
 import { logWarn } from './logging.ts';
 import { TwitchDirectoryUnavailableError, TwitchHttpError } from './twitch-api/errors.ts';
 
-export const RUNTIME_DIAGNOSTICS_STORAGE_KEY = 'runtimeDiagnostics';
-export const MAX_RUNTIME_DIAGNOSTIC_EVENTS = 200;
+const RUNTIME_DIAGNOSTICS_STORAGE_KEY = 'runtimeDiagnostics';
+const MAX_RUNTIME_DIAGNOSTIC_EVENTS = 200;
 
 const PHASES = [
   'idle',

@@ -1,4 +1,4 @@
-export type ChannelPointsClaimReason = 'claimed' | 'not-available' | 'not-supported-page';
+type ChannelPointsClaimReason = 'claimed' | 'not-available' | 'not-supported-page';
 
 export interface ChannelPointsClaimResult {
   claimed: boolean;

@@ -38,7 +38,7 @@ export type FarmingSessionStopOptions = {
   readonly stopMessage?: string | null;
 };
 
-export type FarmingSessionAuthRecoveryOptions = {
+type FarmingSessionAuthRecoveryOptions = {
   readonly notification?: { readonly title: string; readonly message: string };
 };
 
@@ -347,7 +347,7 @@ export function createFarmingSessionHandlers(
   };
 }
 
-export type FarmingSessionStartDependencies = {
+type FarmingSessionStartDependencies = {
   readonly onEnsureWorkspace: (isCurrent?: () => boolean) => Promise<void>;
   readonly onRefreshDropsData: (options?: RefreshDropsOptions) => Promise<unknown>;
   readonly onAdvanceQueueIfCompleted: (isCurrent?: () => boolean) => Promise<boolean>;
@@ -360,7 +360,7 @@ function superseded(): StartFarmingResult {
   return { success: false, error: 'Farming start was superseded.' };
 }
 
-export async function runFarmingSessionStart(
+async function runFarmingSessionStart(
   context: FarmingSessionContext,
   dependencies: FarmingSessionStartDependencies,
   payload: StartFarmingPayload,

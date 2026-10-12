@@ -10,7 +10,7 @@ export type ActivationTrigger =
   | 'favorite-change'
   | 'manual';
 
-export const ACTIVATION_SYNC_ERROR_KINDS = {
+const ACTIVATION_SYNC_ERROR_KINDS = {
   auth: 'auth',
   session: 'session',
   integrity: 'integrity',

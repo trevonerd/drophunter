@@ -13,7 +13,6 @@ import { sanitizeTwitchSession, type TwitchSession } from './twitch-api/types.ts
 export {
   currentTwitchSessionRevision,
   discardPersistedTwitchSessionIfMatches,
-  invalidateTwitchSessionRevision,
   persistTwitchSession,
 } from './session-credentials-storage.ts';
 export { readTwitchSessionViaExecuteScript } from './session-page-extraction.ts';

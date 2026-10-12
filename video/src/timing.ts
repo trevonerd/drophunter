@@ -1,7 +1,7 @@
 import { useCurrentFrame } from "remotion";
 
 export const OUTPUT_FPS = 60;
-export const AUTHORING_FPS = 30;
+const AUTHORING_FPS = 30;
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const HD_WIDTH = 1920;

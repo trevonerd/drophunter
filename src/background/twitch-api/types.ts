@@ -13,7 +13,7 @@ export interface PlaybackAccessToken {
   readonly signature: string;
 }
 
-export interface TwitchGraphQLError {
+interface TwitchGraphQLError {
   message?: string;
 }
 

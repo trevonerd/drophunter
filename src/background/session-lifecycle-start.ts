@@ -20,7 +20,7 @@ import type {
   StartFarmingResult,
 } from './session-lifecycle-types.ts';
 
-export function startRejectionMessage(game: TwitchGame): string | null {
+function startRejectionMessage(game: TwitchGame): string | null {
   const summary = game.rewardSummary;
   if (!summary || summary.completion === 'farmable') {
     return null;

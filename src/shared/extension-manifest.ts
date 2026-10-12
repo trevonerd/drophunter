@@ -1,6 +1,6 @@
 export const TWITCH_MATCHES = ['https://*.twitch.tv/*'] as const;
 // Twitch's video CDN, where tabless farming requests live HLS media.
-export const TWITCH_VIDEO_HOST = 'https://*.ttvnw.net/*';
+const TWITCH_VIDEO_HOST = 'https://*.ttvnw.net/*';
 
 export const EXTENSION_MANIFEST = {
   name: 'DropHunter',

@@ -14,7 +14,6 @@ import {
   type TablessHeartbeat,
   TablessTransport,
   type WatchHealth,
-  type WatchProbeResult,
   type WatchTransport,
 } from './watch-transport.ts';
 import { createFarmingTarget, createInactiveWatchHealth } from './watch-transport-state.ts';
@@ -484,4 +483,4 @@ export function createWatchTransportCoordinator(
   };
 }
 
-export type { ManagedTabOpenResult, WatchProbeResult };
+export type { ManagedTabOpenResult };

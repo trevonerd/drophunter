@@ -8,25 +8,25 @@ import type {
 import { detectManualViewing } from './manual-watch-detector.ts';
 import { MANUAL_WATCH_TTL_MS } from './manual-watch-policy.ts';
 
-export type FarmingAutomationWakeResult = 'scheduled' | 'cleared' | 'failed';
+type FarmingAutomationWakeResult = 'scheduled' | 'cleared' | 'failed';
 
-export interface FarmingAutomationWake {
+interface FarmingAutomationWake {
   readonly replaceDeadline: (at: number | null) => Promise<FarmingAutomationWakeResult>;
 }
 
-export type ManualWatchTransportDirective =
+type ManualWatchTransportDirective =
   | { readonly kind: 'suspend'; readonly transitionId: string }
   | { readonly kind: 'resume'; readonly transitionId: string }
   | { readonly kind: 'unchanged' };
 
-export type FarmingAutomationManualWatchInput = {
+type FarmingAutomationManualWatchInput = {
   readonly target: TwitchGame | null;
   readonly managedTabId: number | null;
   readonly preparingManagedTabIds?: readonly number[];
   readonly automationActive: boolean;
 };
 
-export type FarmingAutomationManualWatchResult =
+type FarmingAutomationManualWatchResult =
   | { readonly kind: 'inactive'; readonly stoppedAt?: number }
   | { readonly kind: 'active'; readonly watch: FarmingAutomationManualWatchV1 }
   | {

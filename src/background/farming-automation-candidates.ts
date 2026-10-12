@@ -30,7 +30,7 @@ import {
   planFavoriteCampaignQueue,
 } from './favorite-games.ts';
 
-export interface FarmingAutomationCandidateFacts {
+interface FarmingAutomationCandidateFacts {
   readonly hasFarmableReward?: boolean;
   readonly hasStartedReward?: boolean;
   readonly isActive?: boolean;
@@ -143,7 +143,7 @@ export function deriveFarmingAutomationCandidates(
     });
 }
 
-export function filterEligibleFarmingAutomationCandidates(
+function filterEligibleFarmingAutomationCandidates(
   candidates: readonly FarmingAutomationCandidate[],
 ): readonly FarmingAutomationCandidate[] {
   return candidates.filter(

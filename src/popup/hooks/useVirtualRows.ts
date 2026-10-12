@@ -1,7 +1,5 @@
 import { useMemo, useState } from 'react';
 
-export { computeVirtualWindow, type VirtualWindow } from './virtual-rows-compute.ts';
-
 import { computeVirtualWindow } from './virtual-rows-compute.ts';
 
 export interface VirtualRowResult<T> {

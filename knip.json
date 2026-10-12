@@ -1,11 +1,16 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreIssues": {
+    "src/background/drops-tick.ts": ["exports", "types"],
+    "src/background/session-lifecycle.ts": ["exports", "types"]
+  },
   "workspaces": {
     ".": {
       "entry": [
         "src/entrypoints/**/*.{html,js,jsx,ts,tsx}",
         "src/monitor/main.tsx",
-        "tests/**/*.{test,spec}.{ts,tsx}",
+        "tests/**/*.test.ts",
+        "tests/**/*.test.tsx",
         "scripts/**/*.{mjs,ts}"
       ]
     },

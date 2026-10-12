@@ -231,6 +231,6 @@ export function buildDirectoryResponse(
   };
 }
 
-export function _buildIntegrityResponse(): unknown {
+function _buildIntegrityResponse(): unknown {
   return { token: 'mock-integrity-token' };
 }

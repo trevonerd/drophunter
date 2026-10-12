@@ -11,7 +11,7 @@ import type {
 } from './session-lifecycle-types.ts';
 import { saveTimingState as saveTimingStateExt } from './state-persistence.ts';
 
-export function resetNoProgressRotationAttempts(state: ServiceWorkerState): void {
+function resetNoProgressRotationAttempts(state: ServiceWorkerState): void {
   state.noProgressRotationAttempts = 0;
 }
 

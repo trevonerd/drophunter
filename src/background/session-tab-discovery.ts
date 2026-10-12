@@ -1,7 +1,7 @@
 import { withRecoveryTimeout } from './session-recovery-lifecycle.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
 
-export interface TwitchRecoveryTab {
+interface TwitchRecoveryTab {
   readonly id?: number;
   readonly url?: string;
   readonly active?: boolean;

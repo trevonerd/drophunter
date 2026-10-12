@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   type CampaignPriorityCandidate,
-  insertFavoriteCampaignByDeadline,
+  insertCampaignByDeadline,
   orderCampaignCandidates,
 } from '../src/background/campaign-priority.ts';
 import type { TwitchGame } from '../src/types/index.ts';
@@ -107,7 +107,7 @@ describe('CampaignPriorityPolicy', () => {
       game('third', '2026-08-03T16:00:00.000Z'),
     ];
 
-    const result = insertFavoriteCampaignByDeadline(existing, game('favorite', '2026-08-03T13:00:00.000Z'));
+    const result = insertCampaignByDeadline(existing, game('favorite', '2026-08-03T13:00:00.000Z'));
 
     expect(result.queue.map((entry) => entry.campaignId)).toEqual(['first', 'favorite', 'second', 'third']);
     expect(result.position).toBe(2);

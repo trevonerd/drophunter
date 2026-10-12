@@ -3,16 +3,8 @@ import type { AppState, TwitchDrop } from '../types/index.ts';
 import type { UnverifiableRewardMarker } from './runtime-timing-state.ts';
 import type { TwitchSession } from './twitch-api/types.ts';
 
-export type {
-  StartupAutoResumeState,
-  StartupResumePolicyResult,
-  StartupResumePolicyState,
-} from './runtime-startup-policy.ts';
 export { applyStartupAutoResumeTransition, applyStartupResumePolicy } from './runtime-startup-policy.ts';
-export type {
-  TimingState,
-  UnverifiableRewardMarker,
-} from './runtime-timing-state.ts';
+export type { TimingState } from './runtime-timing-state.ts';
 export {
   createInitialTimingState,
   normalizeTimingState,

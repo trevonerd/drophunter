@@ -15,7 +15,7 @@ export async function readBackupFile(file: File): Promise<unknown> {
   return parsed;
 }
 
-export function downloadBackupFile(backup: BackupFile) {
+function downloadBackupFile(backup: BackupFile) {
   const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
   if (blob.size > BACKUP_MAX_BYTES) throw new Error('Backup exceeds the 10 MiB export limit.');
   const url = URL.createObjectURL(blob);

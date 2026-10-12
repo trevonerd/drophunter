@@ -21,7 +21,7 @@ import {
 export const FARMING_AUTOMATION_DEADLINE_ALARM = 'favoriteCampaignDeadline';
 export const FARMING_AUTOMATION_PERIODIC_ALARM = 'favoriteCampaignCheck';
 
-export type FarmingAutomationTab = ManualPlaybackTab & {
+type FarmingAutomationTab = ManualPlaybackTab & {
   readonly status?: string;
   readonly pendingUrl?: string;
   readonly reused?: boolean;
@@ -69,7 +69,7 @@ export interface FarmingAutomationChromeHost {
   readonly runtime: { getUrl(path: string): string };
 }
 
-export interface FarmingAutomationWatchDependencies {
+interface FarmingAutomationWatchDependencies {
   readonly tablessEnabled: boolean;
   readonly heartbeat: (target: FarmingTarget) => Promise<TablessHeartbeat>;
   readonly waitForTabComplete: (tabId: number, timeoutMs: number) => Promise<void>;
@@ -93,14 +93,14 @@ export interface FarmingAutomationBrowserOptions {
   readonly createOwnershipToken?: () => string;
 }
 
-export type FarmingAutomationNotification = {
+type FarmingAutomationNotification = {
   readonly id: string;
   readonly title: string;
   readonly message: string;
   readonly priority: number;
 };
 
-export type FarmingAutomationNotificationDelivery =
+type FarmingAutomationNotificationDelivery =
   | { readonly kind: 'delivered'; readonly notificationId: string }
   | { readonly kind: 'unavailable' };
 

@@ -25,10 +25,10 @@ let nextManagedTabId = 999;
 let activeManagedPages: ReturnType<typeof installManagedWatchPages> | null = null;
 setTimingSaveDebounceMsForTests(0);
 
-export const serviceWorkerModule = await import('../../src/background/service-worker.ts');
+const serviceWorkerModule = await import('../../src/background/service-worker.ts');
 serviceWorkerModule.startServiceWorker();
 
-export function installActiveTabMocks() {
+function installActiveTabMocks() {
   const pages = installManagedWatchPages(chromeMocks);
   activeManagedPages = pages;
   const executePageScript = chromeMocks.chrome.scripting.executeScript;
@@ -124,7 +124,7 @@ export async function dispatchMessageFromMocks<T extends RuntimeRequest>(
   });
 }
 
-export async function resetWorkerState() {
+async function resetWorkerState() {
   await dispatchMessage({ type: 'STOP_FARMING' });
   await dispatchMessage({ type: 'CLEAR_QUEUE' });
   serviceWorkerModule.resetCampaignEvidenceForTests();

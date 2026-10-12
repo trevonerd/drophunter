@@ -23,7 +23,7 @@ export function hasCompletedCampaignWatchTime(state: ServiceWorkerState, game: T
   );
 }
 
-export function hasScheduledPendingRewards(state: ServiceWorkerState): boolean {
+function hasScheduledPendingRewards(state: ServiceWorkerState): boolean {
   if (state.appState.selectedGame && isExpiredGame(state.appState.selectedGame)) return false;
   return state.appState.pendingDrops.some((drop) => isRewardScheduledForFuture(drop));
 }

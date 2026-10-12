@@ -2,7 +2,7 @@ import { getFarmableTwitchChannelNameFromUrl } from '../shared/twitch-url';
 import type { AppState } from '../types/index.ts';
 import { logDebug } from './logging';
 
-export interface ChannelPointsBonusClaimResponse {
+interface ChannelPointsBonusClaimResponse {
   success?: boolean;
   claimed?: boolean;
   reason?: 'claimed' | 'not-available' | 'not-supported-page';

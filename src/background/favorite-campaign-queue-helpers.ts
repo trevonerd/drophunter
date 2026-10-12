@@ -29,7 +29,7 @@ export function preferenceEntryMatches(
   return [entry.gameId, ...(entry.identityKeys ?? [])].some((key) => aliases.has(key));
 }
 
-export function manualQueueMetadata(addedAt: number): QueueEntryMetadata {
+function manualQueueMetadata(addedAt: number): QueueEntryMetadata {
   return { source: 'manual', addedAt, reason: 'user-added' };
 }
 

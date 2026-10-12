@@ -54,7 +54,6 @@ interface ServiceWorkerContentDependencies {
   readonly automationNotify?: AutomationEventNotifier['notify'];
 }
 
-export type { TwitchSessionRecoveryIntent } from './service-worker-twitch-content-handlers.ts';
 export { twitchSessionRecoveryIntent } from './service-worker-twitch-content-handlers.ts';
 
 export function createServiceWorkerContentHandlers(

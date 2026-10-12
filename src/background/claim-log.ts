@@ -6,7 +6,7 @@ import { CLAIM_LOG_KEY } from './constants.ts';
 import { dropStateKey } from './drops-projection.ts';
 import { logDebug, logWarn } from './logging.ts';
 
-export const CLAIM_LOG_MAX_ENTRIES = 5000;
+const CLAIM_LOG_MAX_ENTRIES = 5000;
 
 let writeQueue: Promise<unknown> = Promise.resolve();
 

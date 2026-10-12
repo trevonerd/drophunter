@@ -3,7 +3,7 @@ import type { CampaignTransitionResult } from './farming-campaign-transition.ts'
 import type { QueueAvailabilityCleanupResult } from './queue-availability-cleanup.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
-export type LifecycleRefreshOptions = {
+type LifecycleRefreshOptions = {
   readonly includeCampaignFetch: boolean;
   readonly includeInventoryFetch: boolean;
   readonly isCurrent?: () => boolean;

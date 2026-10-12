@@ -1,7 +1,7 @@
 import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 
-export const AUTOMATION_NOTIFICATION_EVENTS = [
+const AUTOMATION_NOTIFICATION_EVENTS = [
   'discovery',
   'start',
   'preemption',
@@ -17,7 +17,7 @@ export const AUTOMATION_NOTIFICATION_EVENTS = [
 
 export type AutomationNotificationEvent = (typeof AUTOMATION_NOTIFICATION_EVENTS)[number];
 
-export const AUTOMATION_NOTIFICATION_ID_PREFIX = 'drophunter-automation';
+const AUTOMATION_NOTIFICATION_ID_PREFIX = 'drophunter-automation';
 
 interface NotificationEvent<Args extends readonly unknown[]> {
   addListener(listener: (...args: Args) => void): void;
@@ -40,7 +40,7 @@ interface NotificationActionOptions {
   readonly pauseFarming?: () => Promise<unknown> | unknown;
 }
 
-export function createNotificationApiResolver(options: NotificationActionOptions) {
+function createNotificationApiResolver(options: NotificationActionOptions) {
   const boundNotificationApis = new WeakSet<NotificationApi>();
 
   const isAutomationNotificationId = (notificationId: string): boolean =>

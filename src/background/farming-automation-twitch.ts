@@ -22,14 +22,14 @@ export interface FarmingAutomationRefreshPatch {
   readonly campaignDropsByKey: Readonly<Record<string, readonly FarmingAutomationNormalizedDrop[]>>;
   readonly campaignChannelsMap: Readonly<Record<string, readonly string[] | null>>;
 }
-export interface FarmingAutomationRefreshOptions {
+interface FarmingAutomationRefreshOptions {
   /** Queued Play requires a new, fully verified campaigns + inventory snapshot. */
   readonly requireFreshCompleteSnapshot?: boolean;
   /** Restricts an additional zero-candidate refresh to passive session use. */
   readonly allowSessionRecovery?: boolean;
   readonly onSessionResolved?: (userId: string) => void;
 }
-export type FarmingAutomationRefreshResult =
+type FarmingAutomationRefreshResult =
   | {
       readonly kind: 'ready';
       readonly snapshot: FarmingAutomationTwitchSnapshot;
@@ -41,11 +41,11 @@ export interface FarmingAutomationDirectoryResponse {
   readonly streamers: readonly TwitchStreamer[];
   readonly languageFilterApplied: boolean;
 }
-export interface FarmingAutomationDirectoryRequestOptions {
+interface FarmingAutomationDirectoryRequestOptions {
   readonly sessionRecoveryMode?: 'passive' | 'background-tab';
   readonly preserveSessionOnAuthFailure?: boolean;
 }
-export interface FarmingAutomationDirectoryTarget {
+interface FarmingAutomationDirectoryTarget {
   readonly campaignKey: string;
   readonly campaignId: string | null;
   readonly gameId: string;
@@ -53,7 +53,7 @@ export interface FarmingAutomationDirectoryTarget {
   readonly categoryId: string | null;
   readonly categorySlug: string;
 }
-export type FarmingAutomationDirectoryResult =
+type FarmingAutomationDirectoryResult =
   | {
       readonly kind: 'ready';
       readonly target: FarmingAutomationDirectoryTarget;

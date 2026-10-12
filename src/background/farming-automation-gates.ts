@@ -15,8 +15,8 @@ import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import type { AutomaticFarmingSessionTransitionRequest } from './session-lifecycle-transition.ts';
 
-export const FARMING_AUTOMATION_INTERVAL_MS = 2 * 60_000;
-export const FARMING_AUTOMATION_MIN_WAKE_MS = 30_000;
+const FARMING_AUTOMATION_INTERVAL_MS = 2 * 60_000;
+const FARMING_AUTOMATION_MIN_WAKE_MS = 30_000;
 export const PARKED_CAMPAIGN_RETRY_MS = 60_000;
 
 export type FarmingAutomationDirectoryCacheEntry = {
@@ -46,7 +46,7 @@ export function cloneFarmingAutomationGame(game: FarmingAutomationNormalizedGame
   return cloneGame(game);
 }
 
-export function farmingAutomationAttemptId(
+function farmingAutomationAttemptId(
   transition: 'start' | 'preemption',
   fromCampaignKey: string | null,
   toCampaignKey: string,

@@ -34,7 +34,6 @@ export {
   hasCompleteIdentifiedRewardSet,
   isDropCampaignExpired,
   markDropUnverifiable,
-  recomputeKnownCompleteGameSummary,
   reconcileUnverifiableRewardMarkers,
 } from './drops-projection-semantics.ts';
 export {

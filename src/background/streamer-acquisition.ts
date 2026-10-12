@@ -21,11 +21,7 @@ import { NoEligibleStreamerError, WatchPlaybackUnavailableError } from './stream
 import { MAX_STREAMER_ATTEMPTS } from './streamer-watch-attempt.ts';
 import { classifyTwitchApiFailure, TwitchDirectoryUnavailableError } from './twitch-api/errors.ts';
 
-export type {
-  OpenBestStreamerCallbacks,
-  RotateStreamerIfInvalidOptions,
-  RotateStreamerOptions,
-} from './streamer-acquisition-contracts.ts';
+export type { RotateStreamerOptions } from './streamer-acquisition-contracts.ts';
 export { openBestStreamerForSelectedGame } from './streamer-selection-flow.ts';
 export { rotateStreamerIfInvalid } from './streamer-validation.ts';
 

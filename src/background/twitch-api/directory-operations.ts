@@ -10,7 +10,7 @@ const DIRECTORY_GAME_QUERY_HASH = '76cb069d835b8a02914c08dc42c421d0dafda8af5b113
 type DirectoryEdge = { readonly node?: Record<string, unknown> };
 export type DirectoryStreamersResult = TwitchStreamer[] & { languageFilterApplied: boolean };
 
-export interface DirectoryPayloadRequest {
+interface DirectoryPayloadRequest {
   readonly game: string;
   readonly slug: string;
   readonly tags?: readonly string[];
@@ -60,7 +60,7 @@ export function extractBroadcasterLanguage(node: Record<string, unknown>): strin
   );
 }
 
-export function buildDirectoryPayload(request: DirectoryPayloadRequest): Record<string, unknown> {
+function buildDirectoryPayload(request: DirectoryPayloadRequest): Record<string, unknown> {
   return {
     operationName: 'DirectoryPage_Game',
     variables: {
@@ -101,7 +101,7 @@ function extractBroadcaster(
   return login ? { login, displayName: normalizeText(payload.displayName) || login } : null;
 }
 
-export function parseDirectoryEdges(edges: readonly DirectoryEdge[]): TwitchStreamer[] {
+function parseDirectoryEdges(edges: readonly DirectoryEdge[]): TwitchStreamer[] {
   const byChannel = new Map<string, TwitchStreamer>();
   edges.forEach((edge) => {
     const node = edge.node;

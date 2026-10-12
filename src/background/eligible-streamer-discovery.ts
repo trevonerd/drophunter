@@ -11,7 +11,7 @@ export type StreamInfoProbe =
       readonly categoryLabel?: string;
     };
 
-export interface EligibleStreamerDirectory {
+interface EligibleStreamerDirectory {
   readonly streamers: readonly TwitchStreamer[];
   readonly languageFilterApplied: boolean;
 }

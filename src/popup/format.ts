@@ -21,7 +21,7 @@ export function isCampaignFarmable(game: TwitchGame): boolean {
   return campaignCompletion(game) === 'farmable';
 }
 
-export function isCampaignFarmingComplete(game: TwitchGame): boolean {
+function isCampaignFarmingComplete(game: TwitchGame): boolean {
   return campaignCompletion(game) === 'farming-complete';
 }
 

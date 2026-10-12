@@ -1,7 +1,7 @@
 import type { ExecutionBarrier } from './farming-automation-fixtures.ts';
 import { cloneFixture, createExecutionBarrier } from './farming-automation-fixtures.ts';
 
-export interface FarmingAutomationPersistenceSnapshot {
+interface FarmingAutomationPersistenceSnapshot {
   readonly local: Readonly<Record<string, unknown>>;
   readonly session: Readonly<Record<string, unknown>>;
 }
@@ -11,9 +11,9 @@ export interface FarmingAutomationPersistenceOptions {
   readonly session?: Readonly<Record<string, unknown>>;
 }
 
-export type PersistenceStore = 'local' | 'session';
+type PersistenceStore = 'local' | 'session';
 
-export interface PersistenceFailureRecord {
+interface PersistenceFailureRecord {
   readonly store: PersistenceStore;
   readonly message: string;
 }

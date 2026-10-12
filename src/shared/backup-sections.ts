@@ -3,8 +3,6 @@ import type { BackupMigration } from './backup-migrations.ts';
 import { BACKUP_SECTION_BEHAVIORS } from './backup-section-behaviors.ts';
 import { BACKUP_SETTINGS } from './backup-settings-policy.ts';
 import type { BackupSectionBehavior } from './backup-types.ts';
-
-export { BACKUP_SETTINGS } from './backup-settings-policy.ts';
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 const counter = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;

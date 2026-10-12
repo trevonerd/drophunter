@@ -15,7 +15,7 @@ import type {
 } from './chrome-types.ts';
 
 export type ChromeMocks = ChromeMocksContract;
-export type MockChrome = MockChromeContract;
+type MockChrome = MockChromeContract;
 
 function createStorageChangedListenerMock(): StorageChangedListenerMock {
   const handlers: StorageChangedListenerMock['_handlers'] = [];

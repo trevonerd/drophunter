@@ -2,8 +2,8 @@ export const MAX_NO_PROGRESS_ROTATION_ATTEMPTS = 3;
 export const STALLED_PROGRESS_RETRY_MS = 60_000;
 export const NO_STREAMERS_RETRY_MS = 30_000;
 
-export const PROGRESS_STALL_THRESHOLD_MS = 5 * 60_000;
-export const MAX_PROGRESS_STALL_THRESHOLD_MS = 20 * 60_000;
+const PROGRESS_STALL_THRESHOLD_MS = 5 * 60_000;
+const MAX_PROGRESS_STALL_THRESHOLD_MS = 20 * 60_000;
 // Number of consecutive "offline" readings required before forcing an immediate rotation.
 // A single reading can be a transient ad break or player re-render, not a real outage.
 export const OFFLINE_CONFIRMATION_CHECKS = 2;

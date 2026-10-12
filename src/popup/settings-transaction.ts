@@ -1,6 +1,6 @@
 import type { AppState } from '../types/index.ts';
 
-export type TransactionalSettingKey =
+type TransactionalSettingKey =
   | 'monitorAutoOpen'
   | 'muteFarmingTab'
   | 'autoClaimChannelPointsBonus'

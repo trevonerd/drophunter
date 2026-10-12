@@ -34,7 +34,7 @@ function getBrowserApi(): ContentBrowserApi | null {
   }
 }
 
-export function normalizeContentAppState(value: unknown): ContentAppState {
+function normalizeContentAppState(value: unknown): ContentAppState {
   if (!value || typeof value !== 'object') {
     return { autoClaimChannelPointsBonus: true };
   }

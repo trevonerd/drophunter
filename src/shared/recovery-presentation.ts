@@ -1,6 +1,6 @@
 import type { AppState } from '../types/index.ts';
 
-export type RecoveryOperation =
+type RecoveryOperation =
   | 'find-streamer'
   | 'start-playback'
   | 'verify-session'

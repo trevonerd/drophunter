@@ -141,5 +141,3 @@ export function insertCampaignByDeadline(
   result.splice(index, 0, campaign);
   return { queue: result, position: index + 1 };
 }
-
-export const insertFavoriteCampaignByDeadline = insertCampaignByDeadline;

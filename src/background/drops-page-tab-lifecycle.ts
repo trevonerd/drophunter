@@ -6,7 +6,7 @@ import type { GamesCacheRefreshResult } from './games-cache-refresh-state.ts';
 export interface DropsPageState {
   appState: AppState;
 }
-export interface TwitchTab {
+interface TwitchTab {
   id?: number;
   discarded?: boolean;
   windowId?: number;
@@ -14,7 +14,7 @@ export interface TwitchTab {
   pendingUrl?: string;
   active?: boolean;
 }
-export interface TabsApi {
+interface TabsApi {
   query(queryInfo: { url: string[] } | { windowId: number }): Promise<TwitchTab[]>;
   update(tabId: number, updateProperties: { active?: boolean; url?: string }): Promise<unknown>;
   create(createProperties: { url: string; active: boolean }): Promise<TwitchTab | null>;
@@ -41,7 +41,7 @@ export interface DropsPageRefreshOptions {
   campaignRefreshRetryDelayMs?: number;
 }
 
-export const waitForDropsDelay = (delayMs: number) =>
+const waitForDropsDelay = (delayMs: number) =>
   delayMs <= 0 ? Promise.resolve() : new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 
 const TWITCH_DROPS_TAB_PATTERNS = [
@@ -113,7 +113,7 @@ export function createDropsPageTabConsumers(state: DropsPageState, options: Drop
   };
 }
 
-export async function closeAutomaticDropsPageTab(
+async function closeAutomaticDropsPageTab(
   options: DropsPageRefreshOptions,
   tabId: number,
   canClose: () => boolean = () => true,
@@ -139,7 +139,7 @@ export async function closeAutomaticDropsPageTab(
   }
 }
 
-export async function findOrOpenDropsPageTab(
+async function findOrOpenDropsPageTab(
   options: DropsPageRefreshOptions,
   active: boolean,
   openIfMissing: boolean,

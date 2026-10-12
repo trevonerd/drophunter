@@ -17,13 +17,13 @@ import type { WatchReleaseResult } from './watch-transport-transition.ts';
 
 type ManagedOwnership = Extract<WatchOwnershipV1, { kind: 'managed-tab' }>;
 
-export interface ManagedWatchCandidate {
+interface ManagedWatchCandidate {
   readonly ownership: ManagedOwnership;
   confirm(): Promise<boolean>;
   discard(): Promise<void>;
 }
 
-export interface ManagedWatchAcquisitionIntent {
+interface ManagedWatchAcquisitionIntent {
   readonly allowInitialCreation?: boolean;
   readonly retainOnFailure?: boolean;
   readonly purpose?: 'watch' | 'selection';

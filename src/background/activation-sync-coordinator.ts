@@ -5,12 +5,7 @@ import type {
   CampaignSyncState,
 } from '../types/activation-sync.ts';
 
-export type {
-  ActivationSyncErrorKind,
-  ActivationSyncResult,
-  ActivationTrigger,
-  CampaignSyncState,
-} from '../types/activation-sync.ts';
+export type { CampaignSyncState } from '../types/activation-sync.ts';
 
 export type ActivationSyncExecution = {
   readonly signal: AbortSignal;

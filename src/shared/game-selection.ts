@@ -83,7 +83,7 @@ export function gameKey(game: TwitchGame): string {
   return `name:${normalizedGameName(game)}::${game.endsAt ?? ''}`;
 }
 
-export function gameIdentity(game: TwitchGame): string {
+function gameIdentity(game: TwitchGame): string {
   return gameKey(game);
 }
 

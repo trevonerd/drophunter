@@ -10,7 +10,7 @@ export type ManualPlaybackTab = ManualWatchTab & {
   readonly windowId?: number;
 };
 
-export type ManualPlaybackObservation = {
+type ManualPlaybackObservation = {
   readonly tab: ManualPlaybackTab;
   readonly context: ManualStreamContext;
 };
