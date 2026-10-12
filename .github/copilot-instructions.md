@@ -4,7 +4,7 @@ Follow `AGENTS.md` for architecture, campaign identity, privacy, recovery, and t
 
 Keep local tool indices and machine-specific configuration out of commits.
 
-## vexp <!-- vexp v3.3.2 -->
+## vexp <!-- vexp v3.3.3 -->
 
 ### Context strategy: call run_pipeline ONCE at task start
 If the task already names the files/symbols to touch, SKIP vexp. Otherwise one

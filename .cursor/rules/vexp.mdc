@@ -1,11 +1,11 @@
+Follow AGENTS.md and CONTRIBUTING.md. Use Vexp for orientation when available and native search for literal sweeps. Keep its indices and machine-specific configuration untracked. Inspect full logs for release verification.
+
 ---
-description: DropHunter repository rules
+description: vexp code-graph orientation for this workspace
 alwaysApply: true
 ---
 
-Follow AGENTS.md and CONTRIBUTING.md. Use Vexp for orientation when available and native search for literal sweeps. Keep its indices and machine-specific configuration untracked. Inspect full logs for release verification.
-
-## vexp rules for Cursor <!-- vexp v3.3.2 -->
+## vexp rules for Cursor <!-- vexp v3.3.3 -->
 
 ### Context strategy: call run_pipeline ONCE at task start
 If the task already names the files/symbols to touch, SKIP vexp. Otherwise one
