@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "src/entrypoints/**/*.{html,js,jsx,ts,tsx}",
+        "src/monitor/main.tsx",
+        "tests/**/*.{test,spec}.{ts,tsx}",
+        "scripts/**/*.{mjs,ts}"
+      ]
+    },
+    "video": {
+      "entry": ["src/index.ts", "remotion.config.ts"]
+    }
+  }
+}

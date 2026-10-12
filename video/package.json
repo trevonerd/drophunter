@@ -15,13 +15,13 @@
     "still:promo:4k": "bunx remotion still src/index.ts Promo4K60 out/promo-frame-4k60.png --frame=576"
   },
   "dependencies": {
-    "@remotion/media": "4.0.534",
+    "@remotion/media": "4.0.535",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "remotion": "4.0.534"
+    "remotion": "4.0.535"
   },
   "devDependencies": {
-    "@remotion/cli": "4.0.534",
-    "@remotion/transitions": "4.0.534"
+    "@remotion/cli": "4.0.535",
+    "@remotion/transitions": "4.0.535"
   }
 }
