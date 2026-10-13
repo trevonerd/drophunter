@@ -50,10 +50,12 @@ export function SessionSummary(props: SessionSummaryProps) {
   const isRunning = model.mode === 'running';
   const isPaused = model.mode === 'paused';
   const isRecovering = model.mode === 'recovering';
-  // Rewards stay visible from the first moment of a session, including preparation and the
-  // initial player click, so progress never waits for the first monitoring tick.
+  // Rewards stay visible from the first moment of a session, including the initial player click,
+  // so progress never waits for the first monitoring tick. Not while switching campaigns.
   const showDrops =
-    (props.state.isRunning || isRunning || isPaused || isRecovering) && remainingDrops.length > 0;
+    (props.state.isRunning || isRunning || isPaused || isRecovering) &&
+    !props.state.pendingWatchTarget &&
+    remainingDrops.length > 0;
   // The dismissible message above already carries the click instruction.
   const detailInMessages = farmingMessages(props.state).some((message) =>
     message.id.startsWith('playback-gesture:'),

@@ -59,20 +59,18 @@ test('keeps the click instruction in the card after its message is dismissed', (
   expect(markup).toContain('1 drop remaining');
 });
 
-test('shows the pending campaign drops while switching', () => {
+test('hides drops while switching to another campaign', () => {
   // Given
   const other = game({ id: 'other-game', campaignId: 'other-campaign', campaignName: 'Other' });
-  const pendingReward = drop({ id: 'pending', campaignId: 'other-campaign', name: 'Pending reward', progress: 10 });
   const state: AppState = {
-    ...appState(game()), isRunning: true, pendingDrops: [first], allDrops: [pendingReward],
+    ...appState(game()), isRunning: true, pendingDrops: [first],
     pendingWatchTarget: { game: other, channelName: 'candidate' },
   };
   // When
   const markup = session(state);
   // Then
   expect(markup).toContain('Switching to');
-  expect(markup).toContain('aria-label="Pending reward progress"');
-  expect(markup).not.toContain('aria-label="First reward progress"');
+  expect(markup).not.toContain('Remaining campaign drops');
 });
 
 test('removes acquired drops even when catalog and current drop are stale', () => {
