@@ -20,7 +20,7 @@ function compareRemainingSessionDrops(left: TwitchDrop, right: TwitchDrop): numb
 }
 
 export function remainingSessionDrops(state: AppState): TwitchDrop[] {
-  const selected = state.selectedGame;
+  const selected = state.pendingWatchTarget?.game ?? state.selectedGame;
   if (!selected) return [];
 
   const sources = [

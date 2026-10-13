@@ -1,3 +1,4 @@
+import { farmingMessages } from '../../shared/farming-messages';
 import type { RuntimeMode } from '../../shared/runtime-status';
 import { createUserStatusModel, effectiveTransport, type UserStatusModel } from '../../shared/user-status';
 import type { AppState, TwitchDrop } from '../../types';
@@ -49,7 +50,14 @@ export function SessionSummary(props: SessionSummaryProps) {
   const isRunning = model.mode === 'running';
   const isPaused = model.mode === 'paused';
   const isRecovering = model.mode === 'recovering';
-  const showDrops = (isRunning || isPaused || isRecovering) && remainingDrops.length > 0;
+  // Rewards stay visible from the first moment of a session, including preparation and the
+  // initial player click, so progress never waits for the first monitoring tick.
+  const showDrops =
+    (props.state.isRunning || isRunning || isPaused || isRecovering) && remainingDrops.length > 0;
+  // The dismissible message above already carries the click instruction.
+  const detailInMessages = farmingMessages(props.state).some((message) =>
+    message.id.startsWith('playback-gesture:'),
+  );
   const needsTwitch =
     model.mode === 'attention-required' && props.state.lastStopReason === 'sign-in-required';
   const canStart =
@@ -102,7 +110,7 @@ export function SessionSummary(props: SessionSummaryProps) {
         {props.showSelectedCampaignStatus && !props.state.pendingWatchTarget && (
           <SelectedCampaignStatus selectedGame={props.state.selectedGame} />
         )}
-        {!isRunning && model.detail && (
+        {!isRunning && model.detail && !detailInMessages && (
           <p className="mt-1 text-[11px] leading-snug text-[color:var(--dh-text-soft)]">{model.detail}</p>
         )}
         {isRunning && !props.currentAutomatableDrop && (

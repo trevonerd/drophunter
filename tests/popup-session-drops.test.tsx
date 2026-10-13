@@ -23,6 +23,58 @@ test.each(['running', 'paused', 'recovering'] as const)('shows remaining campaig
   expect(markup.match(/role="progressbar"/g)).toHaveLength(2);
 });
 
+test('shows drops and progress while waiting for the first player click', () => {
+  // Given
+  const state: AppState = {
+    ...appState(game()), isRunning: true, tabId: 7, pendingDrops: [first, second],
+    watchHealth: {
+      mode: 'managed-tab', isHealthy: false, status: 'degraded', reason: 'user-interaction-required',
+      consecutiveFailures: 0, consecutiveStalls: 0, progress: null, shouldFallback: false, checkedAt: 1,
+    },
+  };
+  // When
+  const markup = session(state);
+  // Then
+  expect(markup).toContain('Start the video');
+  expect(markup).toContain('2 drops remaining');
+  expect(markup.match(/role="progressbar"/g)).toHaveLength(2);
+  expect(markup).not.toContain('Click the video in the Twitch tab once and leave the tab open.');
+});
+
+test('keeps the click instruction in the card after its message is dismissed', () => {
+  // Given
+  const base = appState(game());
+  const state: AppState = {
+    ...base, isRunning: true, tabId: 7, pendingDrops: [first],
+    watchHealth: {
+      mode: 'managed-tab', isHealthy: false, status: 'degraded', reason: 'user-interaction-required',
+      consecutiveFailures: 0, consecutiveStalls: 0, progress: null, shouldFallback: false, checkedAt: 1,
+    },
+    dismissedFarmingMessageIds: ['playback-gesture:campaign:campaign-id:7'],
+  };
+  // When
+  const markup = session(state);
+  // Then
+  expect(markup).toContain('Click the video in the Twitch tab once and leave the tab open.');
+  expect(markup).toContain('1 drop remaining');
+});
+
+test('shows the pending campaign drops while switching', () => {
+  // Given
+  const other = game({ id: 'other-game', campaignId: 'other-campaign', campaignName: 'Other' });
+  const pendingReward = drop({ id: 'pending', campaignId: 'other-campaign', name: 'Pending reward', progress: 10 });
+  const state: AppState = {
+    ...appState(game()), isRunning: true, pendingDrops: [first], allDrops: [pendingReward],
+    pendingWatchTarget: { game: other, channelName: 'candidate' },
+  };
+  // When
+  const markup = session(state);
+  // Then
+  expect(markup).toContain('Switching to');
+  expect(markup).toContain('aria-label="Pending reward progress"');
+  expect(markup).not.toContain('aria-label="First reward progress"');
+});
+
 test('removes acquired drops even when catalog and current drop are stale', () => {
   // Given
   const state = {
