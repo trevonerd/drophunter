@@ -2,6 +2,7 @@ import { logContentDebug, logContentWarn } from './logging.ts';
 import {
   isExpectedTwitchPlaybackInterruption,
   observePlaybackAdvance,
+  restoreAudiblePlayback,
   startMutedPlayback,
 } from './playback.ts';
 import {
@@ -116,6 +117,10 @@ export async function prepareStreamPlayback() {
       ? await observePlaybackAdvance(video, undefined, false, isCurrent)
       : false;
   if (!isCurrent()) return suspendedResult();
+  if (isPlaybackReady && video) {
+    await restoreAudiblePlayback(video, () => isCurrent() && document.querySelector('video') === video);
+    if (!isCurrent()) return suspendedResult();
+  }
   // Twitch can enforce its initial gesture by pausing a native play request.
   // Native play can change the control's state before the site pauses the video.
   if (

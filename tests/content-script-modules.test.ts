@@ -268,6 +268,48 @@ test.each([
   );
 });
 
+test.each(['activated', 'not-activated', 'blocked-by-browser'] as const)(
+  'managed playback restores player audio only when the page may play audibly: %s',
+  async (kind) => {
+    let muted = true;
+    const video = {
+      paused: false,
+      ended: false,
+      readyState: 3,
+      currentTime: 0,
+      isConnected: true,
+      get muted() {
+        return muted;
+      },
+      set muted(value: boolean) {
+        muted = value;
+        // Chrome pauses media unmuted without autoplay permission.
+        if (!value && kind === 'blocked-by-browser') this.paused = true;
+      },
+      async play() {
+        this.paused = false;
+      },
+    };
+    installGlobal('window', { location: { href: 'https://www.twitch.tv/watched_channel' } });
+    installGlobal('navigator', { userActivation: { hasBeenActive: kind !== 'not-activated' } });
+    installGlobal('__DROPHUNTER_DEBUG_LOGS__', false);
+    installGlobal('document', {
+      documentElement: { dataset: {} },
+      querySelector: (selector: string) => (selector === 'video' ? video : null),
+      querySelectorAll: () => [],
+    });
+    installGlobal('setTimeout', (callback: () => void) => {
+      if (!video.paused) video.currentTime += 0.25;
+      callback();
+      return 1;
+    });
+
+    expect(await prepareStreamPlayback()).toMatchObject({ isPlaybackReady: true });
+    expect(video.muted).toBe(kind !== 'activated');
+    expect(video.paused).toBe(false);
+  },
+);
+
 test('runtime dispatch rejects malformed requests and safely prepares a non-channel page', async () => {
   installGlobal('window', { location: { href: 'https://www.twitch.tv/drops/inventory' } });
   installGlobal('navigator', { userActivation: { hasBeenActive: false } });

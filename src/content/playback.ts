@@ -58,6 +58,21 @@ export async function observePlaybackAdvance(
   return false;
 }
 
+/**
+ * Playback starts muted to satisfy autoplay policy. After the page has user activation,
+ * Chrome lets it play audibly; the browser tab's mute stays the user's audio control.
+ */
+export async function restoreAudiblePlayback(
+  video: PlayableVideo & Pick<HTMLVideoElement, 'currentTime' | 'ended' | 'readyState'>,
+  isCurrent: () => boolean = () => true,
+): Promise<void> {
+  if (!video.muted || video.paused || navigator.userActivation?.hasBeenActive !== true || !isCurrent())
+    return;
+  video.muted = false;
+  if (await observePlaybackAdvance(video, undefined, false, isCurrent)) return;
+  if (isCurrent() && video.paused) await startMutedPlayback(video, isCurrent);
+}
+
 export async function startMutedPlayback(
   video: PlayableVideo,
   isCurrent: () => boolean = () => true,

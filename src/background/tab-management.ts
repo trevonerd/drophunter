@@ -99,11 +99,9 @@ export function shouldMuteManagedFarmingTab(state: ServiceWorkerState): boolean 
   return state.appState.muteFarmingTab !== false;
 }
 
-export async function syncManagedTabMuteState(state: ServiceWorkerState) {
-  if (!state.appState.tabId) {
+export async function syncManagedTabMuteState(state: ServiceWorkerState, tabId = state.appState.tabId) {
+  if (!tabId) {
     return;
   }
-  await browser.tabs
-    .update(state.appState.tabId, { muted: shouldMuteManagedFarmingTab(state) })
-    .catch(() => undefined);
+  await browser.tabs.update(tabId, { muted: shouldMuteManagedFarmingTab(state) }).catch(() => undefined);
 }

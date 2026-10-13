@@ -74,6 +74,24 @@ describe('syncManagedTabMuteState', () => {
   test('updates tab with muted=false when muteFarmingTab is false', async () => {
     await assertMuteUpdate(false);
   });
+
+  test('applies the preference to a promoted tab before it is published as the farming tab', async () => {
+    const setup = setupTabManagementMock();
+    try {
+      const updates: Array<[number, boolean | undefined]> = [];
+      setup.mock.tabs.update = async (tabId: number, details: TabManagementTabUpdateDetails) => {
+        updates.push([tabId, details.muted]);
+        return { id: tabId, ...details };
+      };
+      const state = createTabManagementState({
+        appState: { ...createInitialState(), tabId: null, muteFarmingTab: false },
+      });
+      await syncManagedTabMuteState(state, 7);
+      expect(updates).toEqual([[7, false]]);
+    } finally {
+      setup.teardown();
+    }
+  });
 });
 
 async function assertMuteUpdate(muted: boolean): Promise<void> {

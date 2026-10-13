@@ -31,6 +31,7 @@ import {
   monitorDashboardUrl,
   shouldMuteManagedFarmingTab,
   streamerWatchUrl,
+  syncManagedTabMuteState,
   waitForTabComplete,
 } from './tab-management.ts';
 import type { FarmingTarget, TablessHeartbeat } from './watch-transport.ts';
@@ -107,7 +108,11 @@ export function createServiceWorkerBrowserEvents(
         );
         if (ownership && isCurrent()) await pauseManagedWatch(ownership, isCurrent);
       },
-      finalizeOwnership: ownedTabs.finalize,
+      // Candidates open muted so they cannot overlap the incumbent's audio.
+      finalizeOwnership: async (ownership) => {
+        await ownedTabs.finalize(ownership);
+        if (ownership.kind === 'managed-tab') await syncManagedTabMuteState(state, ownership.tabId);
+      },
       open: (target, options) =>
         openOwnedManagedWatch(
           state,
