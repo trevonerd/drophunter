@@ -20,7 +20,11 @@ import type { StalledProgressRecoveryResult, StalledProgressSource } from './sta
 import type { StreamRotationReason } from './stream-rotation.ts';
 import { computeEffectiveStallThreshold } from './stream-rotation.ts';
 import { shouldKeepStreamerWhileDropProgresses } from './streamer-health-evaluation.ts';
-import { resumeWatchObservation, watchObservationStartedAt } from './streamer-watch-attempt.ts';
+import {
+  resumeWatchObservation,
+  suspendWatchObservation,
+  watchObservationStartedAt,
+} from './streamer-watch-attempt.ts';
 import { hasVerifiedWatchPlayback, isTablessServiceFailure } from './watch-health.ts';
 
 type FarmingSessionMonitoringDependencies = {
@@ -170,7 +174,19 @@ export function createFarmingSessionMonitoring(
     const health = await adapters.watchTransport?.tick(isCurrent);
     if (!isCurrent()) return false;
     if (health) state.appState.watchHealth = health;
-    if (health?.reason === 'user-interaction-required') return false;
+    if (health?.reason === 'user-interaction-required') {
+      // Waiting for the user's click is not observed playback: freeze the attempt clock
+      // so the stall deadline cannot rotate a streamer that never had a chance to play.
+      const waitingKey = state.appState.selectedGame ? gameKey(state.appState.selectedGame) : null;
+      const waitingAttempt = waitingKey
+        ? state.appState.queueEntryMetadataByKey[waitingKey]?.watchAttempt
+        : undefined;
+      if (waitingAttempt && waitingAttempt.suspendedAt === undefined) {
+        suspendWatchObservation(state, context.now());
+        await adapters.saveState(state);
+      }
+      return false;
+    }
     // A player that already played and then stopped is broken: restart it in place
     // before the failure budget rotates the streamer.
     if (
@@ -206,16 +222,22 @@ export function createFarmingSessionMonitoring(
       await adapters.saveState(state);
     }
     if (!isCurrent()) return false;
+    // The suspended attempt is persisted, so the click is recognized even when a worker
+    // restart replaced the stored gesture-wait health before this tick.
+    const resumedAfterGesture =
+      health?.mode === 'managed-tab' && metadata?.watchAttempt?.suspendedAt !== undefined;
     if (
-      wasWaitingForPlayback &&
+      (wasWaitingForPlayback || resumedAfterGesture) &&
       hasVerifiedWatchPlayback(health) &&
       metadata?.watchAttempt &&
       metadata.watchAttempt.firstPlaybackAt === undefined &&
       key
     ) {
+      resumeWatchObservation(state, context.now());
+      const resumed = state.appState.queueEntryMetadataByKey[key] ?? metadata;
       state.appState.queueEntryMetadataByKey[key] = {
-        ...metadata,
-        watchAttempt: { ...metadata.watchAttempt, firstPlaybackAt: context.now() },
+        ...resumed,
+        watchAttempt: { ...(resumed.watchAttempt ?? metadata.watchAttempt), firstPlaybackAt: context.now() },
       };
       state.invalidStreamChecks = 0;
       state.streamValidationGraceUntil =
@@ -356,6 +378,7 @@ export function createFarmingSessionMonitoring(
         }
         const observedAt = watchObservationStartedAt(state);
         if (
+          health?.reason !== 'user-interaction-required' &&
           state.appState.activeStreamer &&
           observedAt > 0 &&
           context.now() - observedAt >=

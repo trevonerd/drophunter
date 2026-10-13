@@ -171,15 +171,98 @@ describe('farming monitoring recovery', () => {
     await monitoring.checkDropProgress();
     await monitoring.checkDropProgress();
     expect(ticks).toBe(2);
-    expect(work).toEqual(['advance', 'stall', 'advance', 'advance', 'stall', 'advance']);
+    // Waiting for the click keeps reward checks running but never spends the stall deadline.
+    expect(work).toEqual(['advance', 'validate', 'advance', 'advance', 'validate', 'advance']);
     expect(state.lastProgressAdvanceAt).toBe(progressProof);
+    expect(
+      state.appState.queueEntryMetadataByKey['campaign:campaign']?.watchAttempt?.suspendedAt,
+    ).toBeNumber();
     expect(state.appState.tabId).toBe(123);
     expect(state.appState.selectedGame?.campaignId).toBe('campaign');
     playing = true;
     await monitoring.checkDropProgress();
     expect(state.appState.watchHealth?.reason).toBe('heartbeat');
     expect(state.streamValidationGraceUntil).toBeGreaterThan(Date.now());
-    expect(state.lastProgressAdvanceAt).toBe(progressProof);
+    const attempt = state.appState.queueEntryMetadataByKey['campaign:campaign']?.watchAttempt;
+    expect(attempt?.suspendedAt).toBeUndefined();
+    expect(attempt?.firstPlaybackAt).toBeGreaterThan(Date.now() - 1_000);
+    expect(work.filter((entry) => entry === 'stall')).toEqual([]);
+  });
+
+  test('a click observed after worker restart starts the playback grace instead of a stall', async () => {
+    const state = runningState();
+    state.appState.activeStreamer = createStreamer();
+    state.appState.tabId = 123;
+    chrome.chrome.tabs.get = async () => ({
+      id: 123,
+      url: 'https://www.twitch.tv/teststreamer',
+      windowId: 1,
+      index: 0,
+      pinned: false,
+      highlighted: false,
+      incognito: false,
+      selected: false,
+      active: false,
+      discarded: false,
+      autoDiscardable: true,
+      frozen: false,
+      groupId: -1,
+    });
+    // Startup restore already replaced the persisted gesture-wait health with healthy playback.
+    const healthy = createWatchHealth('managed-tab', 'healthy', 'heartbeat', Date.now);
+    state.appState.watchHealth = healthy;
+    state.appState.queueEntryMetadataByKey['campaign:campaign'] = {
+      source: 'manual',
+      addedAt: Date.now(),
+      reason: 'user-added',
+      attemptedStreamerNames: [state.appState.activeStreamer.name],
+      watchAttempt: {
+        channelName: state.appState.activeStreamer.name,
+        observedAt: Date.now() - 900_000,
+        suspendedAt: Date.now() - 840_000,
+      },
+    };
+    const work: string[] = [];
+    const monitoring = createFarmingSessionMonitoring(
+      createFarmingSessionContext(
+        state,
+        createFarmingSessionAdapters({
+          watchTransport: {
+            start: async () => ({ kind: 'started', health: healthy }),
+            tick: async () => healthy,
+            stop: async () => {},
+            setPreference: async () => {},
+          },
+        }),
+      ),
+      {
+        onRotateStreamerIfInvalid: async () => {
+          work.push('validate');
+        },
+        onRotateStreamerForTransportFailure: async () => {
+          work.push('rotate');
+        },
+        onAcquireStreamerForSelectedGame: async () => {
+          work.push('acquire');
+          return true;
+        },
+        onAdvanceQueueIfCompleted: async () => {
+          work.push('advance');
+          return true;
+        },
+        onRecoverStalledProgress: async () => {
+          work.push('stall');
+          return { kind: 'recovered' };
+        },
+      },
+    );
+    await monitoring.checkDropProgress();
+    const attempt = state.appState.queueEntryMetadataByKey['campaign:campaign']?.watchAttempt;
+    expect(attempt?.suspendedAt).toBeUndefined();
+    expect(attempt?.firstPlaybackAt).toBeGreaterThan(Date.now() - 1_000);
+    expect(state.streamValidationGraceUntil).toBeGreaterThan(Date.now());
+    expect(work).not.toContain('stall');
+    expect(work).not.toContain('rotate');
   });
 
   for (const status of ['paused', 'stopped', 'busy'] as const) {
