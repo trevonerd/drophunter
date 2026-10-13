@@ -10,7 +10,7 @@ export type PlaybackPreparationOptions = {
   readonly activateTab?: boolean;
   readonly unmuteTab?: boolean;
   readonly muteAfterPrep?: boolean;
-  /** A new document cannot start playback in the background: skip preparation and wait for the user's click. */
+  /** A new document cannot start playback in the background: focus it before preparation. */
   readonly newTab?: boolean;
   /** Bring the tab forward only when playback needs the user's click. */
   readonly focusForClick?: boolean;
@@ -94,9 +94,12 @@ export function createPlaybackTransport(options: PlaybackTransportOptions): Play
     let expired = false;
     const isCurrent = () => !expired && (preparation?.isCurrent?.() ?? true);
     if (!isCurrent()) return {};
+    // A new document cannot start playback while hidden. Bring it forward, then prepare at once:
+    // a visible page can dismiss Twitch's content gate and autoplay muted without waiting for the
+    // next monitoring tick. Content still reports a needed click when the page stays blocked.
     if (preparation?.newTab) {
       await focus(tabId, isCurrent);
-      return isCurrent() ? { userInteractionRequired: true } : {};
+      if (!isCurrent()) return {};
     }
     const deadline = Date.now() + PLAYBACK_PREPARATION_TIMEOUT_MS;
     const maxAttempts = PLAYBACK_PREPARATION_TIMEOUT_MS / PLAYBACK_PREPARATION_POLL_MS;

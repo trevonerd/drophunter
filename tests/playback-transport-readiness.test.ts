@@ -248,9 +248,10 @@ test('Stop during a content reply discards readiness and prevents late tab updat
   expect(updates()).toBe(0);
 });
 
-test('a new tab waits for the click in front; a reused tab prepares in the background and comes forward only for a click', async () => {
+test('a new tab comes forward and prepares at once; a reused tab prepares in the background and comes forward only for a click', async () => {
   const updates: unknown[] = [];
   let requests = 0;
+  const responses: unknown[] = [];
   let response: unknown = { isPlaybackReady: true };
   const transport = createPlaybackTransport({
     ensureContentScriptOnTab: async () => {},
@@ -263,16 +264,16 @@ test('a new tab waits for the click in front; a reused tab prepares in the backg
       },
       sendMessage: async () => {
         requests++;
-        return response;
+        return responses.shift() ?? response;
       },
     },
   });
   const managed = { unmuteTab: false, muteAfterPrep: true, focusForClick: true } as const;
 
-  expect(await transport.prepare(20, { ...managed, newTab: true })).toEqual({
-    userInteractionRequired: true,
-  });
-  expect({ requests, updates }).toEqual({ requests: 0, updates: [{ active: true }] });
+  // The visible new page dismisses Twitch's content gate and starts without waiting for a tick.
+  responses.push({ isPlaybackReady: false, gateDismissed: true });
+  expect(await transport.prepare(20, { ...managed, newTab: true })).toMatchObject({ isPlaybackReady: true });
+  expect({ requests, updates }).toEqual({ requests: 2, updates: [{ active: true }, { muted: true }] });
 
   updates.length = 0;
   expect(await transport.prepare(20, { ...managed, newTab: false })).toMatchObject({ isPlaybackReady: true });

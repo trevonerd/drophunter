@@ -80,10 +80,20 @@ test.each([
           Object.assign([streamer], { languageFilterApplied: false }),
       }),
     );
+    // The channel header (category) renders shortly after playback starts.
+    if (!gesture) setTimeout(() => (mounted = true), 50);
     expect(await farming.handleStartQueuedCampaign(gameKey(game))).toEqual({ success: true });
     await farming.checkDropProgress();
-    // A new tab never prepares playback: it waits for the user's click whatever the player reports.
-    if (scenario === 'gesture-category-loading' || scenario === 'playing-category-loading') {
+    if (scenario === 'playing-category-loading') {
+      // A new tab is prepared at once: a player that already plays needs no click, and the
+      // late category header is retried instead of being read as a failed stream.
+      expect(state.appState.activeStreamer?.name).toBe('nika');
+      expect(state.appState.watchHealth).toMatchObject({ isHealthy: true });
+      expect(state.appState.recoveryReason).toBeNull();
+      expect(tabs.created).toHaveLength(1);
+      expect(tabs.removed).toEqual([]);
+    } else if (scenario === 'gesture-category-loading') {
+      // The player still needs the user's click whatever the category shows.
       expect(state.appState.activeStreamer?.name).toBe('nika');
       expect(state.appState.watchHealth).toMatchObject({
         status: 'degraded',
