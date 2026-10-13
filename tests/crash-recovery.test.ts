@@ -248,4 +248,41 @@ describe('false recovery proof guard (freshTimingState)', () => {
     expect(state.noProgressRotationAttempts).toBe(0);
     expect(state.recoveryBackoffUntil).toBe(0);
   });
+
+  test('unverified refresh keeps the baseline so a later verified refresh still clears the stall', () => {
+    const state = makeState({
+      lastTrackedProgress: 40,
+      lastTrackedMinutes: 40,
+      lastTrackedDropKey: 'd1::c1',
+      lastProgressAdvanceAt: Date.now() - 10 * 60_000,
+      noProgressRotationAttempts: 2,
+    });
+    state.appState.selectedGame = game;
+    const drop = {
+      id: 'd1',
+      campaignId: 'c1',
+      name: 'Drop1',
+      gameId: game.id,
+      gameName: 'TestGame',
+      imageUrl: '',
+      progress: 50,
+      currentMinutes: 50,
+      remainingMinutes: 10,
+      claimed: false,
+      claimable: false,
+      status: 'active' as const,
+      acquisitionMethod: 'watch-time' as const,
+      rewardKind: 'in-game' as const,
+      verificationState: 'unassessed' as const,
+    };
+
+    splitDropsForSelectedGame(state, [drop]);
+    expect(state.lastTrackedMinutes).toBe(40);
+    expect(state.noProgressRotationAttempts).toBe(2);
+
+    splitDropsForSelectedGame(state, [drop], true);
+    expect(state.lastTrackedMinutes).toBe(50);
+    expect(state.noProgressRotationAttempts).toBe(0);
+    expect(Date.now() - state.lastProgressAdvanceAt).toBeLessThan(5_000);
+  });
 });

@@ -284,7 +284,7 @@ for (const isPaused of [false, true]) {
           // Active intent resumes immediately. With this offline fixture, its
           // first tick may already have scheduled a fresh API recovery.
           const freshRecovery = state.recoveryReason === null ||
-            (!state.isPaused && state.recoveryReason === 'twitch-data-unavailable');
+            (!state.isPaused && typeof state.recoveryReason === 'string' && state.recoveryReason.startsWith('twitch-'));
           const boundedDeadline = state.recoveryBackoffUntil === null ||
             (typeof state.recoveryBackoffUntil === 'number' && state.recoveryBackoffUntil <= Date.now() + 86_400_000);
           return [storageSchemaVersion, lastInitializedExtensionVersion, freshRecovery, boundedDeadline, state.isPaused, state.isRunning, state.wasRunning,

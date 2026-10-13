@@ -144,8 +144,11 @@ export function splitDropsForSelectedGame(
   state.appState.pendingDrops = pending;
   state.appState.currentDrop = active ? { ...active, status: 'active' } : null;
   state.lastTrackedDropKey = nextKey;
-  state.lastTrackedProgress = nextProgress;
-  state.lastTrackedMinutes = Math.max(previousMinutes, nextMinutes);
+  // Without fresh evidence the baseline stays put, so the next verified refresh still sees the advance.
+  if (hasFreshProgressEvidence || nextKey === null || nextKey !== previousKey) {
+    state.lastTrackedProgress = nextProgress;
+    state.lastTrackedMinutes = Math.max(previousMinutes, nextMinutes);
+  }
 
   if (freshTiming) return;
   const recoveryProof = detectRecoveryProof({

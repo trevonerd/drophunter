@@ -80,7 +80,10 @@ function progressFor(game: FixtureGame, phase: ProgressPhase): number {
   return 0;
 }
 
-async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof createExtensionProfile>>) {
+async function installLocalTwitchFixture(
+  profile: Awaited<ReturnType<typeof createExtensionProfile>>,
+  options: { readonly liveMedia?: boolean } = {},
+) {
   const endsAt = new Date(Date.now() + 86_400_000).toISOString();
   const eligibleStreamers = new Map(streamers);
   let phase: ProgressPhase = 'starting';
@@ -203,10 +206,30 @@ async function installLocalTwitchFixture(profile: Awaited<ReturnType<typeof crea
         } : null } } });
         return;
       }
+      case 'PlaybackAccessToken':
+        await route.fulfill({ json: { data: { streamPlaybackAccessToken: { value: 'fixture-token', signature: 'fixture-signature' } } } });
+        return;
       default:
         await route.fulfill({ json: { data: {} } });
     }
   });
+
+  // Tabless watching needs live HLS media; without it tabless preparation fails and a managed tab stays.
+  if (options.liveMedia) {
+    await profile.context.route('https://*.ttvnw.net/**', async (route) => {
+      const { pathname } = new URL(route.request().url());
+      if (pathname.startsWith('/api/channel/hls/')) {
+        await route.fulfill({ contentType: 'application/vnd.apple.mpegurl', body:
+          '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nhttps://video.ttvnw.net/audio_only.m3u8\n' });
+      } else if (pathname.endsWith('.m3u8')) {
+        const segment = Math.floor(Date.now() / 2_000);
+        await route.fulfill({ contentType: 'application/vnd.apple.mpegurl', body:
+          `#EXTM3U\n#EXTINF:2.0,\nhttps://video.ttvnw.net/${segment}.ts\n#EXTINF:2.0,\nhttps://video.ttvnw.net/${segment + 1}.ts\n` });
+      } else {
+        await route.fulfill({ status: 200, body: '' });
+      }
+    });
+  }
 
   await profile.context.route('https://www.twitch.tv/**', async (route) => {
     if (new URL(route.request().url()).pathname === '/fixture-spade') {
@@ -1067,6 +1090,13 @@ test('browser restart resumes actual managed playback without a Drops label and 
     const twitch = await installLocalTwitchFixture(restarted);
     twitch.hideDropsSignal('local_stream_one');
     const reopened = await openPopup(restarted);
+    // The worker starts offline, before the fixture routes exist; that startup failure backs off.
+    // Expire the backoff so the next farming tick retries against the fixture.
+    const startupWorker = await getExtensionWorker(restarted.context);
+    await startupWorker.evaluate(() => {
+      const now = Date.now.bind(Date);
+      Date.now = () => now() + 15 * 60_000;
+    });
     await expect.poll(async () => {
       const state = await readAppState(reopened);
       return [state.isRunning, state.isPaused, state.activeStreamer?.name, typeof state.tabId];
@@ -1093,7 +1123,7 @@ test('retained managed video does not become manual viewing after switching to h
   test.setTimeout(120_000);
   const profile = await createExtensionProfile();
   try {
-    await installLocalTwitchFixture(profile);
+    await installLocalTwitchFixture(profile, { liveMedia: true });
     await seedAppState(profile, {
       availableGames: games, selectedGame: games[0], queue: [], isRunning: false, isPaused: false,
       autoStartFavoriteGames: false, monitorAutoOpen: false, watchTransportPreference: 'managed-tab',
@@ -1166,6 +1196,8 @@ test('stalled rounds suspend one retained tab, retry unresolved targets and reco
     await runtimeMessage(popup, { type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'managed-tab' } });
     await runtimeMessage(popup, { type: 'UPDATE_GAMES', payload: games });
     await runtimeMessage(popup, { type: 'ADD_TO_QUEUE', payload: { game: games[0] } });
+    // Failed tab passes must park and wait here, not fall back to tabless watching.
+    await runtimeMessage(popup, { type: 'SET_TABLESS_FALLBACK', payload: { enabled: false } });
     await runtimeMessage(popup, { type: 'ADD_TO_QUEUE', payload: { game: games[1] } });
     expect(await runtimeMessage(popup, { type: 'START_FARMING', payload: { game: games[0] } })).toEqual({ success: true });
     await expect.poll(async () => {
