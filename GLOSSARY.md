@@ -78,7 +78,7 @@ Observed advancement of the managed video's playback time. Opening a tab, resolv
 _Avoid_: Tab opened means farming works
 
 **Initial playback gesture wait**:
-An authorized managed watch awaiting an initial gesture after confirmed autoplay refusal, or after Twitch pauses the same video despite its verified paused Play control before any user activation. This wait uses the ordinary duration-based observation window and streamer budget. One first verified video start may grant a full window once per attempt; buffering, player replacement and a control's displayed state do not confirm playback or reward progress.
+A managed watch in a newly created tab whose content still reports that the user must click after focus and immediate muted preparation. The attempt clock is frozen during the wait and resumes on first verified playback, also after a worker restart, so the wait never triggers stall rotation. A player that stops after verified playback is broken, not waiting: it restarts in place, then the failure budget rotates the streamer. Buffering, player replacement and a control's displayed state do not confirm playback or reward progress.
 _Avoid_: No eligible streamer, stalled campaign
 
 **Streamer availability evidence**:
@@ -94,7 +94,7 @@ A durable farming transition delivered independently to enabled browser and Tele
 _Avoid_: Retry log, channel-specific event, polling alert
 
 **Recorded claim**:
-A reward acquisition saved to the local claim log under its campaign-aware drop identity. Repeated observations do not increase the lifetime count or resend claim alerts. Browser and Telegram delivery are independent; refreshes that suppress browser alerts still record claims and retain Telegram delivery.
+A reward acquisition saved to the local claim log under its campaign-aware drop identity. Repeated observations do not increase the lifetime count or resend claim alerts. Browser and Telegram delivery are independent; refreshes that suppress browser alerts still record claims and retain Telegram delivery. A reward first seen already acquired, never observed claimable or in progress, is recorded silently. More than three browser claim alerts in one batch become one summary.
 
 **Confirmed progress stall**:
 The absence of authoritative watch-time progress for the configured stall window. Stream metadata such as offline status, category mismatch, or missing Drops labels is diagnostic evidence only after this condition is established.
@@ -113,7 +113,7 @@ The single browser tab DropHunter owns for farming. Changes reuse its ID; only p
 _Avoid_: Stream tab, player tab
 
 **Hidden farming transport**:
-The farming mode that runs without a viewing tab. Failures use the same bounded attempts and queue rounds as managed farming, without a managed-tab fallback. Login and Drops service pages are separate.
+The farming mode that runs without a viewing tab. Failures use the same bounded attempts and queue rounds as managed farming, without a managed-tab fallback. When the tab-mode fallback is enabled and a full managed-tab queue pass fails on playback or stalls for every campaign, the watch source switches to hidden farming. Login and Drops service pages are separate.
 _Avoid_: Background tab, guaranteed tabless playback
 
 **Manual Twitch viewing**:

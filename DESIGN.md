@@ -18,7 +18,7 @@ Read the current source before changing tokens. Popup and monitor have some inte
 - Label campaigns `Game · Campaign Title`, including when only one campaign exists for the game.
 - Keep campaign browsing and queue order distinct. Adding a campaign prepares the queue; Start authorizes it.
 - Each bounded list owns its scrolling. Avoid introducing additional nested scroll regions.
-- Settings expose farming scope, watch source, and notification essentials first. Secondary controls stay in the native Advanced disclosure.
+- Settings expose farming scope, watch source (with its tab-mode fallback toggle), and notification essentials first. Secondary controls stay in the native Advanced disclosure.
 - Keep the monitor compact, without horizontal overflow or duplicate campaign/reward descriptions.
 
 ## Status and actions

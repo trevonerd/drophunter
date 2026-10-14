@@ -39,7 +39,10 @@ Current farming contract. It supersedes older expectations about an indefinite i
 | Favorite preemption during preparation or failure | Same coordinator as Play, pending published before navigation; retained player suspended, no stale healthy state | managed-watch-startup-integration |
 | Old cleanup after a newer navigation | Recheck token, URL, window and last tab before the serialized mutation; never closes or neutralizes the new watch | managed-watch-stale-cleanup |
 | Old premature alert already delivered | First verified exhaustion creates a new identity, then deduplicates browser and Telegram | campaign-failure-alert-threshold |
-| Tabless / mode change | No viewing fallback, suspend the previous player first | farming-cycle-contract, watch-transport-handoff |
+| Tabless / mode change | No viewing fallback, suspend the previous player first; leaving tabless releases live media | farming-cycle-contract, watch-transport-handoff, tabless-live-media-lifecycle |
+| Managed-tab pass where every campaign fails playback or stalls, fallback on | Persist the tabless preference and restart the round; no switch for missing streamers, directory errors or scheduled waits | queue-tabless-fallback |
+| New managed tab waiting for the user's click | Focus and prepare once; attempt clock frozen until verified playback, no stall rotation | farming-monitoring-recovery, managed-tab-transport-settle |
+| Unverified Drops refresh during stall observation | Stall baseline kept until fresh evidence | crash-recovery |
 | Browser restart / recycle | Browser restart clears operational warnings; recycle keeps windows and budget | farming-cycle-contract, worker-recycle-progress, crash-recovery |
 | Late sign-in / Stop | Scheduled recovery; Stop beats late sign-in | afk-auth-recovery, queue-auth-recovery-persistence |
 | Repeated warnings and broken notifications | One episode, independent receipts, farming not blocked | farming-cycle-contract, automation-event-notifier, claim-log |
@@ -50,6 +53,7 @@ Current farming contract. It supersedes older expectations about an indefinite i
 | Popup messages | Expansion, × and dismissal persist across popup close and worker recycle | e2e/farming-messages.spec.ts |
 | Tabless heartbeat service unavailable | Global recovery, no warning attributed to channels; observation time suspended | farming-cycle-contract, streamer-transport-failure |
 | Tabless live media rejected or unreachable | Reported as heartbeat failure; playlist reacquired, playback-token requests back off, no telemetry sent | twitch-tabless-heartbeat, hls-watch |
+| Stop or channel change while a tabless heartbeat awaits StreamInfo | The stale heartbeat requests no media and cannot replace the newer watch | tabless-live-media-lifecycle, hls-watch |
 | Tabless response restored, even degraded | Resume time from the suspended point without an immediate stall | farming-cycle-contract |
 | Publication cancelled by concurrent state | Neither parks nor spends the channel; wakes the same alarm after the owning tick, unless blocked or in cooldown | farming-campaign-handoff |
 | Playback timeout with late response | The attempt stays spent; no late promotion | farming-campaign-handoff |

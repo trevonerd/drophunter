@@ -4,7 +4,7 @@
 
 DropHunter is a Chrome, Chromium, and Edge extension for tracking and farming Twitch Drops with less manual busywork. It helps you pick a campaign, open an eligible stream, monitor progress, auto-claim rewards when possible, and move through queued campaigns with a cleaner workflow than juggling Twitch tabs by hand.
 
-Farming uses **twitch.tv** and your existing browser session. State stays local; optional Telegram alerts use your own bot and chat. Nothing is sent to developer-owned servers.
+Farming uses **twitch.tv** (plus Twitch's video CDN, **ttvnw.net**, for hidden farming) and your existing browser session. State stays local; optional Telegram alerts use your own bot and chat. Nothing is sent to developer-owned servers.
 
 ## Features
 
@@ -14,7 +14,7 @@ Farming uses **twitch.tv** and your existing browser session. State stays local;
 - Open and validate an eligible Twitch stream for the selected campaign
 - Rotate to a new streamer only when the current stream goes offline, becomes invalid, or progress stalls
 - Auto-claim completed drops across all campaigns when Twitch marks them claimable
-- Keep a local claim log so you can review recently claimed drops grouped by campaign
+- Keep a local claim log so you can review recently claimed drops grouped by campaign; drops claimed outside DropHunter are logged without an alert
 - Back up and restore selected preferences, favorites, hidden games, statistics, and claim history
 - Pause and resume farming without losing your place in the queue
 - Resume an active farming session after a browser restart, preserving manual Pause and Stop
@@ -40,6 +40,10 @@ Grab the latest zip from [Releases](https://github.com/trevonerd/drophunter/rele
 3. Click **Load unpacked**
 4. Select the unzipped project folder
 
+### Updating from 4.0.0
+
+Version 4.0.2 adds access to Twitch's video CDN (`*.ttvnw.net`) for hidden farming. Chrome and Edge disable the extension after this update until you accept the new permission from the extensions menu or `chrome://extensions`.
+
 ### Option 2: Build from source
 
 ```bash
@@ -55,11 +59,11 @@ The production Chrome build is generated in `.output/chrome-mv3/`. The Edge buil
 2. Let DropHunter detect your Twitch session and load campaigns. A new installation has no favorites and remains idle.
 3. Use **Add** to prepare a manual queue, then **Start** to authorize farming in that order; or star a game to let favorite auto-start handle its campaigns.
 
-New installations enable favorite auto-start and prefer hidden farming. Browser and Telegram notifications remain optional; neither is required for farming. Existing explicit preferences are preserved on upgrade.
+New installations enable favorite auto-start and prefer hidden farming. The tab-mode fallback is on by default, including after upgrading. Browser and Telegram notifications remain optional; neither is required for farming. Existing explicit preferences are preserved on upgrade.
 
 From there, DropHunter will:
 
-- farm with the transport you choose: hidden (tabless) farming requests the stream's live audio media from Twitch's video CDN (`ttvnw.net`) without opening a tab and never falls back to a viewing tab; managed farming reuses one Twitch tab
+- farm with the transport you choose: hidden (tabless) farming requests the stream's live audio media from Twitch's video CDN (`ttvnw.net`) without opening a tab and never falls back to a viewing tab; managed farming reuses one Twitch tab. If **Fall back to no-tab mode** is on, a full queue pass in tab mode where every campaign fails to play or stalls switches the watch source to hidden farming and restarts the queue
 - track progress and update the extension badge
 - claim completed drops when they become available
 - claim free channel points bonuses on open Twitch channel tabs when enabled
@@ -102,6 +106,8 @@ DropHunter includes a few runtime controls in the popup so you can tune how aggr
 - review and clear the local drop claim log
 - enable favorite auto-start independently of notification settings
 - choose hidden farming or a managed Twitch tab
+- fall back to hidden farming when a full tab-mode queue pass makes no progress
+- limit farming to all active campaigns or favorite games only
 - configure optional Telegram reward and farming-event alerts with your own bot and chat ID
 - switch between low-view, random, and top-viewer streamer selection
 - prefer a specific streamer language when one is available
@@ -129,13 +135,19 @@ DropHunter backup files are local JSON. They include settings, favorites, hidden
 
 ```bash
 bun run dev
+bun run dev:edge
 bun run build
+bun run build:all
 bun run lint
+bun run format
+bun run knip
 bun test tests/
 bun run test:ts
 bun run test:types
 bun run test:e2e
 bun run check
+bun run release:check
+bun run screenshots
 bun run clean
 bun run deps:outdated
 bun run deps:audit
@@ -177,16 +189,15 @@ You are responsible for using this software in compliance with Twitch's terms, p
 
 ## Release Readiness
 
-Beta builds are GitHub prereleases for unpacked/local testing only. Do not upload a
-`4.0.0-beta.N` archive to Chrome Web Store or Microsoft Edge Add-ons; the first
-4.x store package is the stable `4.0.0` build.
+Stable releases (`4.0.0`, `4.0.2`, …) are the only builds for Chrome Web Store and
+Microsoft Edge Add-ons. Historical `4.0.0-beta.N` archives were GitHub/local-only.
 
-Before publishing a beta or handing off a stable store build:
+Before publishing a release or handing off a store build:
 
 1. Run `bun run release:check`. If video dependencies or sources changed, also run `cd video && bun audit` and render the affected compositions.
 2. Confirm Chrome and Edge manifests, archive names, package version, tag, and release all agree.
 3. Load the freshly generated Chrome and Edge artifacts and check connection, campaign discovery, favorites, manual queue start, pause/resume/stop, hidden and managed watching, progress, auto-claim, monitor, recovery, and optional notifications.
-4. Verify `PRIVACY.md`, screenshots, permission justifications, and store copy still match the shipped behavior.
+4. Verify `PRIVACY.md`, screenshots (`bun run screenshots`), permission justifications, and store copy still match the shipped behavior. A new host permission changes the install warning and disables the extension on update until accepted: call it out in the release notes and store justification.
 5. For long-running farming changes, exercise a real eligible campaign across progress, a service-worker restart, sleep/wake, strict tabless recovery without a viewing-tab fallback, manual Twitch viewing, and recovery.
 
 The release gate produces `.output/drophunter-<version>-chrome.zip` and

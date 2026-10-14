@@ -30,10 +30,10 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - `src/background/games-cache-orchestration.ts` owns Twitch games-cache refresh orchestration (`refreshGamesCacheFromHiddenFetch`, `handleEnsureGamesCache`) plus `GamesCacheRefreshDeps`/`EnsureGamesCacheDeps`/`RefreshGamesCacheOptions` interfaces. Stateless+deps pattern — free functions taking explicit `ServiceWorkerState` and dep callbacks, with no shared mutable state.
 - `src/background/managed-watch-ownership.ts` owns the managed farming tab protocol. Its bound interface acquires and confirms candidates, finalizes ownership, reconstructs startup proof, observes retained managed tab IDs, and releases obsolete ownership. Candidate discard never rolls back reused-tab navigation and waits for in-flight confirmation. Native acquisition, proof/navigation guards, and reconstruction stay in focused internal implementations; the Chrome host only adapts browser operations. Ordinary farming, automation, paused/stopped selection, startup, and manual-view observation use this seam. Preserve exact proof strength, initial-create authorization, browser-wide serialization, failure retention, sole-window protection, and existing storage keys. Playback readiness and watch promotion stay in the transport modules; startup selection is read after asynchronous proof recovery.
 - `src/background/watch-candidate-preparation.ts` owns the shared prepare/validate/dispose contract for playback candidates. `watch-transport-coordinator.ts` promotes a viable candidate before releasing the active transport; `watch-transport-transition.ts` uses the same contract for farming-automation transactions. Failed or superseded candidates must not replace a working watch.
-- Tabless credit comes only from live HLS media requests: `twitch-api/tabless-heartbeat.ts` verifies StreamInfo/category, then `twitch-api/hls-watch.ts` (adapted from lurkloot) fetches a `PlaybackAccessToken`, the usher audio-only playlist, and HEADs the newest unseen segments. The Spade `minute-watched` beacon is best-effort only. Failed media is a tabless service failure, not a streamer failure. HLS requests omit credentials and referrer, follow redirects only within `*.ttvnw.net`, and never log URLs or tokens. The 30-second `tablessSustain` alarm exists only while HLS polling is sustained; coordinator Stop releases the watch.
+- Tabless credit comes only from live HLS media requests: `twitch-api/tabless-heartbeat.ts` verifies StreamInfo/category, then `twitch-api/hls-watch.ts` (adapted from lurkloot) fetches a `PlaybackAccessToken`, the usher audio-only playlist, and HEADs the newest unseen segments. The Spade `minute-watched` beacon is best-effort only. Failed media is a tabless service failure, not a streamer failure. HLS requests omit credentials and referrer, follow redirects only within `*.ttvnw.net`, and never log URLs or tokens. The 30-second `tablessSustain` alarm exists only while HLS polling is sustained. Coordinator Stop and leaving tabless mode release the watch; a heartbeat claims it (`hlsWatch.claim()`) before its session/StreamInfo awaits, so a released or superseded heartbeat cannot start or replace live media.
 - `src/background/drops-page-refresh.ts`, `api-operations.ts`, `session-management.ts`, and `twitch-api/` own Twitch session, inventory, campaign, integrity, and hidden refresh flows.
 - `src/content/` inspects Twitch pages and prepares playback; keep DOM parsing defensive because Twitch markup changes often.
-- `src/popup/` is user control UI; hooks own app state, settings toggles, onboarding, recovery clocks, and Drops refresh state. `components/main-view-model.ts` owns campaign, queue, startup, and transient-activity projection for `MainView`. Settings keep farming scope, watch source, and notifications visible; secondary controls live in the native Advanced disclosure.
+- `src/popup/` is user control UI; hooks own app state, settings toggles, onboarding, recovery clocks, and Drops refresh state. `components/main-view-model.ts` owns campaign, queue, startup, and transient-activity projection for `MainView`. Settings keep farming scope, watch source (with its tab-mode fallback toggle), and notifications visible; secondary controls live in the native Advanced disclosure.
 - `src/monitor/` is the compact live status window. Keep status semantics aligned with popup runtime status helpers.
 - `src/shared/` contains contracts used across extension contexts: runtime messages, game/campaign identity, app state normalization, browser API wrapper, and drop helpers. `src/shared/user-status.ts` is the single user-facing session-status model for popup and monitor; keep recovery copy concise and keep retry counters out of UI surfaces.
 
@@ -49,7 +49,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 
 ## Runtime And Recovery Rules
 - Session targets survive missing candidates; explicit Remove/Clear/Stop retires them. Budget/observation/round deadlines survive worker recycle; a new browser session clears visible operational warnings and attempt state while retaining episode IDs, per-channel receipts, proofs and manual blocks. Operational metadata is local and excluded from portable backups.
-- Managed farming reuses one proved tab; recreate only after verified absence. A newly created tab cannot play while hidden: focus it, then prepare at once (dismiss Twitch's content gate, start muted playback); report `user-interaction-required` only when content still needs the user's click. Streamer changes in the retained tab prepare in the background; focus returns only when content reports a needed click. A player that stops after verified playback is broken, not waiting for a click: restart it in place, then the failure budget rotates the streamer. Pause/Stop/completion/tabless switching suspend its player and retain the tab. Suspension clears playback keepalive, pauses the site's proved playing control and native videos, and invalidates pending content playback retries. Tabless never falls back to a viewing tab. Old navigation cleanup cannot overwrite markers, roll back or pause a newer player.
+- Managed farming reuses one proved tab; recreate only after verified absence. A newly created tab cannot play while hidden: focus it, then prepare at once (dismiss Twitch's content gate, start muted playback); report `user-interaction-required` only when content still needs the user's click; that wait suspends the attempt observation clock until verified playback. Streamer changes in the retained tab prepare in the background; focus returns only when content reports a needed click. A player that stops after verified playback is broken, not waiting for a click: restart it in place, then the failure budget rotates the streamer. Pause/Stop/completion/tabless switching suspend its player and retain the tab. Suspension clears playback keepalive, pauses the site's proved playing control and native videos, and invalidates pending content playback retries. Tabless never falls back to a viewing tab. The reverse is opt-out: with `tablessFallbackEnabled`, a managed-tab pass where every remaining campaign parks on `open-failed`/`stalled-progress` persists `watchTransportPreference: 'tabless'` and restarts the acquisition round (`session-lifecycle-queue-progression.ts`). Old navigation cleanup cannot overwrite markers, roll back or pause a newer player.
 - Reused Twitch pages navigate through the MAIN-world History router, preserving their document and user activation. Initial blank pages use browser navigation. A pending route cannot borrow the incumbent's category/playback proof: content waits for the rendered channel header. Same-origin user navigation retains token proof for acquisition only; cleanup still requires exact URL/token/window proof. Injection failure schedules recovery, never a new tab.
 - Cold playback remains on its reserved channel across 30-second preparation slices and worker restoration. Observe campaign-specific authoritative progress before the existing 5–20-minute deadline; unknown ownership/service evidence preserves this observation. Only verified expiry spends a failure and suspends the retained candidate. Ready commit clears preparation metadata without invalidating its own fingerprint; video time resets invalidate old playback evidence.
 - A unique settled ownership proof permits reuse despite obsolete registry handles or browser-remapped IDs; uncertain history still forbids creation. Recheck token, URL, window and sibling tabs inside serialized destructive cleanup. Automatic favorites use the same runtime preparation/publication path as queued Play; failed navigation suspends retained playback and cannot leave stale healthy presentation.
@@ -87,7 +87,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 
 ## Runtime Message Rules
 - Runtime message changes must update all contracts together: `RUNTIME_MESSAGE_TYPES`, `RuntimeRequest`, `RuntimeResponseByType`, payload validation, background router handling, and tests.
-- Homogeneous message clusters (uniform request+response shape) use the table-driven pattern in `src/shared/messages.ts` (see `BOOLEAN_TOGGLE_MESSAGES`, `NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES`) instead of literal arms; heterogeneous clusters stay literal until a per-type response-shape table is designed.
+- Homogeneous message clusters (uniform request+response shape) use the table-driven pattern in `src/shared/message-contracts.ts`, re-exported by `messages.ts` (see `BOOLEAN_TOGGLE_MESSAGES`, `NO_PAYLOAD_MINIMAL_RESPONSE_MESSAGES`) instead of literal arms; heterogeneous clusters stay literal until a per-type response-shape table is designed.
 - Validate payloads before invoking handlers. Critical actions should fail closed on malformed input.
 - Responses should include useful `error` text when user actions fail. Do not swallow clear/remove/start failures silently.
 - After state-changing handlers, persist state and broadcast updates unless the local pattern explicitly delegates that work.
@@ -112,9 +112,9 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Backup format changes: update [docs/backup-format.md](docs/backup-format.md) and this file. Keep migrations pure and covered by permanent historical fixtures.
 - New background action: add runtime message contract, payload validator, router handler, state persistence/broadcast behavior, and failure response tests.
 - New campaign identity behavior: update shared helper first, then queue, popup selector/chips, drop matching, and campaign label tests.
-- New recovery behavior: update runtime status helpers if user-visible, timing persistence if durable, monitor/popup display, and soak-test notes if manual QA changes.
+- New recovery behavior: update runtime status helpers if user-visible, timing persistence if durable, monitor/popup display, and the README *Release Readiness* checks or the recovery matrix's *Not verified on real Twitch* list if manual QA changes.
 - New Twitch API field: normalize in `twitch-api/parsing.ts` or nearby parser, keep raw response optional, add null/missing/wrong-shape tests.
-- New release behavior: update `scripts/release-check.mjs`, plus docs/checklist when store handoff changes.
+- New release behavior: update `scripts/release-check.mjs`, plus the README *Release Readiness* checklist when store handoff changes.
 
 ## Testing Matrix
 - Queue/farming regressions: `tests/queue-management.test.ts`, `tests/queue-start.test.ts`, `tests/service-worker.test.ts`.
@@ -124,12 +124,15 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Manual-watch policy/controller: `tests/manual-watch-policy.test.ts`, `tests/farming-automation-manual-watch.test.ts`.
 - Favorite preemption: `tests/farming-automation-preemption.test.ts`.
 - Playback handoff: `tests/watch-transport-handoff.test.ts`.
+- Tabless live media: `tests/hls-watch.test.ts`, `tests/twitch-tabless-heartbeat.test.ts`, `tests/tabless-live-media-lifecycle.test.ts`.
+- Tab-to-tabless fallback: `tests/queue-tabless-fallback.test.ts`.
+- Claim alerts: `tests/claim-notifications.test.ts`, `tests/claim-refresh-delivery.test.ts`.
 - Managed farming tab ownership: `tests/managed-watch-ownership.test.ts`, `tests/tab-management-tabs.test.ts`, `tests/managed-watch-durable-ownership.test.ts`, `tests/managed-watch-provisional-recovery.test.ts`, `tests/managed-watch-startup-integration.test.ts`, `tests/managed-watch-candidate-preservation.test.ts`, `tests/retained-managed-manual-watch.test.ts`.
 - Messages/router contracts: `tests/messages.test.ts`, `tests/message-router.test.ts`.
 - Twitch API/session/integrity parsing: `tests/client-parsing.test.ts`, `tests/integrity-token.test.ts`, `tests/session-management.test.ts`, `tests/api-operations.test.ts`.
 - Popup source behavior: `tests/popup-source.test.ts`.
 - Content/playback changes: `tests/content-script.test.ts`, `tests/content-app-state.test.ts`, `tests/playback-orchestrator.test.ts`.
-- Browser extension E2E: `e2e/*.spec.ts` through `bun run test:e2e` after a real Chrome MV3 build. CI and `release:check` run it; `check` and pre-push do not.
+- Browser extension E2E: `e2e/*.spec.ts` through `bun run test:e2e` after a real Chrome MV3 build. CI and `release:check` run it; `check` and pre-push do not. Pre-commit runs Biome on staged files and Knip (`knip.json`).
 - Release check script: `scripts/release-check.mjs`.
 
 ## Work Rules
@@ -146,8 +149,8 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
 - Vexp indices (`.vexp/`), hooks and machine-specific tool configuration stay local and untracked; the vexp instruction blocks in `AGENTS.md`, `.github/copilot-instructions.md` and `.cursor/rules/vexp.mdc` are tracked and managed by vexp. Use Vexp for orientation and `verify_done` for multi-file checks when available; native search is the fallback. RTK may summarize exploration output, but release validation must inspect full logs.
 
 ## Release And Store Handoff
-- Treat `4.0.0-beta.N` as GitHub/local-only builds. The manifest uses technical version `3.99.0.N` plus visible `version_name`; never upload these betas to browser stores.
-- Reserve manifest/tag/release version `4.0.0` for the first stable 4.x store submission.
+- Historical `4.0.0-beta.N` builds were GitHub/local-only (manifest `3.99.0.N` plus visible `version_name`). Stable `X.Y.Z` versions use plain manifest versions and are the store builds.
+- Release notes live only in the GitHub release body (no CHANGELOG): summary line, user-facing bullets, then `Verified with bun run release:check: …`. Call out permission-warning changes.
 - Before release/store handoff run:
   - `bun run test:types`
   - `bun run test:ts`
@@ -156,9 +159,9 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
   - `bun run test:e2e`
   - `bun run build:all`
   - `bun audit`
-- Preferred release gate is `bun run release:check`; it runs source and test TypeScript, Biome, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
+- Preferred release gate is `bun run release:check`; it runs source and test TypeScript, Biome, Knip, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
 - Regenerate release zips with `bun run release:check`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
-- Before a stable store handoff, verify `README.md`, `PRIVACY.md`, screenshots, permission justifications, and listing copy against the exact production artifacts.
+- Before a stable store handoff, verify `README.md`, `PRIVACY.md`, screenshots (`bun run screenshots`), permission justifications, and listing copy against the exact production artifacts. A new host permission needs a store justification and disables the extension on update until the user accepts it.
 - For long-run farming changes, exercise a real eligible campaign across progress, service-worker restart, sleep/wake, strict tabless recovery without a viewing-tab fallback, manual Twitch viewing, notifications, and recovery.
 - If touching video/promotional assets, also run `cd video && bun audit` and the relevant `cd video && bun run <script>` commands.
 

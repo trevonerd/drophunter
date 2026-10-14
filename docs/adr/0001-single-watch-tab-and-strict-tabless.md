@@ -19,3 +19,7 @@ Tabless farming has no viewing-tab fallback. Login and Drops synchronization may
 A same-tab transition interrupts its previous page before the replacement is ready. A failed request follows normal queue order; it does not restore the old document. Warning episodes persist independently of rounds and transport health, with separate browser and Telegram receipts. Delivery is detached from farming after durable state is recorded.
 
 Local Chrome fixture tests exercise real extension listeners and video playback. They do not establish that production Twitch credits progress; live Twitch verification remains a separate check.
+
+## Amendment (4.0.2)
+
+An opt-out setting may switch managed-tab farming to tabless after a full queue pass in which every campaign failed playback or stalled. The switch persists as the user's preference and restarts the round; it does not apply to missing streamers, directory errors or scheduled waits. Tabless still never falls back to a tab.

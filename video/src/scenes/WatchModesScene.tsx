@@ -44,7 +44,7 @@ export const WatchModesScene: React.FC = () => {
           No tab to babysit.
         </div>
         <div style={{ marginTop: 26, maxWidth: 610, fontFamily: "system-ui", fontSize: 30, lineHeight: 1.35, color: "rgba(255,255,255,0.7)" }}>
-          Runs hidden. Falls back to a muted tab if needed. Your own viewing always wins.
+          Runs hidden by default. One muted tab is optional. Your own viewing always wins.
         </div>
       </Interactive.Div>
 
@@ -134,8 +134,8 @@ export const WatchModesScene: React.FC = () => {
               <div style={{ fontSize: 54 }}>▣</div>
               <div style={{ padding: "8px 13px", borderRadius: 999, backgroundColor: "rgba(125,211,252,0.13)", fontFamily: "system-ui", fontSize: 14, fontWeight: 800, color: "#bae6fd" }}>Muted</div>
             </div>
-            <div style={{ marginTop: 18, fontFamily: "system-ui", fontSize: 28, fontWeight: 850, color: "white" }}>Managed fallback</div>
-            <div style={{ marginTop: 10, fontFamily: "system-ui", fontSize: 19, lineHeight: 1.4, color: "rgba(255,255,255,0.58)" }}>A prepared tab takes over only after playback is viable.</div>
+            <div style={{ marginTop: 18, fontFamily: "system-ui", fontSize: 28, fontWeight: 850, color: "white" }}>Managed tab</div>
+            <div style={{ marginTop: 10, fontFamily: "system-ui", fontSize: 19, lineHeight: 1.4, color: "rgba(255,255,255,0.58)" }}>One reused, muted tab. Falls back to hidden farming after a failed pass.</div>
             <div style={{ marginTop: 24, height: 9, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.10)", overflow: "hidden" }}>
               <div style={{ width: fallbackActive ? "82%" : "0%", height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #7dd3fc, #a970ff)" }} />
             </div>

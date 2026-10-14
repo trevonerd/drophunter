@@ -19,7 +19,7 @@ If you configure and enable **Telegram alerts**, DropHunter also accesses:
 All data is used **solely** to operate the extension's core functionality:
 
 1. Fetching available drop campaigns from Twitch
-2. Opening and managing stream tabs for watch-time accrual
+2. Watching eligible streams for watch-time accrual, either in one managed Twitch tab or, in hidden farming, by requesting the stream's live media without a tab
 3. Tracking drop progress and claiming rewards automatically
 4. Displaying status information in the extension popup and live monitor
 5. Sending optional reward and farming-event notifications through Telegram only after you configure the feature, grant its optional host permission, and enable the corresponding alerts
@@ -49,7 +49,7 @@ DropHunter does not sell user data, use it for advertising or analytics, or send
 
 Core network requests are directed to **twitch.tv** domains, using your existing Twitch session to perform the same actions you would perform manually: checking campaigns, watching eligible streams, and claiming Drops.
 
-During hidden (tabless) farming, DropHunter requests the live stream's audio playlist and its newest segments from Twitch's video CDN (**ttvnw.net**), as Twitch's player does. These requests carry only the signed playback grant Twitch issues for that stream; they send no cookies, OAuth token or referrer, and the media is not downloaded or played.
+During hidden (tabless) farming, DropHunter requests the live stream's audio playlist and its newest segments from Twitch's video CDN (**ttvnw.net**), as Twitch's player does. These requests carry only the signed playback grant Twitch issues for that stream; they send no cookies, OAuth token or referrer, and the media is not downloaded or played. DropHunter also sends Twitch's standard `minute-watched` viewing event to twitch.tv, as Twitch's player does; it is not DropHunter analytics.
 
 If you explicitly configure and enable **Telegram alerts**, DropHunter sends notifications to **api.telegram.org** through the bot and chat ID you provide. Reward alerts may include the claimed Drop name, benefit name when available, campaign or game label, claim time, selected farming campaign, active streamer name, and reward image URL. Enabled farming-event alerts may include campaign discovery, automatic starts and campaign changes, suspension or recovery status, completion, and a reason when your attention is needed. Twitch session credentials are never included. This data is sent only to the Telegram chat you specify. Telegram alerts are disabled by default and require optional host permission.
 
