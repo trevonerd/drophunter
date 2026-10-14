@@ -5,13 +5,19 @@ import {
   recoverManagedTabOwnership,
   streamerWatchUrl,
 } from './managed-watch-ownership-proof.ts';
-import { listManagedWatches } from './managed-watch-registry.ts';
+import { forgetManagedWatch, listManagedWatches } from './managed-watch-registry.ts';
 
 type ManagedOwnership = Extract<WatchOwnershipV1, { kind: 'managed-tab' }>;
 export type ManagedWatchPreflight =
   | { readonly kind: 'reuse'; readonly ownership: ManagedOwnership }
   | { readonly kind: 'create'; readonly previouslyOwned: boolean }
   | { readonly kind: 'blocked' };
+
+// Chrome reveals tab URLs only on Twitch hosts, so a settled tab without a Twitch URL
+// (e.g. reused for chrome://extensions) no longer holds a managed watch.
+function hasSettledOffTwitch(tab: { url?: string; pendingUrl?: string; status?: string }): boolean {
+  return tab.status === 'complete' && !tab.pendingUrl && !tab.url?.startsWith('https://www.twitch.tv/');
+}
 
 export async function reconcileManagedWatchesBeforeCreate(
   operations: ManagedTabOwnershipOperations,
@@ -51,7 +57,18 @@ export async function reconcileManagedWatchesBeforeCreate(
       continue;
     }
     if (result.kind === 'missing') {
-      if (tabs.some((tab) => tab.id === ownership.tabId)) uncertainHistory = true;
+      if (tabs.some((tab) => tab.id === ownership.tabId)) {
+        const tab = await operations.tabs.get(ownership.tabId).catch(() => null);
+        // Forgetting the token keeps a later Back navigation from reviving its marker.
+        const released =
+          tab !== null &&
+          hasSettledOffTwitch(tab) &&
+          (await forgetManagedWatch(ownership.ownershipToken).then(
+            () => true,
+            () => false,
+          ));
+        if (!released) uncertainHistory = true;
+      }
       continue;
     }
     recovered.set(result.tab.id, { ...ownership, tabId: result.tab.id });

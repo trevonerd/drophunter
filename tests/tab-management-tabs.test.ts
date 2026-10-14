@@ -54,51 +54,66 @@ test('same-channel acquisition and rollback never reload the page', async () => 
   expect(tabs.removed).toEqual([]);
 });
 
+test.each(['query', 'get', 'marker', 'loading', 'pending', 'duplicate'] as const)(
+  'uncertain ownership cannot create a replacement: %s',
+  async (failure) => {
+    const page = tabs.add(url);
+    await managedWatchMarker.write(page.id, 'retained', url);
+    if (failure === 'query')
+      mocks.chrome.tabs.query = async () => {
+        throw new Error('Unavailable');
+      };
+    if (failure === 'get')
+      mocks.chrome.tabs.get = async () => {
+        throw new Error('Unavailable');
+      };
+    if (failure === 'marker')
+      mocks.chrome.scripting.executeScript = async () => {
+        throw new Error('Unavailable');
+      };
+    if (failure === 'loading') page.status = 'loading';
+    if (failure === 'pending') page.pendingUrl = 'https://www.twitch.tv/next_channel';
+    if (failure === 'duplicate') tabs.add(url).storage = new Map(page.storage);
+    const state = createServiceWorkerState();
+    state.appState.manualQueueAuthorized = true;
+    state.appState.farmingSessionOrigin = 'manual';
+    expect(
+      await openOwnedManagedWatch(state, { gameId: 'game', channelName: 'next_channel' }, async () => ({
+        isPlaybackReady: true,
+      })),
+    ).toBeNull();
+    expect(tabs.created).toEqual([]);
+    expect(tabs.removed).toEqual([]);
+    expect(tabs.updated).toEqual([]);
+  },
+);
+
 test.each([
-  'query',
-  'get',
-  'marker',
-  'loading',
-  'pending',
-  'wrong-page',
-  'user-blank-page',
-  'duplicate',
-] as const)('uncertain ownership cannot create a replacement: %s', async (failure) => {
+  'https://example.com',
+  // Chrome hides URLs outside its host permissions, e.g. chrome://extensions.
+  undefined,
+  'about:blank',
+])('a retained tab the user took off Twitch (%s) is released and replaced once', async (offTwitch) => {
   const page = tabs.add(url);
   await managedWatchMarker.write(page.id, 'retained', url);
-  if (failure === 'query')
-    mocks.chrome.tabs.query = async () => {
-      throw new Error('Unavailable');
-    };
-  if (failure === 'get')
-    mocks.chrome.tabs.get = async () => {
-      throw new Error('Unavailable');
-    };
-  if (failure === 'marker')
-    mocks.chrome.scripting.executeScript = async () => {
-      throw new Error('Unavailable');
-    };
-  if (failure === 'loading') page.status = 'loading';
-  if (failure === 'pending') page.pendingUrl = 'https://www.twitch.tv/next_channel';
-  if (failure === 'wrong-page') page.url = 'https://example.com';
-  if (failure === 'user-blank-page') {
-    await mocks.storage.session.set({
-      'farmingAutomationOwnedWatch:retained': { version: 1, expectedUrl: url },
-    });
-    page.url = 'about:blank';
-  }
-  if (failure === 'duplicate') tabs.add(url).storage = new Map(page.storage);
-  const state = createServiceWorkerState();
-  state.appState.manualQueueAuthorized = true;
-  state.appState.farmingSessionOrigin = 'manual';
-  expect(
-    await openOwnedManagedWatch(state, { gameId: 'game', channelName: 'next_channel' }, async () => ({
-      isPlaybackReady: true,
-    })),
-  ).toBeNull();
-  expect(tabs.created).toEqual([]);
+  await mocks.storage.session.set({
+    'farmingAutomationOwnedWatch:retained': { version: 1, expectedUrl: url },
+  });
+  page.url = offTwitch as string;
+  const host = createChromeFarmingAutomationHost();
+
+  const acquired = await host.managedWatchOwnership.acquire('owned_channel');
+  expect(acquired?.ownership.tabId).not.toBe(page.id);
+  expect(tabs.created).toEqual([acquired?.ownership.tabId ?? -1]);
+  expect(tabs.updated.some((item) => item.id === page.id)).toBe(false);
   expect(tabs.removed).toEqual([]);
-  expect(tabs.updated).toEqual([]);
+
+  // Back to Twitch revives the old page's marker, but its token was forgotten.
+  page.url = url;
+  expect((await host.managedWatchOwnership.acquire('owned_channel'))?.ownership.tabId).toBe(
+    acquired?.ownership.tabId,
+  );
+  expect(tabs.created).toHaveLength(1);
 });
 
 test('a confirmed absent old tab permits exactly one replacement', async () => {

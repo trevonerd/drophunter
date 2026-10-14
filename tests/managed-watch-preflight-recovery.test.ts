@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { createChromeFarmingAutomationHost } from '../src/background/farming-automation-chrome-host.ts';
 import { managedWatchMarker } from '../src/background/managed-watch-marker.ts';
 import { reconcileManagedWatchesBeforeCreate } from '../src/background/managed-watch-preflight.ts';
-import { rememberManagedWatch } from '../src/background/managed-watch-registry.ts';
+import { listManagedWatches, rememberManagedWatch } from '../src/background/managed-watch-registry.ts';
 import { setupChromeMocks } from './mocks/chrome.ts';
 import { installManagedWatchPages } from './support/managed-watch-pages.ts';
 
@@ -136,6 +136,33 @@ test('remapped historical IDs cannot hide a second independently proved watch', 
     expect(second.url).toBe('https://www.twitch.tv/second_channel');
     expect(tabs.created).toEqual([]);
     expect(tabs.removed).toEqual([]);
+  } finally {
+    mocks.teardown();
+  }
+});
+
+test('a historical managed tab reused off Twitch no longer blocks creation', async () => {
+  const mocks = setupChromeMocks();
+  const tabs = installManagedWatchPages(mocks);
+  try {
+    const old = tabs.add(url);
+    expect(await managedWatchMarker.write(old.id, 'old-token', url)).toBe(true);
+    old.storage.clear();
+    const host = createChromeFarmingAutomationHost();
+    // A Twitch page or a navigation in progress may still become the watch.
+    old.url = 'https://www.twitch.tv/directory';
+    expect(await reconcileManagedWatchesBeforeCreate(host, null, () => true)).toEqual({ kind: 'blocked' });
+    old.url = 'chrome://extensions/';
+    old.status = 'loading';
+    expect(await reconcileManagedWatchesBeforeCreate(host, null, () => true)).toEqual({ kind: 'blocked' });
+
+    // The user reloads the extension from the old farming tab.
+    old.status = 'complete';
+    expect(await reconcileManagedWatchesBeforeCreate(host, null, () => true)).toEqual({
+      kind: 'create',
+      previouslyOwned: true,
+    });
+    expect(await listManagedWatches()).toEqual([]);
   } finally {
     mocks.teardown();
   }
