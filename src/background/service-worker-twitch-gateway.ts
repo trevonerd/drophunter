@@ -4,7 +4,12 @@ import { gameKey, resolveCategorySlug as resolveCategorySlugExt } from '../share
 import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import type { DropsSnapshot, TwitchDrop, TwitchGame, TwitchStreamer } from '../types/index.ts';
 import { fetchDropsSnapshotFromApiWrapper } from './api-drops-wrapper.ts';
-import { applyApiBackoff, clearLastTwitchApiFailure, getLastTwitchApiFailure } from './api-operations.ts';
+import {
+  applyApiBackoff,
+  clearLastTwitchApiFailure,
+  fetchPlaybackTokenFromApi,
+  getLastTwitchApiFailure,
+} from './api-operations.ts';
 import {
   fetchDirectoryStreamersFromApiWrapper,
   fetchInventorySnapshotFromApiWrapper,
@@ -13,7 +18,7 @@ import { PROGRESS_POLL_MS, STREAM_CONTEXT_TIMEOUT_MS, TABLESS_SUSTAIN_ALARM_NAME
 import { normalizeFarmingAutomationSnapshot } from './farming-automation-normalization.ts';
 import type { StreamContext } from './farming-session.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
-import { logDebug, logWarn } from './logging.ts';
+import { logWarn } from './logging.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 import { bindCampaignEvidenceAccount } from './session-account-evidence.ts';
 import {
@@ -116,7 +121,7 @@ export function createServiceWorkerTwitchGateway(
       const session = state.twitchSessionCache ?? (await ensureTwitchSession());
       if (!session) return null;
       try {
-        return await new TwitchApiClient(session).fetchPlaybackAccessToken(channel);
+        return await fetchPlaybackTokenFromApi(state, session, channel);
       } catch (error) {
         const failure = classifyTwitchApiFailure(error);
         if (failure.kind === 'rate-limit') applyApiBackoff(state, failure.retryAfterMs);
@@ -137,7 +142,7 @@ export function createServiceWorkerTwitchGateway(
     (poll: HlsPoll): HlsPoll =>
     async (context) => {
       const result = await poll(context);
-      if (!result.ok) logDebug('Tabless live media request failed:', result.message);
+      if (!result.ok) logWarn('Tabless live media request failed:', result.message);
       return result;
     };
   const tablessHeartbeat = createTwitchTablessHeartbeat({

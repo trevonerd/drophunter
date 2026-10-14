@@ -57,3 +57,4 @@ import './cases/api-operations-14.ts';
 import './cases/api-operations-15.ts';
 import './cases/api-operations-16.ts';
 import './cases/api-operations-17.ts';
+import './cases/api-operations-18.ts';

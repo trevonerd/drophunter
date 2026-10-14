@@ -8,7 +8,7 @@ import type { ServiceWorkerState } from './runtime-state.ts';
 import { ensureSessionIntegrity as ensureSessionIntegrityExt } from './session-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/errors.ts';
-import type { TwitchSession } from './twitch-api/types.ts';
+import type { PlaybackAccessToken, TwitchSession } from './twitch-api/types.ts';
 import { markTwitchSessionReady } from './twitch-session-sync.ts';
 
 const latestTwitchApiFailureByState = new WeakMap<ServiceWorkerState, TwitchApiFailure>();
@@ -120,6 +120,48 @@ async function fetchSnapshotWithIntegrityRetry(
     if (failure.kind === 'auth') throw error;
     applyApiBackoff(state, failure.retryAfterMs);
     return null;
+  }
+}
+
+/**
+ * Requests a playback token under the snapshot's integrity policy. Twitch gates
+ * authorized web-client tokens behind Client-Integrity, so a stale token is
+ * refreshed once and the no-integrity fallback is tried before failing.
+ */
+export async function fetchPlaybackTokenFromApi(
+  state: ServiceWorkerState,
+  session: TwitchSession,
+  channel: string,
+): Promise<PlaybackAccessToken | null> {
+  const fetchToken = (current: TwitchSession) =>
+    new TwitchApiClient(current).fetchPlaybackAccessToken(channel);
+  const sessionWithIntegrity =
+    state.integrityFallbackActive && Date.now() < state.integrityFallbackActiveUntil
+      ? { ...session, clientIntegrity: undefined }
+      : await ensureSessionIntegrityExt(state, session);
+  try {
+    return await fetchToken(sessionWithIntegrity);
+  } catch (error) {
+    if (
+      !String(error instanceof Error ? error.message : error)
+        .toLowerCase()
+        .includes('integrity')
+    )
+      throw error;
+    const refreshed = await ensureSessionIntegrityExt(state, session, true);
+    if (refreshed.clientIntegrity && refreshed.clientIntegrity !== sessionWithIntegrity.clientIntegrity) {
+      try {
+        return await fetchToken(refreshed);
+      } catch (retryError) {
+        logDebug('Integrity-refreshed playback token request still failed', { error: String(retryError) });
+      }
+    }
+    // The first request already ran without integrity; repeating it cannot succeed.
+    if (!sessionWithIntegrity.clientIntegrity) throw error;
+    const token = await fetchToken({ ...session, clientIntegrity: undefined });
+    state.integrityFallbackActive = true;
+    state.integrityFallbackActiveUntil = Date.now() + INTEGRITY_FALLBACK_TTL_MS;
+    return token;
   }
 }
 
