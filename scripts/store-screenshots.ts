@@ -103,7 +103,7 @@ const slides: Slide[] = [
   {
     file: '2-farming',
     title: 'Start it. Walk away.',
-    sub: 'Live progress, ETA, and the current streamer, always one glance away.',
+    sub: 'Live progress and ETA for every drop, always one glance away.',
     state: { ...idle, isRunning: true, wasRunning: true, farmingSessionOrigin: 'manual' },
   },
   {
@@ -176,13 +176,27 @@ try {
       const games = [...synced].sort((a, b) => rank(a) - rank(b));
       // The worker keeps state in memory: layer runtime state on top, then restart on the same profile.
       await worker.evaluate(async (claimLog) => chrome.storage.local.set({ claimLog }), CLAIMS);
-      await seedAppState(seed, {
+      const scene = {
         selectedGame: games[0],
         queue: games,
         favoriteGames: FAVORITES,
         campaignSyncState: { ...NEVER_SYNCED, lastSuccessAt: Date.now(), campaignCount: games.length },
         ...slide.state,
-      });
+      };
+      // A late save from the seed worker can overwrite the scene; reseed until storage holds it.
+      for (let attempt = 1; ; attempt++) {
+        await seedAppState(seed, scene);
+        await new Promise((r) => setTimeout(r, 500));
+        const stored = await worker.evaluate(
+          async () => (await chrome.storage.local.get('appState')).appState,
+        );
+        if (
+          stored?.queue?.length === scene.queue.length &&
+          stored.autoStartFavoriteGames === scene.autoStartFavoriteGames
+        )
+          break;
+        if (attempt === 5) throw new Error(`${slide.file}: seeded scene did not persist`);
+      }
       await seed.shutdown();
       profile = await createExtensionProfile(seed.userDataDir, options);
       const popup = await openPopup(profile);

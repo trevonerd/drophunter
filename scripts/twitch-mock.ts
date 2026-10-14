@@ -1,5 +1,5 @@
 // Minimal local stand-in for gql.twitch.tv, used by scripts/store-screenshots.ts.
-// Serves only the GQL operations the extension's campaign sync needs.
+// Serves only the GQL operations campaign sync and tabless farming need, plus fake live HLS media.
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -79,9 +79,11 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
     slug: slug(c),
     boxArtURL: mockArtUrl(c.game),
   });
-  // Every game gets live channels named `<slug>_<n>`, so a channel login identifies its campaign.
-  const channelsFor = (c: MockCampaign) => [1, 2, 3].map((n) => `${slug(c)}_${n}`);
-  const campaignOfChannel = (login: string) => campaigns.find((c) => login.startsWith(`${slug(c)}_`));
+  // Every game gets live channels named `<login>_<n>`, so a channel login identifies its campaign.
+  // Twitch logins allow only letters, digits and underscores.
+  const login = (c: MockCampaign) => slug(c).replace(/-/g, '');
+  const channelsFor = (c: MockCampaign) => [1, 2, 3].map((n) => `${login(c)}_${n}`);
+  const campaignOfChannel = (channel: string) => campaigns.find((c) => channel.startsWith(`${login(c)}_`));
 
   const answer = (op: { operationName?: string; variables?: { dropID?: string } }): unknown => {
     switch (op.operationName) {
@@ -137,18 +139,22 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
         };
       }
       case 'StreamInfo': {
-        const login = (op as { variables?: { channel?: string } }).variables?.channel ?? '';
-        const c = campaignOfChannel(login);
+        const channel = (op as { variables?: { channel?: string } }).variables?.channel ?? '';
+        const c = campaignOfChannel(channel);
         if (!c) return { data: { user: null } };
         return {
           data: {
             user: {
-              id: `id-${login}`,
-              stream: { id: `broadcast-${login}`, type: 'live', game: { id: c.gameId, name: c.game } },
+              id: `id-${channel}`,
+              stream: { id: `broadcast-${channel}`, type: 'live', game: { id: c.gameId, name: c.game } },
             },
           },
         };
       }
+      case 'PlaybackAccessToken':
+        return {
+          data: { streamPlaybackAccessToken: { value: '{"mock":true}', signature: 'mock-signature' } },
+        };
       case 'DirectoryPage_Game': {
         const c = campaigns.find(
           (x) => slug(x) === (op as { variables?: { slug?: string } }).variables?.slug,
@@ -180,8 +186,24 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
     port: 0,
     tls: { key: Bun.file(key), cert: Bun.file(cert) },
     async fetch(req) {
-      const { pathname } = new URL(req.url);
+      const { hostname, pathname } = new URL(req.url);
       if (pathname === '/track') return new Response(null, { status: 204 });
+      // Tabless live media: usher master playlist, audio-only media playlist, live-edge segments.
+      if (hostname === 'usher.ttvnw.net') {
+        const channel = pathname.split('/').at(-1);
+        return new Response(
+          `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=160000,CODECS="mp4a.40.2"\nhttps://video-weaver.ttvnw.net/v1/playlist/${channel}`,
+        );
+      }
+      if (hostname === 'video-weaver.ttvnw.net') {
+        const channel = pathname.split('/').at(-1)?.replace('.m3u8', '');
+        const edge = Math.floor(Date.now() / 2000);
+        const segments = [3, 2, 1, 0].map(
+          (age) => `#EXTINF:2.000,live\nhttps://video-edge.ttvnw.net/v1/segment/${channel}-${edge - age}.ts`,
+        );
+        return new Response(['#EXTM3U', '#EXT-X-TARGETDURATION:2', ...segments].join('\n'));
+      }
+      if (hostname === 'video-edge.ttvnw.net') return new Response(null, { status: 200 });
       if (pathname.startsWith('/mock-art/'))
         return new Response(artSvg(decodeURIComponent(pathname.slice(10, -4))), {
           headers: { 'content-type': 'image/svg+xml' },

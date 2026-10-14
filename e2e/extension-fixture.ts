@@ -37,7 +37,7 @@ export async function createExtensionProfile(
       '--disable-background-networking',
       options.twitchMockPort === undefined
         ? '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'
-        : `--host-resolver-rules=MAP gql.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP www.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP spade.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`,
+        : `--host-resolver-rules=MAP gql.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP www.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP spade.twitch.tv 127.0.0.1:${options.twitchMockPort}, MAP *.ttvnw.net 127.0.0.1:${options.twitchMockPort}, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`,
       ...(options.twitchMockPort === undefined ? [] : ['--ignore-certificate-errors']),
     ],
   });
