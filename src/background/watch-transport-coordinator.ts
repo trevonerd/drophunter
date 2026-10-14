@@ -124,6 +124,11 @@ export function createWatchTransportCoordinator(
     }
   };
 
+  // Tabless transports share one live-media watch; leaving tabless mode ends it.
+  const releaseLeftTabless = (previous: WatchTransport, next: WatchTransport) => {
+    if (previous.mode === 'tabless' && next.mode !== 'tabless') options.releaseTablessWatch?.();
+  };
+
   const settleHealth = async (
     health: WatchHealth,
     isCurrent: () => boolean = () => true,
@@ -271,6 +276,7 @@ export function createWatchTransportCoordinator(
         lastTickAt = 0;
         if (state.appState.pendingWatchTarget === pending) state.appState.pendingWatchTarget = null;
         promotion = { kind: 'promoted', ownership, obsolete };
+        releaseLeftTabless(previous, candidate.transport);
         void previous.stop().catch(() => undefined);
         void finalizeManagedPromotion(ownership, obsolete).catch(() => undefined);
         return promotion;
@@ -377,6 +383,7 @@ export function createWatchTransportCoordinator(
       adoption.ownership.kind === 'managed-tab' &&
       previousOwnership.tabId === adoption.ownership.tabId &&
       previousOwnership.ownershipToken === adoption.ownership.ownershipToken;
+    releaseLeftTabless(previous, next);
     if (adoption.obsolete === null && previousOwnership !== null && !sameManagedWatch) {
       void previous.stop().catch(() => undefined);
     }

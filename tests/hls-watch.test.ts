@@ -288,6 +288,50 @@ describe('HLS watch', () => {
     expect(h.tokenRequests).toHaveLength(2);
   });
 
+  test('a poll queued before release requests no media afterwards', async () => {
+    const h = harness();
+    await h.watch.poll(context);
+    let resolveSegment: (response: Response) => void = () => undefined;
+    h.routes.set(`${EDGE}/s9.ts`, () => new Promise<Response>((resolve) => (resolveSegment = resolve)));
+    h.setSegments(['s9']);
+    const running = h.watch.poll(context);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const queued = h.watch.poll(context);
+
+    h.watch.release();
+    resolveSegment(new Response(null, { status: 200 }));
+    h.requests.length = 0;
+
+    expect(await running).toEqual({ ok: false, message: 'Twitch HLS watch stopped' });
+    expect(await queued).toEqual({ ok: false, message: 'Twitch HLS watch stopped' });
+    expect(h.requests).toEqual([]);
+    expect(h.tokenRequests).toHaveLength(1);
+  });
+
+  test('a stale claim joins the current watch but never starts or replaces one', async () => {
+    const h = harness();
+    const staleAfterRelease = h.watch.claim();
+    h.watch.release();
+
+    expect(await staleAfterRelease(context)).toEqual({
+      ok: false,
+      message: 'Twitch HLS watch is no longer current',
+    });
+    expect(h.requests).toEqual([]);
+
+    const sameWatch = h.watch.claim();
+    const otherChannel = h.watch.claim();
+    expect(await h.watch.poll(context)).toEqual({ ok: true });
+    expect(await otherChannel({ channel: 'other', broadcastId: 'broadcast-2' })).toEqual({
+      ok: false,
+      message: 'Twitch HLS watch is no longer current',
+    });
+    h.setSegments(['s8', 's9']);
+    expect(await sameWatch(context)).toEqual({ ok: true });
+    expect(h.tokenRequests).toEqual(['streamer']);
+    expect(h.sustainChanges).toEqual([false, true]);
+  });
+
   test('rejects a channel that is not a Twitch login', async () => {
     const h = harness();
 

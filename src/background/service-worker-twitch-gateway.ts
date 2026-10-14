@@ -30,7 +30,7 @@ import { sessionDebugSummary } from './state-persistence.ts';
 import { waitForTabComplete } from './tab-management.ts';
 import { type FetchDropsSnapshotOptions, TwitchApiClient } from './twitch-api/client.ts';
 import { classifyTwitchApiFailure, type TwitchApiFailure } from './twitch-api/errors.ts';
-import { createHlsWatch } from './twitch-api/hls-watch.ts';
+import { createHlsWatch, type HlsPoll } from './twitch-api/hls-watch.ts';
 import { createTwitchTablessHeartbeat } from './twitch-api/tabless-heartbeat.ts';
 import {
   DEFAULT_TWITCH_CLIENT_ID,
@@ -133,13 +133,16 @@ export function createServiceWorkerTwitchGateway(
       );
     },
   });
-  const tablessHeartbeat = createTwitchTablessHeartbeat({
-    clientId: DEFAULT_TWITCH_CLIENT_ID,
-    watch: async (context) => {
-      const result = await hlsWatch.poll(context);
+  const loggedWatch =
+    (poll: HlsPoll): HlsPoll =>
+    async (context) => {
+      const result = await poll(context);
       if (!result.ok) logDebug('Tabless live media request failed:', result.message);
       return result;
-    },
+    };
+  const tablessHeartbeat = createTwitchTablessHeartbeat({
+    clientId: DEFAULT_TWITCH_CLIENT_ID,
+    watch: loggedWatch(hlsWatch.poll),
   });
   let latestProgressSnapshot: DropsSnapshot | null = null;
   let latestTwitchApiFailure: TwitchApiFailure | null = null;
@@ -304,12 +307,14 @@ export function createServiceWorkerTwitchGateway(
   }
 
   async function heartbeat(target: FarmingTarget): Promise<TablessHeartbeat> {
+    // Claimed before any await: a Stop or newer watch meanwhile leaves this heartbeat without media.
+    const watch = loggedWatch(hlsWatch.claim());
     const session = state.twitchSessionCache ?? (await ensureTwitchSession());
     const userId = session?.userId?.trim();
     if (!userId) {
       return { accepted: false, isLive: true, reason: 'error' };
     }
-    const result = await tablessHeartbeat.heartbeat(target, userId);
+    const result = await tablessHeartbeat.heartbeat(target, userId, watch);
     return { ...result, progress: currentCachedProgress(target) };
   }
 

@@ -1,7 +1,7 @@
 import type { TwitchStreamer } from '../../types/index.ts';
 import type { FarmingTarget, TablessHeartbeat } from '../watch-transport.ts';
 import { createTwitchHttpError } from './errors.ts';
-import type { HlsPollResult, HlsWatchContext } from './hls-watch.ts';
+import type { HlsPoll } from './hls-watch.ts';
 import {
   channelUrl,
   extractSettingsBundle,
@@ -27,7 +27,7 @@ export type TwitchHeartbeatFetch = (input: RequestInfo | URL, init?: RequestInit
 
 export interface TwitchTablessHeartbeatOptions {
   /** Requests live media for a verified broadcast; Twitch credits progress only for this. */
-  readonly watch: (context: HlsWatchContext) => Promise<HlsPollResult>;
+  readonly watch: HlsPoll;
   readonly fetch?: TwitchHeartbeatFetch;
   readonly clientId?: string;
   readonly now?: () => string;
@@ -105,7 +105,12 @@ async function readResponseBody(response: Response): Promise<string> {
 }
 
 export interface TwitchTablessHeartbeat {
-  readonly heartbeat: (target: FarmingTarget, viewerUserId: string) => Promise<TablessHeartbeat>;
+  /** `watch` overrides the default media request, e.g. with a poll claimed before the caller's awaits. */
+  readonly heartbeat: (
+    target: FarmingTarget,
+    viewerUserId: string,
+    watch?: HlsPoll,
+  ) => Promise<TablessHeartbeat>;
   readonly probeStreamInfo: (channelName: string) => Promise<
     | { readonly kind: 'offline' }
     | { readonly kind: 'unavailable' }
@@ -269,7 +274,11 @@ export function createTwitchTablessHeartbeat(options: TwitchTablessHeartbeatOpti
     }
   };
 
-  const heartbeat = async (target: FarmingTarget, viewerUserId: string): Promise<TablessHeartbeat> => {
+  const heartbeat = async (
+    target: FarmingTarget,
+    viewerUserId: string,
+    watch: HlsPoll = options.watch,
+  ): Promise<TablessHeartbeat> => {
     const channel = target.channelName.trim().toLowerCase();
     if (!channel || !viewerUserId.trim()) {
       return { accepted: false, isLive: true, reason: 'error' };
@@ -296,7 +305,7 @@ export function createTwitchTablessHeartbeat(options: TwitchTablessHeartbeatOpti
           reason: 'wrong-game',
         };
       }
-      const watched = await options.watch({ channel, broadcastId: stream.broadcastId });
+      const watched = await watch({ channel, broadcastId: stream.broadcastId });
       if (!watched.ok) return { accepted: false, isLive: true, reason: 'heartbeat-failed' };
       await sendBeacon(channel, target, viewerUserId, stream);
       return { accepted: true, isLive: true, sameChannel: true, sameGame: true, reason: 'heartbeat' };

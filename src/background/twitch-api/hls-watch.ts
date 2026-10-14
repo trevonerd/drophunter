@@ -24,7 +24,7 @@ const CHANNEL_LOGIN = /^[a-z0-9_]+$/;
 
 export type HlsFetch = (input: string, init: RequestInit) => Promise<Response>;
 
-export type HlsPollResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
+type HlsPollResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 export interface HlsWatchContext {
   readonly channel: string;
@@ -39,8 +39,16 @@ export interface HlsWatchOptions {
   readonly onSustainChange?: (sustaining: boolean) => void;
 }
 
+export type HlsPoll = (context: HlsWatchContext) => Promise<HlsPollResult>;
+
 export interface HlsWatch {
-  readonly poll: (context: HlsWatchContext) => Promise<HlsPollResult>;
+  readonly poll: HlsPoll;
+  /**
+   * Claims the watch before a caller's own awaits. The returned poll may join
+   * the watch that is current when it runs, but after a release or a newer
+   * watch it can no longer start or replace one.
+   */
+  readonly claim: () => HlsPoll;
   readonly sustain: () => Promise<void>;
   /** Ends the current watch; the next poll starts a fresh one. */
   readonly release: () => void;
@@ -113,6 +121,7 @@ export function createHlsWatch(options: HlsWatchOptions): HlsWatch {
   const fetchImpl = options.fetch ?? defaultFetch;
   const now = options.now ?? Date.now;
   let abort = new AbortController();
+  let epoch = 0;
   let context: HlsWatchContext | null = null;
   let playlistUrl: string | null = null;
   let tokenFailures = 0;
@@ -124,6 +133,7 @@ export function createHlsWatch(options: HlsWatchOptions): HlsWatch {
   const seen = new Set<string>();
 
   const reset = () => {
+    epoch += 1;
     abort.abort();
     abort = new AbortController();
     context = null;
@@ -227,8 +237,8 @@ export function createHlsWatch(options: HlsWatchOptions): HlsWatch {
     return batch.length === 0 || requested > 0 ? { ok: true } : failed(failure ?? 'Twitch HLS watch failed');
   };
 
-  const watchOnce = async (channel: string): Promise<HlsPollResult> => {
-    const stop = abort.signal;
+  const watchOnce = async (channel: string, stop: AbortSignal): Promise<HlsPollResult> => {
+    if (stop.aborted) return failed('Twitch HLS watch stopped');
     const acquiring = playlistUrl === null;
     if (acquiring && now() < tokenRetryAt) {
       return failed('Twitch HLS watch is waiting to request a new playback token');
@@ -252,9 +262,11 @@ export function createHlsWatch(options: HlsWatchOptions): HlsWatch {
   };
 
   // Polls never overlap: the seen-segment cache and playlist URL are shared.
+  // A poll queued before a release stays bound to the released watch.
   const exclusive = (channel: string): Promise<HlsPollResult> => {
+    const stop = abort.signal;
     queued += 1;
-    const run = queue.then(() => watchOnce(channel));
+    const run = queue.then(() => watchOnce(channel, stop));
     queue = run.finally(() => {
       queued -= 1;
     });
@@ -273,20 +285,29 @@ export function createHlsWatch(options: HlsWatchOptions): HlsWatch {
     options.onSustainChange?.(true);
   };
 
-  const poll = async (next: HlsWatchContext): Promise<HlsPollResult> => {
+  const pollClaimed = async (claimed: number, next: HlsWatchContext): Promise<HlsPollResult> => {
     const channel = next.channel.trim().toLowerCase();
     if (!CHANNEL_LOGIN.test(channel)) return failed('Twitch HLS watch has no channel login');
     if (context?.channel !== channel || context.broadcastId !== next.broadcastId) {
+      if (claimed !== epoch) return failed('Twitch HLS watch is no longer current');
       reset();
       context = { channel, broadcastId: next.broadcastId };
     }
+    const owned = epoch;
     lastTickAt = now();
     const result = await exclusive(channel);
-    if (context?.channel !== channel) return result;
+    if (owned !== epoch) return result;
     if (result.ok) startSustain();
     else stopSustain();
     return result;
   };
+
+  const claim = (): HlsPoll => {
+    const claimed = epoch;
+    return (next) => pollClaimed(claimed, next);
+  };
+
+  const poll: HlsPoll = (next) => claim()(next);
 
   async function sustain(): Promise<void> {
     if (!context || now() - lastTickAt > HLS_SUSTAIN_STALE_MS) {
@@ -302,5 +323,5 @@ export function createHlsWatch(options: HlsWatchOptions): HlsWatch {
     stopSustain();
   };
 
-  return { poll, sustain, release };
+  return { poll, claim, sustain, release };
 }
