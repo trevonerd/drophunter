@@ -15,7 +15,8 @@
       ]
     },
     "video": {
-      "entry": ["src/index.ts", "remotion.config.ts"]
+      "entry": ["src/index.ts", "remotion.config.ts"],
+      "ignoreDependencies": ["react-dom"]
     }
   }
 }
