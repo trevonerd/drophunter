@@ -8,7 +8,8 @@
       "scripts/**/*.mjs",
       "tests/**/*.mjs",
       "tests/**/*.ts",
-      "vite.config.ts",
+      "scripts/**/*.ts",
+      "wxt.config.ts",
       "!!.codegraph",
       "!!.claude"
     ]

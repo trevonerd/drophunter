@@ -4,12 +4,22 @@
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium, type Page } from '@playwright/test';
-import { createExtensionProfile, getExtensionWorker, openPopup, seedAppState } from '../e2e/extension-fixture';
+import {
+  createExtensionProfile,
+  getExtensionWorker,
+  openPopup,
+  seedAppState,
+} from '../e2e/extension-fixture';
 import { type MockCampaign, mockArtUrl, startTwitchMock } from './twitch-mock';
 
 const OUT = resolve(process.cwd(), '.output/store-screenshots');
 
-const campaign = (id: string, game: string, name: string, drops: [string, number, number][]): MockCampaign => ({
+const campaign = (
+  id: string,
+  game: string,
+  name: string,
+  drops: [string, number, number][],
+): MockCampaign => ({
   id: `${id}-campaign`,
   gameId: id,
   game,
@@ -75,7 +85,14 @@ type Slide = {
   state?: Record<string, unknown>;
   act?: (popup: Page) => Promise<void>;
 };
-const idle = { totalDropsClaimed: 128, totalChannelPointsClaimed: 342, isRunning: false, wasRunning: false, manualQueueAuthorized: true, autoStartFavoriteGames: false };
+const idle = {
+  totalDropsClaimed: 128,
+  totalChannelPointsClaimed: 342,
+  isRunning: false,
+  wasRunning: false,
+  manualQueueAuthorized: true,
+  autoStartFavoriteGames: false,
+};
 const slides: Slide[] = [
   {
     file: '1-queue',
@@ -158,7 +175,6 @@ try {
       const rank = (g: { campaignId?: string }) => CAMPAIGNS.findIndex((c) => c.id === g.campaignId);
       const games = [...synced].sort((a, b) => rank(a) - rank(b));
       // The worker keeps state in memory: layer runtime state on top, then restart on the same profile.
-      await worker.evaluate(async (claimLog) => chrome.storage.local.set({ claimLog }), CLAIMS);
       await worker.evaluate(async (claimLog) => chrome.storage.local.set({ claimLog }), CLAIMS);
       await seedAppState(seed, {
         selectedGame: games[0],

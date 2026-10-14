@@ -41,7 +41,22 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
   const key = join(dir, 'key.pem');
   const cert = join(dir, 'cert.pem');
   const openssl = Bun.spawnSync(
-    ['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=gql.twitch.tv'],
+    [
+      'openssl',
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-nodes',
+      '-keyout',
+      key,
+      '-out',
+      cert,
+      '-days',
+      '1',
+      '-subj',
+      '/CN=gql.twitch.tv',
+    ],
     { stderr: 'ignore' },
   );
   if (openssl.exitCode !== 0) throw new Error('openssl failed to create the mock certificate');
@@ -75,7 +90,13 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
           data: {
             currentUser: {
               dropCampaigns: campaigns.map((c) => ({
-                id: c.id, name: c.name, status: 'ACTIVE', endAt, game: game(c), timeBasedDrops: timeBasedDrops(c), eventBasedDrops: [],
+                id: c.id,
+                name: c.name,
+                status: 'ACTIVE',
+                endAt,
+                game: game(c),
+                timeBasedDrops: timeBasedDrops(c),
+                eventBasedDrops: [],
               })),
             },
           },
@@ -86,7 +107,9 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
             currentUser: {
               inventory: {
                 dropCampaignsInProgress: campaigns.map((c) => ({
-                  id: c.id, game: { displayName: c.game }, timeBasedDrops: timeBasedDrops(c),
+                  id: c.id,
+                  game: { displayName: c.game },
+                  timeBasedDrops: timeBasedDrops(c),
                 })),
                 gameEventDrops: [],
               },
@@ -100,8 +123,14 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
           data: {
             user: {
               dropCampaign: {
-                id: c.id, name: c.name, status: 'ACTIVE', endAt, game: game(c), self: { isAccountConnected: true },
-                timeBasedDrops: timeBasedDrops(c), eventBasedDrops: [],
+                id: c.id,
+                name: c.name,
+                status: 'ACTIVE',
+                endAt,
+                game: game(c),
+                self: { isAccountConnected: true },
+                timeBasedDrops: timeBasedDrops(c),
+                eventBasedDrops: [],
               },
             },
           },
@@ -112,11 +141,18 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
         const c = campaignOfChannel(login);
         if (!c) return { data: { user: null } };
         return {
-          data: { user: { id: `id-${login}`, stream: { id: `broadcast-${login}`, type: 'live', game: { id: c.gameId, name: c.game } } } },
+          data: {
+            user: {
+              id: `id-${login}`,
+              stream: { id: `broadcast-${login}`, type: 'live', game: { id: c.gameId, name: c.game } },
+            },
+          },
         };
       }
       case 'DirectoryPage_Game': {
-        const c = campaigns.find((x) => slug(x) === (op as { variables?: { slug?: string } }).variables?.slug);
+        const c = campaigns.find(
+          (x) => slug(x) === (op as { variables?: { slug?: string } }).variables?.slug,
+        );
         return {
           data: {
             game: {
@@ -147,9 +183,16 @@ export async function startTwitchMock(campaigns: readonly MockCampaign[]) {
       const { pathname } = new URL(req.url);
       if (pathname === '/track') return new Response(null, { status: 204 });
       if (pathname.startsWith('/mock-art/'))
-        return new Response(artSvg(decodeURIComponent(pathname.slice(10, -4))), { headers: { 'content-type': 'image/svg+xml' } });
-      if (req.method === 'GET') return new Response('<html><script>var c={"spade_url":"https://spade.twitch.tv/track"}</script></html>', { headers: { 'content-type': 'text/html' } });
-      if (pathname === '/integrity') return Response.json({ token: 'mock-integrity-token', expiration: Date.now() + 3600_000 });
+        return new Response(artSvg(decodeURIComponent(pathname.slice(10, -4))), {
+          headers: { 'content-type': 'image/svg+xml' },
+        });
+      if (req.method === 'GET')
+        return new Response(
+          '<html><script>var c={"spade_url":"https://spade.twitch.tv/track"}</script></html>',
+          { headers: { 'content-type': 'text/html' } },
+        );
+      if (pathname === '/integrity')
+        return Response.json({ token: 'mock-integrity-token', expiration: Date.now() + 3600_000 });
       const body: unknown = await req.json().catch(() => ({}));
       const res = Array.isArray(body) ? body.map(answer as (op: unknown) => unknown) : answer(body as never);
       return Response.json(res);

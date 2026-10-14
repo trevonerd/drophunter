@@ -25,6 +25,9 @@ jobs:
       - name: Check (typecheck + lint + unit + build)
         run: bun run check
 
+      - name: Unused code (Knip)
+        run: bun run knip
+
       - name: Extension E2E
         run: bun run test:e2e
 

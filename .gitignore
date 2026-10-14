@@ -43,6 +43,9 @@ Thumbs.db
 
 # AI tool directories
 .claude/
+.omo/
+.impeccable/
+.codegraph
 .sisyphus/
 .opencode/
 .superpowers/
