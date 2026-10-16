@@ -19,6 +19,8 @@ export interface ExtensionProfileOptions {
   readonly twitchMockPort?: number;
   /** Browser locale; defaults to the host's. */
   readonly locale?: string;
+  /** Device pixel ratio for screenshots; Playwright default is 1. */
+  readonly deviceScaleFactor?: number;
 }
 
 export async function createExtensionProfile(
@@ -31,6 +33,7 @@ export async function createExtensionProfile(
     channel: 'chromium',
     headless: true,
     locale: options.locale,
+    deviceScaleFactor: options.deviceScaleFactor,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,

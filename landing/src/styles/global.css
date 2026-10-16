@@ -734,6 +734,8 @@ code {
 }
 
 .feature-card figure {
+  display: flex;
+  justify-content: center;
   margin: 0;
   padding: 1.6rem 1.6rem 0;
   background: #0c0914;
@@ -741,7 +743,8 @@ code {
 
 .feature-card img {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: min(100%, 400px);
   height: auto;
   object-fit: contain;
   border-radius: 0.85rem;
@@ -857,15 +860,20 @@ code {
   border: 0;
 }
 
-.video-caption {
-  margin: 1.35rem 0 0;
+.video-caption,
+.video-fallback,
+.video-live {
+  margin: 0.85rem 0 0;
   color: var(--muted);
   font-size: 0.92rem;
   text-align: center;
 }
 
-.video-caption a {
-  margin-left: 0.45rem;
+.video-fallback,
+.video-live {
+  margin-top: 0.45rem;
+  color: var(--faint);
+  font-size: 0.88rem;
 }
 
 .section-tight {

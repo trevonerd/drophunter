@@ -119,8 +119,7 @@ function videoFacade() {
     const iframe = document.createElement("iframe");
     iframe.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1`;
     iframe.title = trigger.dataset.videoTitle || "DropHunter promo";
-    iframe.allow =
-      "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+    iframe.allow = "autoplay; encrypted-media; picture-in-picture";
     iframe.allowFullscreen = true;
     iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
     trigger.replaceWith(iframe);

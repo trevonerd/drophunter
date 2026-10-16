@@ -20,6 +20,8 @@ export const SITE = {
   subhead: 'Queue campaigns. It farms in the background and claims the drops.',
   privacyLine:
     'Runs on the Twitch session already in Chrome. State stays in this browser. Open source.',
+  twitchChannel: 'aliengamer_051',
+  twitchUrl: 'https://www.twitch.tv/aliengamer_051',
 } as const;
 
 export const VIDEO = {

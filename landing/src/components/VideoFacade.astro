@@ -1,5 +1,5 @@
 ---
-import { VIDEO } from "../site";
+import { SITE, VIDEO } from "../site";
 ---
 
 <section class="section section-watch" id="watch" aria-labelledby="watch-title">
@@ -30,9 +30,13 @@ import { VIDEO } from "../site";
           </span>
         </button>
       </div>
-      <p class="video-caption">
-        {VIDEO.name}
-        <a href={VIDEO.watchUrl} rel="noopener">YouTube</a>
+      <p class="video-caption">{VIDEO.name}</p>
+      <p class="video-fallback">
+        <a href={VIDEO.watchUrl} rel="noopener" target="_blank">Watch on YouTube</a>
+      </p>
+      <p class="video-live">
+        Watch it live on Twitch:{" "}
+        <a href={SITE.twitchUrl} rel="noopener" target="_blank">{SITE.twitchChannel}</a>
       </p>
     </div>
   </div>

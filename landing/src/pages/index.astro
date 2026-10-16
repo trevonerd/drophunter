@@ -1,5 +1,6 @@
 ---
 import LogoMark from "../components/LogoMark.astro";
+import ShotPicture from "../components/ShotPicture.astro";
 import VideoFacade from "../components/VideoFacade.astro";
 import Layout from "../layouts/Layout.astro";
 import { FEATURES, FAQS, SCREENSHOTS, SITE } from "../site";
@@ -36,31 +37,11 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
           <div class="glow-ring"></div>
           <figure class="shot-hero" data-tilt>
             <div class="chrome-bar" aria-hidden="true"><i></i><span>DropHunter popup</span></div>
-            <picture>
-              <source srcset={featured.src} type="image/webp" />
-              <img
-                src={featured.fallback}
-                alt={featured.alt}
-                width={featured.width}
-                height={featured.height}
-                fetchpriority="high"
-                decoding="async"
-              />
-            </picture>
+            <ShotPicture shot={featured} fetchpriority="high" />
           </figure>
           <figure class="shot-monitor" data-tilt>
             <div class="chrome-bar" aria-hidden="true"><i></i><span>Live monitor</span></div>
-            <picture>
-              <source srcset={monitor.src} type="image/webp" />
-              <img
-                src={monitor.fallback}
-                alt={monitor.alt}
-                width={monitor.width}
-                height={monitor.height}
-                loading="lazy"
-                decoding="async"
-              />
-            </picture>
+            <ShotPicture shot={monitor} loading="lazy" />
           </figure>
         </div>
       </div>
@@ -78,17 +59,7 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
               return (
                 <article class="feature-card" data-reveal>
                   <figure>
-                    <picture>
-                      <source srcset={shot.src} type="image/webp" />
-                      <img
-                        src={shot.fallback}
-                        alt={shot.alt}
-                        width={shot.width}
-                        height={shot.height}
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    </picture>
+                    <ShotPicture shot={shot} loading="lazy" />
                   </figure>
                   <div class="feature-copy">
                     <h3>{feature.title}</h3>
