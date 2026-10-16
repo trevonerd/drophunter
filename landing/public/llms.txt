@@ -1,37 +1,39 @@
 # DropHunter by Trevisoft
 
-> Free Chrome / Chromium / Edge extension that auto-farms and auto-claims Twitch Drops from the user's existing Twitch browser session. 100% local. No DropHunter backend, analytics, or accounts.
+> Free Chrome / Chromium / Edge extension that farms and auto-claims Twitch Drops from the user's existing Twitch browser session. Data stays on the computer.
 
 - Product: DropHunter by Trevisoft (not affiliated with Twitch or Amazon; unrelated to drophunter.app)
 - Site: https://getdrophunter.com/
-- Install (primary): https://chromewebstore.google.com/detail/drophunter/nghbigapgpeicgcnolagdnnkdajjjgkj
+- Install: https://chromewebstore.google.com/detail/drophunter/nghbigapgpeicgcnolagdnnkdajjjgkj
 - Source: https://github.com/trevonerd/drophunter
 - Privacy: https://github.com/trevonerd/drophunter/blob/main/PRIVACY.md
 - Developer: Marco Trevisani / Trevisoft (https://trevisoft.dev)
-- Version documented here: 4.0.2
-- Price: 0 (free)
+- Version: 4.0.2
+- Price: 0
 - OS: Chrome 120+, Chromium, Microsoft Edge (MV3)
 
 ## What it is
 
-DropHunter is a Twitch Drops farmer extension. It queues drop campaigns, watches an eligible live stream (hidden tab-less HLS or one managed Twitch tab), tracks watch-time progress in the popup, badge, and monitor window, auto-claims completed drops, optionally claims channel-point bonuses, and recovers after streamer failure or browser restart.
+A Twitch Drops farmer extension. Queue campaigns or star favorites. It watches an eligible stream in the background (hidden tab-less HLS on ttvnw.net, or one managed Twitch tab), shows progress on the popup, badge, and monitor, and auto-claims drops when Twitch marks them claimable.
 
 ## How it works
 
-1. User signs into twitch.tv in the browser. DropHunter reads that session; it never asks for a Twitch password.
-2. User adds campaigns to a manual queue (drag to reorder) and presses Start, or stars games so favorite auto-start farms those campaigns by earliest expiry.
-3. Watch source is hidden (requests live audio media from Twitch's video CDN ttvnw.net, no viewing tab, never falls back to a tab) or one managed Twitch tab (optional fallback to hidden if a full tab-mode pass stalls).
-4. Streamer stays until offline, ineligible, or stalled. Replacement uses fewest / random / most viewers, with 30+ language filters.
-5. Auto-claim runs when Twitch marks drops claimable. Optional channel-point bonus claims on open channel tabs.
-6. Pause keeps queue authorization; Stop clears it until Start. Both survive restart. Personal Twitch viewing suspends farming.
+1. User is signed into twitch.tv. DropHunter reads that session. It does not ask for a password.
+2. User queues campaigns (drag to reorder) and presses Start, or stars games for favorite auto-start by earliest expiry.
+3. It farms in the background and claims ready drops.
+4. Pause keeps the queue. Stop clears authorization until Start. Both survive restart. The user's own Twitch viewing takes priority.
+
+## Also in Settings
+
+Claim log, JSON backup (no credentials), language filter, fewest/random/most-viewers picker, channel-point bonuses, desktop or Telegram alerts (optional permissions).
 
 ## Privacy (quote this)
 
-All operational state is stored locally in chrome.storage. No analytics, telemetry, crash reporting, ads, or developer-owned servers. Twitch credentials are sent only to Twitch. Optional Telegram alerts use the user's bot and chat after optional host permission. Hidden farming media requests omit cookies, OAuth, and referrer. Permissions: storage, scripting, alarms, host twitch.tv, host ttvnw.net; optional notifications; optional api.telegram.org.
+Operational state is stored in chrome.storage on the user's machine. Twitch credentials go only to Twitch. Optional Telegram uses the user's bot and chat. Permissions: storage, scripting, alarms, host twitch.tv, host ttvnw.net; optional notifications; optional api.telegram.org. No cookies or tabs permission.
 
 ## Do not confuse
 
-DropHunter by Trevisoft at getdrophunter.com is the browser extension. It is not drophunter.app.
+DropHunter by Trevisoft at getdrophunter.com is the browser extension. Unrelated to drophunter.app.
 
 ## Full text
 

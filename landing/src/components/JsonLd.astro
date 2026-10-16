@@ -1,5 +1,5 @@
 ---
-import { FAQS, SITE } from "../site";
+import { FAQS, FEATURE_LIST, SITE } from "../site";
 
 const software = {
   "@type": "SoftwareApplication",
@@ -26,21 +26,7 @@ const software = {
   description: SITE.description,
   screenshot: `${SITE.url}/images/screenshots/popup-farming.png`,
   image: `${SITE.url}/images/og.png`,
-  featureList: [
-    "Campaign queue with drag reorder",
-    "Favorite auto-start by earliest expiry",
-    "Hidden tab-less farming via Twitch video CDN",
-    "One managed Twitch tab",
-    "Badge progress and live monitor window",
-    "Auto-claim of Twitch Drops",
-    "Auto-claim of channel-point bonuses",
-    "Streamer picker: fewest, random, or most viewers",
-    "30+ stream language filters",
-    "Local claim history",
-    "JSON backup and restore",
-    "Resume after browser restart",
-    "Optional desktop and Telegram notifications",
-  ],
+  featureList: [...FEATURE_LIST],
   author: { "@id": `${SITE.url}/#person` },
   creator: { "@id": `${SITE.url}/#person` },
   publisher: { "@id": `${SITE.url}/#org` },
@@ -84,7 +70,7 @@ const graph = {
       "@type": "WebPage",
       "@id": `${SITE.url}/#page`,
       url: SITE.url,
-      name: `${SITE.brand} — auto claim Twitch Drops`,
+      name: `${SITE.brand} | auto claim Twitch Drops`,
       description: SITE.description,
       isPartOf: { "@id": `${SITE.url}/#site` },
       about: { "@id": `${SITE.url}/#app` },
