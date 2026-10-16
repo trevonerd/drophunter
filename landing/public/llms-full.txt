@@ -29,6 +29,12 @@ auto claim Twitch Drops; Twitch Drops farmer extension; DropHunter by Trevisoft
 
 Channel-point bonus claims on open channel tabs; local claim log; JSON backup of settings/favorites/hidden games/stats/claim history (never credentials, session, progress, or queue authorization); streamer picker (fewest / random / most viewers); 30+ language filters; optional desktop notifications; optional Telegram via the user's bot; Pause vs Stop; resume after browser restart; personal Twitch viewing suspends farming.
 
+## Promo
+
+YouTube: https://youtu.be/hfFrD3JSW2o
+Embed: https://www.youtube-nocookie.com/embed/hfFrD3JSW2o
+Title: DropHunter 4 - Twitch Drops farmed while you're away!
+
 ## How a user starts
 
 Install from the Chrome Web Store. Click the toolbar icon. Load twitch.tv/drops/campaigns so DropHunter can see the existing session. Add campaigns and Start, or star a game.

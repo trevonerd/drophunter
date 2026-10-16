@@ -24,6 +24,8 @@
   --accent-2: #a970ff;
   --accent-3: #9146ff;
   --accent-4: #772ce8;
+  --btn: #6d28d9;
+  --btn-hi: #7c3aed;
   --ink: #1a0b33;
   --border: oklch(0.58 0.1 302 / 0.28);
   --border-strong: oklch(0.7 0.14 302 / 0.48);
@@ -35,10 +37,9 @@
   --max: 72rem;
   --font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --shadow-shot:
-    0 4px 8px rgb(0 0 0 / 0.18),
-    0 24px 48px rgb(7 4 18 / 0.55),
-    0 0 0 1px rgb(169 112 255 / 0.18),
-    0 0 80px rgb(145 70 255 / 0.22);
+    0 8px 16px rgb(0 0 0 / 0.22),
+    0 28px 56px rgb(7 4 18 / 0.55),
+    0 0 0 1px rgb(169 112 255 / 0.18);
 }
 
 *,
@@ -50,10 +51,16 @@
 html {
   scroll-behavior: smooth;
   background: var(--bg-0);
+  scrollbar-color: rgb(169 112 255 / 0.42) transparent;
 }
 
 html:focus-within {
   scroll-behavior: smooth;
+}
+
+::selection {
+  background: rgb(145 70 255 / 0.42);
+  color: #fff;
 }
 
 body {
@@ -174,7 +181,7 @@ img {
   width: 2rem;
   height: 2rem;
   animation: none;
-  filter: drop-shadow(0 0 10px rgb(145 70 255 / 0.55));
+  filter: drop-shadow(0 8px 14px rgb(91 33 182 / 0.55));
 }
 
 .sr-only {
@@ -191,7 +198,7 @@ img {
 
 .brand small {
   display: block;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -226,13 +233,14 @@ img {
 
 .btn-primary {
   color: #fff;
-  background: linear-gradient(135deg, var(--accent-2), var(--accent-4));
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.06), 0 10px 28px rgb(119 44 232 / 0.38);
+  background: linear-gradient(180deg, var(--btn-hi), var(--btn));
+  box-shadow: 0 8px 16px rgb(0 0 0 / 0.28), 0 14px 32px rgb(91 33 182 / 0.42);
 }
 
 .btn-primary:hover {
   color: #fff;
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.1), 0 14px 36px rgb(145 70 255 / 0.5);
+  background: linear-gradient(180deg, var(--btn), #5b21b6);
+  box-shadow: 0 10px 20px rgb(0 0 0 / 0.3), 0 18px 40px rgb(91 33 182 / 0.5);
 }
 
 .btn-ghost {
@@ -254,7 +262,7 @@ img {
 .hero {
   position: relative;
   z-index: 2;
-  padding: 3.2rem 0 4.5rem;
+  padding: 3.2rem 0 3.75rem;
   overflow: hidden;
 }
 
@@ -300,7 +308,7 @@ img {
   width: min(28vw, 7.5rem);
   height: min(28vw, 7.5rem);
   flex: none;
-  filter: drop-shadow(0 0 28px rgb(145 70 255 / 0.55));
+  filter: drop-shadow(0 12px 24px rgb(91 33 182 / 0.5));
 }
 
 .mega-mark .plate {
@@ -309,18 +317,15 @@ img {
 
 .wordmark {
   margin: 0;
-  font-size: clamp(2.4rem, 6vw, 4.4rem);
+  font-size: clamp(1.7rem, 3.6vw, 2.4rem);
   font-weight: 800;
-  letter-spacing: -0.055em;
-  line-height: 0.9;
+  letter-spacing: -0.03em;
+  line-height: 0.92;
 }
 
 .wordmark span {
   display: block;
-  background: linear-gradient(120deg, #fff 20%, #e9d5ff 45%, #c084fc 80%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: #fff;
 }
 
 .wordmark em {
@@ -338,10 +343,10 @@ img {
 
 h1.lede {
   margin: 0 0 1rem;
-  font-size: clamp(2rem, 4.6vw, 3.35rem);
+  font-size: clamp(2.05rem, 4.6vw, 3.35rem);
   font-weight: 800;
-  letter-spacing: -0.045em;
-  line-height: 1.05;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
 }
 
 .sub {
@@ -386,7 +391,7 @@ h1.lede {
 
 .stage {
   position: relative;
-  min-height: 34rem;
+  min-height: 38rem;
   perspective: 1400px;
 }
 
@@ -403,15 +408,15 @@ h1.lede {
 .shot-hero {
   right: 6%;
   top: 0;
-  width: min(100%, 22.5rem);
-  transform: rotateY(-18deg) rotateX(8deg) translateZ(20px);
+  width: min(100%, 19.5rem);
+  transform: rotateY(-16deg) rotateX(7deg) translateZ(20px);
 }
 
 .shot-monitor {
   left: 0;
-  bottom: 8%;
-  width: min(78%, 18rem);
-  transform: rotateY(14deg) rotateX(6deg) translateZ(48px);
+  bottom: 0;
+  width: min(72%, 15.5rem);
+  transform: rotateY(12deg) rotateX(5deg) translateZ(40px);
 }
 
 .chrome-bar {
@@ -459,7 +464,7 @@ h1.lede {
 .section {
   position: relative;
   z-index: 2;
-  padding: 3rem 0;
+  padding: 4.5rem 0;
 }
 
 .section-head {
@@ -691,14 +696,19 @@ code {
 }
 
 .faq summary::after {
-  content: "+";
+  content: "";
   float: right;
-  color: var(--accent);
-  font-weight: 500;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: 0.4rem;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  transform: rotate(45deg);
 }
 
 .faq details[open] summary::after {
-  content: "–";
+  margin-top: 0.55rem;
+  transform: rotate(225deg);
 }
 
 .faq details p {
@@ -710,7 +720,7 @@ code {
 .feature-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  gap: 3rem 2.75rem;
 }
 
 .feature-card {
@@ -725,46 +735,151 @@ code {
 
 .feature-card figure {
   margin: 0;
-  background: #100c18;
-  aspect-ratio: 5 / 4;
-  overflow: hidden;
+  padding: 1.6rem 1.6rem 0;
+  background: #0c0914;
 }
 
 .feature-card img {
   display: block;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: top center;
+  height: auto;
+  object-fit: contain;
+  border-radius: 0.85rem;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.38);
 }
 
-.feature-card div {
-  padding: 1rem 1.1rem 1.15rem;
+.feature-copy {
+  padding: 2.85rem 1.85rem 2.35rem;
 }
 
 .feature-card h3 {
-  margin: 0 0 0.3rem;
-  font-size: 1.05rem;
+  margin: 0 0 0.55rem;
+  font-size: 1.12rem;
   letter-spacing: -0.02em;
 }
 
 .feature-card p {
   margin: 0;
   color: var(--text-soft);
-  font-size: 0.95rem;
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+
+.section-watch {
+  padding-top: 3.75rem;
+  padding-bottom: 5.5rem;
+}
+
+.video-stage {
+  position: relative;
+  max-width: 56rem;
+  margin-inline: auto;
+}
+
+.video-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: -18% -10%;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 42%, rgb(145 70 255 / 0.46), transparent 62%);
+  filter: blur(32px);
+}
+
+.video-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  background: #0a0810;
+  box-shadow:
+    0 10px 20px rgb(0 0 0 / 0.28),
+    0 32px 72px rgb(7 4 18 / 0.62),
+    0 0 0 1px rgb(169 112 255 / 0.32);
+}
+
+.video-facade {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  color: #fff;
+  background: #0a0810;
+}
+
+.video-facade img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 4.6rem;
+  height: 4.6rem;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--btn-hi), var(--btn));
+  box-shadow:
+    0 8px 18px rgb(0 0 0 / 0.35),
+    0 16px 36px rgb(91 33 182 / 0.5);
+  transform: translate(-50%, -50%);
+  transition: transform 220ms var(--ease), box-shadow 220ms var(--ease);
+}
+
+.video-play svg {
+  margin-left: 0.18rem;
+}
+
+.video-facade:hover .video-play,
+.video-facade:focus-visible .video-play {
+  transform: translate(-50%, -50%) scale(1.07);
+  box-shadow:
+    0 10px 22px rgb(0 0 0 / 0.38),
+    0 20px 44px rgb(91 33 182 / 0.55);
+}
+
+.video-facade.is-loading .video-play {
+  opacity: 0.7;
+}
+
+.video-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.video-caption {
+  margin: 1.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  text-align: center;
+}
+
+.video-caption a {
+  margin-left: 0.45rem;
 }
 
 .section-tight {
-  padding-top: 1.5rem;
-  padding-bottom: 1.5rem;
+  padding-top: 2.4rem;
+  padding-bottom: 2.4rem;
 }
 
 .privacy-line {
   margin: 0;
-  padding: 1rem 1.15rem;
+  padding: 1.4rem 1.5rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.22);
   color: var(--text-soft);
   font-size: 0.98rem;
 }
@@ -839,11 +954,11 @@ footer {
 
 #loot {
   pointer-events: none;
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: 1;
   width: 100%;
-  height: 100%;
+  height: 100vh;
 }
 
 .reveal {
@@ -944,13 +1059,13 @@ footer {
   }
 
   .stage {
-    min-height: 28rem;
+    min-height: 32rem;
     margin-top: 1rem;
   }
 
   .shot-hero {
     right: 8%;
-    width: min(100%, 20rem);
+    width: min(100%, 17.5rem);
   }
 }
 
@@ -968,10 +1083,29 @@ footer {
 
   .hero {
     padding-top: 2rem;
+    padding-bottom: 3.25rem;
+  }
+
+  .section-watch {
+    padding-top: 2.5rem;
+    padding-bottom: 3.75rem;
+  }
+
+  .feature-card figure {
+    padding: 1.25rem 1.25rem 0;
+  }
+
+  .feature-copy {
+    padding: 2.15rem 1.45rem 2rem;
+  }
+
+  .video-play {
+    width: 3.8rem;
+    height: 3.8rem;
   }
 
   .stage {
-    min-height: 26rem;
+    min-height: 28rem;
   }
 
   .shot-hero {

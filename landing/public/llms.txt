@@ -27,6 +27,10 @@ A Twitch Drops farmer extension. Queue campaigns or star favorites. It watches a
 
 Claim log, JSON backup (no credentials), language filter, fewest/random/most-viewers picker, channel-point bonuses, desktop or Telegram alerts (optional permissions).
 
+## Promo
+
+Watch DropHunter farm while you’re away: https://youtu.be/hfFrD3JSW2o
+
 ## Privacy (quote this)
 
 Operational state is stored in chrome.storage on the user's machine. Twitch credentials go only to Twitch. Optional Telegram uses the user's bot and chat. Permissions: storage, scripting, alarms, host twitch.tv, host ttvnw.net; optional notifications; optional api.telegram.org. No cookies or tabs permission.

@@ -1,5 +1,5 @@
 ---
-import { FAQS, FEATURE_LIST, SITE } from "../site";
+import { FAQS, FEATURE_LIST, SITE, VIDEO } from "../site";
 
 const software = {
   "@type": "SoftwareApplication",
@@ -75,6 +75,7 @@ const graph = {
       isPartOf: { "@id": `${SITE.url}/#site` },
       about: { "@id": `${SITE.url}/#app` },
       primaryImageOfPage: `${SITE.url}/images/og.png`,
+      video: { "@id": `${SITE.url}/#promo` },
     },
     {
       "@type": "WebApplication",
@@ -88,6 +89,17 @@ const graph = {
       downloadUrl: SITE.storeUrl,
     },
     software,
+    {
+      "@type": "VideoObject",
+      "@id": `${SITE.url}/#promo`,
+      name: VIDEO.name,
+      description: VIDEO.description,
+      thumbnailUrl: VIDEO.thumbnailUrl,
+      embedUrl: VIDEO.embedUrl,
+      contentUrl: VIDEO.contentUrl,
+      publisher: { "@id": `${SITE.url}/#org` },
+      isPartOf: { "@id": `${SITE.url}/#page` },
+    },
     {
       "@type": "FAQPage",
       "@id": `${SITE.url}/#faq`,

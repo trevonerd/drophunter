@@ -1,6 +1,15 @@
 const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const fine = window.matchMedia("(pointer: fine)").matches;
 
+function onVisible(run: () => void, pause: () => void) {
+  const sync = () => {
+    if (document.visibilityState === "visible") run();
+    else pause();
+  };
+  document.addEventListener("visibilitychange", sync);
+  sync();
+}
+
 function glow() {
   const el = document.getElementById("cursor-glow");
   if (!el || reduce || !fine) return;
@@ -8,6 +17,7 @@ function glow() {
   let y = innerHeight * 0.2;
   let tx = x;
   let ty = y;
+  let raf = 0;
   window.addEventListener(
     "pointermove",
     (event) => {
@@ -20,67 +30,102 @@ function glow() {
     x += (tx - x) * 0.12;
     y += (ty - y) * 0.12;
     el.style.transform = `translate3d(${x - el.offsetWidth / 2}px, ${y - el.offsetHeight / 2}px, 0)`;
-    requestAnimationFrame(tick);
+    raf = requestAnimationFrame(tick);
   };
-  requestAnimationFrame(tick);
+  onVisible(
+    () => {
+      if (!raf) raf = requestAnimationFrame(tick);
+    },
+    () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    },
+  );
 }
 
 function loot() {
   const canvas = document.getElementById("loot") as HTMLCanvasElement | null;
-  const hero = canvas?.parentElement;
-  if (!canvas || !hero || reduce) return;
-  const ctx = canvas.getContext("2d", { alpha: true });
+  if (!canvas || reduce) return;
+  const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true });
   if (!ctx) return;
-  const dots = Array.from({ length: 28 }, () => ({
+  const area = innerWidth * innerHeight;
+  const count = Math.min(52, Math.max(24, Math.round(area / 42000)));
+  const dots = Array.from({ length: count }, () => ({
     x: Math.random(),
     y: Math.random(),
-    r: 1.2 + Math.random() * 2.4,
-    s: 0.08 + Math.random() * 0.22,
+    r: 0.9 + Math.random() * 1.8,
+    s: 0.05 + Math.random() * 0.16,
     a: Math.random() * Math.PI * 2,
-    hue: 270 + Math.random() * 40,
+    hue: 268 + Math.random() * 36,
   }));
-  let running = true;
+  let w = 0;
+  let h = 0;
+  let raf = 0;
   const resize = () => {
-    const rect = hero.getBoundingClientRect();
-    const dpr = Math.min(devicePixelRatio, 1.5);
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
+    const dpr = Math.min(devicePixelRatio || 1, 1.25);
+    w = innerWidth;
+    h = innerHeight;
+    canvas.width = Math.max(1, Math.floor(w * dpr));
+    canvas.height = Math.max(1, Math.floor(h * dpr));
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
   resize();
   window.addEventListener("resize", resize, { passive: true });
-  document.addEventListener("visibilitychange", () => {
-    running = document.visibilityState === "visible";
-  });
   const draw = () => {
-    if (running) {
-      const { width, height } = canvas.getBoundingClientRect();
-      ctx.clearRect(0, 0, width, height);
-      for (const d of dots) {
-        d.y += d.s / 180;
-        d.a += 0.01;
-        if (d.y > 1.05) d.y = -0.05;
-        const x = d.x * width + Math.sin(d.a) * 12;
-        const y = d.y * height;
-        ctx.beginPath();
-        ctx.fillStyle = `hsla(${d.hue} 90% 72% / 0.55)`;
-        ctx.arc(x, y, d.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.fillStyle = `hsla(${d.hue} 90% 85% / 0.9)`;
-        ctx.moveTo(x, y - d.r * 1.6);
-        ctx.lineTo(x + d.r * 1.1, y);
-        ctx.lineTo(x, y + d.r * 1.6);
-        ctx.lineTo(x - d.r * 1.1, y);
-        ctx.closePath();
-        ctx.fill();
-      }
+    ctx.clearRect(0, 0, w, h);
+    for (const d of dots) {
+      d.y += d.s / 220;
+      d.a += 0.008;
+      if (d.y > 1.06) d.y = -0.06;
+      const x = d.x * w + Math.sin(d.a) * 10;
+      const y = d.y * h;
+      ctx.fillStyle = `hsla(${d.hue} 88% 74% / 0.38)`;
+      ctx.beginPath();
+      ctx.arc(x, y, d.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `hsla(${d.hue} 90% 86% / 0.62)`;
+      ctx.beginPath();
+      ctx.moveTo(x, y - d.r * 1.55);
+      ctx.lineTo(x + d.r, y);
+      ctx.lineTo(x, y + d.r * 1.55);
+      ctx.lineTo(x - d.r, y);
+      ctx.closePath();
+      ctx.fill();
     }
-    requestAnimationFrame(draw);
+    raf = requestAnimationFrame(draw);
   };
-  requestAnimationFrame(draw);
+  onVisible(
+    () => {
+      if (!raf) raf = requestAnimationFrame(draw);
+    },
+    () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    },
+  );
+}
+
+function videoFacade() {
+  const host = document.querySelector<HTMLElement>("[data-video-host]");
+  const trigger = host?.querySelector<HTMLButtonElement>("[data-video-facade]");
+  if (!host || !trigger) return;
+  const load = () => {
+    const id = trigger.dataset.videoId;
+    if (!id) return;
+    trigger.classList.add("is-loading");
+    trigger.setAttribute("aria-busy", "true");
+    const iframe = document.createElement("iframe");
+    iframe.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1`;
+    iframe.title = trigger.dataset.videoTitle || "DropHunter promo";
+    iframe.allow =
+      "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+    iframe.allowFullscreen = true;
+    iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+    trigger.replaceWith(iframe);
+  };
+  trigger.addEventListener("click", load, { once: true });
 }
 
 function reveals() {
@@ -152,13 +197,14 @@ function tilt() {
       card.style.transform = `rotateY(${px * -12}deg) rotateX(${py * 8}deg) translateZ(12px)`;
     });
     card.addEventListener("pointerleave", () => {
-      card.style.transform = "";
+      card.style.removeProperty("transform");
     });
   }
 }
 
 glow();
 loot();
+videoFacade();
 reveals();
 counters();
 tilt();

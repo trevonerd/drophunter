@@ -1,5 +1,6 @@
 ---
 import LogoMark from "../components/LogoMark.astro";
+import VideoFacade from "../components/VideoFacade.astro";
 import Layout from "../layouts/Layout.astro";
 import { FEATURES, FAQS, SCREENSHOTS, SITE } from "../site";
 
@@ -16,7 +17,6 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
 <Layout title={title} description={description}>
   <main id="main">
     <section class="hero">
-      <canvas id="loot" aria-hidden="true"></canvas>
       <div class="wrap hero-grid">
         <div>
           <div class="logo-lockup">
@@ -66,6 +66,8 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
       </div>
     </section>
 
+    <VideoFacade />
+
     <section class="section" id="features" aria-labelledby="features-title">
       <div class="wrap">
         <h2 id="features-title" class="sr-only">Main features</h2>
@@ -88,7 +90,7 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
                       />
                     </picture>
                   </figure>
-                  <div>
+                  <div class="feature-copy">
                     <h3>{feature.title}</h3>
                     <p>{feature.body}</p>
                   </div>

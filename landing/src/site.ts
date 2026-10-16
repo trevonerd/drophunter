@@ -22,6 +22,18 @@ export const SITE = {
     'Runs on the Twitch session already in Chrome. State stays in this browser. Open source.',
 } as const;
 
+export const VIDEO = {
+  id: 'hfFrD3JSW2o',
+  name: 'DropHunter 4 - Twitch Drops farmed while you’re away!',
+  description:
+    'Promo for DropHunter by Trevisoft: queue Twitch Drops campaigns, farm in the background, and auto-claim from the Chrome session already signed into twitch.tv.',
+  thumbnailUrl: 'https://i.ytimg.com/vi/hfFrD3JSW2o/maxresdefault.jpg',
+  poster: '/images/video-poster.jpg',
+  embedUrl: 'https://www.youtube-nocookie.com/embed/hfFrD3JSW2o',
+  contentUrl: 'https://www.youtube.com/watch?v=hfFrD3JSW2o',
+  watchUrl: 'https://youtu.be/hfFrD3JSW2o',
+} as const;
+
 export const FEATURES = [
   {
     title: 'Farms in the background',
