@@ -1,0 +1,59 @@
+# DropHunter marketing site — https://getdrophunter.com
+# Netlify UI (recommended when this file is the site config):
+#   Base directory:    landing
+#   Build command:     bun run build
+#   Publish directory: dist
+#
+# If this file is read from the repository root, `base = "landing"` is required.
+# If the UI Base directory is already `landing`, Netlify runs commands from this
+# folder; `publish` is then `dist` (landing/dist).
+
+[build]
+  base = "landing"
+  command = "bun run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  BUN_VERSION = "1.4.2"
+  ASTRO_TELEMETRY_DISABLED = "1"
+
+[dev]
+  command = "bun run dev"
+  port = 8888
+  targetPort = 4321
+  framework = "#static"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; media-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+[[headers]]
+  for = "/_astro/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
+  for = "/llms.txt"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"
+
+[[headers]]
+  for = "/llms-full.txt"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"

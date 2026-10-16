@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 160" role="img" aria-label="DropHunter by Trevisoft">
+  <title>DropHunter by Trevisoft</title>
+  <defs>
+    <linearGradient id="plate" x1="10%" x2="90%" y1="10%" y2="90%">
+      <stop offset="0" stop-color="#c084fc"/>
+      <stop offset=".45" stop-color="#a970ff"/>
+      <stop offset="1" stop-color="#772ce8"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e9d5ff"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#glow)">
+    <rect x="8" y="16" width="128" height="128" rx="30" fill="url(#plate)"/>
+  </g>
+  <g fill="none" stroke="#fff" stroke-linecap="square" stroke-width="8">
+    <circle cx="72" cy="80" r="26"/>
+    <path d="M72 32v16M72 112v16M24 80h16M104 80h16"/>
+  </g>
+  <rect fill="#fff" x="66" y="74" width="12" height="12" rx="2"/>
+  <text x="160" y="92" fill="url(#word)" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="64" font-weight="800" letter-spacing="-2.4">DropHunter</text>
+  <text x="164" y="124" fill="#c084fc" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="650" letter-spacing="4.2">BY TREVISOFT</text>
+</svg>

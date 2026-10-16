@@ -1,0 +1,349 @@
+---
+import LogoMark from "../components/LogoMark.astro";
+import Layout from "../layouts/Layout.astro";
+import {
+  FAQS,
+  FEATURES,
+  PERMISSIONS,
+  PRIVACY_POINTS,
+  SCREENSHOTS,
+  SITE,
+  STEPS,
+  WHY,
+} from "../site";
+
+const title = "DropHunter by Trevisoft — Auto Claim Twitch Drops";
+const description = SITE.description;
+const featured = SCREENSHOTS.find((s) => s.featured) ?? SCREENSHOTS[0];
+const monitor = SCREENSHOTS.find((s) => s.caption === "Live monitor") ?? SCREENSHOTS[2];
+const gallery = SCREENSHOTS.filter((s) => s !== featured);
+---
+
+<Layout title={title} description={description}>
+  <main id="main">
+    <section class="hero">
+      <canvas id="loot" aria-hidden="true"></canvas>
+      <div class="wrap hero-grid">
+        <div>
+          <p class="kicker"><b aria-hidden="true"></b> v{SITE.version} · Chrome · Chromium · Edge</p>
+          <div class="logo-lockup">
+            <LogoMark />
+            <p class="wordmark">
+              <span>DropHunter</span>
+              <em>by Trevisoft</em>
+            </p>
+          </div>
+          <h1 class="lede">{SITE.tagline}</h1>
+          <p class="sub">
+            Queue campaigns. DropHunter watches eligible streams, switches streamers when they go
+            stale, and auto-claims Twitch Drops — from the session already in your browser. No
+            backend. No analytics. Nothing leaves the machine except Twitch (and Telegram, if you
+            turn that on).
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary btn-lg" href={SITE.storeUrl} rel="noopener">
+              Add to Chrome — free
+            </a>
+            <a class="btn btn-ghost btn-lg" href="#how">See how it farms</a>
+          </div>
+          <ul class="trust">
+            <li>100% local storage</li>
+            <li>Uses your Twitch session</li>
+            <li>Hidden or one managed tab</li>
+            <li>Open source</li>
+          </ul>
+        </div>
+        <div class="stage">
+          <div class="glow-ring"></div>
+          <figure class="shot-hero" data-tilt>
+            <div class="chrome-bar" aria-hidden="true"><i></i><span>DropHunter popup</span></div>
+            <picture>
+              <source srcset={featured.src} type="image/webp" />
+              <img
+                src={featured.fallback}
+                alt={featured.alt}
+                width={featured.width}
+                height={featured.height}
+                fetchpriority="high"
+                decoding="async"
+              />
+            </picture>
+          </figure>
+          <figure class="shot-monitor" data-tilt>
+            <div class="chrome-bar" aria-hidden="true"><i></i><span>Live monitor</span></div>
+            <picture>
+              <source srcset={monitor.src} type="image/webp" />
+              <img
+                src={monitor.fallback}
+                alt={monitor.alt}
+                width={monitor.width}
+                height={monitor.height}
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-label="Product facts">
+      <div class="wrap">
+        <div class="facts" data-reveal>
+          <div class="fact">
+            <strong data-count="0" data-suffix="">0</strong>
+            <span>developer servers that see your queue</span>
+          </div>
+          <div class="fact">
+            <strong data-count="30" data-suffix="+">30+</strong>
+            <span>broadcast languages for streamer pick</span>
+          </div>
+          <div class="fact">
+            <strong data-count="4">4</strong>
+            <span>distinct streamers before a campaign parks</span>
+          </div>
+          <div class="fact">
+            <strong data-count="10">10</strong>
+            <span>minutes until an unresolved round retries</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="product" aria-labelledby="product-title">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">The control panel</p>
+          <h2 id="product-title">A dark violet console, not another tab jungle.</h2>
+          <p>
+            Popup, badge, and monitor share one status model. Campaigns keep their real titles.
+            Progress prefers the stronger evidence when Twitch data flickers.
+          </p>
+        </div>
+        <div class="shot-rail">
+          <figure class="frame" data-reveal>
+            <picture>
+              <source srcset={featured.src} type="image/webp" />
+              <img
+                src={featured.fallback}
+                alt={featured.alt}
+                width={featured.width}
+                height={featured.height}
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+            <figcaption>{featured.caption} — real UI, mocked campaign data for the store scene.</figcaption>
+          </figure>
+          <div class="shot-stack">
+            {
+              gallery.map((shot) => (
+                <figure class="frame" data-reveal>
+                  <picture>
+                    <source srcset={shot.src} type="image/webp" />
+                    <img
+                      src={shot.fallback}
+                      alt={shot.alt}
+                      width={shot.width}
+                      height={shot.height}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </picture>
+                  <figcaption>{shot.caption}</figcaption>
+                </figure>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how" aria-labelledby="how-title">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">How it works</p>
+          <h2 id="how-title">Four moves. Then you can leave the chair.</h2>
+          <p>
+            DropHunter is a Twitch Drops farmer extension: it automates watch-time campaigns you
+            already qualify for, using the Twitch session in Chrome.
+          </p>
+        </div>
+        <ol class="steps">
+          {
+            STEPS.map((step) => (
+              <li class="step" data-reveal>
+                <b aria-hidden="true">{step.n}</b>
+                <div>
+                  <h3>{step.title}</h3>
+                  <p>{step.body}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" id="features" aria-labelledby="features-title">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Features</p>
+          <h2 id="features-title">Queue. Watch. Rotate. Claim. Repeat.</h2>
+          <p>What ships in DropHunter {SITE.version} — not a roadmap slide.</p>
+        </div>
+        <div class="bento">
+          {
+            FEATURES.map((feature) => (
+              <article class="card" data-reveal>
+                <h3>{feature.title}</h3>
+                <p>{feature.body}</p>
+              </article>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="watch" aria-labelledby="watch-title">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Watch source</p>
+          <h2 id="watch-title">Hidden farming, or one tab you already proved.</h2>
+        </div>
+        <div class="split">
+          <article class="mode" data-reveal>
+            <h3>Hidden (tab-less)</h3>
+            <p>
+              Live HLS against <code>*.ttvnw.net</code>: playback token, audio-only playlist, HEAD
+              the newest unseen segments. No cookies, no OAuth on those media calls, no referrer.
+              The Spade minute-watched beacon is best-effort. Failed media is a service failure, not
+              “find another streamer.” New installs prefer this. It never falls back to a viewing
+              tab.
+            </p>
+          </article>
+          <article class="mode" data-reveal>
+            <h3>Managed tab</h3>
+            <p>
+              One reused Twitch tab, focused only when a newly created page still needs a click.
+              Mute it from the popup. Optional fallback: if every remaining campaign in a tab-mode
+              pass parks on open-failed or stalled-progress, DropHunter can switch the watch source
+              to hidden farming and restart the round.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="privacy" aria-labelledby="privacy-title">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Privacy</p>
+          <h2 id="privacy-title">Local-only. Twitch-only. Telegram only if you say so.</h2>
+          <p>
+            DropHunter by Trevisoft does not operate a backend. If a packet leaves your browser, it
+            is going to Twitch, or to the Telegram chat you configured.
+          </p>
+        </div>
+        <div class="bento" style="margin-bottom: 1.2rem">
+          {
+            PRIVACY_POINTS.map((point) => (
+              <article class="card" data-reveal>
+                <h3>{point.title}</h3>
+                <p>{point.body}</p>
+              </article>
+            ))
+          }
+        </div>
+        <div class="table-wrap" data-reveal>
+          <table>
+            <caption class="sr-only">
+              Extension permissions and why DropHunter requests them
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Permission</th>
+                <th scope="col">Why it exists</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                PERMISSIONS.map((row) => (
+                  <tr>
+                    <td><code>{row.name}</code></td>
+                    <td>{row.why}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+        <p class="disclaimer" style="margin-top:1rem">
+          Full policy: <a href={SITE.privacyUrl}>PRIVACY.md on GitHub</a>. DropHunter does not
+          request the <code>tabs</code> or <code>cookies</code> permissions.
+        </p>
+      </div>
+    </section>
+
+    <section class="section" id="why" aria-labelledby="why-title">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Why this extension</p>
+          <h2 id="why-title">Built around how Twitch Drops actually work.</h2>
+        </div>
+        <div class="split">
+          {
+            WHY.map((item) => (
+              <article class="card" data-reveal>
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </article>
+            ))
+          }
+        </div>
+        <p class="disclaimer" data-reveal>
+          DropHunter by Trevisoft ships at <a href={SITE.url}>{SITE.url.replace("https://", "")}</a> and
+          the Chrome Web Store listing linked above. It is not the drophunter.app service.
+        </p>
+      </div>
+    </section>
+
+    <section class="section" id="faq" aria-labelledby="faq-title">
+      <div class="wrap">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">FAQ</p>
+          <h2 id="faq-title">Straight answers from the shipping product.</h2>
+        </div>
+        <div class="faq">
+          {
+            FAQS.map((item, i) => (
+              <details data-reveal open={i === 0}>
+                <summary>{item.q}</summary>
+                <p>{item.a}</p>
+              </details>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="install" aria-labelledby="install-title">
+      <div class="wrap">
+        <div class="cta-band" data-reveal>
+          <h2 id="install-title">Queue it. Start it. Come back to claimed drops.</h2>
+          <p>
+            Free Twitch Drops farmer for Chrome and Edge. Local data, Twitch-only access, no
+            tracking. Install DropHunter by Trevisoft from the Chrome Web Store.
+          </p>
+          <div class="cta-actions">
+            <a class="btn btn-primary btn-lg" href={SITE.storeUrl} rel="noopener">
+              Install on Chrome Web Store
+            </a>
+            <a class="btn btn-ghost btn-lg" href={SITE.githubUrl}>Read the source</a>
+          </div>
+          <p class="disclaimer">{SITE.disclaimer}</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</Layout>

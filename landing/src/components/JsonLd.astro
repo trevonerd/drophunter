@@ -1,0 +1,118 @@
+---
+import { FAQS, SITE } from "../site";
+
+const software = {
+  "@type": "SoftwareApplication",
+  "@id": `${SITE.url}/#app`,
+  name: SITE.brand,
+  alternateName: [SITE.name, "DropHunter Trevisoft", "Twitch Drops farmer extension"],
+  url: SITE.url,
+  downloadUrl: SITE.storeUrl,
+  installUrl: SITE.storeUrl,
+  applicationCategory: "BrowserApplication",
+  applicationSubCategory: "Browser extension",
+  operatingSystem: "Chrome, Chromium, Microsoft Edge",
+  browserRequirements: "Requires Chrome 120 or later, or Microsoft Edge",
+  softwareVersion: SITE.version,
+  releaseNotes: `${SITE.githubUrl}/releases`,
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+    availability: "https://schema.org/InStock",
+    url: SITE.storeUrl,
+  },
+  isAccessibleForFree: true,
+  description: SITE.description,
+  screenshot: `${SITE.url}/images/screenshots/popup-farming.png`,
+  image: `${SITE.url}/images/og.png`,
+  featureList: [
+    "Campaign queue with drag reorder",
+    "Favorite auto-start by earliest expiry",
+    "Hidden tab-less farming via Twitch video CDN",
+    "One managed Twitch tab",
+    "Badge progress and live monitor window",
+    "Auto-claim of Twitch Drops",
+    "Auto-claim of channel-point bonuses",
+    "Streamer picker: fewest, random, or most viewers",
+    "30+ stream language filters",
+    "Local claim history",
+    "JSON backup and restore",
+    "Resume after browser restart",
+    "Optional desktop and Telegram notifications",
+  ],
+  author: { "@id": `${SITE.url}/#person` },
+  creator: { "@id": `${SITE.url}/#person` },
+  publisher: { "@id": `${SITE.url}/#org` },
+  maintainer: { "@id": `${SITE.url}/#org` },
+  copyrightHolder: { "@id": `${SITE.url}/#org` },
+  license: SITE.githubUrl,
+  codeRepository: SITE.githubUrl,
+  keywords:
+    "auto claim Twitch Drops, Twitch Drops farmer extension, DropHunter, Trevisoft, Chrome extension",
+  additionalType: "https://schema.org/WebApplication",
+};
+
+const graph = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${SITE.url}/#org`,
+      name: SITE.orgName,
+      url: SITE.orgUrl,
+      sameAs: [SITE.githubUrl, SITE.authorUrl],
+      founder: { "@id": `${SITE.url}/#person` },
+    },
+    {
+      "@type": "Person",
+      "@id": `${SITE.url}/#person`,
+      name: SITE.authorName,
+      url: SITE.authorUrl,
+      affiliation: { "@id": `${SITE.url}/#org` },
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE.url}/#site`,
+      url: SITE.url,
+      name: SITE.brand,
+      description: SITE.description,
+      inLanguage: "en",
+      publisher: { "@id": `${SITE.url}/#org` },
+    },
+    {
+      "@type": "WebPage",
+      "@id": `${SITE.url}/#page`,
+      url: SITE.url,
+      name: `${SITE.brand} — auto claim Twitch Drops`,
+      description: SITE.description,
+      isPartOf: { "@id": `${SITE.url}/#site` },
+      about: { "@id": `${SITE.url}/#app` },
+      primaryImageOfPage: `${SITE.url}/images/og.png`,
+    },
+    {
+      "@type": "WebApplication",
+      "@id": `${SITE.url}/#webapp`,
+      name: SITE.brand,
+      url: SITE.url,
+      applicationCategory: "BrowserApplication",
+      operatingSystem: "Chrome",
+      offers: software.offers,
+      author: { "@id": `${SITE.url}/#person` },
+      downloadUrl: SITE.storeUrl,
+    },
+    software,
+    {
+      "@type": "FAQPage",
+      "@id": `${SITE.url}/#faq`,
+      mainEntity: FAQS.map((item) => ({
+        "@type": "Question",
+        name: item.q,
+        acceptedAnswer: { "@type": "Answer", text: item.a },
+      })),
+    },
+  ],
+};
+---
+
+<script type="application/ld+json" set:html={JSON.stringify(graph)} />

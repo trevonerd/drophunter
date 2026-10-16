@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": ["landing/**"],
   "ignoreIssues": {
     "src/background/drops-tick.ts": ["exports", "types"],
     "src/background/session-lifecycle.ts": ["exports", "types"]

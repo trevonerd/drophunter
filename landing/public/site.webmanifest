@@ -1,0 +1,30 @@
+{
+  "name": "DropHunter by Trevisoft",
+  "short_name": "DropHunter",
+  "description": "Auto-claim Twitch Drops. Free Chrome extension by Trevisoft.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "browser",
+  "background_color": "#0e0e10",
+  "theme_color": "#9146ff",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
