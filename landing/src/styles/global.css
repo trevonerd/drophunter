@@ -270,15 +270,27 @@ img {
   font-size: 1.02rem;
 }
 
+.hero-actions:has(.btn-shine),
+.cta-actions:has(.btn-shine) {
+  filter:
+    drop-shadow(0 8px 16px rgb(0 0 0 / 0.28))
+    drop-shadow(0 14px 32px rgb(91 33 182 / 0.42));
+}
+
 .btn-shine {
   position: relative;
+  overflow: hidden;
   isolation: isolate;
+  transform: translateZ(0);
+  -webkit-mask-image: radial-gradient(#fff 100%, #000);
+  mask-image: radial-gradient(#fff 100%, #000);
 }
 
 .btn-shine::after {
   content: "";
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   pointer-events: none;
   background: linear-gradient(
     105deg,
@@ -288,26 +300,28 @@ img {
     rgb(255 255 255 / 0.1) 56%,
     transparent 66%
   );
-  transform: translateX(-130%);
+  transform: translate3d(-130%, 0, 0);
   animation: cta-shine 3.8s var(--ease) infinite;
-  mix-blend-mode: screen;
-  clip-path: inset(0 round 999px);
 }
 
 .btn-shine:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 22px rgb(0 0 0 / 0.32), 0 22px 48px rgb(91 33 182 / 0.58);
+  transform: translate3d(0, -2px, 0);
 }
 
 @keyframes cta-shine {
   0%,
   58% {
-    transform: translateX(-130%);
+    transform: translate3d(-130%, 0, 0);
   }
   78%,
   100% {
-    transform: translateX(130%);
+    transform: translate3d(130%, 0, 0);
   }
+}
+
+html.shine-mid .btn-shine::after {
+  animation: none;
+  transform: translate3d(0, 0, 0);
 }
 
 .hero {

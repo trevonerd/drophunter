@@ -201,9 +201,16 @@ function tilt() {
   }
 }
 
+function shinePreview() {
+  if (new URLSearchParams(location.search).get("shine") === "mid") {
+    document.documentElement.classList.add("shine-mid");
+  }
+}
+
 glow();
 loot();
 videoFacade();
 reveals();
 counters();
 tilt();
+shinePreview();
