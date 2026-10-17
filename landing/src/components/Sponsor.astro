@@ -1,4 +1,5 @@
 ---
+import { selineEvent } from "../seline";
 import { SITE, withUtm } from "../site";
 ---
 
@@ -6,12 +7,12 @@ import { SITE, withUtm } from "../site";
   <div class="wrap">
     <a
       class="sponsor"
-      data-track="sponsor-twitch"
       href={withUtm(SITE.twitchUrl, "aliengamer", "sponsored")}
       rel="noopener"
       target="_blank"
       data-reveal
       aria-label={`Sponsored: Watch ${SITE.twitchDisplayName} live on Twitch`}
+      {...selineEvent("sponsor: twitch clicked", { placement: "sponsor", id: "sponsor-twitch" })}
     >
       <span class="sponsor-top">
         <span class="sponsor-label">Sponsored</span>

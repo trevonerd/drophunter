@@ -1,5 +1,6 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import { selineEvent } from "../seline";
 import { SITE } from "../site";
 
 const title = "Page not found | DropHunter by Trevisoft";
@@ -12,8 +13,17 @@ const description = "That URL is not on getdrophunter.com.";
       <h1 class="lede">Nothing here.</h1>
       <p class="sub">The DropHunter site is one page.</p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="/">Home</a>
-        <a class="btn btn-ghost" href={SITE.storeUrl} rel="noopener">{SITE.cta}</a>
+        <a
+          class="btn btn-primary"
+          href="/"
+          {...selineEvent("nav: home clicked", { placement: "404", id: "404-home" })}
+        >Home</a>
+        <a
+          class="btn btn-ghost"
+          href={SITE.storeUrl}
+          rel="noopener"
+          {...selineEvent("cta: add to chrome", { placement: "404", id: "404-cta" })}
+        >{SITE.cta}</a>
       </div>
     </div>
   </main>
