@@ -201,38 +201,9 @@ function tilt() {
   }
 }
 
-function lightbox() {
-  const triggers = document.querySelectorAll<HTMLButtonElement>("[data-zoom-src]");
-  if (!triggers.length) return;
-  const dialog = document.createElement("dialog");
-  dialog.className = "shot-lightbox";
-  dialog.addEventListener("click", (event) => {
-    if (event.target === dialog) dialog.close();
-  });
-  document.body.append(dialog);
-  for (const trigger of triggers) {
-    trigger.addEventListener("click", () => {
-      const src = trigger.dataset.zoomSrc;
-      if (!src) return;
-      const img = document.createElement("img");
-      img.src = src;
-      img.alt = trigger.dataset.zoomAlt ?? "";
-      const close = document.createElement("button");
-      close.type = "button";
-      close.className = "shot-lightbox-close";
-      close.setAttribute("aria-label", "Close screenshot");
-      close.textContent = "Close";
-      close.addEventListener("click", () => dialog.close());
-      dialog.replaceChildren(close, img);
-      dialog.showModal();
-    });
-  }
-}
-
 glow();
 loot();
 videoFacade();
-lightbox();
 reveals();
 counters();
 tilt();

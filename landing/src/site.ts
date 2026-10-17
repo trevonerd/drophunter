@@ -18,10 +18,14 @@ export const SITE = {
   disclaimer: 'Not affiliated with or endorsed by Twitch or Amazon.',
   cta: 'Add to Chrome',
   subhead: 'Queue campaigns. It farms in the background and claims the drops.',
-  privacyLine:
-    'Runs on the Twitch session already in Chrome. State stays in this browser. Open source.',
   twitchChannel: 'aliengamer_051',
   twitchUrl: 'https://www.twitch.tv/aliengamer_051',
+} as const;
+
+export const TRUST = {
+  session: 'Runs on the Twitch session already in Chrome',
+  local: 'State stays in this browser',
+  source: 'Open source',
 } as const;
 
 export const VIDEO = {

@@ -2,6 +2,7 @@
 import LogoMark from "../components/LogoMark.astro";
 import ShotPicture from "../components/ShotPicture.astro";
 import Sponsor from "../components/Sponsor.astro";
+import TrustStrip from "../components/TrustStrip.astro";
 import VideoFacade from "../components/VideoFacade.astro";
 import Layout from "../layouts/Layout.astro";
 import { FEATURES, FAQS, SCREENSHOTS, SITE } from "../site";
@@ -33,6 +34,7 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
           <div class="hero-actions">
             <a class="btn btn-primary btn-lg" href={SITE.storeUrl} rel="noopener">{SITE.cta}</a>
           </div>
+          <TrustStrip />
         </div>
         <div class="stage">
           <div class="glow-ring"></div>
@@ -60,19 +62,11 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
               return (
                 <article class="feature-card" data-reveal>
                   <figure>
-                    <button
-                      type="button"
-                      class="shot-zoom"
-                      data-zoom-src={shot.fallback}
-                      data-zoom-alt={shot.alt}
-                      aria-label={`View larger: ${shot.alt}`}
-                    >
-                      <ShotPicture
-                        shot={shot}
-                        loading="lazy"
-                        sizes="(max-width: 640px) calc(100vw - 3.5rem), 640px"
-                      />
-                    </button>
+                    <ShotPicture
+                      shot={shot}
+                      loading="lazy"
+                      sizes="(max-width: 640px) calc(100vw - 3.5rem), 640px"
+                    />
                   </figure>
                   <div class="feature-copy">
                     <h3>{feature.title}</h3>
@@ -83,16 +77,6 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
             })
           }
         </div>
-      </div>
-    </section>
-
-    <section class="section section-tight" id="privacy" aria-labelledby="privacy-title">
-      <div class="wrap">
-        <h2 id="privacy-title" class="sr-only">Privacy</h2>
-        <p class="privacy-line" data-reveal>
-          {SITE.privacyLine}
-          <a href={SITE.privacyUrl}>Privacy policy</a>
-        </p>
       </div>
     </section>
 
