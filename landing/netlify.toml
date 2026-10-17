@@ -24,14 +24,9 @@
   targetPort = 4321
   framework = "#static"
 
-# First-party Seline proxy (ad-blocker bypass). seline.js with data-api-host posts
-# events to {apiHost}/ennui/blase and identify to {apiHost}/ennui/su.
-[[redirects]]
-  from = "/sl/seline.js"
-  to = "https://cdn.seline.com/seline.js"
-  status = 200
-  force = true
-
+# First-party Seline: vendor seline.js at build (Netlify [[headers]] do not apply
+# to proxied rewrites). API stays proxied; with data-api-host the script POSTs to
+# {apiHost}/ennui/blase (events) and {apiHost}/ennui/su (identify).
 [[redirects]]
   from = "/sl/api/*"
   to = "https://api.seline.com/:splat"
@@ -47,6 +42,12 @@
     Strict-Transport-Security = "max-age=31536000"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
     Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; media-src 'self'; worker-src 'self'; frame-src https://www.youtube-nocookie.com; child-src https://www.youtube-nocookie.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+[[headers]]
+  for = "/sl/seline.js"
+  [headers.values]
+    Content-Type = "application/javascript; charset=utf-8"
+    X-Content-Type-Options = "nosniff"
 
 [[headers]]
   for = "/_astro/*"

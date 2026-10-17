@@ -104,10 +104,15 @@ describe('landing Seline analytics', () => {
     expect(hits).toEqual([]);
   });
 
-  test('proxies Seline through first-party /sl rewrites and keeps CSP on self', async () => {
+  test('serves seline.js as a built static file and proxies only the API', async () => {
+    const tracker = await readFile(join(distRoot, 'sl', 'seline.js'), 'utf8');
+    expect(tracker).toContain('window.seline');
+    expect(tracker).toContain('/ennui/blase');
+
     const toml = await readFile(join(landingRoot, 'netlify.toml'), 'utf8');
-    expect(toml).toContain('from = "/sl/seline.js"');
-    expect(toml).toContain('to = "https://cdn.seline.com/seline.js"');
+    expect(toml).not.toContain('from = "/sl/seline.js"');
+    expect(toml).toContain('for = "/sl/seline.js"');
+    expect(toml).toContain('Content-Type = "application/javascript; charset=utf-8"');
     expect(toml).toContain('from = "/sl/api/*"');
     expect(toml).toContain('to = "https://api.seline.com/:splat"');
     expect(toml).toMatch(/status = 200/);
