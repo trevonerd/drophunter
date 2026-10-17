@@ -1,0 +1,54 @@
+---
+interface Props {
+  class?: string;
+  title?: string;
+  uid?: string;
+}
+const { class: className = "mega-mark", title = "DropHunter", uid = "hero" } = Astro.props;
+const decorative = title === "";
+const plate = `dh-plate-${uid}`;
+const glow = `dh-glow-${uid}`;
+const sheen = `dh-sheen-${uid}`;
+---
+
+<svg
+  class={className}
+  viewBox="0 0 128 128"
+  width="128"
+  height="128"
+  role={decorative ? "presentation" : "img"}
+  aria-hidden={decorative ? "true" : undefined}
+  aria-label={decorative ? undefined : title}
+  xmlns="http://www.w3.org/2000/svg"
+>
+  {decorative ? null : <title>{title}</title>}
+  <defs>
+    <linearGradient id={plate} x1="10%" x2="90%" y1="10%" y2="90%">
+      <stop offset="0" stop-color="#c084fc"></stop>
+      <stop offset="0.45" stop-color="#a970ff"></stop>
+      <stop offset="1" stop-color="#772ce8"></stop>
+    </linearGradient>
+    <filter id={glow} x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="4" result="b"></feGaussianBlur>
+      <feMerge>
+        <feMergeNode in="b"></feMergeNode>
+        <feMergeNode in="SourceGraphic"></feMergeNode>
+      </feMerge>
+    </filter>
+    <radialGradient id={sheen} cx="30%" cy="25%" r="75%">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.28"></stop>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"></stop>
+    </radialGradient>
+  </defs>
+  <circle class="glow" cx="64" cy="64" r="54" fill="#9146ff" opacity="0.35" filter={`url(#${glow})`}></circle>
+  <rect class="plate" x="4" y="4" width="120" height="120" rx="28" fill={`url(#${plate})`}></rect>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill={`url(#${sheen})`}></rect>
+  <g class="reticle" fill="none" stroke="#fff" stroke-linecap="square" stroke-width="8">
+    <circle cx="64" cy="64" r="24"></circle>
+    <path d="M64 20v14"></path>
+    <path d="M64 94v14"></path>
+    <path d="M20 64h14"></path>
+    <path d="M94 64h14"></path>
+  </g>
+  <rect fill="#fff" x="58" y="58" width="12" height="12" rx="2"></rect>
+</svg>

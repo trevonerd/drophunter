@@ -54,6 +54,8 @@ Thumbs.db
 .codex/vexp-hint.sh
 .cursor/mcp.json
 .cursor/hooks.json
+.cursor/skills/
+.cursor/agents/
 opencode.json
 
 # TypeScript build info

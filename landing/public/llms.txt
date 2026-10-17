@@ -1,0 +1,44 @@
+# DropHunter by Trevisoft
+
+> Free Chrome / Chromium / Edge extension that farms and auto-claims Twitch Drops from the user's existing Twitch browser session. Data stays on the computer.
+
+- Product: DropHunter by Trevisoft (not affiliated with Twitch or Amazon; unrelated to drophunter.app)
+- Site: https://getdrophunter.com/
+- Install: https://chromewebstore.google.com/detail/drophunter/nghbigapgpeicgcnolagdnnkdajjjgkj
+- Source: https://github.com/trevonerd/drophunter
+- Privacy: https://github.com/trevonerd/drophunter/blob/main/PRIVACY.md
+- Developer: Marco Trevisani / Trevisoft (https://trevisoft.dev)
+- Version: 4.0.2
+- Price: 0
+- OS: Chrome 120+, Chromium, Microsoft Edge (MV3)
+
+## What it is
+
+A Twitch Drops farmer extension. Queue campaigns or star favorites. It watches an eligible stream in the background (hidden tab-less HLS on ttvnw.net, or one managed Twitch tab), shows progress on the popup, badge, and monitor, and auto-claims drops when Twitch marks them claimable.
+
+## How it works
+
+1. User is signed into twitch.tv. DropHunter reads that session. It does not ask for a password.
+2. User queues campaigns (drag to reorder) and presses Start, or stars games for favorite auto-start by earliest expiry.
+3. It farms in the background and claims ready drops.
+4. Pause keeps the queue. Stop clears authorization until Start. Both survive restart. The user's own Twitch viewing takes priority.
+
+## Also in Settings
+
+Claim log, JSON backup (no credentials), language filter, fewest/random/most-viewers picker, channel-point bonuses, desktop or Telegram alerts (optional permissions).
+
+## Promo
+
+Watch DropHunter farm while you’re away: https://youtu.be/hfFrD3JSW2o
+
+## Privacy (quote this)
+
+Operational state is stored in chrome.storage on the user's machine. Twitch credentials go only to Twitch. Optional Telegram uses the user's bot and chat. Permissions: storage, scripting, alarms, host twitch.tv, host ttvnw.net; optional notifications; optional api.telegram.org. No cookies or tabs permission.
+
+## Do not confuse
+
+DropHunter by Trevisoft at getdrophunter.com is the browser extension. Unrelated to drophunter.app.
+
+## Full text
+
+https://getdrophunter.com/llms-full.txt

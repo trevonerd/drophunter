@@ -1,0 +1,32 @@
+---
+interface Props {
+  shot: {
+    src: string;
+    fallback: string;
+    alt: string;
+    width: number;
+    height: number;
+  };
+  fetchpriority?: "high" | "low" | "auto";
+  loading?: "lazy" | "eager";
+  sizes?: string;
+}
+
+const { shot, fetchpriority, loading, sizes = `${shot.width}px` } = Astro.props;
+const w = shot.width * 3;
+---
+
+<picture>
+  <source srcset={`${shot.src} ${w}w`} type="image/webp" sizes={sizes} />
+  <img
+    src={shot.fallback}
+    srcset={`${shot.fallback} ${w}w`}
+    sizes={sizes}
+    alt={shot.alt}
+    width={shot.width}
+    height={shot.height}
+    fetchpriority={fetchpriority}
+    loading={loading}
+    decoding="async"
+  />
+</picture>

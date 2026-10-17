@@ -1,0 +1,39 @@
+---
+import { VIDEO } from "../site";
+---
+
+<section class="section section-watch" id="watch" aria-labelledby="watch-title">
+  <div class="wrap">
+    <h2 id="watch-title" class="sr-only">{VIDEO.name}</h2>
+    <div class="video-stage" data-reveal>
+      <div class="video-glow" aria-hidden="true"></div>
+      <div class="video-frame" data-video-host>
+        <button
+          type="button"
+          class="video-facade"
+          data-video-facade
+          data-video-id={VIDEO.id}
+          data-video-title={VIDEO.name}
+          aria-label={`Play ${VIDEO.name}`}
+        >
+          <img
+            src={VIDEO.poster}
+            alt=""
+            width="1280"
+            height="720"
+            decoding="async"
+          />
+          <span class="video-play" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" focusable="false">
+              <path fill="currentColor" d="M8.2 6.4v11.2L18.4 12 8.2 6.4z"></path>
+            </svg>
+          </span>
+        </button>
+      </div>
+      <p class="video-caption">{VIDEO.name}</p>
+      <p class="video-fallback">
+        <a href={VIDEO.watchUrl} rel="noopener" target="_blank">Watch on YouTube</a>
+      </p>
+    </div>
+  </div>
+</section>

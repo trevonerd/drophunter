@@ -1,0 +1,46 @@
+---
+import { SITE } from "../site";
+---
+
+<aside class="section section-tight" id="sponsored">
+  <div class="wrap">
+    <a
+      class="sponsor"
+      href={SITE.twitchUrl}
+      rel="noopener"
+      target="_blank"
+      data-reveal
+      aria-label={`Sponsored: Watch ${SITE.twitchDisplayName} live on Twitch`}
+    >
+      <span class="sponsor-top">
+        <span class="sponsor-label">Sponsored</span>
+        <span class="sponsor-live">
+          <span class="sponsor-dot" aria-hidden="true"></span>
+          Live on Twitch
+        </span>
+      </span>
+      <span class="sponsor-body">
+        <picture>
+          <source
+            type="image/webp"
+            srcset="/images/sponsor/aliengamer-96.webp 96w, /images/sponsor/aliengamer-192.webp 192w"
+            sizes="48px"
+          />
+          <img
+            class="sponsor-avatar"
+            src="/images/sponsor/aliengamer-96.png"
+            width="48"
+            height="48"
+            alt=""
+            decoding="async"
+          />
+        </picture>
+        <span class="sponsor-copy">
+          <span class="sponsor-name">{SITE.twitchDisplayName}</span>
+          <span class="sponsor-handle">{SITE.twitchChannel}</span>
+        </span>
+        <span class="sponsor-cta">Watch live on Twitch</span>
+      </span>
+    </a>
+  </div>
+</aside>

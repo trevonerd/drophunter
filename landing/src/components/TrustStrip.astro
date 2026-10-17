@@ -1,0 +1,28 @@
+---
+import { SITE, TRUST } from "../site";
+---
+
+<ul class="trust">
+  <li>
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="1.5" y="2.25" width="13" height="11.5" rx="1.6"></rect>
+      <path d="M1.5 5.5h13"></path>
+      <circle cx="3.85" cy="3.85" r="0.55" fill="currentColor" stroke="none"></circle>
+    </svg>
+    <span>{TRUST.session}</span>
+  </li>
+  <li>
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3.25" y="7.25" width="9.5" height="6.5" rx="1.4"></rect>
+      <path d="M5.4 7.25V5.4a2.6 2.6 0 0 1 5.2 0v1.85"></path>
+    </svg>
+    <span>{TRUST.local}</span>
+  </li>
+  <li class="trust-policy">
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6.1 3.5 2.5 8l3.6 4.5"></path>
+      <path d="M9.9 3.5 13.5 8l-3.6 4.5"></path>
+    </svg>
+    <span>{TRUST.source}<span class="trust-dot" aria-hidden="true">·</span><a href={SITE.privacyUrl}>Privacy policy</a></span>
+  </li>
+</ul>

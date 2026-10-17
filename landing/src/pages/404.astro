@@ -1,0 +1,20 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { SITE } from "../site";
+
+const title = "Page not found | DropHunter by Trevisoft";
+const description = "That URL is not on getdrophunter.com.";
+---
+
+<Layout title={title} description={description}>
+  <main id="main" class="section">
+    <div class="wrap" style="min-height: 50vh; padding-top: 3rem;">
+      <h1 class="lede">Nothing here.</h1>
+      <p class="sub">The DropHunter site is one page.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="/">Home</a>
+        <a class="btn btn-ghost" href={SITE.storeUrl} rel="noopener">{SITE.cta}</a>
+      </div>
+    </div>
+  </main>
+</Layout>
