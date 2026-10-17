@@ -14,6 +14,7 @@ export const SITE = {
   orgUrl: 'https://trevisoft.dev',
   authorName: 'Marco Trevisani',
   authorUrl: 'https://github.com/trevonerd',
+  authorSiteUrl: 'https://marcotrevisani.com',
   version: '4.0.2',
   locale: 'en',
   disclaimer: 'Not affiliated with or endorsed by Twitch or Amazon.',
@@ -47,7 +48,7 @@ export const VIDEO = {
 export function withUtm(
   url: string,
   campaign: string,
-  medium: 'landing' | 'sponsored' = 'landing',
+  medium: 'landing' | 'sponsored' | 'footer' = 'landing',
 ): string {
   const next = new URL(url);
   next.searchParams.set('utm_source', 'getdrophunter');

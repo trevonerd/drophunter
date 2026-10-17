@@ -76,14 +76,30 @@ const og = `${SITE.url}/images/og.png`;
     <footer>
       <div class="wrap foot">
         <div>
-          <p>© {new Date().getFullYear()} {SITE.orgName}. Developed by {SITE.authorName}.</p>
+          <p>
+            © {new Date().getFullYear()}{" "}
+            <a
+              data-track="footer-trevisoft"
+              href={withUtm(SITE.orgUrl, "trevisoft", "footer")}
+              rel="noopener"
+              target="_blank">{SITE.orgName}</a>. Developed by{" "}
+            <a
+              data-track="footer-marcotrevisani"
+              href={withUtm(SITE.authorSiteUrl, "marcotrevisani", "footer")}
+              rel="noopener"
+              target="_blank">{SITE.authorName}</a>.
+          </p>
           <p class="disclaimer">{SITE.disclaimer}</p>
         </div>
         <nav aria-label="Footer">
           <a data-track="cta-footer-store" href={withUtm(SITE.storeUrl, "footer_store")} rel="noopener">Chrome Web Store</a>
           <a data-track="github-footer" href={withUtm(SITE.githubUrl, "github")}>Source</a>
           <a data-track="privacy-footer" href={withUtm(SITE.privacyUrl, "privacy")}>Privacy</a>
-          <a href={SITE.orgUrl} rel="noopener">{SITE.orgName}</a>
+          <a
+            data-track="footer-trevisoft"
+            href={withUtm(SITE.orgUrl, "trevisoft", "footer")}
+            rel="noopener"
+            target="_blank">{SITE.orgName}</a>
           <a href="/llms.txt">llms.txt</a>
         </nav>
       </div>
