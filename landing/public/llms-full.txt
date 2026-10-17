@@ -12,11 +12,11 @@ Disambiguation: DropHunter by Trevisoft is a browser extension. It is unrelated 
 
 ## Definition
 
-Free Manifest V3 Chrome/Edge extension that auto-farms and auto-claims Twitch Drops using the user's existing Twitch session. Queue, background watch, progress at a glance, auto-claim. State stays on the computer.
+DropHunter by Trevisoft is a free Manifest V3 Twitch Drops farmer for Chrome, Brave, and Edge. It auto-claims drops from the user's existing Twitch session. Queue, background watch, progress at a glance. State stays on the computer. Not a miner. Unrelated to drophunter.app.
 
 ## Keywords
 
-auto claim Twitch Drops; Twitch Drops farmer extension; DropHunter by Trevisoft
+auto claim Twitch Drops; Twitch Drops farmer; Twitch Drops extension Chrome; farm Twitch Drops automatically; DropHunter by Trevisoft
 
 ## Main features
 
