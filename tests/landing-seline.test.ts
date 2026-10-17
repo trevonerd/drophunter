@@ -77,12 +77,13 @@ describe('landing Seline analytics', () => {
     const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0]);
     const seline = scripts.find((tag) => attr(tag, 'src') === '/sl/seline.js');
     expect(seline).toBeDefined();
-    expect(attr(seline!, 'data-token')).toBe('3d5e8c67a801c30');
-    expect(attr(seline!, 'data-api-host')).toBe('/sl/api');
-    expect(/\basync\b/i.test(seline!)).toBe(true);
-    expect(attr(seline!, 'data-outbound')).toBeUndefined();
+    if (!seline) return;
+    expect(attr(seline, 'data-token')).toBe('3d5e8c67a801c30');
+    expect(attr(seline, 'data-api-host')).toBe('/sl/api');
+    expect(/\basync\b/i.test(seline)).toBe(true);
+    expect(attr(seline, 'data-outbound')).toBeUndefined();
     expect(html.indexOf('<head>')).toBeGreaterThan(-1);
-    expect(html.indexOf(seline!)).toBeLessThan(html.indexOf('</head>'));
+    expect(html.indexOf(seline)).toBeLessThan(html.indexOf('</head>'));
   });
 
   test('drops Visitor Tracking from the landing package and built HTML', async () => {
