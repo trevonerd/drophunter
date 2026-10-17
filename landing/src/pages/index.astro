@@ -1,6 +1,7 @@
 ---
 import LogoMark from "../components/LogoMark.astro";
 import ShotPicture from "../components/ShotPicture.astro";
+import Sponsor from "../components/Sponsor.astro";
 import VideoFacade from "../components/VideoFacade.astro";
 import Layout from "../layouts/Layout.astro";
 import { FEATURES, FAQS, SCREENSHOTS, SITE } from "../site";
@@ -59,7 +60,19 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
               return (
                 <article class="feature-card" data-reveal>
                   <figure>
-                    <ShotPicture shot={shot} loading="lazy" />
+                    <button
+                      type="button"
+                      class="shot-zoom"
+                      data-zoom-src={shot.fallback}
+                      data-zoom-alt={shot.alt}
+                      aria-label={`View larger: ${shot.alt}`}
+                    >
+                      <ShotPicture
+                        shot={shot}
+                        loading="lazy"
+                        sizes="(max-width: 640px) calc(100vw - 3.5rem), 640px"
+                      />
+                    </button>
                   </figure>
                   <div class="feature-copy">
                     <h3>{feature.title}</h3>
@@ -112,5 +125,7 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
         </div>
       </div>
     </section>
+
+    <Sponsor />
   </main>
 </Layout>

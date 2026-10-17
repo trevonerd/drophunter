@@ -183,7 +183,7 @@ async function captureExtensionUi() {
   const mock = await startTwitchMock(CAMPAIGNS);
   try {
     for (const slide of slides) {
-      const options = { twitchMockPort: mock.port, locale: 'en-US', deviceScaleFactor: 2 };
+      const options = { twitchMockPort: mock.port, locale: 'en-US', deviceScaleFactor: 3 };
       const seed = await createExtensionProfile(undefined, options);
       let profile = seed;
       try {
