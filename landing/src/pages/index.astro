@@ -5,6 +5,7 @@ import Sponsor from "../components/Sponsor.astro";
 import TrustStrip from "../components/TrustStrip.astro";
 import VideoFacade from "../components/VideoFacade.astro";
 import Layout from "../layouts/Layout.astro";
+import { selineEvent } from "../seline";
 import { FEATURES, FAQS, SCREENSHOTS, SITE, withUtm } from "../site";
 
 const title = "Auto Claim Twitch Drops | DropHunter";
@@ -34,9 +35,9 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
           <div class="hero-actions">
             <a
               class="btn btn-primary btn-lg btn-shine"
-              data-track="cta-hero"
               href={withUtm(SITE.storeUrl, "hero")}
               rel="noopener"
+              {...selineEvent("cta: add to chrome", { placement: "hero", id: "cta-hero" })}
             >{SITE.cta}</a>
           </div>
           <TrustStrip />
@@ -111,9 +112,9 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
           <div class="cta-actions">
             <a
               class="btn btn-primary btn-lg btn-shine"
-              data-track="cta-footer"
               href={withUtm(SITE.storeUrl, "footer_cta")}
               rel="noopener"
+              {...selineEvent("cta: add to chrome", { placement: "final", id: "cta-footer" })}
             >{SITE.cta}</a>
           </div>
         </div>

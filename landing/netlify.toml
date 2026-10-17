@@ -24,6 +24,20 @@
   targetPort = 4321
   framework = "#static"
 
+# First-party Seline proxy (ad-blocker bypass). seline.js with data-api-host posts
+# events to {apiHost}/ennui/blase and identify to {apiHost}/ennui/su.
+[[redirects]]
+  from = "/sl/seline.js"
+  to = "https://cdn.seline.com/seline.js"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/sl/api/*"
+  to = "https://api.seline.com/:splat"
+  status = 200
+  force = true
+
 [[headers]]
   for = "/*"
   [headers.values]
@@ -32,7 +46,7 @@
     X-Frame-Options = "DENY"
     Strict-Transport-Security = "max-age=31536000"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
-    Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://app.visitortracking.com; font-src 'self'; connect-src 'self' https://app.visitortracking.com; media-src 'self'; worker-src 'self'; frame-src https://www.youtube-nocookie.com; child-src https://www.youtube-nocookie.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; media-src 'self'; worker-src 'self'; frame-src https://www.youtube-nocookie.com; child-src https://www.youtube-nocookie.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 [[headers]]
   for = "/_astro/*"

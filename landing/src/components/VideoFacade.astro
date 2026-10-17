@@ -1,4 +1,5 @@
 ---
+import { selineEvent } from "../seline";
 import { VIDEO, withUtm } from "../site";
 ---
 
@@ -11,11 +12,11 @@ import { VIDEO, withUtm } from "../site";
         <button
           type="button"
           class="video-facade"
-          data-track="youtube-play"
           data-video-facade
           data-video-id={VIDEO.id}
           data-video-title={VIDEO.name}
           aria-label={`Play ${VIDEO.name}`}
+          {...selineEvent("video: played", { placement: "watch", id: "youtube-play" })}
         >
           <img
             src={VIDEO.poster}
@@ -33,7 +34,12 @@ import { VIDEO, withUtm } from "../site";
       </div>
       <p class="video-caption">{VIDEO.name}</p>
       <p class="video-fallback">
-        <a data-track="youtube-fallback" href={withUtm(VIDEO.watchUrl, "watch_youtube")} rel="noopener" target="_blank">Watch on YouTube</a>
+        <a
+          href={withUtm(VIDEO.watchUrl, "watch_youtube")}
+          rel="noopener"
+          target="_blank"
+          {...selineEvent("video: opened on youtube", { placement: "watch", id: "youtube-fallback" })}
+        >Watch on YouTube</a>
       </p>
     </div>
   </div>

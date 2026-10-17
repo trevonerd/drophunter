@@ -124,6 +124,7 @@ function videoFacade() {
     iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
     trigger.replaceWith(iframe);
   };
+  // Click still bubbles; Seline records `video: played` from data-sln-event once.
   trigger.addEventListener("click", load, { once: true });
 }
 

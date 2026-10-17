@@ -1,6 +1,7 @@
 ---
 import JsonLd from "../components/JsonLd.astro";
 import LogoMark from "../components/LogoMark.astro";
+import { SELINE, selineEvent } from "../seline";
 import { SITE, withUtm } from "../site";
 import "../styles/global.css";
 
@@ -50,16 +51,29 @@ const og = `${SITE.url}/images/og.png`;
     <meta name="twitter:image" content={og} />
     <meta name="twitter:image:alt" content="DropHunter by Trevisoft. Auto-claim Twitch Drops." />
     <JsonLd />
-    <script is:inline src="/scripts/init-tracer.js"></script>
-    <script is:inline async defer src="https://app.visitortracking.com/assets/js/tracer.js"></script>
+    <script
+      is:inline
+      async
+      src={SELINE.scriptSrc}
+      data-token={SELINE.token}
+      data-api-host={SELINE.apiHost}></script>
   </head>
   <body>
     <canvas id="loot" aria-hidden="true"></canvas>
     <div id="cursor-glow" aria-hidden="true"></div>
-    <a class="skip" href="#main">Skip to content</a>
+    <a
+      class="skip"
+      href="#main"
+      {...selineEvent("nav: section clicked", { placement: "nav", section: "main", id: "skip-main" })}
+    >Skip to content</a>
     <header class="nav">
       <div class="nav-inner">
-        <a class="brand" href="/" aria-label="DropHunter by Trevisoft home">
+        <a
+          class="brand"
+          href="/"
+          aria-label="DropHunter by Trevisoft home"
+          {...selineEvent("nav: home clicked", { placement: "nav", id: "nav-home" })}
+        >
           <LogoMark class="nav-mark" title="" uid="nav" />
           <span>
             DropHunter
@@ -67,8 +81,17 @@ const og = `${SITE.url}/images/og.png`;
           </span>
         </a>
         <div class="nav-cta">
-          <a class="btn btn-ghost" data-track="github-nav" href={withUtm(SITE.githubUrl, "github")}>GitHub</a>
-          <a class="btn btn-primary" data-track="cta-nav" href={withUtm(SITE.storeUrl, "nav")} rel="noopener">Add to Chrome</a>
+          <a
+            class="btn btn-ghost"
+            href={withUtm(SITE.githubUrl, "github")}
+            {...selineEvent("github: clicked", { placement: "nav", id: "github-nav" })}
+          >GitHub</a>
+          <a
+            class="btn btn-primary"
+            href={withUtm(SITE.storeUrl, "nav")}
+            rel="noopener"
+            {...selineEvent("cta: add to chrome", { placement: "nav", id: "cta-nav" })}
+          >Add to Chrome</a>
         </div>
       </div>
     </header>
@@ -79,28 +102,47 @@ const og = `${SITE.url}/images/og.png`;
           <p>
             © {new Date().getFullYear()}{" "}
             <a
-              data-track="footer-trevisoft"
               href={withUtm(SITE.orgUrl, "trevisoft", "footer")}
               rel="noopener"
-              target="_blank">{SITE.orgName}</a>. Developed by{" "}
+              target="_blank"
+              {...selineEvent("footer: trevisoft clicked", { placement: "footer", id: "footer-trevisoft" })}
+            >{SITE.orgName}</a>. Developed by{" "}
             <a
-              data-track="footer-marcotrevisani"
               href={withUtm(SITE.authorSiteUrl, "marcotrevisani", "footer")}
               rel="noopener"
-              target="_blank">{SITE.authorName}</a>.
+              target="_blank"
+              {...selineEvent("footer: marco trevisani clicked", {
+                placement: "footer",
+                id: "footer-marcotrevisani",
+              })}
+            >{SITE.authorName}</a>.
           </p>
           <p class="disclaimer">{SITE.disclaimer}</p>
         </div>
         <nav aria-label="Footer">
-          <a data-track="cta-footer-store" href={withUtm(SITE.storeUrl, "footer_store")} rel="noopener">Chrome Web Store</a>
-          <a data-track="github-footer" href={withUtm(SITE.githubUrl, "github")}>Source</a>
-          <a data-track="privacy-footer" href={withUtm(SITE.privacyUrl, "privacy")}>Privacy</a>
           <a
-            data-track="footer-trevisoft"
+            href={withUtm(SITE.storeUrl, "footer_store")}
+            rel="noopener"
+            {...selineEvent("cta: add to chrome", { placement: "footer", id: "cta-footer-store" })}
+          >Chrome Web Store</a>
+          <a
+            href={withUtm(SITE.githubUrl, "github")}
+            {...selineEvent("github: clicked", { placement: "footer", id: "github-footer" })}
+          >Source</a>
+          <a
+            href={withUtm(SITE.privacyUrl, "privacy")}
+            {...selineEvent("privacy: opened", { placement: "footer", id: "privacy-footer" })}
+          >Privacy</a>
+          <a
             href={withUtm(SITE.orgUrl, "trevisoft", "footer")}
             rel="noopener"
-            target="_blank">{SITE.orgName}</a>
-          <a href="/llms.txt">llms.txt</a>
+            target="_blank"
+            {...selineEvent("footer: trevisoft clicked", { placement: "footer", id: "footer-trevisoft" })}
+          >{SITE.orgName}</a>
+          <a
+            href="/llms.txt"
+            {...selineEvent("footer: llms.txt clicked", { placement: "footer", id: "llms-footer" })}
+          >llms.txt</a>
         </nav>
       </div>
     </footer>
