@@ -19,6 +19,7 @@ export const SITE = {
   cta: 'Add to Chrome',
   subhead: 'Queue campaigns. It farms in the background and claims the drops.',
   twitchChannel: 'aliengamer_051',
+  twitchDisplayName: 'Alien Gamer',
   twitchUrl: 'https://www.twitch.tv/aliengamer_051',
 } as const;
 
