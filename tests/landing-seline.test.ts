@@ -72,18 +72,20 @@ describe('landing Seline analytics', () => {
     expect(missing).toEqual([]);
   });
 
-  test('installs Seline from the first-party proxy without outbound double-count', async () => {
+  test('installs Seline from the official first-party proxy without outbound double-count', async () => {
     const html = await readFile(join(distRoot, 'index.html'), 'utf8');
     const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0]);
-    const seline = scripts.find((tag) => attr(tag, 'src') === '/sl/seline.js');
+    const seline = scripts.find((tag) => attr(tag, 'src') === 'https://sln.getdrophunter.com/ennui.js');
     expect(seline).toBeDefined();
     if (!seline) return;
     expect(attr(seline, 'data-token')).toBe('3d5e8c67a801c30');
-    expect(attr(seline, 'data-api-host')).toBe('/sl/api');
+    expect(attr(seline, 'data-api-host')).toBe('https://sln.getdrophunter.com');
     expect(/\basync\b/i.test(seline)).toBe(true);
     expect(attr(seline, 'data-outbound')).toBeUndefined();
     expect(html.indexOf('<head>')).toBeGreaterThan(-1);
     expect(html.indexOf(seline)).toBeLessThan(html.indexOf('</head>'));
+    expect(html).not.toContain('/sl/seline.js');
+    expect(html).not.toContain('/sl/api');
   });
 
   test('drops Visitor Tracking from the landing package and built HTML', async () => {
@@ -104,22 +106,15 @@ describe('landing Seline analytics', () => {
     expect(hits).toEqual([]);
   });
 
-  test('serves seline.js as a built static file and proxies only the API', async () => {
-    const tracker = await readFile(join(distRoot, 'sl', 'seline.js'), 'utf8');
-    expect(tracker).toContain('window.seline');
-    expect(tracker).toContain('/ennui/blase');
-
+  test('allows only the official Seline proxy in CSP and has no /sl rewrite', async () => {
     const toml = await readFile(join(landingRoot, 'netlify.toml'), 'utf8');
-    expect(toml).not.toContain('from = "/sl/seline.js"');
-    expect(toml).toContain('for = "/sl/seline.js"');
-    expect(toml).toContain('Content-Type = "application/javascript; charset=utf-8"');
-    expect(toml).toContain('from = "/sl/api/*"');
-    expect(toml).toContain('to = "https://api.seline.com/:splat"');
-    expect(toml).toMatch(/status = 200/);
+    expect(toml).not.toContain('/sl/seline.js');
+    expect(toml).not.toContain('/sl/api');
+    expect(toml).not.toContain('cdn.seline.com');
+    expect(toml).not.toContain('api.seline.com');
     const csp = toml.match(/Content-Security-Policy = "([^"]+)"/)?.[1] ?? '';
-    expect(csp).toMatch(/script-src 'self'(;|$)/);
-    expect(csp).toMatch(/connect-src 'self'(;|$)/);
-    expect(csp).not.toContain('seline.com');
+    expect(csp).toMatch(/script-src 'self' https:\/\/sln\.getdrophunter\.com(;|$)/);
+    expect(csp).toMatch(/connect-src 'self' https:\/\/sln\.getdrophunter\.com(;|$)/);
     expect(csp).not.toContain('visitortracking');
   });
 });

@@ -8,8 +8,8 @@
     "bun": ">=1.4.2"
   },
   "scripts": {
-    "dev": "bun scripts/vendor-seline.ts && astro dev",
-    "build": "bun scripts/vendor-seline.ts && astro build",
+    "dev": "astro dev",
+    "build": "astro build",
     "preview": "astro preview --host 127.0.0.1 --port 4321",
     "screenshots": "cd .. && bun landing/scripts/capture-ui.ts"
   },

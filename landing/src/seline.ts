@@ -1,9 +1,8 @@
-/** First-party Seline paths. Script POSTs to `{apiHost}/ennui/blase` and `{apiHost}/ennui/su`. */
+/** Official Seline first-party proxy. Script POSTs to `{apiHost}/ennui/blase` and `{apiHost}/ennui/su`. */
 export const SELINE = {
   token: '3d5e8c67a801c30',
-  scriptSrc: '/sl/seline.js',
-  scriptOrigin: 'https://cdn.seline.com/seline.js',
-  apiHost: '/sl/api',
+  scriptSrc: 'https://sln.getdrophunter.com/ennui.js',
+  apiHost: 'https://sln.getdrophunter.com',
 } as const;
 
 export function selineEvent(
