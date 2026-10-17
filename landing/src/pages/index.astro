@@ -5,9 +5,9 @@ import Sponsor from "../components/Sponsor.astro";
 import TrustStrip from "../components/TrustStrip.astro";
 import VideoFacade from "../components/VideoFacade.astro";
 import Layout from "../layouts/Layout.astro";
-import { FEATURES, FAQS, SCREENSHOTS, SITE } from "../site";
+import { FEATURES, FAQS, SCREENSHOTS, SITE, withUtm } from "../site";
 
-const title = "DropHunter by Trevisoft | Auto Claim Twitch Drops";
+const title = "Auto Claim Twitch Drops | DropHunter";
 const description = SITE.description;
 const shots = Object.fromEntries(SCREENSHOTS.map((s) => [s.id, s])) as Record<
   (typeof SCREENSHOTS)[number]["id"],
@@ -32,7 +32,12 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
           <h1 class="lede">{SITE.tagline}</h1>
           <p class="sub">{SITE.subhead}</p>
           <div class="hero-actions">
-            <a class="btn btn-primary btn-lg btn-shine" href={SITE.storeUrl} rel="noopener">{SITE.cta}</a>
+            <a
+              class="btn btn-primary btn-lg btn-shine"
+              data-track="cta-hero"
+              href={withUtm(SITE.storeUrl, "hero")}
+              rel="noopener"
+            >{SITE.cta}</a>
           </div>
           <TrustStrip />
         </div>
@@ -104,7 +109,12 @@ const monitor = shots["monitor"] ?? SCREENSHOTS[2];
           <h2 id="install-title">Queue it. Start it. Come back later.</h2>
           <p>Free for Chrome and Edge.</p>
           <div class="cta-actions">
-            <a class="btn btn-primary btn-lg btn-shine" href={SITE.storeUrl} rel="noopener">{SITE.cta}</a>
+            <a
+              class="btn btn-primary btn-lg btn-shine"
+              data-track="cta-footer"
+              href={withUtm(SITE.storeUrl, "footer_cta")}
+              rel="noopener"
+            >{SITE.cta}</a>
           </div>
         </div>
       </div>

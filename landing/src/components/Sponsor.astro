@@ -1,12 +1,13 @@
 ---
-import { SITE } from "../site";
+import { SITE, withUtm } from "../site";
 ---
 
 <aside class="section section-tight" id="sponsored">
   <div class="wrap">
     <a
       class="sponsor"
-      href={SITE.twitchUrl}
+      data-track="sponsor-twitch"
+      href={withUtm(SITE.twitchUrl, "aliengamer", "sponsored")}
       rel="noopener"
       target="_blank"
       data-reveal

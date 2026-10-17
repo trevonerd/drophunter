@@ -1,6 +1,6 @@
 # DropHunter by Trevisoft
 
-> Free Chrome / Chromium / Edge extension that farms and auto-claims Twitch Drops from the user's existing Twitch browser session. Data stays on the computer.
+DropHunter by Trevisoft is a free Twitch Drops farmer for Chrome, Brave, and Edge. It auto-claims drops from the Twitch session already in the browser. State stays on the computer. Unrelated to drophunter.app; not affiliated with Twitch or Amazon.
 
 - Product: DropHunter by Trevisoft (not affiliated with Twitch or Amazon; unrelated to drophunter.app)
 - Site: https://getdrophunter.com/
@@ -10,7 +10,7 @@
 - Developer: Marco Trevisani / Trevisoft (https://trevisoft.dev)
 - Version: 4.0.2
 - Price: 0
-- OS: Chrome 120+, Chromium, Microsoft Edge (MV3)
+- OS: Chrome 120+, Chromium, Brave, Microsoft Edge (MV3)
 
 ## What it is
 

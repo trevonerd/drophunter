@@ -11,8 +11,8 @@ const software = {
   installUrl: SITE.storeUrl,
   applicationCategory: "BrowserApplication",
   applicationSubCategory: "Browser extension",
-  operatingSystem: "Chrome, Chromium, Microsoft Edge",
-  browserRequirements: "Requires Chrome 120 or later, or Microsoft Edge",
+  operatingSystem: "Chrome, Chromium, Brave, Microsoft Edge",
+  browserRequirements: "Requires Chrome 120 or later, Brave, or Microsoft Edge",
   softwareVersion: SITE.version,
   releaseNotes: `${SITE.githubUrl}/releases`,
   offers: {
@@ -34,8 +34,9 @@ const software = {
   copyrightHolder: { "@id": `${SITE.url}/#org` },
   license: SITE.githubUrl,
   codeRepository: SITE.githubUrl,
+  sameAs: [SITE.githubUrl],
   keywords:
-    "auto claim Twitch Drops, Twitch Drops farmer extension, DropHunter, Trevisoft, Chrome extension",
+    "auto claim Twitch Drops, Twitch Drops farmer, Twitch Drops extension Chrome, DropHunter by Trevisoft",
   additionalType: "https://schema.org/WebApplication",
 };
 
@@ -60,7 +61,7 @@ const graph = {
     {
       "@type": "WebSite",
       "@id": `${SITE.url}/#site`,
-      url: SITE.url,
+      url: SITE.canonical,
       name: SITE.brand,
       description: SITE.description,
       inLanguage: "en",
@@ -69,8 +70,8 @@ const graph = {
     {
       "@type": "WebPage",
       "@id": `${SITE.url}/#page`,
-      url: SITE.url,
-      name: `${SITE.brand} | auto claim Twitch Drops`,
+      url: SITE.canonical,
+      name: "Auto Claim Twitch Drops | DropHunter",
       description: SITE.description,
       isPartOf: { "@id": `${SITE.url}/#site` },
       about: { "@id": `${SITE.url}/#app` },
@@ -95,6 +96,7 @@ const graph = {
       name: VIDEO.name,
       description: VIDEO.description,
       thumbnailUrl: VIDEO.thumbnailUrl,
+      uploadDate: VIDEO.uploadDate,
       embedUrl: VIDEO.embedUrl,
       contentUrl: VIDEO.contentUrl,
       publisher: { "@id": `${SITE.url}/#org` },

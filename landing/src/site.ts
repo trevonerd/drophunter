@@ -3,8 +3,9 @@ export const SITE = {
   brand: 'DropHunter by Trevisoft',
   tagline: 'Auto-claim Twitch Drops while you’re away.',
   description:
-    'Free Twitch Drops farmer extension for Chrome and Edge. Queue campaigns, farm in the background, auto-claim drops. DropHunter by Trevisoft. Local only.',
+    'Free Twitch Drops farmer for Chrome, Brave, and Edge. Queue campaigns, farm in the background, auto-claim. DropHunter by Trevisoft. Local only.',
   url: 'https://getdrophunter.com',
+  canonical: 'https://getdrophunter.com/',
   storeUrl:
     'https://chromewebstore.google.com/detail/drophunter/nghbigapgpeicgcnolagdnnkdajjjgkj',
   githubUrl: 'https://github.com/trevonerd/drophunter',
@@ -17,7 +18,8 @@ export const SITE = {
   locale: 'en',
   disclaimer: 'Not affiliated with or endorsed by Twitch or Amazon.',
   cta: 'Add to Chrome',
-  subhead: 'Queue campaigns. It farms in the background and claims the drops.',
+  subhead:
+    'A Twitch Drops farmer for Chrome, Brave, and Edge. Queue campaigns; it farms in the background and auto-claims.',
   twitchChannel: 'aliengamer_051',
   twitchDisplayName: 'Alien Gamer',
   twitchUrl: 'https://www.twitch.tv/aliengamer_051',
@@ -39,7 +41,20 @@ export const VIDEO = {
   embedUrl: 'https://www.youtube-nocookie.com/embed/hfFrD3JSW2o',
   contentUrl: 'https://www.youtube.com/watch?v=hfFrD3JSW2o',
   watchUrl: 'https://youtu.be/hfFrD3JSW2o',
+  uploadDate: '2026-10-09',
 } as const;
+
+export function withUtm(
+  url: string,
+  campaign: string,
+  medium: 'landing' | 'sponsored' = 'landing',
+): string {
+  const next = new URL(url);
+  next.searchParams.set('utm_source', 'getdrophunter');
+  next.searchParams.set('utm_medium', medium);
+  next.searchParams.set('utm_campaign', campaign);
+  return next.toString();
+}
 
 export const FEATURES = [
   {
@@ -74,6 +89,14 @@ export const FAQS: { q: string; a: string }[] = [
     a: 'Yes. That is the product: a Twitch Drops farmer extension with a campaign queue, background watch, and auto-claim.',
   },
   {
+    q: 'Does it work on Brave?',
+    a: 'Yes. DropHunter is a Chromium MV3 extension. Chrome, Brave, and Edge are supported.',
+  },
+  {
+    q: 'Is this a Twitch Drops miner?',
+    a: 'No. It is an auto-claim Chrome extension, not a miner. It uses the Twitch session already in the browser.',
+  },
+  {
     q: 'Is it free?',
     a: 'Yes. Install it from the Chrome Web Store. There is no DropHunter account.',
   },
@@ -106,7 +129,7 @@ export const SCREENSHOTS = [
     fallback: '/images/screenshots/popup-farming.png',
     width: 400,
     height: 640,
-    alt: 'DropHunter popup while hidden farming is running, showing drop progress and ETA',
+    alt: 'DropHunter popup auto-claiming Twitch Drops while hidden farming runs, with progress and ETA',
     caption: 'Farming',
     featured: true,
   },
@@ -116,7 +139,7 @@ export const SCREENSHOTS = [
     fallback: '/images/screenshots/popup-queue.png',
     width: 400,
     height: 640,
-    alt: 'DropHunter popup with a four-campaign farming queue, Marvel Rivals selected',
+    alt: 'DropHunter campaign queue for farming Twitch Drops, Marvel Rivals selected',
     caption: 'Queue',
     featured: false,
   },
@@ -126,7 +149,7 @@ export const SCREENSHOTS = [
     fallback: '/images/screenshots/monitor.png',
     width: 360,
     height: 270,
-    alt: 'DropHunter compact live monitor window showing farming status and reward progress',
+    alt: 'DropHunter live monitor showing Twitch Drops farming status and reward progress',
     caption: 'Monitor',
     featured: false,
   },

@@ -1,7 +1,7 @@
 ---
 import JsonLd from "../components/JsonLd.astro";
 import LogoMark from "../components/LogoMark.astro";
-import { SITE } from "../site";
+import { SITE, withUtm } from "../site";
 import "../styles/global.css";
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
 }
 
 const { title, description } = Astro.props;
-const canonical = SITE.url;
+const canonical = SITE.canonical;
 const og = `${SITE.url}/images/og.png`;
 ---
 
@@ -23,7 +23,7 @@ const og = `${SITE.url}/images/og.png`;
     <meta name="description" content={description} />
     <meta
       name="keywords"
-      content="auto claim Twitch Drops, Twitch Drops farmer extension, DropHunter, DropHunter by Trevisoft, Chrome extension, Edge extension, Twitch Drops"
+      content="auto claim Twitch Drops, Twitch Drops farmer, Twitch Drops extension Chrome, farm Twitch Drops automatically, DropHunter by Trevisoft"
     />
     <meta name="author" content={`${SITE.authorName} / ${SITE.orgName}`} />
     <meta name="robots" content="index,follow" />
@@ -48,7 +48,10 @@ const og = `${SITE.url}/images/og.png`;
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={og} />
+    <meta name="twitter:image:alt" content="DropHunter by Trevisoft. Auto-claim Twitch Drops." />
     <JsonLd />
+    <script is:inline src="/scripts/init-tracer.js"></script>
+    <script is:inline async defer src="https://app.visitortracking.com/assets/js/tracer.js"></script>
   </head>
   <body>
     <canvas id="loot" aria-hidden="true"></canvas>
@@ -64,8 +67,8 @@ const og = `${SITE.url}/images/og.png`;
           </span>
         </a>
         <div class="nav-cta">
-          <a class="btn btn-ghost" href={SITE.githubUrl}>GitHub</a>
-          <a class="btn btn-primary" href={SITE.storeUrl} rel="noopener">Add to Chrome</a>
+          <a class="btn btn-ghost" data-track="github-nav" href={withUtm(SITE.githubUrl, "github")}>GitHub</a>
+          <a class="btn btn-primary" data-track="cta-nav" href={withUtm(SITE.storeUrl, "nav")} rel="noopener">Add to Chrome</a>
         </div>
       </div>
     </header>
@@ -77,9 +80,9 @@ const og = `${SITE.url}/images/og.png`;
           <p class="disclaimer">{SITE.disclaimer}</p>
         </div>
         <nav aria-label="Footer">
-          <a href={SITE.storeUrl} rel="noopener">Chrome Web Store</a>
-          <a href={SITE.githubUrl}>Source</a>
-          <a href={SITE.privacyUrl}>Privacy</a>
+          <a data-track="cta-footer-store" href={withUtm(SITE.storeUrl, "footer_store")} rel="noopener">Chrome Web Store</a>
+          <a data-track="github-footer" href={withUtm(SITE.githubUrl, "github")}>Source</a>
+          <a data-track="privacy-footer" href={withUtm(SITE.privacyUrl, "privacy")}>Privacy</a>
           <a href={SITE.orgUrl} rel="noopener">{SITE.orgName}</a>
           <a href="/llms.txt">llms.txt</a>
         </nav>

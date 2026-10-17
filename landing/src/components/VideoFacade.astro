@@ -1,5 +1,5 @@
 ---
-import { VIDEO } from "../site";
+import { VIDEO, withUtm } from "../site";
 ---
 
 <section class="section section-watch" id="watch" aria-labelledby="watch-title">
@@ -11,6 +11,7 @@ import { VIDEO } from "../site";
         <button
           type="button"
           class="video-facade"
+          data-track="youtube-play"
           data-video-facade
           data-video-id={VIDEO.id}
           data-video-title={VIDEO.name}
@@ -32,7 +33,7 @@ import { VIDEO } from "../site";
       </div>
       <p class="video-caption">{VIDEO.name}</p>
       <p class="video-fallback">
-        <a href={VIDEO.watchUrl} rel="noopener" target="_blank">Watch on YouTube</a>
+        <a data-track="youtube-fallback" href={withUtm(VIDEO.watchUrl, "watch_youtube")} rel="noopener" target="_blank">Watch on YouTube</a>
       </p>
     </div>
   </div>
