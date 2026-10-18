@@ -1,11 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
-
-const repoRoot = resolve(import.meta.dir, '..');
-const landingRoot = join(repoRoot, 'landing');
-const distRoot = join(landingRoot, 'dist');
+import { join, relative } from 'node:path';
+import { distRoot, ensureLandingBuilt, landingRoot, repoRoot } from './landing-build';
 
 const forbidden = [
   'visitortracking',
@@ -42,15 +38,8 @@ function attr(tag: string, name: string): string | undefined {
 }
 
 describe('landing Seline analytics', () => {
-  beforeAll(() => {
-    const run = (args: string[]) => {
-      const result = spawnSync('bun', args, { cwd: landingRoot, stdio: 'inherit' });
-      if (result.status !== 0) {
-        throw new Error(`bun ${args.join(' ')} failed`);
-      }
-    };
-    run(['install', '--frozen-lockfile']);
-    run(['run', 'build']);
+  beforeAll(async () => {
+    await ensureLandingBuilt();
   }, 120_000);
 
   test('every built <a> and <button> has data-sln-event', async () => {
