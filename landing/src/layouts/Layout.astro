@@ -59,8 +59,10 @@ const og = `${SITE.url}/images/og.png`;
       data-api-host={SELINE.apiHost}></script>
   </head>
   <body>
-    <canvas id="loot" aria-hidden="true"></canvas>
-    <div id="cursor-glow" aria-hidden="true"></div>
+    <div class="fx-layer" aria-hidden="true">
+      <canvas id="loot"></canvas>
+      <div id="cursor-glow"></div>
+    </div>
     <a
       class="skip"
       href="#main"

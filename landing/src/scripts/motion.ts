@@ -61,18 +61,25 @@ function loot() {
   let w = 0;
   let h = 0;
   let raf = 0;
+  const viewportSize = () => {
+    const viewport = window.visualViewport;
+    return {
+      width: Math.max(1, Math.round(viewport?.width ?? document.documentElement.clientWidth)),
+      height: Math.max(1, Math.round(viewport?.height ?? document.documentElement.clientHeight)),
+    };
+  };
   const resize = () => {
     const dpr = Math.min(devicePixelRatio || 1, 1.25);
-    w = innerWidth;
-    h = innerHeight;
+    const size = viewportSize();
+    w = size.width;
+    h = size.height;
     canvas.width = Math.max(1, Math.floor(w * dpr));
     canvas.height = Math.max(1, Math.floor(h * dpr));
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
   resize();
   window.addEventListener("resize", resize, { passive: true });
+  window.visualViewport?.addEventListener("resize", resize, { passive: true });
   const draw = () => {
     ctx.clearRect(0, 0, w, h);
     for (const d of dots) {
