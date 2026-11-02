@@ -64,6 +64,9 @@ export function registerOptionalPermissionStartupCases() {
       );
       expect(mocks.permissions._requests).toHaveLength(1);
       expect(response).toMatchObject({ success: false });
+      for (const type of ['PAUSE_FARMING', 'STOP_FARMING'] as const) {
+        expect(await dispatchMessageFromMocks(mocks, { type })).toMatchObject({ success: false });
+      }
       expect(mocks.storage.local._store.get('appState')).toBeUndefined();
     } finally {
       mocks.teardown();

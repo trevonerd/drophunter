@@ -80,7 +80,7 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
           appState: contentHandlers.getAppState(),
           ...(result.kind === 'needs-session'
             ? { error: 'Open Twitch Drops so DropHunter can detect your session.' }
-            : result.kind === 'retry-scheduled'
+            : result.kind === 'retry-scheduled' || result.kind === 'retry-failed'
               ? { error: result.error }
               : {}),
         };
@@ -151,8 +151,10 @@ export function registerServiceWorkerRuntime(dependencies: ServiceWorkerRuntimeD
       aroundHandle: (handler, message) => withRuntimeBackupGuard(dependencies.state, handler, message),
       prepareHandle: (message, sender) =>
         prepareOptionalPermissionConsent(dependencies.state, message, sender),
-      beforeHandle: async () => {
-        await stateLifecycle.awaitInitialization();
+      beforeHandle: async (message) => {
+        if (message.type === 'PAUSE_FARMING' || message.type === 'STOP_FARMING')
+          await stateLifecycle.awaitStateHydration();
+        else await stateLifecycle.awaitInitialization();
         if (dependencies.state.backupImportInProgress)
           throw new Error('Backup restore is in progress. Try again shortly.');
       },

@@ -1,10 +1,10 @@
-import { browser } from '../shared/browser-api.ts';
 import type { AppState } from '../types';
 import {
   DEFAULT_DROPS_PAGE_READY_TIMEOUT_MS,
   refreshDropsPageCampaigns,
 } from './drops-page-campaign-refresh.ts';
 import {
+  activateDropsPageTab,
   createDropsPageTabConsumers,
   type DropsPageRefreshOptions,
   type DropsPageState,
@@ -34,12 +34,21 @@ interface OpenDropsPageRefreshOptions {
   closeAfterRefresh?: boolean;
 }
 
+interface DropsPageRetention {
+  keep: boolean;
+  active: boolean;
+  openIfMissing: boolean;
+  isCurrent: () => boolean;
+}
+
 export function createDropsPageRefresher(state: DropsPageState, options: DropsPageRefreshOptions) {
   let openAndRefreshInFlight: Promise<DropsPageRefreshResult> | null = null;
+  // Foreground clicks share native acquisition without waiting for the shared refresh.
+  let openingReady: Promise<DropsPageRefreshResult> | null = null;
   let refreshInFlight: Promise<DropsPageRefreshResult> | null = null;
   let openIsCurrent: (() => boolean) | null = null;
   let refreshIsCurrent: (() => boolean) | null = null;
-  let openRetention: { keep: boolean; active: boolean } | null = null;
+  let openRetention: DropsPageRetention | null = null;
   const consumers = createDropsPageTabConsumers(state, options);
   const cancelledResult = (): DropsPageRefreshResult => ({
     success: false,
@@ -132,12 +141,11 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     return operation;
   };
 
-  const openAndMaybeRefresh = async (
-    waitForRefresh: boolean,
-    openIfMissing: boolean,
+  const openAndRefresh = async (
     waitForExistingTabMs: number,
     isCurrent: () => boolean,
-    retention: { keep: boolean; active: boolean },
+    retention: DropsPageRetention,
+    onOpened: (result: DropsPageRefreshResult) => void,
   ): Promise<DropsPageRefreshResult> => {
     if (!isCurrent())
       return {
@@ -152,15 +160,15 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     if (!isCurrent()) return cancelledResult();
 
     const requestedActive = retention.active;
-    const { tabId, opened } = await consumers.acquire(
+    const { tabId, opened, windowId } = await consumers.acquire(
       requestedActive,
-      openIfMissing,
+      () => retention.openIfMissing,
       waitForExistingTabMs,
       isCurrent,
       retention,
     );
     if (!tabId) {
-      const error = openIfMissing
+      const error = retention.openIfMissing
         ? 'Unable to open the Twitch Drops page.'
         : 'Open Twitch Drops so DropHunter can detect your session.';
       await publishRefreshState(false, {
@@ -180,7 +188,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     try {
       if (!isCurrent()) return cancelledResult();
       if (retention.active && !requestedActive)
-        await (options.tabsApi ?? browser.tabs).update(tabId, { active: true }).catch(() => undefined);
+        await activateDropsPageTab(options, tabId, windowId, isCurrent);
       if (!isCurrent()) return cancelledResult();
       await publishRefreshState(true, {
         attemptAt: Date.now(),
@@ -200,15 +208,7 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
         },
       );
       refreshOwnsRelease = true;
-      if (!waitForRefresh) {
-        ownedRefresh.catch(() => undefined);
-        return {
-          success: true,
-          opened,
-          refreshed: false,
-          gamesCount: state.appState.availableGames.length,
-        };
-      }
+      onOpened({ success: true, opened, refreshed: false, gamesCount: state.appState.availableGames.length });
 
       return await ownedRefresh;
     } finally {
@@ -224,41 +224,59 @@ export function createDropsPageRefresher(state: DropsPageState, options: DropsPa
     const waitForExistingTabMs = Math.max(0, openOptions.waitForExistingTabMs ?? 0);
     const externalIsCurrent = openOptions.isCurrent ?? (() => true);
     const deadline = Date.now() + DROPS_PAGE_OPERATION_TIMEOUT_MS;
-    const isCurrent = () => Date.now() < deadline && externalIsCurrent();
-    const retention = { keep: openOptions.closeAfterRefresh !== true || active, active };
-    if (openOptions.waitForRefresh === false) {
-      return openAndMaybeRefresh(false, openIfMissing, waitForExistingTabMs, isCurrent, retention);
-    }
+    const retention = {
+      keep: openOptions.closeAfterRefresh !== true || active,
+      active,
+      openIfMissing,
+      isCurrent: () => Date.now() < deadline && externalIsCurrent(),
+    };
+    const isCurrent = () => retention.isCurrent();
+    const waitForRefresh = openOptions.waitForRefresh !== false;
 
     if (openAndRefreshInFlight && openIsCurrent?.()) {
       if (retention.keep) {
-        const activate = active && openRetention?.active === false;
+        const activate = active && (openRetention?.active === false || !waitForRefresh);
         if (openRetention) {
           openRetention.keep = true;
           openRetention.active ||= active;
+          openRetention.openIfMissing ||= openIfMissing;
+          const previousIsCurrent = openRetention.isCurrent;
+          openRetention.isCurrent = () => previousIsCurrent() || isCurrent();
         }
-        consumers.retain(activate);
+        const retained = consumers.retain(activate, isCurrent);
+        if (activate) {
+          const operation = waitForRefresh
+            ? openAndRefreshInFlight
+            : (openingReady ?? openAndRefreshInFlight);
+          return retained.then(() => operation);
+        }
       }
-      return openAndRefreshInFlight;
+      return waitForRefresh ? openAndRefreshInFlight : (openingReady ?? openAndRefreshInFlight);
     }
 
     openIsCurrent = isCurrent;
     openRetention = retention;
-    const operation = openAndMaybeRefresh(
-      true,
-      openIfMissing,
-      waitForExistingTabMs,
-      isCurrent,
-      retention,
-    ).finally(() => {
-      if (openAndRefreshInFlight === operation) {
-        openAndRefreshInFlight = null;
-        openIsCurrent = null;
-        openRetention = null;
-      }
+    let resolveOpening: (result: DropsPageRefreshResult) => void = () => {};
+    let rejectOpening: (error: unknown) => void = () => {};
+    const ready = new Promise<DropsPageRefreshResult>((resolve, reject) => {
+      resolveOpening = resolve;
+      rejectOpening = reject;
     });
+    openingReady = ready;
+    void ready.catch(() => undefined);
+    const operation = openAndRefresh(waitForExistingTabMs, isCurrent, retention, resolveOpening).finally(
+      () => {
+        if (openAndRefreshInFlight === operation) {
+          openAndRefreshInFlight = null;
+          openIsCurrent = null;
+          openRetention = null;
+          openingReady = null;
+        }
+      },
+    );
     openAndRefreshInFlight = operation;
-    return operation;
+    void operation.then(resolveOpening, rejectOpening);
+    return waitForRefresh ? operation : ready;
   };
 
   return { openDropsPageAndRefresh };

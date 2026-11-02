@@ -17,6 +17,54 @@ const healthyManaged = (checkedAt: number): WatchHealth => ({
 });
 
 describe('watch transport handoff', () => {
+  test('manual viewing restores dormant ownership without probing or switching to hidden playback', async () => {
+    const state = createServiceWorkerState();
+    state.appState.isRunning = true;
+    state.appState.selectedGame = { id: 'game', name: 'Game', imageUrl: '', campaignId: 'campaign' };
+    state.appState.activeStreamer = { id: 'channel', name: 'channel', displayName: 'Channel', isLive: true };
+    state.appState.watchTransportPreference = 'tabless';
+    let pauses = 0;
+    let probes = 0;
+    let heartbeats = 0;
+    const coordinator = createWatchTransportCoordinator({
+      state,
+      heartbeat: async () => {
+        heartbeats++;
+        return { accepted: true };
+      },
+      managedTab: {
+        open: async () => {
+          throw new Error('Unexpected tab acquisition');
+        },
+        probe: async () => {
+          probes++;
+          return { accepted: true };
+        },
+        pause: async () => {
+          pauses++;
+        },
+        close: async () => {},
+      },
+      persist: async () => {},
+      broadcast: () => {},
+    });
+    const ownership = {
+      kind: 'managed-tab' as const,
+      tabId: 17,
+      ownershipToken: 'retained',
+      expectedChannel: 'channel',
+    };
+    expect(await coordinator.restore(ownership, false)).toBe(true);
+    expect({ pauses, probes, heartbeats }).toEqual({ pauses: 1, probes: 0, heartbeats: 0 });
+    expect(coordinator.currentTarget()).toBeNull();
+    expect(coordinator.currentOwnership()).toEqual(ownership);
+    await coordinator.tick();
+    expect(heartbeats).toBe(1);
+    expect(state.appState.watchTransportMode).toBe('tabless');
+    expect(state.appState.tabId).toBeNull();
+    await coordinator.stop();
+  });
+
   test.each(['manual', 'automatic', 'other-campaign'] as const)(
     'gesture-wait replacement respects %s campaign intent while an old watch exists',
     async (intent) => {

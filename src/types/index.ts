@@ -231,6 +231,8 @@ export interface AppState {
   lastRotationAt?: number | null;
   recoveryReason?: string | null;
   recoveryBackoffUntil?: number | null;
+  // UI projection only; timingState owns the operational Twitch cooldown.
+  apiBackoffUntil?: number | null;
   recoveryAttempts?: number | null;
   recoverySchedulerUnavailable?: boolean;
   resumedFromCrash?: number | null;

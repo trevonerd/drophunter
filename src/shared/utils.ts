@@ -96,6 +96,7 @@ export const createInitialState = (): AppState => ({
   recoveryReason: null,
   recoverySchedulerUnavailable: false,
   recoveryBackoffUntil: null,
+  apiBackoffUntil: null,
   recoveryAttempts: null,
   resumedFromCrash: null,
   lastStopReason: null,

@@ -35,7 +35,7 @@ export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRe
 
   const openDropsPage = useCallback(
     async (_options: { active?: boolean } = {}) => {
-      if (dropsRefreshLoading) {
+      if (manualDropsRefreshLoading) {
         return;
       }
       setManualDropsRefreshLoading(true);
@@ -91,7 +91,7 @@ export function useDropsRefresh({ state, setState, setQueueMessage }: UseDropsRe
         setManualDropsRefreshLoading(false);
       }
     },
-    [dropsRefreshLoading, setQueueMessage, setState, state.availableGames.length],
+    [manualDropsRefreshLoading, setQueueMessage, setState, state.availableGames.length],
   );
 
   return {

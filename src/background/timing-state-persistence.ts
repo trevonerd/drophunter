@@ -138,5 +138,7 @@ export async function loadTimingState(state: ServiceWorkerState) {
     for (const [id, at] of Object.entries(saved.dropClaimRetryAtById)) state.dropClaimRetryAtById.set(id, at);
   } catch (error) {
     logWarn('Failed to load timing state from local storage:', String(error));
+  } finally {
+    state.appState.apiBackoffUntil = state.apiBackoffUntil > 0 ? state.apiBackoffUntil : null;
   }
 }

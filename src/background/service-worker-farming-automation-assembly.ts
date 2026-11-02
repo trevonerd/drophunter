@@ -96,43 +96,6 @@ export async function assembleServiceWorkerFarmingAutomation(
       receiptRead satisfies never;
   }
   currentOwnership = await reconcileManagedWatchesOnStartup(state, currentOwnership);
-  if (currentOwnership || state.appState.activeStreamer || state.appState.watchHealth) {
-    const epoch = currentFarmingSessionEpoch(state);
-    const restored = currentOwnership
-      ? await dependencies.browserEvents.watchTransport.restore(currentOwnership)
-      : false;
-    if (
-      !restored &&
-      epoch === currentFarmingSessionEpoch(state) &&
-      state.appState.isRunning &&
-      !state.appState.isPaused
-    ) {
-      resetStreamTrackingState(state);
-      state.appState.activeStreamer = null;
-      state.appState.watchHealth = null;
-      state.appState.tabId = null;
-      applyPlaybackStartRecoveryState(state, Date.now(), 0);
-      await saveState(state);
-      await saveTimingState(state);
-    }
-  }
-
-  const persistNewApiCooldown = async <T>(operation: () => Promise<T>): Promise<T> => {
-    const previousBackoff = state.apiBackoffUntil;
-    const previousRetryAfterProof = state.apiRetryAfterVerifiedAt;
-    try {
-      return await operation();
-    } finally {
-      if (
-        state.apiBackoffUntil > Date.now() &&
-        (state.apiBackoffUntil !== previousBackoff ||
-          state.apiRetryAfterVerifiedAt !== previousRetryAfterProof)
-      ) {
-        await saveTimingState(state);
-      }
-    }
-  };
-
   const automationBrowser = createFarmingAutomationBrowser({
     watchRuntime: dependencies.browserEvents.watchTransport,
     getManualStreamContext: dependencies.twitchGateway.fetchStreamContext,
@@ -166,6 +129,60 @@ export async function assembleServiceWorkerFarmingAutomation(
       },
     },
   });
+  const manualWatch = createFarmingAutomationManualWatch({
+    persistence,
+    observeManualTabs: automationBrowser.observeManualTabs,
+    replaceDeadline: automationBrowser.replaceDeadlineAlarm,
+  });
+  if (currentOwnership || state.appState.activeStreamer || state.appState.watchHealth) {
+    const epoch = currentFarmingSessionEpoch(state);
+    const manual =
+      state.appState.isRunning && !state.appState.isPaused
+        ? await manualWatch.evaluate({
+            target: state.appState.selectedGame,
+            managedTabId: state.appState.tabId,
+            preparingManagedTabIds: [...state.preparingManagedTabIds],
+            automationActive: true,
+          })
+        : null;
+    const restored = currentOwnership
+      ? await dependencies.browserEvents.watchTransport.restore(
+          currentOwnership,
+          epoch === currentFarmingSessionEpoch(state) && (manual === null || manual.kind === 'inactive'),
+        )
+      : false;
+    if (
+      !restored &&
+      epoch === currentFarmingSessionEpoch(state) &&
+      state.appState.isRunning &&
+      !state.appState.isPaused
+    ) {
+      resetStreamTrackingState(state);
+      state.appState.activeStreamer = null;
+      state.appState.watchHealth = null;
+      state.appState.tabId = null;
+      applyPlaybackStartRecoveryState(state, Date.now(), 0);
+      await saveState(state);
+      await saveTimingState(state, { immediate: true });
+    }
+  }
+
+  const persistNewApiCooldown = async <T>(operation: () => Promise<T>): Promise<T> => {
+    const previousBackoff = state.apiBackoffUntil;
+    const previousRetryAfterProof = state.apiRetryAfterVerifiedAt;
+    try {
+      return await operation();
+    } finally {
+      if (
+        state.apiBackoffUntil > Date.now() &&
+        (state.apiBackoffUntil !== previousBackoff ||
+          state.apiRetryAfterVerifiedAt !== previousRetryAfterProof)
+      ) {
+        await saveTimingState(state);
+      }
+    }
+  };
+
   const twitch = createFarmingAutomationTwitchAdapter({
     loadSession: dependencies.twitchGateway.ensureTwitchSession,
     assertCanRefresh: (options) => {
@@ -211,11 +228,6 @@ export async function assembleServiceWorkerFarmingAutomation(
             : Promise.resolve({ kind: 'unavailable' as const });
         }
       : undefined,
-  });
-  const manualWatch = createFarmingAutomationManualWatch({
-    persistence,
-    observeManualTabs: automationBrowser.observeManualTabs,
-    replaceDeadline: automationBrowser.replaceDeadlineAlarm,
   });
   const repairActivity = async (
     receipt: FarmingSessionTransitionReceiptV1,

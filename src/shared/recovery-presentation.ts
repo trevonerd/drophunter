@@ -26,14 +26,21 @@ function recoveryOperation(reason: string): RecoveryOperation {
 }
 
 export function getRecoveryPresentation(
-  state: Pick<AppState, 'isRunning' | 'isPaused' | 'recoveryReason' | 'recoveryBackoffUntil'>,
+  state: Pick<
+    AppState,
+    'isRunning' | 'isPaused' | 'recoveryReason' | 'recoveryBackoffUntil' | 'apiBackoffUntil'
+  >,
   now = Date.now(),
 ): RecoveryPresentation | null {
   const reason = state.recoveryReason;
   if (!reason) return null;
   const deadline = state.recoveryBackoffUntil;
-  const nextRetryAt =
+  const recoveryRetryAt =
     typeof deadline === 'number' && Number.isFinite(deadline) && deadline >= 0 ? deadline : null;
+  const apiDeadline = state.apiBackoffUntil;
+  const apiCooldownActive =
+    typeof apiDeadline === 'number' && Number.isFinite(apiDeadline) && apiDeadline > now;
+  const nextRetryAt = apiCooldownActive ? Math.max(recoveryRetryAt ?? 0, apiDeadline) : recoveryRetryAt;
   const phase =
     nextRetryAt === null
       ? 'unscheduled'
@@ -47,11 +54,6 @@ export function getRecoveryPresentation(
     operation: recoveryOperation(reason),
     reason,
     nextRetryAt,
-    action:
-      state.isRunning &&
-      !state.isPaused &&
-      !(reason === 'twitch-rate-limit' && nextRetryAt !== null && nextRetryAt > now)
-        ? 'retry'
-        : 'wait',
+    action: state.isRunning && !state.isPaused && !apiCooldownActive ? 'retry' : 'wait',
   };
 }

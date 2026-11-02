@@ -39,5 +39,11 @@ export function selectedGameMarkedCompleted(state: ServiceWorkerState): boolean 
   const selected = state.appState.selectedGame;
   if (!selected) return false;
   const current = findMatchingGame(selected, state.appState.availableGames);
-  return isCampaignAcquired(selected) || (current !== null && isCampaignAcquired(current));
+  return (
+    isCampaignAcquired(selected) ||
+    (current !== null && isCampaignAcquired(current)) ||
+    (state.appState.allDrops.length > 0 &&
+      hasCompleteIdentifiedRewardSet(selected, state.appState.allDrops, true) &&
+      state.appState.allDrops.every(isRewardAcquired))
+  );
 }

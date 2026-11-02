@@ -1,10 +1,74 @@
 import { expect, test } from 'bun:test';
+import { FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY } from '../../src/background/farming-automation-contracts.ts';
 import { createInitialState } from '../../src/shared/utils.ts';
 import { demoGame } from '../fixtures/service-worker-games.ts';
 import { chromeMocks, dispatchMessageFromMocks, sleepTick } from '../helpers/service-worker-harness.ts';
 import { importServiceWorkerWithBlockedInitialLoad } from '../helpers/service-worker-initialization.ts';
+import { createDeferred } from '../support/farming-automation-fixtures.ts';
 
 export function registerInitializationCases() {
+  test.each(['PAUSE_FARMING', 'STOP_FARMING'] as const)(
+    '%s waits for hydration but interrupts pending automation initialization',
+    async (type) => {
+      const isolated = await importServiceWorkerWithBlockedInitialLoad(type, {
+        ...createInitialState(),
+        isRunning: true,
+        manualQueueAuthorized: true,
+        selectedGame: demoGame,
+        queue: [demoGame],
+      });
+      const entered = createDeferred<void>();
+      const release = createDeferred<void>();
+      const get = isolated.mocks.chrome.storage.local.get.bind(isolated.mocks.chrome.storage.local);
+      isolated.mocks.chrome.storage.local.get = async (keys) => {
+        if (Array.isArray(keys) && keys.includes(FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY)) {
+          entered.resolve();
+          await release.promise;
+        }
+        return get(keys);
+      };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        let finished = false;
+        const response = dispatchMessageFromMocks(isolated.mocks, { type }).then((value) => {
+          finished = true;
+          return value;
+        });
+        await sleepTick();
+        expect(finished).toBe(false);
+        isolated.releaseInitialLoad();
+        await entered.promise;
+        const result = await Promise.race([
+          response,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('Control blocked by automation initialization')),
+              1_000,
+            );
+          }),
+        ]);
+        expect(result).toMatchObject({ success: true });
+        expect(isolated.mocks.storage.local._store.get('appState')).toMatchObject(
+          type === 'STOP_FARMING' ? { isRunning: false, lastStopReason: 'user-stop' } : { isPaused: true },
+        );
+        release.resolve();
+        await dispatchMessageFromMocks(isolated.mocks, {
+          type: 'SET_MONITOR_AUTO_OPEN',
+          payload: { enabled: false },
+        });
+        expect(isolated.mocks.storage.local._store.get('appState')).toMatchObject(
+          type === 'STOP_FARMING' ? { isRunning: false, lastStopReason: 'user-stop' } : { isPaused: true },
+        );
+        expect(isolated.mocks.chrome.alarms._created.some((alarm) => alarm.name === 'dropCheck')).toBe(false);
+      } finally {
+        clearTimeout(timer);
+        release.resolve();
+        await sleepTick();
+        isolated.mocks.teardown();
+      }
+    },
+  );
+
   test('registers runtime onMessage listener at module load', () => {
     expect(chromeMocks.runtime.onMessage._handlers.length).toBeGreaterThan(0);
   });
@@ -33,7 +97,7 @@ export function registerInitializationCases() {
       expect(createCalls).toBe(1);
       expect(response).toMatchObject({
         success: false,
-        result: { kind: 'retry-scheduled' },
+        result: { kind: 'retry-failed' },
         error: 'Unable to open the Twitch Drops page.',
       });
     } finally {

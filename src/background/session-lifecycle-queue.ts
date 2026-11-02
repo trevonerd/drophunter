@@ -1,9 +1,7 @@
 import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import { gameKey, getGameDisplayLabel } from '../shared/game-selection.ts';
 import { isRewardFarmableNow } from '../shared/reward-scheduling.ts';
-import { isRewardAcquired } from '../shared/reward-semantics.ts';
 import { isExpiredGame } from '../shared/utils.ts';
-import { hasCompleteIdentifiedRewardSet } from './campaign-reward-identity.ts';
 import { reconcileFarmingSessionTargets } from './farming-session-targets.ts';
 import { logDebug, logInfo } from './logging.ts';
 import { markQueueCampaignAttempted } from './queue-acquisition-round.ts';
@@ -74,20 +72,13 @@ export async function advanceQueueIfCompleted(
   );
   const hasKnownNonFarmableRemainder =
     state.appState.pendingDrops.length > 0 && !hasFarmablePending && state.appState.currentDrop === null;
-  const selectedMarkedCompleted = selectedGameMarkedCompleted(state);
   let terminalFarmingCompleteGame = null;
-  const knownCompletedCurrent =
-    selectedMarkedCompleted ||
-    (state.appState.selectedGame !== null &&
-      state.appState.allDrops.length > 0 &&
-      hasCompleteIdentifiedRewardSet(state.appState.selectedGame, state.appState.allDrops, true) &&
-      state.appState.allDrops.every(isRewardAcquired));
+  const knownCompletedCurrent = selectedGameMarkedCompleted(state);
   const campaignExpiredOrVanished = Boolean(
     state.appState.selectedGame && isExpiredGame(state.appState.selectedGame),
   );
   logDebug('advanceQueueIfCompleted result', {
     knownCompletedCurrent,
-    selectedMarkedCompleted,
     campaignExpiredOrVanished,
     shouldAdvance: knownCompletedCurrent || campaignExpiredOrVanished,
   });

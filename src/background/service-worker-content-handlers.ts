@@ -145,7 +145,16 @@ export function createServiceWorkerContentHandlers(
 
   const activatePopup = () => requestActivationSync('popup-open');
   const initializeActivationSync = () => activationSyncCoordinator.initialize();
-  const openDropsAndSync = () => requestActivationSync('manual');
+  async function openDropsAndSync() {
+    await dependencies.stateLifecycle.awaitInitialization();
+    const opened = await dropsPageRefresher.openDropsPageAndRefresh({ waitForRefresh: false });
+    if (!opened.success)
+      return {
+        kind: 'retry-failed' as const,
+        error: opened.error ?? 'Unable to open the Twitch Drops page.',
+      };
+    return requestActivationSync('manual');
+  }
 
   async function ensureGamesCache(payload?: { readonly force?: boolean }) {
     const result = await requestActivationSync(payload?.force ? 'manual-retry' : 'popup-open');
@@ -177,7 +186,7 @@ export function createServiceWorkerContentHandlers(
       appState: state.appState,
       ...(result.kind === 'needs-session'
         ? { error: 'Open Twitch Drops so DropHunter can detect your session.' }
-        : result.kind === 'retry-scheduled'
+        : result.kind === 'retry-scheduled' || result.kind === 'retry-failed'
           ? { error: result.error }
           : {}),
     };

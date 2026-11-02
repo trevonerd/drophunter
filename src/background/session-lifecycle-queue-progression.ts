@@ -58,6 +58,11 @@ export async function progressFarmingQueue(
       !state.appState.queue.some((game) => gameKey(game) === gameKey(target))
     )
       state.appState.queue.push(target);
+  if (
+    state.apiBackoffUntil > options.now() &&
+    (await waitForParkedQueue(state, request.restrictUnauthorizedManualContinuation, options))
+  )
+    return { kind: 'waiting' };
   let hasScheduledWaiting = request.hasScheduledWaiting ?? false;
   const failedPreparations = new Map<string, number>();
   while (state.appState.queue.length > 0) {
@@ -79,6 +84,10 @@ export async function progressFarmingQueue(
     const result = await options.onTransitionToCampaign(candidate, options.isCurrent);
     if (result.kind === 'cancelled' || !options.isCurrent()) return { kind: 'cancelled' };
     if (result.kind === 'started') return { kind: 'advanced', game: candidate };
+    if (result.kind === 'deferred') {
+      await options.onSaveState();
+      return { kind: 'waiting' };
+    }
     if (result.kind === 'preparing') {
       state.recoveryBackoffUntil = result.retryAt;
       applyRecoveryState(state, 'open-failed', result.retryAt);

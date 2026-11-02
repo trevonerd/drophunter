@@ -64,6 +64,7 @@ export function createFarmingSessionStreaming(
     if (context.transitionCampaign && state.appState.selectedGame) {
       const result = await context.transitionCampaign(state.appState.selectedGame, isCurrent);
       if (result.kind === 'started') return true;
+      if (result.kind === 'deferred') return 'preparing';
       if (result.kind === 'cancelled') return 'cancelled';
       if (result.kind === 'preparing') {
         state.recoveryBackoffUntil = result.retryAt;

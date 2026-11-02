@@ -31,6 +31,7 @@ export interface ServiceWorkerAutomationSettingsDependencies {
   readonly requestActivationSync?: (trigger: ActivationTrigger) => Promise<ActivationSyncResult>;
   readonly browserEvents: BrowserEvents;
   readonly stateLifecycle: StateLifecycle;
+  readonly onWakeMonitoring?: () => void;
 }
 
 function favoriteAutoStartDisposition(
@@ -212,11 +213,8 @@ export function createServiceWorkerAutomationSettingsHandlers(
   async function handleSetWatchTransportMode(payload: { readonly mode: WatchTransportMode }) {
     await trackActivity('set-watch-transport-mode');
     const transport = dependencies.browserEvents.watchTransport;
-    const currentStreamer = state.appState.activeStreamer;
     await transport.setPreference(payload.mode);
-    if (state.appState.isRunning && !state.appState.isPaused && currentStreamer) {
-      await transport.start(currentStreamer);
-    }
+    if (state.appState.isRunning && !state.appState.isPaused) dependencies.onWakeMonitoring?.();
     return { success: true, watchTransportPreference: state.appState.watchTransportPreference };
   }
 

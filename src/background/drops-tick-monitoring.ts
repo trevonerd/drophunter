@@ -12,6 +12,10 @@ import {
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import { logDebug, logWarn } from './logging';
 import type { ServiceWorkerState } from './runtime-state.ts';
+import {
+  hasCompletedCampaignWatchTime,
+  selectedGameMarkedCompleted,
+} from './session-lifecycle-completion.ts';
 
 export interface CheckDropProgressCallbacks {
   onEnforcePlaybackPolicy: () => Promise<void>;
@@ -82,7 +86,22 @@ export async function checkDropProgress(
   }, TICK_WATCHDOG_TIMEOUT_MS);
 
   try {
-    if (state.appState.selectedGame && isExpiredGame(state.appState.selectedGame)) {
+    if (
+      state.appState.manualWatchState === 'inactive' &&
+      state.appState.selectedGame &&
+      isExpiredGame(state.appState.selectedGame)
+    ) {
+      await callbacks.onAdvanceQueueIfCompleted(isCurrent);
+      return;
+    }
+    // Settled watch-time proof is local: a Twitch cooldown cannot keep its player running.
+    if (
+      state.appState.selectedGame &&
+      state.appState.manualWatchState === 'inactive' &&
+      (hasCompletedCampaignWatchTime(state, state.appState.selectedGame) ||
+        (state.hasCurrentGenerationCampaignValidation && selectedGameMarkedCompleted(state))) &&
+      (state.appState.recoveryReason !== 'rewards-pending' || state.apiBackoffUntil > Date.now())
+    ) {
       await callbacks.onAdvanceQueueIfCompleted(isCurrent);
       return;
     }

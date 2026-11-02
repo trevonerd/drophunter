@@ -9,8 +9,8 @@ import {
 import { reconcileFarmingSessionTargets } from '../src/background/farming-session-targets.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
 import { bindCampaignEvidenceAccount } from '../src/background/session-account-evidence.ts';
-import type { TwitchGame } from '../src/types/index.ts';
-import { createFarmingSessionAdapters, createGame } from './fixtures/queue-management.ts';
+import type { AppState, TwitchGame } from '../src/types/index.ts';
+import { createFarmingSessionAdapters, createGame, createStreamer } from './fixtures/queue-management.ts';
 import { type ChromeMocks, setupChromeMocks } from './mocks/chrome.ts';
 import { createDeferred, flushMicrotasks } from './support/farming-automation-fixtures.ts';
 
@@ -60,6 +60,172 @@ const mutationCases = [
 ] satisfies readonly MutationCase[];
 
 describe('farming session revision authority', () => {
+  test('Pause freezes both incumbent and pending observation before clearing transient navigation', async () => {
+    const state = createServiceWorkerState();
+    const incumbent = createGame({ campaignId: 'incumbent' });
+    const candidate = createGame({ campaignId: 'candidate' });
+    Object.assign(state.appState, {
+      isRunning: true,
+      selectedGame: incumbent,
+      pendingWatchTarget: { game: candidate, channelName: 'next' },
+      queue: [incumbent, candidate],
+    });
+    for (const key of ['campaign:incumbent', 'campaign:candidate'])
+      state.appState.queueEntryMetadataByKey[key] = {
+        source: 'manual',
+        reason: 'user-added',
+        addedAt: 1,
+        watchAttempt: { channelName: 'next', observedAt: 1 },
+      };
+    const activity = createDeferred<void>();
+    let now = 100;
+    const session = createFarmingSession(
+      state,
+      createFarmingSessionAdapters({
+        now: () => now,
+        trackActivity: () => activity.promise,
+      }),
+    );
+    const paused = session.handlePauseFarming();
+    now = 200;
+    activity.resolve();
+    await paused;
+    expect(state.appState.pendingWatchTarget).toBeNull();
+    expect(
+      Object.values(state.appState.queueEntryMetadataByKey).map(
+        (metadata) => metadata.watchAttempt?.suspendedAt,
+      ),
+    ).toEqual([100, 100]);
+  });
+
+  test.each(['stop', 'pause'] as const)('Play supersedes %s issued in the same turn', async (action) => {
+    const state = createServiceWorkerState();
+    const game = createGame();
+    Object.assign(state.appState, {
+      isRunning: true,
+      manualQueueAuthorized: true,
+      selectedGame: game,
+      queue: [game],
+    });
+    const session = createFarmingSession(
+      state,
+      createFarmingSessionAdapters({
+        watchTransport: {
+          prepare: async () => ({ kind: 'failed', reason: 'candidate-unavailable' }),
+          start: async () => ({ kind: 'cancelled' }),
+          tick: async () => {
+            throw new Error('Unexpected tick');
+          },
+          stop: async () => {},
+          setPreference: async () => {},
+        },
+      }),
+    );
+    try {
+      const pending = action === 'stop' ? session.handleStopFarming() : session.handlePauseFarming();
+      await session.handleStartFarming({ game });
+      await pending;
+      expect(state.appState).toMatchObject({
+        isRunning: true,
+        isPaused: false,
+        lastStopReason: null,
+        manualQueueAuthorized: true,
+      });
+    } finally {
+      session.stopMonitoring();
+    }
+  });
+
+  test('Resume persists intent and wakes monitoring without starting playback or clearing cooldowns', async () => {
+    const state = createServiceWorkerState();
+    const game = createGame();
+    const deadline = Date.now() + 600_000;
+    Object.assign(state.appState, {
+      isRunning: true,
+      isPaused: true,
+      manualQueueAuthorized: true,
+      selectedGame: game,
+      queue: [game],
+      activeStreamer: createStreamer(),
+      recoveryReason: 'twitch-network',
+      recoveryBackoffUntil: deadline,
+    });
+    state.apiBackoffUntil = deadline;
+    state.recoveryBackoffUntil = deadline;
+    let starts = 0;
+    const session = createFarmingSession(
+      state,
+      createFarmingSessionAdapters({
+        watchTransport: {
+          start: async () => {
+            starts++;
+            return { kind: 'cancelled' };
+          },
+          tick: async () => {
+            throw new Error('Unexpected playback tick');
+          },
+          stop: async () => {},
+          setPreference: async () => {},
+        },
+      }),
+    );
+    try {
+      await session.handleResumeFarming();
+      expect(starts).toBe(0);
+      expect(state.appState.isPaused).toBe(false);
+      expect(state.appState.recoveryReason).toBe('twitch-network');
+      expect(state.recoveryBackoffUntil).toBe(deadline);
+      expect(state.apiBackoffUntil).toBe(deadline);
+      expect(chromeMocks.chrome.alarms._created).toContainEqual({
+        name: 'dropCheck',
+        info: { when: expect.any(Number), periodInMinutes: 1 },
+      });
+    } finally {
+      session.stopMonitoring();
+    }
+  });
+
+  test('Stop persists its manual block while transport cleanup is still pending', async () => {
+    const state = createServiceWorkerState();
+    Object.assign(state.appState, {
+      isRunning: true,
+      manualQueueAuthorized: true,
+      autoStartFavoriteGames: true,
+    });
+    const cleanup = createDeferred<void>();
+    const snapshots: AppState[] = [];
+    const session = createFarmingSession(
+      state,
+      createFarmingSessionAdapters({
+        saveState: async (next) => {
+          snapshots.push(structuredClone(next.appState));
+        },
+        watchTransport: {
+          start: async () => ({ kind: 'cancelled' }),
+          tick: async () => {
+            throw new Error('Unexpected playback tick');
+          },
+          stop: () => cleanup.promise,
+          setPreference: async () => {},
+        },
+      }),
+    );
+    const stopping = session.handleStopFarming();
+    try {
+      expect(state.appState.lastStopReason).toBe('user-stop');
+      await flushMicrotasks();
+      expect(snapshots.length).toBeGreaterThan(0);
+      expect(
+        snapshots.every(
+          (saved) => !saved.isRunning && !saved.manualQueueAuthorized && saved.lastStopReason === 'user-stop',
+        ),
+      ).toBe(true);
+    } finally {
+      cleanup.resolve();
+      await stopping;
+    }
+  });
+
   test.each(['stop', 'pause', 'clear'] as const)(
     'new Play supersedes a pending %s transport cleanup',
     async (action) => {

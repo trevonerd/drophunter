@@ -101,6 +101,7 @@ export interface SaveStateOptions {
 export async function saveState(state: ServiceWorkerState, options: SaveStateOptions = {}) {
   await state.backupImportCompletion;
   return withStateStorageTransaction(options.transactionOwner ?? state, async () => {
+    state.appState.apiBackoffUntil = state.apiBackoffUntil > 0 ? state.apiBackoffUntil : null;
     if (!options.deferPublicEffects) await reconcileFarmingRecoveryAlarm(state.appState);
     await browser.storage.local.set({
       appState: state.appState,
@@ -171,6 +172,7 @@ export async function loadState(
         ? (result[deps.LAST_ACTIVITY_AT_KEY] as number)
         : 0;
     await callbacks.onLoadTimingState(state);
+    state.appState.apiBackoffUntil = state.apiBackoffUntil > 0 ? state.apiBackoffUntil : null;
     const resetForInactivity = await callbacks.onEnforceInactivityReset('loadState');
     if (resetForInactivity) {
       return;

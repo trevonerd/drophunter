@@ -158,6 +158,7 @@ contentHandlers = createServiceWorkerContentHandlers(state, {
 });
 
 const settingsHandlers = createServiceWorkerSettingsHandlers(state, {
+  onWakeMonitoring: () => farmingSession.startMonitoring(true),
   automation: farmingAutomationRuntime.automation,
   browserEvents,
   requestActivationSync: contentHandlers.requestActivationSync,

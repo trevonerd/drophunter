@@ -18,6 +18,7 @@ import {
   reconcileFarmingAutomationSnapshot,
 } from './farming-automation-reconciliation.ts';
 import type { FarmingSessionContext } from './farming-session-context.ts';
+import { reconcileSessionManualWatch } from './farming-session-manual-watch.ts';
 import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { logWarn } from './logging.ts';
 import { retainPendingStreamerPreparation } from './pending-streamer-preparation.ts';
@@ -37,6 +38,7 @@ import { createFarmingTarget } from './watch-transport-state.ts';
 import type { PreparedWatch } from './watch-transport-transition.ts';
 
 export type CampaignTransitionResult =
+  | { readonly kind: 'deferred' }
   | { readonly kind: 'started' }
   | { readonly kind: 'waiting' }
   | { readonly kind: 'preparing'; readonly retryAt: number }
@@ -246,6 +248,8 @@ export function createFarmingCampaignTransition(
     if (!candidateDrops.some((drop) => !isRewardAcquired(drop) && isRewardFarmableNow(drop))) {
       return retainInitialWait();
     }
+    if (!(await reconcileSessionManualWatch(context, isCurrent, selected)))
+      return isCurrent() ? { kind: 'deferred' } : { kind: 'cancelled' };
     const candidateWatch: { watch: PreparedWatch | null } = { watch: null };
     let reservationFailed = false;
     let reservedKey: string | null = null;

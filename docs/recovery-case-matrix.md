@@ -21,9 +21,13 @@ Current farming contract. It supersedes older expectations about an indefinite i
 | Fourth distinct streamer failed | One failure episode, a persistent warning, deliveries deduplicated per destination | campaign-failure-alert-threshold, farming-cycle-contract |
 | All rewards 100% claimable, account not linked | Leaves the farming queue; the unacquired target stays for claim/link checks; the next campaign continues | claim-pending-queue-continuation |
 | Only rewards to claim, including after restart | Watch time complete / link account; no streamer acquisition, scheduled inventory retry | claim-pending-queue-continuation |
+| Verified 100% watch time during an API cooldown | Suspend playback and leave the viewing queue immediately; retain claim/link target; successor waits for the API deadline without spending attempts | claim-pending-queue-continuation |
+| Completed incumbent expires or all identified rewards are claimed during cooldown | Retire terminal targets; preserve current-generation validation for claimed evidence so restored cache cannot prevent the next inventory refresh | claim-pending-queue-continuation |
 | Candidate moves from 90% to 100% during refresh | Publish complete proof, keep the incumbent player, no candidate preparation | claim-pending-queue-continuation |
 | Managed navigation slow, failed or superseded | Popup and monitor show Switching to; no previous reward shown as running; atomic commit or suspended recovery | queued-managed-campaign-handoff, watch-transport-cancellation, watch-transport-replacement, e2e/queue-campaign-handoff.spec.ts |
 | Automatic Drops refresh shared, cancelled or expired | Close only the created page after the last consumer; keep explicit/existing pages, user navigation, sign-in and single-tab windows | drops-page-cleanup, drops-page-refresh |
+| Explicit Drops opening in another window or during shared refresh | Share native tab acquisition, activate the tab and focus its window before refresh finishes; preserve each consumer's deadline and allow another click after activation failure | drops-page-focus, drops-explicit-open, drops-page-cleanup, e2e/drops-recovery.spec.ts |
+| Retry during a network or HTTP cooldown, including after worker restore | Popup and monitor wait for the normalized operational API deadline; local playback retries remain available outside that cooldown | api-backoff-presentation, recovery-presentation, manual-farming-retry, e2e/drops-recovery.spec.ts |
 | Pending state restored after worker restart | No imagined navigation; transient target null, real attempts kept | app-state-sync, state-persistence-session |
 | Fewer than four channels | No repeated names, move to the next campaign | farming-cycle-contract, queue-acquisition-round |
 | Last unresolved target failed | Persisted warning, suspended transport, real retry in ten minutes | farming-cycle-contract, queue-acquisition-round |
@@ -33,6 +37,11 @@ Current farming contract. It supersedes older expectations about an indefinite i
 | All acquired, expired or mixed | Stop only when every target is terminal | farming-cycle-contract, session-lifecycle-summary-precedence |
 | Expired campaign filtered from candidates | Keep the valid expiry before filtering | games-cache-orchestration, service-worker |
 | Pause/Stop with pending operations | No late navigation, promotion, heartbeat or claim | managed-watch-pending-navigation, farming-session-revision, watch-transport-races |
+| Pause/Stop while startup restores playback | Wait only for migrations and state hydration; interrupt restoration without awaiting automation or debounced timing saves | service-worker, farming-resume-cancellation, e2e/queue-campaign-handoff.spec.ts |
+| Stop interrupted before transport cleanup finishes | Every intermediate save retains user-stop and revoked manual authorization; a later explicit Play supersedes cleanup | farming-session-revision |
+| Resume or watch-source change during another tick | Persist intent and wake monitoring after the owning tick; preserve cooldowns and retry budgets | farming-session-revision, farming-resume-cancellation, e2e/queue-campaign-handoff.spec.ts |
+| Manual viewing during completion, acquisition or startup | Defer new playback without parking or spending a channel; continue inventory and claims; retain dormant ownership | farming-campaign-handoff, farming-session-watch-transport, watch-transport-handoff |
+| Manual viewing or due recovery in popup and monitor | Manual viewing takes precedence over automated activity; a due deadline alone never means an active attempt; respect API cooldown | user-status, popup-reward-session-controls |
 | Managed switch / uncertain ownership | Same proved ID; no duplicate on uncertain proof | single-managed-watch-tab, managed-watch-preflight-retry |
 | Historical ID reused after restart | Search all proofs before deciding; reuse the single proved tab, uncertainty forbids creation | managed-watch-preflight-recovery |
 | Tab proof temporarily unavailable | Return the reservation and keep persisted retries without spending four channels | watch-preparation-budget, managed-watch-preflight-retry |

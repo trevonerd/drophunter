@@ -62,7 +62,7 @@ export interface WatchTransportRuntimeCoordinator extends WatchTransportCoordina
     allowInitialCreation?: boolean,
   ) => Promise<WatchPreparation>;
   readonly currentTarget: () => FarmingTarget | null;
-  readonly restore: (ownership: WatchOwnershipV1) => Promise<boolean>;
+  readonly restore: (ownership: WatchOwnershipV1, allowPlayback?: boolean) => Promise<boolean>;
 }
 
 type WatchTransportProjection =
@@ -324,14 +324,19 @@ export function createWatchTransportCoordinator(
     const generation = operationGeneration;
     const isCurrentTick = () => isCurrent() && generation === operationGeneration;
     if (!isCurrentTick()) return currentHealth() ?? createInactiveWatchHealth(null, active.mode, now());
+    const persistedStreamer = state.appState.activeStreamer;
+    if (
+      (!target || active.mode !== state.appState.watchTransportPreference) &&
+      state.appState.isRunning &&
+      !state.appState.isPaused &&
+      persistedStreamer
+    ) {
+      const started = await start(persistedStreamer, isCurrent);
+      return started.kind === 'cancelled'
+        ? (currentHealth() ?? createInactiveWatchHealth(null, active.mode, now()))
+        : (started.health ?? createInactiveWatchHealth(null, active.mode, now()));
+    }
     if (!target) {
-      const persistedStreamer = state.appState.activeStreamer;
-      if (state.appState.isRunning && !state.appState.isPaused && persistedStreamer) {
-        const started = await start(persistedStreamer, isCurrent);
-        return started.kind === 'cancelled'
-          ? (currentHealth() ?? createInactiveWatchHealth(null, active.mode, now()))
-          : (started.health ?? createInactiveWatchHealth(null, active.mode, now()));
-      }
       const health = createInactiveWatchHealth(
         state.appState.currentDrop?.currentMinutes ?? null,
         active.mode,
@@ -397,7 +402,7 @@ export function createWatchTransportCoordinator(
     }
   };
 
-  const restore = async (ownership: WatchOwnershipV1): Promise<boolean> => {
+  const restore = async (ownership: WatchOwnershipV1, allowPlayback = true): Promise<boolean> => {
     if (ownership.kind === 'managed-tab') {
       operationGeneration += 1;
       const retained = createManaged();
@@ -410,7 +415,7 @@ export function createWatchTransportCoordinator(
       target = null;
       lastTickAt = 0;
     }
-    if (!state.appState.isRunning || state.appState.isPaused) {
+    if (!allowPlayback || !state.appState.isRunning || state.appState.isPaused) {
       if (ownership.kind === 'managed-tab') await active.stop();
       return ownership.kind === 'managed-tab';
     }

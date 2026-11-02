@@ -96,6 +96,20 @@ export function createUserStatusModel({
   const subject = state.selectedGame ? getGameDisplayLabel(state.selectedGame) : 'No campaign selected';
   const manualWatchState = state.manualWatchState ?? 'inactive';
   const campaignSyncStatus = state.campaignSyncState?.status;
+  if (manualWatchState !== 'inactive' && runtimeMode !== 'paused' && runtimeMode !== 'stopped-terminal') {
+    return {
+      mode: 'ready',
+      progressState: manualWatchState === 'eligible-manual' ? 'tracking' : 'waiting',
+      label: 'Manual viewing',
+      badge: 'MANUAL',
+      subject,
+      detail:
+        manualWatchState === 'eligible-manual'
+          ? 'Twitch is tracking progress. Automation is waiting.'
+          : 'Automation is waiting for manual viewing to end.',
+      tone: 'neutral',
+    };
+  }
 
   if (state.isRunning && !state.isPaused && state.pendingWatchTarget) {
     return {
@@ -121,21 +135,6 @@ export function createUserStatusModel({
       badge: 'SWITCHING',
       subject,
       detail: `Preparing ${preparingAttempt.channelName}.`,
-      tone: 'neutral',
-    };
-  }
-
-  if (manualWatchState !== 'inactive' && runtimeMode === 'idle') {
-    return {
-      mode: 'ready',
-      progressState: manualWatchState === 'eligible-manual' ? 'tracking' : 'waiting',
-      label: 'Manual viewing',
-      badge: 'MANUAL',
-      subject,
-      detail:
-        manualWatchState === 'eligible-manual'
-          ? 'Twitch is tracking progress. Automation is waiting.'
-          : 'Automation is waiting for manual viewing to end.',
       tone: 'neutral',
     };
   }
@@ -171,16 +170,16 @@ export function createUserStatusModel({
         tone: 'neutral',
       };
     const queueRetry = state.queueAcquisitionRound !== null;
-    const waiting =
-      (state.queueAcquisitionRound?.nextRoundAt ?? state.recoveryBackoffUntil ?? 0) > recoveryNow;
+    const recovery = getRecoveryPresentation(state, recoveryNow);
+    const waiting = (recovery?.nextRetryAt ?? 0) > recoveryNow;
     return {
       mode: 'recovering',
       progressState: 'recovering',
-      label: queueRetry ? (waiting ? 'Waiting for next retry' : 'Attempt in progress') : 'Recovering',
-      badge: queueRetry ? (waiting ? 'WAITING' : 'RETRYING') : 'RECOVERING',
+      label: queueRetry ? (waiting ? 'Waiting for next retry' : 'Retry due') : 'Recovering',
+      badge: queueRetry ? (waiting ? 'WAITING' : 'DUE') : 'RECOVERING',
       subject,
       detail: recoveryDetail(state, recoveryNow),
-      recovery: getRecoveryPresentation(state, recoveryNow) ?? undefined,
+      recovery: recovery ?? undefined,
       tone: 'neutral',
     };
   }
@@ -207,8 +206,8 @@ export function createUserStatusModel({
       return {
         mode: 'recovering',
         progressState: 'recovering',
-        label: 'Attempt in progress',
-        badge: 'RETRYING',
+        label: state.activeStreamer ? 'Checking progress' : 'Waiting for recovery',
+        badge: 'RECOVERING',
         subject,
         detail: 'Checking playback and waiting for Twitch progress.',
         tone: 'neutral',

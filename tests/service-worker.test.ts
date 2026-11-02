@@ -2,9 +2,9 @@ import { verifyExpectedDiagnostics } from './support/expected-diagnostics.ts';
 
 // These recovery/failure scenarios must emit only their declared diagnostic text.
 verifyExpectedDiagnostics([
-  // Worker startup may finish one passive refresh before the first seeded session.
-  ['[DropHunter] Drops snapshot API skipped: Twitch session missing', [6, 7]],
-  ['[DropHunter] No Twitch session recovered from storage keys', 6],
+  // Foreground session detection and worker startup may precede the first seeded session.
+  ['[DropHunter] Drops snapshot API skipped: Twitch session missing', [9, 10]],
+  ['[DropHunter] No Twitch session recovered from storage keys', 9],
   ['[DropHunter] No rewards found after selected game refresh', 5],
   ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Demo Game" (slug: demo-game)', 6],
   ['[DropHunter] [TwitchApiClient] No drops-tagged streams found for "Next Game" (slug: next-game)', 8],

@@ -66,16 +66,28 @@ export async function waitForParkedQueue(
       return leftRetry - rightRetry || expiryTime(left) - expiryTime(right);
     });
   const unresolved = unresolvedFarmingTargets(state);
+  const apiCooldownActive = state.apiBackoffUntil > now;
+  const selected = state.appState.selectedGame;
+  const completedSelection =
+    apiCooldownActive && selected && hasCompletedCampaignWatchTime(state, selected)
+      ? unresolved.find((game) => gameKey(game) === gameKey(selected))
+      : null;
   const next =
-    parked[0] ?? unresolved.find((game) => !hasCompletedCampaignWatchTime(state, game)) ?? unresolved[0];
+    completedSelection ??
+    parked[0] ??
+    unresolved.find((game) => !hasCompletedCampaignWatchTime(state, game)) ??
+    unresolved[0];
   if (!next) return false;
   const watchComplete = hasCompletedCampaignWatchTime(state, next);
   const metadata = state.appState.queueEntryMetadataByKey[gameKey(next)];
   const scheduled = state.appState.queueAcquisitionRound?.nextRoundAt;
-  const retryAt =
+  const scheduledRetryAt =
     watchComplete && (scheduled ?? 0) <= now
       ? now + QUEUE_ROUND_RETRY_MS
       : (scheduled ?? now + QUEUE_ROUND_RETRY_MS);
+  const retryAt = apiCooldownActive
+    ? Math.max(state.apiBackoffUntil, scheduled ?? (state.appState.queue.length > 0 ? now : scheduledRetryAt))
+    : scheduledRetryAt;
   state.appState.queueAcquisitionRound = {
     attemptedCampaignKeys: state.appState.queueAcquisitionRound?.attemptedCampaignKeys ?? [],
     nextRoundAt: retryAt,
@@ -99,6 +111,15 @@ export async function waitForParkedQueue(
   if (watchComplete) {
     state.recoveryBackoffUntil = retryAt;
     state.appState = applyRecoveryStatus(state.appState, { reason: 'rewards-pending', retryAt, attempts: 0 });
+  } else if (apiCooldownActive) {
+    state.recoveryBackoffUntil = retryAt;
+    state.appState = applyRecoveryStatus(state.appState, {
+      reason: state.appState.recoveryReason?.startsWith('twitch-')
+        ? state.appState.recoveryReason
+        : 'twitch-data-unavailable',
+      retryAt,
+      attempts: state.apiConsecutiveFailures,
+    });
   } else applyRecovery(state, retryAt, 0);
   await options.onSaveState();
   if (options.isCurrent() === false) return true;

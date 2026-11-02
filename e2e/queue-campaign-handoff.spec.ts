@@ -789,7 +789,7 @@ test(`Pause Resume and Stop suspend the actual retained player across worker rec
     await cdp.send('ServiceWorker.enable');
     await cdp.send('ServiceWorker.stopAllWorkers');
     await cdp.detach();
-    await runtimeMessage(popup, { type: 'GET_STATE' });
+    await runtimeMessage(popup, { type: 'ACTIVATE_POPUP' });
     await popup.getByRole('button', { name: 'Stop', exact: true }).click();
     await expect.poll(() => managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.paused)).toBe(true);
     expect(await managedPage.evaluate(() => document.documentElement.dataset.drophunterKeepalive)).toBeUndefined();
@@ -1152,7 +1152,7 @@ test('retained managed video does not become manual viewing after switching to h
         tabId: state.tabId, selectedGame: state.selectedGame,
         watchHealth: state.watchHealth, watchTransportMode: state.watchTransportMode,
       };
-    }).toBeNull();
+    }, { timeout: 30_000 }).toBeNull();
     const tickAt = ((await readAppState(popup)).watchHealth?.checkedAt ?? 0) + 1;
     const tickPage = await profile.context.newPage();
     let tickAttempt = 0;
@@ -1174,6 +1174,10 @@ test('retained managed video does not become manual viewing after switching to h
       await tickPage.goto(`https://www.twitch.tv/drops/inventory?personal=${++tickAttempt}`);
       return (await readAppState(popup)).manualWatchState;
     }, { timeout: 30_000, intervals: [2_000] }).toBe('automation-paused');
+    expect(await runtimeMessage(popup, { type: 'SET_WATCH_TRANSPORT_MODE', payload: { mode: 'managed-tab' } })).toMatchObject({ success: true });
+    await tickPage.goto(`https://www.twitch.tv/drops/inventory?manual-mode=${++tickAttempt}`);
+    expect(await readAppState(popup)).toMatchObject({ manualWatchState: 'automation-paused', watchTransportMode: 'tabless' });
+    expect(await managedPage.locator('video').evaluate((video: HTMLVideoElement) => video.paused)).toBe(true);
     await personalPage.close();
     await expect.poll(async () => {
       await tickPage.goto(`https://www.twitch.tv/drops/inventory?resume=${++tickAttempt}`);

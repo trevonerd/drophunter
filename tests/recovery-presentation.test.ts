@@ -24,12 +24,15 @@ test('rate limits keep Retry unavailable until their verified deadline', () => {
   state.isRunning = true;
   state.recoveryReason = 'twitch-rate-limit';
   state.recoveryBackoffUntil = 600_000;
+  state.apiBackoffUntil = 600_000;
   expect(getRecoveryPresentation(state, 1_000)).toMatchObject({
     phase: 'extended',
     operation: 'refresh-twitch-data',
     action: 'wait',
   });
   expect(getRecoveryPresentation(state, 600_000)?.action).toBe('retry');
+  state.apiBackoffUntil = null;
+  expect(getRecoveryPresentation(state, 1_000)?.action).toBe('retry');
 });
 
 test('Pause never offers Retry and malformed deadlines are unscheduled', () => {
@@ -45,3 +48,22 @@ test('Pause never offers Retry and malformed deadlines are unscheduled', () => {
     nextRetryAt: null,
   });
 });
+
+test.each(['twitch-network', 'twitch-rate-limit', 'open-failed'])(
+  '%s cannot offer Retry before the actual API cooldown expires',
+  (reason) => {
+    const state = createInitialState();
+    state.isRunning = true;
+    state.recoveryReason = reason;
+    state.recoveryBackoffUntil = 30_000;
+    state.apiBackoffUntil = 600_000;
+    expect(getRecoveryPresentation(state, 1_000)).toMatchObject({
+      nextRetryAt: 600_000,
+      action: 'wait',
+    });
+    expect(getRecoveryPresentation(state, 600_000)?.action).toBe('retry');
+    state.apiBackoffUntil = null;
+    state.recoveryReason = 'open-failed';
+    expect(getRecoveryPresentation(state, 1_000)?.action).toBe('retry');
+  },
+);

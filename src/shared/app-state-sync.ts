@@ -175,6 +175,12 @@ export function normalizeStoredAppState(value: unknown): AppState {
     campaignSyncState: normalizeCampaignSyncState(value),
     twitchSessionSyncState: normalizeTwitchSessionSyncState(value),
     recoveryReason,
+    apiBackoffUntil:
+      typeof value.apiBackoffUntil === 'number' &&
+      Number.isFinite(value.apiBackoffUntil) &&
+      value.apiBackoffUntil > 0
+        ? Math.min(value.apiBackoffUntil, Date.now() + 24 * 60 * 60_000)
+        : null,
     recoveryBackoffUntil:
       !recoveryReason ||
       typeof value.recoveryBackoffUntil !== 'number' ||

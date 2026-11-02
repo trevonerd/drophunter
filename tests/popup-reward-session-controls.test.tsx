@@ -204,7 +204,8 @@ test('session summary exposes exactly one effective transport indicator', () => 
     { runtimeMode: 'running' },
   );
   const manualSummary =
-    manualMarkup.match(/<section[^>]*data-session-mode="running"[\s\S]*?<\/section>/)?.[0] ?? '';
+    manualMarkup.match(/<section[^>]*data-session-mode="ready"[\s\S]*?<\/section>/)?.[0] ?? '';
+  expect(manualSummary).toContain('Manual viewing');
   expect(manualSummary).toContain('data-watch-transport="manual-tab"');
   expect(manualSummary).toContain('>Manual tab<');
   expect(manualSummary.match(/>Manual tab</g)).toHaveLength(1);

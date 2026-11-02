@@ -218,6 +218,6 @@ test('ownership observation failure preserves suspension without starting a new 
         automationActive: true,
         transportSuspended,
       }),
-    ).toEqual({ kind: 'unchanged' });
+    ).toEqual({ kind: 'unavailable' });
   }
 });

@@ -6,6 +6,52 @@ import { createUserStatusModel, effectiveTransport } from '../src/shared/user-st
 import { createInitialState } from '../src/shared/utils.ts';
 import type { CampaignSyncState } from '../src/types';
 
+test.each(['running', 'recovering'] as const)(
+  'manual viewing takes precedence over %s activity',
+  (runtimeMode) => {
+    const state = createInitialState();
+    Object.assign(state, {
+      isRunning: true,
+      manualWatchState: 'automation-paused',
+      recoveryReason: 'open-failed',
+    });
+    const status = createUserStatusModel({
+      state,
+      runtimeMode,
+      currentAutomatableDrop: null,
+      recoveryNow: 100,
+    });
+    expect(status.label).toBe('Manual viewing');
+    expect(status.progressState).toBe('waiting');
+    expect(
+      createUserStatusModel({ state, runtimeMode: 'paused', currentAutomatableDrop: null, recoveryNow: 100 })
+        .label,
+    ).toBe('Paused');
+  },
+);
+
+test.each([false, true])(
+  'a due queue retry never invents an active attempt (API cooldown: %s)',
+  (cooldown) => {
+    const state = createInitialState();
+    Object.assign(state, {
+      isRunning: true,
+      recoveryReason: 'open-failed',
+      recoveryBackoffUntil: 100,
+      apiBackoffUntil: cooldown ? 600_000 : null,
+      queueAcquisitionRound: { attemptedCampaignKeys: [], nextRoundAt: 100 },
+    });
+    const status = createUserStatusModel({
+      state,
+      runtimeMode: 'recovering',
+      currentAutomatableDrop: null,
+      recoveryNow: 101,
+    });
+    expect(status.label).toBe(cooldown ? 'Waiting for next retry' : 'Retry due');
+    expect(status.badge).not.toBe('RETRYING');
+  },
+);
+
 test('popup and monitor request a video gesture without showing active progress or a retry countdown', () => {
   const state = createInitialState();
   state.isRunning = true;

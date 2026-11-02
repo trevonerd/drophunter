@@ -100,7 +100,7 @@ export interface RuntimeMessageListenerOptions {
   ) =>
     | ((handler: () => MaybePromise<unknown>, initialize: () => MaybePromise<void>) => MaybePromise<unknown>)
     | undefined;
-  beforeHandle?: () => MaybePromise<void>;
+  beforeHandle?: (message: RuntimeRequest) => MaybePromise<void>;
   aroundHandle?: (handler: () => MaybePromise<unknown>, message: RuntimeRequest) => MaybePromise<unknown>;
 }
 
@@ -123,7 +123,7 @@ export function createRuntimeMessageListener(
       respondAsync(() => {
         const prepared = options.prepareHandle?.(message, sender);
         const dispatch = () => (options.aroundHandle ? options.aroundHandle(handler, message) : handler());
-        const initialize = () => options.beforeHandle?.();
+        const initialize = () => options.beforeHandle?.(message);
         const initializedHandler = async () => {
           await initialize();
           return dispatch();

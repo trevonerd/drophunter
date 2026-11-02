@@ -67,6 +67,7 @@ export function createServiceWorkerStateLifecycle(
   dependencies: ServiceWorkerStateLifecycleDependencies,
 ) {
   let initPromise: Promise<void> | null = null;
+  let hydrationPromise: Promise<void> | null = null;
   let extensionStorageResetInFlight: Promise<void> | null = null;
 
   async function resetForInactivity(trigger: string, idleForMs: number): Promise<boolean> {
@@ -174,7 +175,8 @@ export function createServiceWorkerStateLifecycle(
   }
 
   function beginInitialization(afterLoad: () => Promise<void>): Promise<void> {
-    initPromise = initializeAfterStorageMigration(loadState).then(async () => {
+    hydrationPromise = initializeAfterStorageMigration(loadState);
+    initPromise = hydrationPromise.then(async () => {
       broadcastStateUpdate(state.appState);
       await dependencies.initializeFarmingAutomation?.();
       const farmingSession = dependencies.getFarmingSession();
@@ -198,6 +200,10 @@ export function createServiceWorkerStateLifecycle(
     if (initPromise) await initPromise;
   }
 
+  async function awaitStateHydration(): Promise<void> {
+    if (hydrationPromise) await hydrationPromise;
+  }
+
   async function markDropsRefreshNoticeSeen(payload?: { readonly seenAt?: number }) {
     await awaitInitialization();
     const completedAt = state.appState.lastDropsPageRefreshCompletedAt ?? 0;
@@ -215,6 +221,7 @@ export function createServiceWorkerStateLifecycle(
 
   return {
     awaitInitialization,
+    awaitStateHydration,
     beginInitialization,
     ensureStateHydratedForCache,
     getInitPromise: () => initPromise,

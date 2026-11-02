@@ -131,13 +131,14 @@ test('explicit Open Drops during hydration retains and activates the eventual pa
   try {
     const automatic = f.refresher.openDropsPageAndRefresh({ active: false, closeAfterRefresh: true });
     await hydrating.promise;
-    expect(f.refresher.openDropsPageAndRefresh()).toBe(automatic);
+    const manual = f.refresher.openDropsPageAndRefresh();
     hydrated.resolve();
     await f.entered.promise;
     const tab = [...f.tabs.pages.values()].find((page) => page.url === TWITCH_DROPS_PAGE_URL);
     expect(tab?.active).toBe(true);
     f.loaded.resolve();
-    await automatic;
+    await Promise.all([automatic, manual]);
+    expect(f.tabs.created).toHaveLength(1);
     expect(f.tabs.removed).toEqual([]);
   } finally {
     f.mocks.teardown();
@@ -230,13 +231,13 @@ test.each(['existing', 'manual', 'navigated', 'only-tab', 'sign-in'] as const)(
       if (reason === 'sign-in') f.setSession(false);
       const pending = f.refresher.openDropsPageAndRefresh({ active: false, closeAfterRefresh: true });
       await f.entered.promise;
-      if (reason === 'manual') expect(f.refresher.openDropsPageAndRefresh()).toBe(pending);
+      const manual = reason === 'manual' ? f.refresher.openDropsPageAndRefresh() : null;
       if (reason === 'navigated') {
         const page = [...f.tabs.pages.values()].find((tab) => tab.url === TWITCH_DROPS_PAGE_URL);
         if (page) page.url = 'https://www.twitch.tv/user_channel';
       }
       f.loaded.resolve();
-      await pending;
+      await Promise.all([pending, manual]);
       expect(f.tabs.removed).toEqual([]);
     } finally {
       f.mocks.teardown();

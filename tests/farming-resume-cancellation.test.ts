@@ -87,13 +87,18 @@ for (const boundary of ['activity', 'preparation'] as const) {
         );
         await session.handlePauseFarming();
         resuming = true;
-        const alarmsBefore = mocks.alarms._created.length;
         const resume = session.handleResumeFarming();
+        let monitoring = Promise.resolve();
+        if (boundary === 'preparation') {
+          await resume;
+          monitoring = session.checkDropProgress();
+        }
         await entered.promise;
+        const alarmsBefore = mocks.alarms._created.length;
         const interrupted = action === 'stop' ? session.handleStopFarming() : session.handlePauseFarming();
         if (action === 'stop') await interrupted;
         release.resolve();
-        await Promise.all([resume, interrupted]);
+        await Promise.all([resume, monitoring, interrupted]);
         expect(mocks.alarms._created.length).toBe(alarmsBefore);
         expect(coordinator.currentTarget()).toBeNull();
         expect(state.appState.watchHealth?.isHealthy).not.toBe(true);

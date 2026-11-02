@@ -12,7 +12,8 @@ import {
 } from './drops-tick.ts';
 import type { RefreshDropsOutcome } from './drops-tick-refresh.ts';
 import type { FarmingSessionContext, RefreshDropsOptions } from './farming-session-context.ts';
-import { logWarn } from './logging.ts';
+import { reconcileSessionManualWatch } from './farming-session-manual-watch.ts';
+import { currentFarmingSessionEpoch } from './farming-session-revision.ts';
 import { queueCleanupNotification } from './queue-availability-cleanup-activity.ts';
 import { normalizeQueueSelection } from './queue-operations.ts';
 import { applyApiBackoffRecoveryState } from './recovery-state.ts';
@@ -84,83 +85,11 @@ export function createFarmingSessionMonitoring(
     if (state.appState.tabId !== null && state.preparingManagedTabIds.has(state.appState.tabId)) {
       return true;
     }
-    const directive = await context.manualWatchController.reconcileTransport({
-      target: state.appState.selectedGame,
-      managedTabId: state.appState.tabId,
-      preparingManagedTabIds: [...state.preparingManagedTabIds],
-      automationActive: state.appState.isRunning && !state.appState.isPaused,
-      transportSuspended: context.manualWatchTransportSuspended,
-    });
-    if (!isCurrent()) return false;
-    switch (directive.kind) {
-      case 'suspend':
-        context.manualWatchTransportSuspended = true;
-        if (state.appState.selectedGame) {
-          const key = gameKey(state.appState.selectedGame);
-          const metadata = state.appState.queueEntryMetadataByKey[key];
-          if (metadata?.watchAttempt && metadata.watchAttempt.suspendedAt === undefined)
-            state.appState.queueEntryMetadataByKey[key] = {
-              ...metadata,
-              watchAttempt: { ...metadata.watchAttempt, suspendedAt: context.now() },
-            };
-        }
-        try {
-          await adapters.watchTransport?.stop();
-        } catch (error) {
-          if (!(error instanceof Error)) throw error;
-          logWarn('Manual watch transport suspension failed:', String(error));
-        }
-        if (!isCurrent()) return false;
-        void Promise.resolve()
-          .then(() =>
-            adapters.automationNotify?.({
-              transitionId: directive.transitionId,
-              event: 'manual-suspended',
-              campaignId: state.appState.selectedGame?.campaignId ?? 'manual-watch',
-              title: 'Manual viewing detected',
-              message: 'DropHunter paused automatic farming while you watch Twitch.',
-              telegramReason: 'manual-suspended',
-            }),
-          )
-          .catch(() => undefined);
-        return false;
-      case 'resume': {
-        resumeWatchObservation(state, context.now());
-        const activeStreamer = state.appState.activeStreamer;
-        if (activeStreamer && state.appState.isRunning && !state.appState.isPaused) {
-          try {
-            await adapters.watchTransport?.start(activeStreamer, isCurrent);
-          } catch (error) {
-            if (!(error instanceof Error)) throw error;
-            logWarn('Manual watch transport resume failed:', String(error));
-            return false;
-          }
-        }
-        if (!isCurrent()) return false;
-        context.manualWatchTransportSuspended = false;
-        void Promise.resolve()
-          .then(() =>
-            adapters.automationNotify?.({
-              transitionId: directive.transitionId,
-              event: 'manual-resumed',
-              campaignId: state.appState.selectedGame?.campaignId ?? 'manual-watch',
-              title: 'Automatic farming resumed',
-              message: 'DropHunter resumed automatic farming after your Twitch viewing ended.',
-              telegramReason: 'manual-resumed',
-            }),
-          )
-          .catch(() => undefined);
-        return false;
-      }
-      case 'unchanged':
-        if (context.manualWatchTransportSuspended) {
-          return false;
-        }
-        break;
-      default: {
-        const unreachable: never = directive;
-        throw new DOMException(`Unexpected transport directive: ${String(unreachable)}`, 'InvariantError');
-      }
+    const wasManuallySuspended = context.manualWatchTransportSuspended;
+    if (!(await reconcileSessionManualWatch(context, isCurrent))) return false;
+    if (wasManuallySuspended && state.appState.activeStreamer) {
+      await adapters.watchTransport?.start(state.appState.activeStreamer, isCurrent);
+      return false;
     }
 
     if (!state.appState.activeStreamer && state.appState.selectedGame) {
@@ -343,7 +272,10 @@ export function createFarmingSessionMonitoring(
       await initPromise;
     }
     await checkDropProgressCore(state, {
-      onEnforcePlaybackPolicy: adapters.enforcePlaybackPolicyOnStreamTab,
+      onEnforcePlaybackPolicy: async () => {
+        if (!context.manualWatchTransportSuspended && state.appState.manualWatchState === 'inactive')
+          await adapters.enforcePlaybackPolicyOnStreamTab();
+      },
       onRotateStreamerIfInvalid: async (isCurrent) => {
         if (context.manualWatchTransportSuspended) return;
         const health = state.appState.watchHealth;
@@ -405,6 +337,12 @@ export function createFarmingSessionMonitoring(
   }
 
   function startMonitoring(immediate = false): void {
+    if (immediate && state.monitorTickInFlight) {
+      const epoch = currentFarmingSessionEpoch(state);
+      state.cancelledAcquisitionMonitoringWake = () =>
+        currentFarmingSessionEpoch(state) === epoch && state.appState.isRunning && !state.appState.isPaused;
+      return;
+    }
     const periodInMinutes = Math.max(0.5, PROGRESS_POLL_MS / 60_000);
     if (immediate) browser.alarms.create(ALARM_NAME, { when: Date.now() + 1, periodInMinutes });
     else browser.alarms.create(ALARM_NAME, { periodInMinutes });

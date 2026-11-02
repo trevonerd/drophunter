@@ -32,6 +32,7 @@ describe('campaign handoff through the farming session', () => {
       saveTimingState?: FarmingSessionAdapters['saveTimingState'];
       broadcastStateUpdate?: FarmingSessionAdapters['broadcastStateUpdate'];
       snapshotDrops?: (drops: TwitchDrop[]) => TwitchDrop[];
+      manualWatchController?: FarmingSessionAdapters['manualWatchController'];
     } = {},
   ) {
     const games = ['smite', 'r6'].map((id) =>
@@ -114,6 +115,7 @@ describe('campaign handoff through the farming session', () => {
     const session = createFarmingSession(
       state,
       createFarmingSessionAdapters({
+        manualWatchController: options.manualWatchController,
         watchTransport: coordinator,
         fetchDirectoryStreamersFromApi: async (game) =>
           Object.assign([createStreamer({ name: `${game.id}-streamer` })], { languageFilterApplied: true }),
@@ -155,6 +157,46 @@ describe('campaign handoff through the farming session', () => {
     expect(state.appState.selectedGame?.campaignId).toBe('smite-campaign');
     expect(state.appState.activeStreamer?.name).toBe('smite-streamer');
     expect(probes.at(-1)).toBe('smite-campaign');
+  });
+
+  test('manual viewing defers a completed campaign successor without parking or spending attempts', async () => {
+    let manual = true;
+    const subject = fixture({
+      candidateSucceeds: true,
+      manualWatchController: {
+        evaluate: async () => ({ kind: 'inactive' }),
+        reconcileTransport: async ({ transportSuspended }) => {
+          subject.state.appState.manualWatchState = manual ? 'automation-paused' : 'inactive';
+          return manual
+            ? transportSuspended
+              ? { kind: 'unchanged' }
+              : { kind: 'suspend', transitionId: 'manual-start' }
+            : transportSuspended
+              ? { kind: 'resume', transitionId: 'manual-end' }
+              : { kind: 'unchanged' };
+        },
+      },
+    });
+    const completed = required(subject.drops[0]);
+    Object.assign(completed, { claimed: true, progress: 100, currentMinutes: 60 });
+    subject.state.appState.pendingDrops = [];
+    subject.state.appState.completedDrops = [completed];
+    subject.state.appState.currentDrop = null;
+    try {
+      await subject.session.checkDropProgress();
+      expect(subject.probes).toEqual([]);
+      expect(subject.state.appState.campaignFailureEpisodesByKey).toEqual({});
+      expect(
+        subject.state.appState.queueEntryMetadataByKey[gameKey(required(subject.games[1]))]
+          ?.attemptedStreamerNames,
+      ).toBeUndefined();
+      expect(subject.state.appState.queueAcquisitionRound).toBeNull();
+      manual = false;
+      await subject.session.checkDropProgress();
+      expect(subject.state.appState.activeStreamer?.name).toBe('r6-streamer');
+    } finally {
+      subject.session.stopMonitoring();
+    }
   });
 
   test('queued Play uses the shared campaign handoff and persists manual intent with the target', async () => {

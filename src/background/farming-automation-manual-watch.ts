@@ -15,6 +15,7 @@ interface FarmingAutomationWake {
 }
 
 type ManualWatchTransportDirective =
+  | { readonly kind: 'unavailable' }
   | { readonly kind: 'suspend'; readonly transitionId: string }
   | { readonly kind: 'resume'; readonly transitionId: string }
   | { readonly kind: 'unchanged' };
@@ -219,7 +220,7 @@ export function createFarmingAutomationManualWatch(
         const result = await evaluateWithCachePolicy(input, false);
         if (result.kind === 'failed') {
           options.onSessionFailure?.(result.reason);
-          return { kind: 'unchanged' };
+          return { kind: 'unavailable' };
         }
         return transportDirective(result, input, now);
       });
