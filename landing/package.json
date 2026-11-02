@@ -14,7 +14,7 @@
     "screenshots": "cd .. && bun landing/scripts/capture-ui.ts"
   },
   "devDependencies": {
-    "@astrojs/sitemap": "^3.6.0",
-    "astro": "^5.16.1"
+    "@astrojs/sitemap": "^3.7.4",
+    "astro": "^7.4.5"
   }
 }

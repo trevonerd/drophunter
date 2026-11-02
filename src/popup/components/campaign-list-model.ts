@@ -88,7 +88,13 @@ export function isCampaignQueueEligible(
   drops: readonly TwitchDrop[],
   loaded: boolean,
 ): boolean {
-  if (isCampaignFarmingComplete(game) || isExpiredGame(game)) return false;
+  if (
+    isCampaignFarmingComplete(game) ||
+    game.rewardSummary?.completion === 'farming-complete' ||
+    isExpiredGame(game)
+  ) {
+    return false;
+  }
   const remaining = dropsForCampaign(drops, game).filter((drop) => !drop.claimed);
   if (!loaded && remaining.length === 0) return true;
   return remaining.some(isRewardWatchable);

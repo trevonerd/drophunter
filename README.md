@@ -194,7 +194,7 @@ Microsoft Edge Add-ons. Historical `4.0.0-beta.N` archives were GitHub/local-onl
 
 Before publishing a release or handing off a store build:
 
-1. Run `bun run release:check`. If video dependencies or sources changed, also run `cd video && bun audit` and render the affected compositions.
+1. Run `bun run release:check`, including dependency audits for the extension, video project, and landing site. If video dependencies or sources changed, also render the affected compositions.
 2. Confirm Chrome and Edge manifests, archive names, package version, tag, and release all agree.
 3. Load the freshly generated Chrome and Edge artifacts and check connection, campaign discovery, favorites, manual queue start, pause/resume/stop, hidden and managed watching, progress, auto-claim, monitor, recovery, and optional notifications.
 4. Verify `PRIVACY.md`, screenshots (`bun run screenshots`), permission justifications, and store copy still match the shipped behavior. A new host permission changes the install warning and disables the extension on update until accepted: call it out in the release notes and store justification.

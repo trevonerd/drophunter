@@ -49,7 +49,7 @@ function createInventoryCampaign(spec: SnapshotDropSpec) {
         requiredMinutesWatched: minutes,
         endAt: spec.endsAt ?? futureIso(),
         self: {
-          currentMinutesWatched: spec.currentMinutes ?? (minutes > 0 ? minutes : 0),
+          currentMinutesWatched: spec.currentMinutes ?? Math.max(minutes, 0),
           isClaimed: spec.claimed ?? false,
           isClaimable: spec.claimable ?? false,
           ...(spec.claimId ? { dropInstanceID: spec.claimId } : {}),

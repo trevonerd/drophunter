@@ -146,6 +146,33 @@ test('subscription-only campaign disables Add with an accessible explanation', (
   expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Add Cyberpunk 2077 · Phantom Liberty Rewards to queue"/);
 });
 
+test('game Add stays disabled when only subscription rewards remain across campaigns', () => {
+  const mixed = campaign({
+    rewardSummary: { completion: 'farming-complete', remainderReasons: ['subscription-required'] },
+  });
+  const summaryOnly = campaign({
+    campaignId: 'campaign-2',
+    campaignName: 'Earlier Rewards',
+    rewardSummary: { completion: 'farming-complete', remainderReasons: ['subscription-required'] },
+  });
+  const markup = renderToStaticMarkup(
+    <CampaignList
+      campaigns={[mixed, summaryOnly]}
+      drops={[
+        reward({ claimed: true, progress: 100, status: 'completed' }),
+        reward({ id: 'subscription', acquisitionMethod: 'subscription', progress: 0, currentMinutes: 0 }),
+      ]}
+      onAddToQueue={() => {}}
+      onAddAllToQueue={() => {}}
+    />,
+  );
+
+  const summary = markup.split('data-game-summary="true"')[1]?.split('data-game-detail="true"')[0];
+  expect(summary).toMatch(/<button[^>]*aria-label="No more Cyberpunk 2077 campaigns can be added"[^>]*disabled=""/);
+  expect(markup).toContain('data-subscription-only="true"');
+  expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Add Cyberpunk 2077 · Earlier Rewards to queue"/);
+});
+
 test('game detail presents campaigns and Drops without another disclosure layer', () => {
   // Given
   const first = campaign({

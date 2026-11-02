@@ -142,7 +142,7 @@ const steps = [
   { name: 'Knip', command: ['bun', 'run', 'knip'] },
   { name: 'Tests', command: ['bun', 'run', 'test'] },
   { name: 'Extension E2E', command: ['bun', 'run', 'test:e2e'] },
-  { name: 'Dependency audit', command: ['bun', 'audit'] },
+  { name: 'Root + video + landing dependency audit', command: ['bun', 'run', 'deps:audit:all'] },
   { name: 'Build + package Chrome + Edge', command: ['bun', 'run', 'zip:all'] },
   { name: 'Release manifests', run: checkReleaseManifests },
   { name: 'Release archives', run: checkReleaseArchives },

@@ -161,7 +161,7 @@ Fast path for future agents working on DropHunter. Keep this file human-readable
   - `bun run test:e2e`
   - `bun run build:all`
   - `bun audit`
-- Preferred release gate is `bun run release:check`; it runs source and test TypeScript, Biome, Knip, unit and browser E2E tests, dependency audit, build/package, and generated manifest/archive checks.
+- Preferred release gate is `bun run release:check`; it runs source and test TypeScript, Biome, Knip, unit and browser E2E tests, root, video, and landing dependency audits, build/package, and generated manifest/archive checks.
 - Regenerate release zips with `bun run release:check`; artifacts are `.output/drophunter-<version>-chrome.zip` and `.output/drophunter-<version>-edge.zip`.
 - Before a stable store handoff, verify `README.md`, `PRIVACY.md`, screenshots (`bun run screenshots`), permission justifications, and listing copy against the exact production artifacts. A new host permission needs a store justification and disables the extension on update until the user accepts it.
 - For long-run farming changes, exercise a real eligible campaign across progress, service-worker restart, sleep/wake, strict tabless recovery without a viewing-tab fallback, manual Twitch viewing, notifications, and recovery.

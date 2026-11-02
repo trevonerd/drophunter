@@ -41,3 +41,11 @@ jobs:
       - name: Audit video dependencies
         working-directory: video
         run: bun audit
+
+      - name: Install (landing)
+        working-directory: landing
+        run: bun install --frozen-lockfile
+
+      - name: Audit landing dependencies
+        working-directory: landing
+        run: bun audit
