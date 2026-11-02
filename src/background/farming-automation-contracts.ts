@@ -144,6 +144,7 @@ export const FARMING_SESSION_TRANSITION_RECEIPT_STORAGE_KEY = 'farmingSessionTra
 export type FarmingAutomationTrigger = 'browser-start' | 'periodic' | 'campaign-refresh' | 'user-request';
 
 type FarmingAutomationUnchangedReason =
+  | 'not-due'
   | 'disabled'
   | 'paused'
   | 'user-stopped'

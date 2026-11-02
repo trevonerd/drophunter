@@ -64,7 +64,9 @@ test('automatic queue defers native creation on transient old-tab proof failure 
       campaignDropsByKey: { [gameKey(game)]: [drop] },
       campaignChannelsMap: {},
     };
+    let now = Date.now();
     const automation = createFarmingAutomation({
+      now: () => now,
       reconcileQueueAvailability: createQueueAvailabilityReconciler(state),
       state,
       persistence,
@@ -100,6 +102,7 @@ test('automatic queue defers native creation on transient old-tab proof failure 
     ).toBe(true);
     mocks.chrome.scripting.executeScript = execute;
     expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames).toBeUndefined();
+    now = state.appState.nextAutomationCheckAt ?? now;
     expect(await automation.request('periodic')).toMatchObject({ kind: 'started' });
     expect(state.appState.queueEntryMetadataByKey[gameKey(game)]?.attemptedStreamerNames).toEqual([
       createStreamer().name,

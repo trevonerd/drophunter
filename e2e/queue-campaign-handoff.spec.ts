@@ -377,6 +377,7 @@ async function readAppState(popup: Awaited<ReturnType<typeof openPopup>>) {
       readonly tabId: number | null;
       readonly queue: readonly FixtureGame[];
       readonly isPaused: boolean;
+      readonly lastStopReason: string | null;
       readonly manualWatchState: string;
       readonly watchTransportMode: string;
       readonly watchHealth: { readonly checkedAt: number; readonly isHealthy: boolean; readonly reason: string } | null;
@@ -478,6 +479,45 @@ async function assertCurrentManagedPlayback(
   expect(context.context).toMatchObject({ channelName: channel, isPlaybackReady: true });
   return page;
 }
+
+test('stopped stale queue refreshes completed campaigns and favorites before manual Play', async () => {
+  test.setTimeout(90_000);
+  const profile = await createExtensionProfile();
+  try {
+    const twitch = await installLocalTwitchFixture(profile);
+    twitch.setPhase('complete');
+    const completed = { ...games[0], allDropsCompleted: true,
+      rewardSummary: { completion: 'all-acquired', remainderReasons: [] } };
+    await seedAppState(profile, {
+      availableGames: [completed], selectedGame: null, queue: [completed],
+      isRunning: false, isPaused: false, wasRunning: false,
+      lastStopReason: 'user-stop', manualQueueAuthorized: false,
+      autoStartFavoriteGames: true, monitorAutoOpen: false, watchTransportPreference: 'managed-tab',
+      favoriteGames: games.map((game) => ({ gameId: game.categoryId, lastKnownName: game.name, addedAt: 1 })),
+      activeStreamer: null, tabId: null,
+    });
+    const bridge = await profile.context.newPage();
+    await bridge.goto(`${profile.extensionUrl}/icons/icon.svg`);
+    const cdp = await profile.context.newCDPSession(bridge);
+    await cdp.send('ServiceWorker.enable');
+    await cdp.send('ServiceWorker.stopAllWorkers');
+    await cdp.detach();
+    await bridge.evaluate(() => chrome.runtime.sendMessage({ type: 'GET_STATE' }));
+    const popup = await openPopup(profile);
+    await refreshCampaigns(popup);
+    await expect.poll(async () => (await readAppState(popup)).queue.map((game) => game.campaignId))
+      .toEqual([games[1]?.campaignId]);
+    expect(await readAppState(popup)).toMatchObject({
+      isRunning: false, selectedGame: null, activeStreamer: null, manualQueueAuthorized: false,
+      lastStopReason: 'user-stop',
+    });
+    expect(profile.context.pages().filter((page) => /\/local_stream_/.test(page.url()))).toHaveLength(0);
+    await popup.getByRole('button', { name: /^Start Queue/ }).click();
+    await assertCurrentManagedPlayback(profile, popup, 'local_stream_two');
+  } finally {
+    await profile.close();
+  }
+});
 
 for (const sameCampaign of [true, false]) {
   test(`offline farming ${sameCampaign ? 'rotates its streamer' : 'continues to the next campaign'} in the same unfocused tab`, async () => {

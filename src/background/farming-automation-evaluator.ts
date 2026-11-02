@@ -41,6 +41,7 @@ import {
 } from './farming-automation-transition-attempt.ts';
 import type { FarmingAutomationTwitchAdapter } from './farming-automation-twitch.ts';
 import type { FarmingQueueProgression } from './farming-queue-progression.ts';
+import { planFavoriteCampaignQueue } from './favorite-games.ts';
 import type { ServiceWorkerState } from './runtime-state.ts';
 
 export type FarmingAutomationRuntime = { generation: number };
@@ -130,12 +131,44 @@ export function createFarmingAutomationEvaluator(
       if (!(await saveFacts())) return { kind: 'failed', reason: 'persistence-failed' };
     }
     const cheapGate = cheapFarmingAutomationGate(dependencies.state, facts.suppressedCampaignKeys.length > 0);
+    // Stop/Pause block playback, not catalog reconciliation after a completed refresh.
+    if (
+      triggers.has('campaign-refresh') &&
+      dependencies.state.appState.autoStartFavoriteGames &&
+      cheapGate?.kind === 'unchanged' &&
+      (cheapGate.reason === 'user-stopped' || cheapGate.reason === 'paused')
+    ) {
+      const persisted = await persistFarmingAutomationPlan({
+        state: dependencies.state,
+        persistence: dependencies.persistence,
+        queuePlan: planFavoriteCampaignQueue(dependencies.state.appState, now),
+        availability: dependencies.state.appState.campaignAvailabilityByKey,
+        now,
+        automationNotify: dependencies.automationNotify,
+      });
+      return persisted ? cheapGate : { kind: 'failed', reason: 'persistence-failed' };
+    }
     const refreshAvailabilityOnly = shouldRefreshAvailabilityOnly(
       cheapGate,
       triggers,
       dependencies.state.appState.campaignPriorityMode,
     );
     if (cheapGate && !refreshAvailabilityOnly) return cheapGate;
+    // The periodic alarm and one-shot deadline can both wake the same worker.
+    // Only explicit events may bypass a future evaluation already persisted.
+    if (
+      triggers.size === 1 &&
+      triggers.has('periodic') &&
+      facts.nextEvaluationAt !== null &&
+      facts.nextEvaluationAt > now &&
+      facts.nextEvaluationAt <= deriveFarmingAutomationDeadline(now, facts)
+    ) {
+      return { kind: 'unchanged', reason: 'not-due' };
+    }
+    const queuedKeys = new Set(dependencies.state.appState.queue.map(gameKey));
+    const selected = dependencies.state.appState.selectedGame;
+    if (selected) queuedKeys.add(gameKey(selected));
+    const favoriteIds = favoriteGameIdentityKeys(dependencies.state.appState.favoriteGames);
     const beforeRefresh = currentStateFingerprint();
     const discovery = await discoverFarmingAutomationCandidates(
       dependencies.twitch,
@@ -143,6 +176,7 @@ export function createFarmingAutomationEvaluator(
       now,
       dependencies.state,
       () => currentStateFingerprint() === beforeRefresh,
+      (game) => refreshAvailabilityOnly || queuedKeys.has(gameKey(game)) || isFavoriteGame(game, favoriteIds),
     );
     if (discovery.kind === 'cancelled') return { kind: 'unchanged', reason: 'superseded-by-state-change' };
     if (discovery.kind === 'failed') return retry(discovery.reason);

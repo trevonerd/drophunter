@@ -4,6 +4,8 @@ Current farming contract. It supersedes older expectations about an indefinite i
 
 | Scenario | Expected result | Automated coverage |
 | --- | --- | --- |
+| Stopped old computer, completed queued campaign, new favorites | Refresh removes acquired/expired entries and prepares favorites for manual Play; Stop/Pause and authorization remain intact | games-cache-orchestration, activation-validation-autostart-integration, e2e/queue-campaign-handoff.spec.ts |
+| Periodic and deadline alarms arrive together | One evaluation per persisted deadline; startup, explicit action and new campaign data bypass the periodic wait; unrelated catalogs cause no directory requests | farming-automation-periodic-deadline, farming-automation-favorite-refresh |
 | Real progress increasing | Keep the channel, resolve the episode | farming-cycle-contract, drops-projection-semantics |
 | Healthy video/heartbeat without progress | Refresh before the stall, proportional 5–20 minute window | farming-cycle-contract, native-reward-stall-recovery, strict-stall-refresh |
 | Player still loading after 30 seconds | Keep channel and tab; campaign progress renews the 5–20 minute window, ownership errors stay unknown | managed-watch-cold-loading, automatic-pending-playback |

@@ -16,7 +16,7 @@ describe('durable parked queue automation', () => {
     expect(await subject.automation.suppressCampaignUntilRefresh(key)).toBe('suppressed');
     expect(await subject.automation.request('periodic')).toEqual({
       kind: 'unchanged',
-      reason: 'no-eligible-campaign',
+      reason: 'not-due',
     });
     expect(subject.state.appState.queue.map(gameKey)).toContain(key);
     now = 62_000;

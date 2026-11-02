@@ -175,7 +175,7 @@ function fixture(manualAuthorized = true, availableStreamers = true) {
       openDropsPageAndRefresh: async () => {
         hiddenRefreshes += 1;
         publishSnapshot();
-        return { success: true, opened: true, refreshed: true, gamesCount: 2 };
+        return { success: true, opened: true, refreshed: true, gamesCount: 2, inventoryVerified: true };
       },
     },
   });
@@ -194,6 +194,7 @@ function fixture(manualAuthorized = true, availableStreamers = true) {
     state,
     skull,
     marvel,
+    storage,
     coordinator,
     outcomes,
     automation,
@@ -239,6 +240,75 @@ test('foreground validation automatically starts an authorized queue without ano
   expect(run.outcomes.at(-1)).toMatchObject({ kind: 'started' });
   expect(run.state.appState.isRunning).toBe(true);
 });
+
+test.each(['worker-start', 'manual'] as const)(
+  '%s replaces a restored completed favorite with an eligible favorite',
+  async (trigger) => {
+    const run = fixture(false);
+    run.recover();
+    run.state.appState.isRunning = true;
+    run.state.appState.farmingSessionOrigin = 'automatic';
+    run.state.appState.favoriteGames.push({
+      gameId: run.skull.id,
+      lastKnownName: run.skull.name,
+      addedAt: now,
+    });
+    run.skull.allDropsCompleted = true;
+    run.skull.rewardSummary = { completion: 'all-acquired', remainderReasons: [] };
+    for (const drop of run.state.cachedDropsSnapshot) {
+      if (drop.campaignId !== run.skull.campaignId) continue;
+      drop.progress = 100;
+      drop.claimed = true;
+      drop.verificationState = 'verified';
+    }
+    const result = await run.coordinator.request(trigger);
+    expect(result.kind).toBe('synced');
+    expect(run.state.appState.queue.map(gameKey)).not.toContain(gameKey(run.skull));
+    expect(run.state.appState.selectedGame?.campaignId).toBe(run.marvel.campaignId);
+    expect(run.state.appState.isRunning).toBe(true);
+  },
+);
+
+test('idle startup removes a completed queued favorite and starts the next favorite', async () => {
+  const run = fixture(false);
+  run.recover();
+  run.state.appState.selectedGame = null;
+  run.state.appState.queue = [run.skull];
+  run.skull.allDropsCompleted = true;
+  run.skull.rewardSummary = { completion: 'all-acquired', remainderReasons: [] };
+  const result = await run.coordinator.request('worker-start');
+  expect(result.kind).toBe('synced');
+  expect(run.state.appState.queue.map(gameKey)).not.toContain(gameKey(run.skull));
+  expect(run.state.appState.selectedGame).toMatchObject({ campaignId: run.marvel.campaignId });
+  expect(run.state.appState.activeStreamer).not.toBeNull();
+});
+
+test.each(['stopped', 'paused'] as const)(
+  'refresh prepares favorites for manual Play while %s without starting playback',
+  async (status) => {
+    const run = fixture(false);
+    run.recover();
+    const lastStopReason = status === 'stopped' ? 'user-stop' : null;
+    run.state.appState.lastStopReason = lastStopReason;
+    run.state.appState.isPaused = status === 'paused';
+    run.state.appState.isRunning = status === 'paused';
+    run.state.appState.selectedGame = null;
+    run.state.appState.queue = [run.skull];
+    run.skull.allDropsCompleted = true;
+    run.skull.rewardSummary = { completion: 'all-acquired', remainderReasons: [] };
+    expect((await run.coordinator.request('worker-start')).kind).toBe('synced');
+    expect(run.state.appState.queue.map(gameKey)).toEqual([gameKey(run.marvel)]);
+    expect(run.state.appState.activeStreamer).toBeNull();
+    expect(run.state.appState.isRunning).toBe(status === 'paused');
+    expect(run.state.appState.isPaused).toBe(status === 'paused');
+    expect(run.state.appState.lastStopReason).toBe(lastStopReason);
+    expect(run.state.appState.manualQueueAuthorized).toBe(false);
+    expect(run.storage.getLocal('appState')).toMatchObject({
+      queue: [expect.objectContaining({ campaignId: run.marvel.campaignId })],
+      lastStopReason,
+    });
+  },
+);
 
 test('successful startup validation with empty directories preserves favorites and schedules another evaluation', async () => {
   const run = fixture(false, false);

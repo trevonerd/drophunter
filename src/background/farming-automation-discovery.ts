@@ -1,6 +1,6 @@
 import { campaignRejectionReason } from '../shared/campaign-eligibility.ts';
 import { gameKey, isSameGameIdentity } from '../shared/game-selection.ts';
-import type { CampaignAvailability } from '../types/index.ts';
+import type { CampaignAvailability, TwitchGame } from '../types/index.ts';
 import { dropStateKey } from './drops-projection.ts';
 import { discoverEligibleStreamers } from './eligible-streamer-discovery.ts';
 import type { FarmingAutomationFailureReason } from './farming-automation-contracts.ts';
@@ -42,6 +42,7 @@ export async function discoverFarmingAutomationCandidates(
   now: number,
   state?: ServiceWorkerState,
   isCurrent: () => boolean = () => true,
+  includeGame: (game: TwitchGame) => boolean = () => true,
 ): Promise<FarmingAutomationDiscoveryResult> {
   const initialUserId = state?.twitchSessionCache?.userId ?? null;
   let expectedUserId = initialUserId;
@@ -81,6 +82,7 @@ export async function discoverFarmingAutomationCandidates(
   const directoryFailures = new Set<string>();
   let sessionMissing = false;
   const farmableGames = snapshot.games.filter((game) => {
+    if (!includeGame(cloneFarmingAutomationGame(game))) return false;
     const rejectionReason =
       campaignRejectionReason(cloneFarmingAutomationGame(game), now) ??
       (game.rewardSummary?.completion === 'farmable' ? null : 'unclassified');

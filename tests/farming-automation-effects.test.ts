@@ -273,8 +273,8 @@ describe('Farming automation ordered effects', () => {
     const subject = fixture();
     await subject.automation.request('periodic');
 
-    // When: a later periodic evaluation observes the already-running best campaign.
-    const outcome = await subject.automation.request('periodic');
+    // When: a new catalog refresh evaluates the already-running best campaign immediately.
+    const outcome = await subject.automation.request('campaign-refresh');
 
     // Then: no second notification or activity entry is produced.
     expect({

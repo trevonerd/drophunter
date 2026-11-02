@@ -3,7 +3,9 @@ import {
   handleEnsureGamesCache,
   refreshGamesCacheFromHiddenFetch,
 } from '../src/background/games-cache-orchestration.ts';
+import { normalizeQueueSelection } from '../src/background/queue-operations.ts';
 import { createServiceWorkerState } from '../src/background/runtime-state.ts';
+import { gameKey } from '../src/shared/game-selection.ts';
 import type { TwitchGame } from '../src/types/index.ts';
 import {
   farmingCompleteSnapshot,
@@ -14,6 +16,44 @@ import {
   subscriptionReward,
   unverifiableReward,
 } from './fixtures/games-cache-orchestration.ts';
+
+test.each([null, 'user-stop'] as const)(
+  'refresh removes an acquired campaign from an idle unselected queue (stop=%s)',
+  async (lastStopReason) => {
+    const state = createServiceWorkerState();
+    const game = { ...selectedCampaign, dropCount: 1 };
+    state.appState.queue = [game];
+    state.appState.lastStopReason = lastStopReason;
+    state.appState.queueEntryMetadataByKey[gameKey(game)] = {
+      source: 'manual',
+      addedAt: 1,
+      reason: 'user-added',
+    };
+    const snapshot = {
+      games: [game],
+      drops: [
+        { ...freshFarmableReward, claimed: true, progress: 100, verificationState: 'verified' as const },
+      ],
+      campaignsVerified: true,
+      inventoryVerified: true,
+      authoritativeCampaignIds: [game.campaignId ?? ''],
+      updatedAt: Date.now(),
+    };
+    await refreshGamesCacheFromHiddenFetch(
+      state,
+      { requireFreshSnapshot: true },
+      {
+        ...makeDeps(snapshot, { count: 0 }),
+        normalizeQueueSelection,
+      },
+    );
+    expect(state.appState.queue).toEqual([]);
+    expect(state.appState.queueEntryMetadataByKey).toEqual({});
+    expect(state.appState.selectedGame).toBeNull();
+    expect(state.appState.lastStopReason).toBe(lastStopReason);
+    expect(state.appState.isRunning).toBe(false);
+  },
+);
 
 describe('refreshGamesCacheFromHiddenFetch terminal inspection', () => {
   test('preserves a still-present farming-complete campaign and projected remainder context while idle', async () => {

@@ -13,7 +13,7 @@ describe('Farming automation start', () => {
     const campaignKey = gameKey(subject.best);
 
     const suppressed = await subject.automation.suppressCampaignUntilRefresh(campaignKey);
-    const failed = await subject.automation.request('periodic');
+    const failed = await subject.automation.request('campaign-refresh');
     const factsAfterFailure = subject.storage.getLocal(
       FARMING_AUTOMATION_FACTS_STORAGE_KEY,
     ) as FarmingAutomationFactsV1;

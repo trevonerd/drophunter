@@ -1,3 +1,4 @@
+import { isCampaignAcquired } from '../shared/campaign-eligibility.ts';
 import {
   compareGamesForDisplayOrder,
   favoriteGameIdentityKeys,
@@ -168,13 +169,21 @@ export function normalizeQueueSelection(
   });
 
   state.appState.queue = normalized;
+  // Idle queues have no monitoring tick to retire completed entries after refresh.
+  // Active/paused sessions keep their position under the progression controller.
+  if (!state.appState.isRunning && !state.appState.isPaused) {
+    for (const game of normalized) {
+      if (isCampaignAcquired(game)) removeQueueEntriesForGame(state, game);
+    }
+  }
   reconcileQueueMetadata(state);
-  if (normalized.length === 0) {
+  if (state.appState.queue.length === 0) {
+    if (!state.appState.isRunning) state.appState.queueAcquisitionRound = null;
     state.appState.queueResumeOnAvailability = false;
     state.appState.forcedCampaignKey = null;
   }
-  if (state.appState.isRunning && !state.appState.selectedGame && normalized.length > 0) {
-    state.appState.selectedGame = normalized[0] ?? null;
+  if (state.appState.isRunning && !state.appState.selectedGame && state.appState.queue.length > 0) {
+    state.appState.selectedGame = state.appState.queue[0] ?? null;
   }
 }
 

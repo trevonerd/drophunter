@@ -267,7 +267,7 @@ describe('Farming automation running-session preservation', () => {
       queue: subject.state.appState.queue.map(gameKey),
       selected: subject.state.appState.selectedGame ? gameKey(subject.state.appState.selectedGame) : null,
     }).toEqual({
-      beforeDeadline: { kind: 'unchanged', reason: 'no-eligible-campaign' },
+      beforeDeadline: { kind: 'unchanged', reason: 'not-due' },
       atDeadline: {
         kind: 'started',
         campaignKey: gameKey(subject.candidate),

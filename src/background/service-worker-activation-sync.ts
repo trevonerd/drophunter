@@ -249,6 +249,8 @@ export function createServiceWorkerActivationSync(dependencies: ActivationSyncDe
       await dependencies.automation.request('campaign-refresh');
       if (!execution.isCurrent()) return transientError('Campaign sync was superseded.', 'network');
       if (result.inventoryVerified === true) {
+        await dependencies.farmingSession.advanceQueueIfCompleted();
+        if (!execution.isCurrent()) return transientError('Campaign sync was superseded.', 'network');
         const resumed = await resumeInterruptedQueue(
           dependencies.state,
           dependencies.farmingSession,

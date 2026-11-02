@@ -200,7 +200,8 @@ describe('continuous availability recovery queue', () => {
     ).toBe(true);
 
     const waitingCampaign = state.appState.selectedGame?.campaignId;
-    const restarted = fixture('priority-list-only', { twitch, favorite: false, now: () => now });
+    let evaluationNow = now;
+    const restarted = fixture('priority-list-only', { twitch, favorite: false, now: () => evaluationNow });
     restarted.state.appState = normalizeStoredAppState(structuredClone(state.appState));
     directoryFails = true;
     await restarted.automation.request('campaign-refresh');
@@ -210,6 +211,9 @@ describe('continuous availability recovery queue', () => {
       'availability',
     );
     const before = checks;
+    await restarted.automation.request('periodic');
+    expect(checks).toBe(before);
+    evaluationNow = restarted.state.appState.nextAutomationCheckAt ?? now;
     await restarted.automation.request('periodic');
     expect(checks).toBeGreaterThan(before);
     expect(restarted.state.appState.isRunning).toBe(true);

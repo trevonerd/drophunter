@@ -58,12 +58,19 @@ test('campaign refresh persists the first farmable favorite immediately', async 
   const acquired = campaign('ignite-day-1', '2030-08-01T00:00:00.000Z');
   const subscription = campaign('subscription-token', '2030-08-02T00:00:00.000Z');
   const season = campaign('season-9-5', '2030-08-03T00:00:00.000Z');
+  const unrelated = {
+    ...campaign('unrelated-campaign', '2030-08-04T00:00:00.000Z'),
+    id: 'unrelated',
+    name: 'Unrelated',
+    categoryId: 'unrelated',
+  };
   const campaignSnapshot: DropsSnapshot = {
-    games: [acquired, subscription, season],
+    games: [acquired, subscription, season, unrelated],
     drops: [
       reward('ignite-day-1', 'watch-time'),
       reward('subscription-token', 'subscription'),
       reward('season-9-5', 'watch-time'),
+      { ...reward('unrelated-campaign', 'watch-time'), gameId: 'unrelated', gameName: 'Unrelated' },
     ],
     updatedAt: 1_000,
   };
